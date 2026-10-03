@@ -12,6 +12,7 @@ from horizon.adapters.retrieval.sqlite_fts import SQLiteCodeRetriever
 from horizon.adapters.workspace.snapshot import SnapshotManager
 from horizon.application.agent_loop import AgentLoopConfig, CodingAgentRunner
 from horizon.application.human import OperatorGuidanceService
+from horizon.application.model_probe import conservative_input_estimate
 from horizon.application.recovery import RecoveryService
 from horizon.application.services import HarnessService, LeaseToken
 from horizon.application.tool_recovery import ToolRecoveryService
@@ -2171,6 +2172,9 @@ def test_agent_loop_persists_bounded_context_projection_without_losing_transcrip
     assert projection.source_message_count == len(session.messages)
     assert projection.projected_message_count == len(model.requests[-1].messages)
     assert projection.compacted is True
+    assert projection.input_token_budget == last_reservation.input_token_budget
+    assert projection.input_token_budget.max_input_tokens == runner.config.max_input_tokens
+    assert projection.input_token_budget.estimate == conservative_input_estimate(model.requests[-1])
     assert projection.mandatory_facts_ref == last_reservation.mandatory_facts_ref
     assert projection.run_memory_ref == last_reservation.run_memory_ref
     memory = RunMemorySnapshot.model_validate_json(

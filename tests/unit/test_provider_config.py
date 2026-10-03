@@ -23,6 +23,7 @@ def test_checked_in_provider_config_is_strict_and_cny():
     assert config.run_budget.max_cost == 1
     assert config.fallback_enabled is False
     assert config.request.max_context_chars == 60_000
+    assert config.request.max_input_tokens == 120_000
     assert config.request.preserve_recent_context_units == 6
 
 

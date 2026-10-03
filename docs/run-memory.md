@@ -100,8 +100,9 @@ Snapshot 的 `work_item_id` 则是当前模型请求所处阶段。因此当前�
 unresolved 条目没有事实文本。完整快照 Artifact 仍保存最多 12 条和 240 字符证据片段，
 EventLog/原输出仍完整保留。
 
-当完整 transcript 超过字符预算时，ContextProjector 先保留不可压缩合同、最近/未完成工具
-单元和 Run Memory binding，再把旧完整单元折叠为带 digest 的确定性摘要。若摘要仍超限，
+当完整 transcript 超过字符预算，或包含工具 Schema 的完整请求超过保守 input-token 上界时，
+ContextProjector 先保留不可压缩合同、最近/未完成工具单元和 Run Memory binding，再把旧完整
+单元折叠为带 digest 的确定性摘要。若摘要仍超限，
 按最旧到最新顺序丢弃摘要细节，并记录 retained/omitted fact count；聚合 digest 始终保留。
 如果连合同、记忆 binding、聚合 digest 和必须保留的近期单元都放不下，则拒绝请求。
 

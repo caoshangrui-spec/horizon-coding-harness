@@ -20,8 +20,8 @@ Horizon 是一个面向长程软件工程任务的**可恢复执行控制层**�
 
 - **可恢复执行**：追加式事件、幂等命令、Worker Lease/epoch、内容寻址 checkpoint，以及模型、
   工具和 promotion 提交窗口的保守恢复。
-- **上下文与知识**：确定性上下文投影、不可丢失的 Mandatory Facts、有来源的 Run Memory，
-  以及绑定 workspace revision 的 SQLite FTS5 Code RAG。
+- **上下文与知识**：字符与保守 input-token 双硬门槛的确定性投影、不可丢失的 Mandatory
+  Facts、有来源的 Run Memory，以及绑定 workspace revision 的 SQLite FTS5 Code RAG。
 - **验证与治理**：有界工具权限、禁网 Docker 验收、Campaign/Run 双层费用门禁、持久化 HITL、
   单次证据驱动 replan 和可离线重放的 JSONL Trace。
 
@@ -66,8 +66,8 @@ EvidencePack 自检。模型动作由冻结脚本提供，外部费用为 0。�
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | Python 3.12/3.13 的测试、静态检查、演示和构建已通过 | CI 不读取 API Key、不运行付费模型 |
-| 离线回归 | `282 passed, 6 skipped` | 跳过项是需要本机 Docker 的契约测试 |
-| Docker 契约 | `python:3.12-alpine` 上单独复跑 `6 passed` | 有限隔离合同，不是恶意代码安全认证 |
+| 离线回归 | `287 passed, 6 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| Docker 契约 | `redis:7-alpine` 上单独复跑 `6 passed` | 有限隔离合同，不是恶意代码安全认证 |
 | 完整 checkout A/B | tqdm 82 files、youtube-dl 872 files；初始失败门、恢复、replan、最终验收和 Trace replay 通过 | 使用 Scripted Model，不是模型能力成绩 |
 | 真实模型 Pilot | 四轮均可重放、费用可核对、source 未变 | 四轮均未编辑或验证成功，保留为负结果 |
 
@@ -107,8 +107,10 @@ Trace 导出及离线重放，以及 `read → edit → test → submit → prot
 intent/receipt、用量、费用、工作区版本、检查点和验证证据
 都会进入 Run 事件流；离线 reconciliation 能分类悬空调用、修复有可信 Run 回执的 Campaign
 提交窗口。新模型响应先进入不可变 Artifact；若只差 Campaign settlement，新 Worker 可直接
-继续该响应而不重复计费。每次模型调用还有一份内容寻址的 ContextProjection：达到字符预算
-时只折叠旧的完整工具轮次，保留初始合同、最近轮次和未完成工具对。每次调用另把
+继续该响应而不重复计费。每次模型调用还有一份内容寻址的 ContextProjection：候选视图必须
+同时满足字符上限和覆盖消息、工具 Schema 与请求参数的保守 input-token 上界；超限时只折叠
+旧的完整工具轮次，保留初始合同、最近轮次和未完成工具对。该上界可重放但不是精确 tokenizer
+计数。每次调用另把
 Task/Plan/权限/验收/预算/模型策略/工具 Schema/workspace 绑定为内容寻址 MandatoryFactLedger，
 恢复时逐项重建并校验。控制器还会把已结算的读取、检索、编辑和验证结果派生为有来源的
 Run Memory；失败结果保留为失败，未知副作用保持 unresolved，旧 workspace revision 的观察
@@ -292,8 +294,8 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **282 passed，6 skipped**；6 个跳过项指定本机已有
-`python:3.12-alpine` 单独复跑，得到 **6 passed** 的真实 Docker 契约结果。另有一次真实
+当前离线全量回归为 **287 passed，6 skipped**；6 个跳过项指定本机已有
+`redis:7-alpine` 单独复跑，得到 **6 passed** 的真实 Docker 契约结果。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实
 Issue 效果。新增真实模型 Pilot 单元测试覆盖私有答案拒绝、初始失败证据、内容寻址报告和
 启动时任务/源码/镜像/Provider/Harness 源码漂移拒绝；真实 checkout 的离线 Docker preflight

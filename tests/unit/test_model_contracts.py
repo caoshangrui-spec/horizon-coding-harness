@@ -6,6 +6,8 @@ from pydantic import ValidationError
 from horizon.domain.errors import BudgetStop, BudgetStopReason
 from horizon.domain.model import (
     CampaignBudget,
+    InputTokenBudget,
+    InputTokenEstimate,
     ModelCallReservation,
     ModelMessage,
     ModelUsage,
@@ -56,6 +58,43 @@ def test_campaign_rejects_per_call_limit_above_total():
             max_cost="1.00",
             max_cost_per_call="1.01",
         )
+
+
+def test_input_token_budget_binds_estimator_formula_and_hard_limit():
+    estimate = InputTokenEstimate(request_bytes=1_000, token_ceiling=3_024)
+    budget = InputTokenBudget(max_input_tokens=4_000, estimate=estimate)
+
+    assert budget.estimate.estimator == "request_utf8_bytes_x2_plus_1024_v1"
+    with pytest.raises(ValidationError, match="declared estimator"):
+        InputTokenEstimate(request_bytes=1_000, token_ceiling=3_023)
+    with pytest.raises(ValidationError, match="exceeds"):
+        InputTokenBudget(max_input_tokens=3_000, estimate=estimate)
+
+
+def test_model_reservation_omits_absent_budget_for_historical_wire_compatibility():
+    shared = {
+        "call_id": "planner-call",
+        "purpose": "planning",
+        "request_hash": "a" * 64,
+        "provider_id": "fake-provider",
+        "model": "fake-model",
+        "currency": "CNY",
+        "reserved_cost": "0.01",
+        "planning_context_ref": "b" * 64,
+        "planning_context_hash": "b" * 64,
+    }
+
+    historical = ModelCallReservation(**shared)
+    current = ModelCallReservation(
+        **shared,
+        input_token_budget=InputTokenBudget(
+            max_input_tokens=4_000,
+            estimate=InputTokenEstimate(request_bytes=1_000, token_ceiling=3_024),
+        ),
+    )
+
+    assert "input_token_budget" not in historical.as_dict()
+    assert current.as_dict()["input_token_budget"]["estimate"]["token_ceiling"] == 3_024
 
 
 def test_budget_stop_requires_matching_scope_and_exceeded_amount():

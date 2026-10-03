@@ -30,6 +30,7 @@ class RequestPolicy(Contract):
     max_attempts: Annotated[PositiveInt, Field(le=3)] = 2
     enable_thinking: bool = False
     max_context_chars: Annotated[PositiveInt, Field(ge=2_000, le=1_000_000)] = 60_000
+    max_input_tokens: Annotated[PositiveInt, Field(ge=2_000, le=2_000_000)] = 120_000
     preserve_recent_context_units: Annotated[PositiveInt, Field(le=50)] = 6
 
     @model_validator(mode="after")

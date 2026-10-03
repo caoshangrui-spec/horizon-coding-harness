@@ -598,7 +598,7 @@ class HarnessService:
             raise ValueError("A model reservation needs one call; CNY is tracked separately")
         request = {
             "operation": "reserve_model_call",
-            "reservation": reservation.model_dump(mode="json"),
+            "reservation": reservation.as_dict(),
             "amount": amount.model_dump(mode="json"),
             "token": token.model_dump(),
         }
@@ -647,7 +647,7 @@ class HarnessService:
                 NewEvent(event_type="BUDGET_RESERVED", payload=budget_payload),
                 NewEvent(
                     event_type="MODEL_CALL_RESERVED",
-                    payload={"reservation": reservation.model_dump(mode="json")},
+                    payload={"reservation": reservation.as_dict()},
                 ),
             ]
 

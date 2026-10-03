@@ -12,6 +12,36 @@ Currency = Literal["CNY", "USD"]
 NonNegativeInt = Annotated[StrictInt, Field(ge=0)]
 NonNegativeMoney = Annotated[Decimal, Field(ge=0, allow_inf_nan=False)]
 PositiveMoney = Annotated[Decimal, Field(gt=0, allow_inf_nan=False)]
+CONSERVATIVE_INPUT_TOKEN_ESTIMATOR = "request_utf8_bytes_x2_plus_1024_v1"
+
+
+class InputTokenEstimate(Contract):
+    """Deterministic upper bound for one complete provider request."""
+
+    schema_version: Literal[1] = 1
+    estimator: Literal["request_utf8_bytes_x2_plus_1024_v1"] = CONSERVATIVE_INPUT_TOKEN_ESTIMATOR
+    request_bytes: NonNegativeInt
+    token_ceiling: PositiveInt
+
+    @model_validator(mode="after")
+    def check_ceiling(self) -> Self:
+        if self.token_ceiling != 2 * self.request_bytes + 1024:
+            raise ValueError("Input token ceiling does not match the declared estimator")
+        return self
+
+
+class InputTokenBudget(Contract):
+    """Configured request ceiling paired with the estimate that must fit it."""
+
+    schema_version: Literal[1] = 1
+    max_input_tokens: Annotated[StrictInt, Field(ge=2_000, le=2_000_000)]
+    estimate: InputTokenEstimate
+
+    @model_validator(mode="after")
+    def check_limit(self) -> Self:
+        if self.estimate.token_ceiling > self.max_input_tokens:
+            raise ValueError("Input token ceiling exceeds the configured request budget")
+        return self
 
 
 class FunctionCall(Contract):
@@ -208,6 +238,7 @@ class ModelCallReservation(Contract):
     run_memory_entry_count: NonNegativeInt = 0
     source_message_count: NonNegativeInt = 0
     projected_message_count: NonNegativeInt = 0
+    input_token_budget: InputTokenBudget | None = None
 
     @model_validator(mode="after")
     def check_context_projection(self) -> Self:
@@ -255,6 +286,14 @@ class ModelCallReservation(Contract):
         elif self.planning_context_ref is not None:
             raise ValueError("Execution calls cannot carry a planning context")
         return self
+
+    def as_dict(self) -> dict[str, Any]:
+        """Preserve the pre-token-budget wire shape for historical reservations."""
+
+        result = self.model_dump(mode="json")
+        if self.input_token_budget is None:
+            result.pop("input_token_budget")
+        return result
 
 
 class ModelCallRecord(Contract):

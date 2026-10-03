@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from horizon.domain.common import canonical_json, digest
 from horizon.domain.context import ContextProjection, MandatoryFactLedger
 from horizon.domain.errors import Conflict
 from horizon.domain.memory import RunMemorySnapshot
-from horizon.domain.model import ModelMessage, ToolDefinition
+from horizon.domain.model import (
+    InputTokenBudget,
+    InputTokenEstimate,
+    ModelMessage,
+    ToolDefinition,
+)
 from horizon.domain.run import Run
 
 
@@ -84,15 +90,39 @@ class ContextProjector:
     tool turns are never compacted.
     """
 
-    def __init__(self, max_chars: int, preserve_recent_units: int):
-        if max_chars < 2_000 or preserve_recent_units < 1:
+    def __init__(
+        self,
+        max_chars: int,
+        preserve_recent_units: int,
+        *,
+        max_input_tokens: int,
+        estimate_input_tokens: Callable[[tuple[ModelMessage, ...]], InputTokenEstimate],
+    ):
+        if max_chars < 2_000 or preserve_recent_units < 1 or max_input_tokens < 2_000:
             raise ValueError("Context projection limits are too small")
         self.max_chars = max_chars
         self.preserve_recent_units = preserve_recent_units
+        self.max_input_tokens = max_input_tokens
+        self.estimate_input_tokens = estimate_input_tokens
 
     @staticmethod
     def _size(messages: tuple[ModelMessage, ...]) -> int:
         return len(canonical_json([item.model_dump(mode="json") for item in messages]))
+
+    def _measure(
+        self,
+        messages: tuple[ModelMessage, ...],
+    ) -> tuple[int, InputTokenEstimate]:
+        return self._size(messages), self.estimate_input_tokens(messages)
+
+    def _fits(self, projected_chars: int, estimate: InputTokenEstimate) -> bool:
+        return projected_chars <= self.max_chars and estimate.token_ceiling <= self.max_input_tokens
+
+    def _token_budget(self, estimate: InputTokenEstimate) -> InputTokenBudget:
+        return InputTokenBudget(
+            max_input_tokens=self.max_input_tokens,
+            estimate=estimate,
+        )
 
     @staticmethod
     def _bind_mandatory_facts(
@@ -185,12 +215,15 @@ class ContextProjector:
             run_memory_ref,
         )
         units = _units(messages[2:])
-        if self._size(visible_messages) <= self.max_chars:
+        projected_chars, token_estimate = self._measure(visible_messages)
+        if self._fits(projected_chars, token_estimate):
             return ContextProjection(
                 max_chars=self.max_chars,
                 preserve_recent_units=self.preserve_recent_units,
                 source_message_count=len(messages),
                 projected_message_count=len(messages),
+                projected_chars=projected_chars,
+                input_token_budget=self._token_budget(token_estimate),
                 compacted_unit_count=0,
                 source_digest=source_digest,
                 mandatory_facts_ref=mandatory_facts_ref,
@@ -249,15 +282,19 @@ class ContextProjector:
                 [[item.model_dump(mode="json") for item in unit.messages] for unit in old_units]
             )
             projected = assemble(old_units, kept_units, compacted_digest, facts)
-            while facts and self._size(projected) > self.max_chars:
+            projected_chars, token_estimate = self._measure(projected)
+            while facts and not self._fits(projected_chars, token_estimate):
                 facts = facts[1:]
                 projected = assemble(old_units, kept_units, compacted_digest, facts)
-            if self._size(projected) <= self.max_chars:
+                projected_chars, token_estimate = self._measure(projected)
+            if self._fits(projected_chars, token_estimate):
                 return ContextProjection(
                     max_chars=self.max_chars,
                     preserve_recent_units=self.preserve_recent_units,
                     source_message_count=len(messages),
                     projected_message_count=len(projected),
+                    projected_chars=projected_chars,
+                    input_token_budget=self._token_budget(token_estimate),
                     compacted_unit_count=len(old_units),
                     source_digest=source_digest,
                     mandatory_facts_ref=mandatory_facts_ref,
@@ -269,7 +306,8 @@ class ContextProjector:
                     messages=projected,
                 )
         raise Conflict(
-            "Protected prefix or incomplete Agent turn exceeds the context projection budget"
+            "Protected prefix or incomplete Agent turn exceeds the context projection "
+            "character/token budget"
         )
 
 

@@ -309,6 +309,8 @@ def test_model_check_is_offline_and_redacts_credential(tmp_path):
     assert data["campaign_max_cost"] == "3.00"
     assert data["per_run_max_cost"] == "1.00"
     assert data["max_context_chars"] == 60_000
+    assert data["max_input_tokens"] == 120_000
+    assert data["probe_input_token_estimate"]["token_ceiling"] < 120_000
     assert data["preserve_recent_context_units"] == 6
     assert 0 < float(data["probe_reserved_cost"]) < 1
     assert "cli-test-secret" not in result.output

@@ -11,6 +11,7 @@ from horizon.adapters.persistence.artifacts import ArtifactStore
 from horizon.adapters.persistence.campaign_budget import CampaignBudgetLedger
 from horizon.adapters.persistence.sqlite import SQLiteEventStore
 from horizon.adapters.workspace.snapshot import SnapshotManager
+from horizon.application.model_probe import conservative_input_estimate
 from horizon.application.planning import (
     PlanGenerator,
     PlanGeneratorConfig,
@@ -28,6 +29,7 @@ from horizon.domain.errors import (
 from horizon.domain.model import (
     CampaignBudget,
     FunctionCall,
+    ModelCallReservation,
     ModelMessage,
     ModelResponse,
     ModelUsage,
@@ -227,12 +229,35 @@ def test_generated_plan_is_budgeted_validated_and_trace_linked(tmp_path):
         PlanningContext.model_validate_json(artifacts.read(result.planning_context_ref)) == context
     )
     assert ledger.summary("planning-tests").settled_cost == result.run.model_occupied_cost
+    reservation_event = next(
+        event for event in store.events(run_id) if event.event_type == "MODEL_CALL_RESERVED"
+    )
+    reservation = ModelCallReservation.model_validate(reservation_event.payload["reservation"])
+    assert reservation.input_token_budget is not None
+    assert reservation.input_token_budget.max_input_tokens == generator.config.max_input_tokens
+    assert reservation.input_token_budget.estimate == conservative_input_estimate(model.requests[0])
+    assert result.run.usage.input_tokens == 180
     event = next(event for event in store.events(run_id) if event.event_type == "PLAN_CREATED")
     assert event.payload["source_model_call_id"] == result.model_call_id
     assert service.store.get(run_id).plan == result.plan
     replayed = SQLiteEventStore(store.path).get(run_id)
     assert replayed.plan == result.plan
     assert replayed.plan_source_model_call_id == result.model_call_id
+
+
+def test_planning_input_token_budget_stops_before_dispatch(tmp_path):
+    generator, _, store, ledger, run_id, token, context, model, _ = setup_planner(
+        tmp_path,
+        [valid_proposal()],
+    )
+    generator.config = generator.config.model_copy(update={"max_input_tokens": 2_000})
+
+    with pytest.raises(PolicyDenied, match="input-token budget"):
+        generator.generate_and_set(run_id, token, context)
+
+    assert model.requests == []
+    assert not any(event.event_type == "MODEL_CALL_RESERVED" for event in store.events(run_id))
+    assert ledger.summary("planning-tests").occupied_cost == Decimal("0")
 
 
 def test_planning_budget_stop_is_terminal_and_replayable_before_dispatch(tmp_path):

@@ -1,6 +1,7 @@
 # 开发进度与验证记录
 
-更新：2026-10-03。实现版本 0.1.0；技术设计基线继续为 0.2.0。2026-09-30 的
+更新：2026-10-04。已发布版本为 0.1.0，主干继续积累 Unreleased 改动；技术设计基线继续为
+0.2.0。2026-09-30 的
 可靠性内核证据保留，本次在其上增加 Provider 垂直切片和首个受控 Coding Agent 闭环。
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
@@ -27,14 +28,14 @@
 | Typed Tool Gateway | [gateway.py](../src/horizon/tools/gateway.py) | 搜索、读取、单文件精确替换、最多 8 文件的结构化精确 patch、受保护检查和 submit；路径/链接/大小受限，每次 intent/receipt 持久化；exact search 饱和时显式标记截断并引导 ranked retrieval；`retrieve_code` 默认只返回 rank 1，需要时才显式扩大；大文件整读拒绝并要求最多 400 行、32 Ki 字符的范围读取 |
 | 顺序多 WorkItem Agent Loop | [agent_loop.py](../src/horizon/application/agent_loop.py) | dependency-ready 调度、逐项会话/权限/验收、原子交接、最终全量回归、有限 repair 与单次受限 replan；不支持并行或自动/多次 replan |
 | 执行证据驱动的受限 Replan | [plan.py](../src/horizon/domain/plan.py)、[services.py](../src/horizon/application/services.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 模型显式 `revise_plan`，最多 1 次成功；完成项逐字段不可变，工具 receipt、Plan vN+1、新 session 同事务；NoProgress 后成功、跨项保留、非法提案回退和 Trace 重放已测；未做真实模型效果评测 |
-| 确定性 ContextProjection + MandatoryFactLedger | [context.py](../src/horizon/application/context.py)、[context.py](../src/horizon/domain/context.py) | 完整 transcript 留存；旧完整工具单元按字符预算折叠，近期完整单元在硬上限需要时只折叠最少数量，incomplete 单元绝不折叠；Task/Plan/权限/验收/预算/策略/工具 Schema/workspace 另做内容寻址绑定；不是 token/语义压缩或 Project Memory |
+| 确定性 ContextProjection + MandatoryFactLedger | [context.py](../src/horizon/application/context.py)、[context.py](../src/horizon/domain/context.py) | 完整 transcript 留存；候选投影同时满足字符上限与覆盖工具 Schema 的完整请求保守 token 上界，近期完整单元在任一硬上限需要时只折叠最少数量，incomplete 单元绝不折叠；Projection/Reservation 绑定版本化 estimator、请求字节、上界与配置 cap；Task/Plan/权限/验收/预算/策略/工具 Schema/workspace 另做内容寻址绑定；不是精确 tokenizer、语义压缩或 Project Memory |
 | 证据驱动的 Run Memory | [memory.py](../src/horizon/application/memory.py)、[memory.py](../src/horizon/domain/memory.py) | 从工具事件和内容寻址输出派生；保留失败/unknown，按 workspace revision 失效并绑定模型请求恢复边界；仅 run scope，不是 Project Memory |
 | 精确模式无进展保护 | [agent_loop.py](../src/horizon/application/agent_loop.py) | 同一 revision 下，相同精确动作第 3 次、A/B 精确循环第 5 步软阻断；继续模式分别在第 4/6 步进入可恢复人工等待；不是语义或任意周期检测 |
 | Revision-aware 词法 Code RAG | [retrieval.py](../src/horizon/domain/retrieval.py)、[sqlite_fts.py](../src/horizon/adapters/retrieval/sqlite_fts.py)、[retrieval_eval.py](../src/horizon/application/retrieval_eval.py) | SQLite FTS5/BM25、有界 EvidencePack、权限/revision/hash 回查、显式 scan fallback；camelCase/snake_case 双向词项与有界定义优先已测，固定 5+2 案例及负结果已记录；仍无 AST/向量/symbol 图和真实 Issue 效果结论 |
 | 冻结控制器策略评测 | [reliability.py](../src/horizon/domain/reliability.py)、[reliability_eval.py](../src/horizon/application/reliability_eval.py) | 12 案例/41 判断覆盖精确 NoProgress 与单次 replan 接受/拒绝；生产路径共享判定函数、报告内容寻址、零外部调用；不是模型或真实 Issue 效果评测 |
 | 完整 Run A/B 与来源绑定 Suite | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[scripted.py](../src/horizon/adapters/model/scripted.py) | 同一 Task/Plan/workspace 的 baseline 与单次 replan arm；先真实确认初始失败，再检查 EventLog/预算/Gateway/Trace；1 个内部、3 个 BugsInPy 依赖裁剪案例，以及 tqdm 82 files、youtube-dl 872 files 两个完整 checkout 经禁网 Docker 通过；完整案例还验证干净 Git HEAD 与 Code RAG，仍是脚本模型 |
 | 完整 checkout 多阶段/重启 A/B | [multi-stage.yaml](../benchmarks/run_ab/full/youtube-dl-3-unescape-html/multi-stage.yaml) | youtube-dl 872 files 上 production → regression-test 两个依赖 WorkItem；两 arm 均在安全边界换为 epoch 2 Worker，跨 revision RAG、active/stale Run Memory、完成项保留 replan、最终两项 required checks 与 Trace replay 通过；CRLF 精确替换失败和 60 秒重启 Lease 到期均作为负结果保留 |
-| 真实模型 Pilot | [pilot.py](../src/horizon/domain/pilot.py)、[pilot.py](../src/horizon/application/pilot.py)、[real-model-pilot.md](real-model-pilot.md) | 离线预检绑定完整干净 checkout、初始失败、source snapshot、Docker image、Provider policy、Harness 源码指纹、费用 cap 和首次规划保守预留。四个付费 Run 分别暴露计划/检索、无界读取/上下文、Plan 假设路径/保守预留，以及单边范围读取/单 Run 预留问题；四次均无编辑/验证，Trace 可重放、source 未变。对应窄修复、离线演示及 tqdm 新候选预检已有 282 项回归；没有继续付费运行 |
+| 真实模型 Pilot | [pilot.py](../src/horizon/domain/pilot.py)、[pilot.py](../src/horizon/application/pilot.py)、[real-model-pilot.md](real-model-pilot.md) | 离线预检绑定完整干净 checkout、初始失败、source snapshot、Docker image、Provider policy、Harness 源码指纹、费用 cap 和首次规划保守预留。四个付费 Run 分别暴露计划/检索、无界读取/上下文、Plan 假设路径/保守预留，以及单边范围读取/单 Run 预留问题；四次均无编辑/验证，Trace 可重放、source 未变。对应窄修复、离线演示及 tqdm 新候选预检在当前主干已有 287 项回归；没有继续付费运行 |
 | 安全轮次续跑 | [agent.py](../src/horizon/domain/agent.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 消息 Artifact + event/revision 绑定；新 Worker 续跑；PLANNING/READY 也可恢复，任意崩溃窗口对账未完成 |
 | 悬空调用恢复与对账 | [recovery.py](../src/horizon/application/recovery.py)、[model_recovery.py](../src/horizon/application/model_recovery.py)、[tool_recovery.py](../src/horizon/application/tool_recovery.py) | Campaign-only 预留释放；response Artifact 跨 Worker 续跑；只读重试；精确 `replace_text` / `apply_patch` accept/rollback；Docker `run_check` 用 call ID 标签 attempt，可查询/显式停止/删除后丢弃未知结果，missing 仍需人工确认；部分 patch 与无停止证明的验证副作用仍阻塞 |
 | 受控候选提升 | [promotion.py](../src/horizon/application/promotion.py)、[promotion.py](../src/horizon/adapters/workspace/promotion.py)、[git.py](../src/horizon/adapters/vcs/git.py) | 只读 diff、源/候选 revision 与可选 Git HEAD 绑定、显式 1～8 个既有文件修改、完整/部分 effect 崩溃恢复；不创建 commit |
@@ -42,6 +43,13 @@
 | SiliconFlow 严格配置与 OpenAI-compatible adapter | [config.py](../src/horizon/adapters/model/config.py)、[openai_compatible.py](../src/horizon/adapters/model/openai_compatible.py) | 真实 Tool Calling 探针和历史 fixture Agent Run 通过；完整 checkout Pilot 已真实调用并以受控终态失败，无隐式 retry/fallback |
 | CNY Campaign 与 Run 模型费用账本 | [campaign_budget.py](../src/horizon/adapters/persistence/campaign_budget.py)、[run.py](../src/horizon/domain/run.py)、[budget-stop-semantics.md](budget-stop-semantics.md) | Campaign 跨重启硬上限；Run 绑定 CNY policy 并事件化；确定性派发前费用不足携带 reason/scope/required/available 原子进入 `FAILED` 并清除 Lease，unknown 用量仍保守对账；TaskSpec 旧 USD 字段尚未迁移 |
 | 一键离线作品集 EvidencePack | [portfolio_demo.py](../src/horizon/application/portfolio_demo.py)、[portfolio_demo.py](../src/horizon/domain/portfolio_demo.py)、[portfolio-demo.md](portfolio-demo.md) | `horizon demo run` 复用真实事件/Lease/会话/RAG/Gateway/验证主链路，在结构化工具错误后由 epoch 2 Worker 续跑；Trace 重放、最终投影、报告和摘要由 SHA-256 清单自检。零网络/零真实模型/零外部费用；只是固定 fixture 的 durable handoff，不是硬崩溃、真实模型或官方 benchmark 证据 |
+
+2026-10-04 的零费用增量把原先仅用于费用预留的完整请求保守上界接入实际派发门禁。
+`ContextProjection` 升为 schema v2；`InputTokenEstimate` 固定记录算法 ID、规范请求 UTF-8
+字节数和上界，`InputTokenBudget` 再绑定配置 cap。执行投影会对每个候选重新构造包含工具
+Schema 的请求，并与字符门共同决定是否继续折叠；自动规划和 probe 在联网前拒绝超限请求，
+pilot preflight 的 `ready` 也包含同一门槛。费用 reservation 与上下文门复用同一个 estimate，
+但 Provider 实际 usage 仍单独结算，两者没有混写。该增量没有调用真实模型、网络或产生费用。
 
 `domain/` 不导入基础设施、执行后端或上游 SDK，已有自动结构检查。
 `EventStorePort` 隔离存储实现；没有为了通过测试而在真实执行路径回退到宿主 Shell。
@@ -67,6 +75,16 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 仍是后续适配约束；不能以该文档代替本项目的实际联调。
 
 ## 验证结果
+
+### 2026-10-04 完整请求 input-token 门禁
+
+- 离线全量回归：**287 passed，6 skipped**；skip 均为未指定 Docker image 的显式分支。
+- 随后指定本机已有 `redis:7-alpine` 复跑真实 Docker 契约：**6 passed**。
+- `ruff check src tests`、`ruff format --check src tests` 与
+  `uv --cache-dir .uv-cache lock --check --offline` 通过。
+- 新增测试覆盖多字节内容在字符预算内但 token 上界超限时的确定性折叠、不可压缩单元的
+  派发前拒绝、Projection/Reservation 完整请求估算一致、自动规划零派发拒绝，以及 pilot
+  preflight 的 input-budget readiness gate。全部使用 Fake Model/本地文件；没有网络或费用。
 
 ### 2026-10-03 Provider、完整 Checkout 与快照优化
 
@@ -404,8 +422,9 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
    事件化；但模型派发、文件写入和容器副作用还不是跨 SQLite/文件系统的单一原子事务，
    也没有独立安全复核或通用审批系统；当前 promotion 仅覆盖最多 8 个既有文件修改。
 4. **Agent 能力**：自然语言意图与 admission、通用审批/澄清式持久化 HITL、
-   Project Memory、symbol/vector Code RAG、六层 token-aware/semantic Context、统一
-   retry/breaker/fallback、更完整的 repair/replan。现有确定性字符投影、run-scope 证据 Memory 和
+   Project Memory、symbol/vector Code RAG、六层精确 tokenizer/semantic Context、统一
+   retry/breaker/fallback、更完整的 repair/replan。现有确定性字符 + 完整请求保守 token 上界
+   双门投影、run-scope 证据 Memory 和
    词法 FTS 是部分能力，不是上述完整闭环。
 5. **预算与隐私补全**：CNY Campaign 与 Run 模型账本现已同时工作，但 TaskSpec 的旧
    `max_cost_usd` 尚未做版本化多币种迁移；也没有取消/截止后的迟到回执主动对账和生产级
@@ -416,7 +435,7 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
    缺口，但仍没有完成目标修复或 protected validation。仍缺固定 20～30 个真实任务、长程/检索/记忆诊断、
    A/B/C/D 与消融、关键安全独立复核。单个负样本不能替代这些证据。
 
-四轮负证据驱动修复、后续作品集演示和新的 tqdm 零费用 preflight 已完成 282 项离线回归；
+四轮负证据驱动修复、后续作品集演示和新的 tqdm 零费用 preflight 后，当前主干已完成 287 项离线回归；
 该 preflight 证明首次规划保守预留 `CNY 0.031572` 可由 `CNY 0.06` Run cap 覆盖，但没有启动
 第五个真实模型 Run。同一 CNY 0.18 retry Campaign 尚余 `CNY 0.0681666`，系列累计实际费用为
 `CNY 0.1770732`。第四轮旧 preflight 已因 Harness

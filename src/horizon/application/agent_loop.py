@@ -10,7 +10,7 @@ from pydantic import Field, ValidationError
 from horizon.application.checkpoints import commit_checkpoint
 from horizon.application.context import ContextProjector, build_mandatory_fact_ledger
 from horizon.application.memory import RunMemoryProjector
-from horizon.application.model_probe import conservative_input_ceiling
+from horizon.application.model_probe import conservative_input_estimate
 from horizon.application.model_recovery import (
     LEASE_EVENTS,
     events_after_agent_session,
@@ -64,6 +64,7 @@ class AgentLoopConfig(Contract):
     max_run_cost: Annotated[Decimal, Field(gt=0)] = Decimal("1.00")
     enable_thinking: bool = False
     max_context_chars: Annotated[int, Field(ge=2_000, le=1_000_000)] = 60_000
+    max_input_tokens: Annotated[int, Field(ge=2_000, le=2_000_000)] = 120_000
     preserve_recent_context_units: Annotated[int, Field(ge=1, le=50)] = 6
     max_run_memory_entries: Annotated[int, Field(ge=1, le=50)] = 12
     run_memory_excerpt_chars: Annotated[int, Field(ge=0, le=1_000)] = 240
@@ -362,6 +363,10 @@ class CodingAgentRunner:
         return ContextProjector(
             max_chars=self.config.max_context_chars,
             preserve_recent_units=self.config.preserve_recent_context_units,
+            max_input_tokens=self.config.max_input_tokens,
+            estimate_input_tokens=lambda projected_messages: conservative_input_estimate(
+                self._request_for_messages(projected_messages, run)
+            ),
         ).project(
             tuple(messages),
             mandatory_facts=facts,
@@ -370,16 +375,23 @@ class CodingAgentRunner:
             run_memory_ref=memory_ref,
         )
 
-    def _request_from_projection(self, projection: ContextProjection, run: Run) -> ModelRequest:
+    def _request_for_messages(
+        self,
+        messages: tuple[ModelMessage, ...],
+        run: Run,
+    ) -> ModelRequest:
         return ModelRequest(
             model=self.model_id,
-            messages=projection.messages,
+            messages=messages,
             tools=self._model_tools(run),
             tool_choice="auto",
             max_output_tokens=self.config.max_output_tokens,
             temperature=Decimal("0"),
             enable_thinking=self.config.enable_thinking,
         )
+
+    def _request_from_projection(self, projection: ContextProjection, run: Run) -> ModelRequest:
+        return self._request_for_messages(projection.messages, run)
 
     def _store_context_projection(self, projection: ContextProjection) -> str:
         payload = canonical_json(projection.model_dump(mode="json")).encode("utf-8")
@@ -499,6 +511,7 @@ class CodingAgentRunner:
                 or recorded_projection.run_memory_entry_count != reservation.run_memory_entry_count
                 or reservation.source_message_count != projection.source_message_count
                 or reservation.projected_message_count != projection.projected_message_count
+                or reservation.input_token_budget != projection.input_token_budget
             ):
                 raise Conflict(
                     "Recovered context projection does not match the persisted Agent session"
@@ -528,9 +541,13 @@ class CodingAgentRunner:
             run_memory_ref,
         )
         request = self._request_from_projection(projection, run)
+        request_estimate = conservative_input_estimate(request)
+        if request_estimate != projection.input_token_budget.estimate:
+            raise Conflict("Context projection input-token estimate does not match its request")
+        input_ceiling = request_estimate.token_ceiling
         context_projection_ref = self._store_context_projection(projection)
         reserved_cost = self.pricing.reserve_cost(
-            conservative_input_ceiling(request),
+            input_ceiling,
             request.max_output_tokens,
         )
         call_id = f"model_{run_id}_{iteration}_{uuid4().hex}"
@@ -551,6 +568,7 @@ class CodingAgentRunner:
             run_memory_entry_count=memory.included_entry_count,
             source_message_count=projection.source_message_count,
             projected_message_count=projection.projected_message_count,
+            input_token_budget=projection.input_token_budget,
         )
         self.campaign_ledger.reserve(
             self.campaign,
@@ -564,7 +582,7 @@ class CodingAgentRunner:
                 reservation,
                 Usage(
                     model_calls=1,
-                    input_tokens=conservative_input_ceiling(request),
+                    input_tokens=input_ceiling,
                     output_tokens=request.max_output_tokens,
                 ),
                 token,

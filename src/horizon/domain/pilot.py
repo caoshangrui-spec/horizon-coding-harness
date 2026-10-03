@@ -6,7 +6,7 @@ from typing import Annotated, Literal, Self
 from pydantic import Field, model_validator
 
 from horizon.domain.common import Contract, canonical_json, digest
-from horizon.domain.model import Currency, PositiveMoney
+from horizon.domain.model import Currency, InputTokenEstimate, PositiveMoney
 from horizon.domain.run_evaluation import ExternalTaskSource
 from horizon.domain.task import Identifier, PositiveInt, TaskSpec, Text, relative_pattern
 from horizon.domain.tools import AcceptanceResult, Digest
@@ -117,6 +117,10 @@ class RealModelPilotPreflightReport(Contract):
     initial_planning_reserved_cost: PositiveMoney | None = None
     initial_planning_fits_run_cap: bool | None = None
     initial_planning_fits_campaign: bool | None = None
+    # Optional only for historical preflights created before the request-input gate.
+    initial_planning_input_estimate: InputTokenEstimate | None = None
+    max_input_tokens: PositiveInt | None = None
+    initial_planning_fits_input_budget: bool | None = None
     max_model_calls: int
     initial_validation: tuple[AcceptanceResult, ...]
     expected_initial_failed_checks: tuple[Identifier, ...]
@@ -163,6 +167,27 @@ class RealModelPilotPreflightReport(Contract):
             if self.initial_planning_fits_campaign != fits_campaign:
                 raise ValueError("Initial planning Campaign verdict is inconsistent")
             planning_ready = fits_run and fits_campaign
+
+        input_budget_fields = (
+            self.initial_planning_input_estimate,
+            self.max_input_tokens,
+            self.initial_planning_fits_input_budget,
+        )
+        if any(value is not None for value in input_budget_fields) and any(
+            value is None for value in input_budget_fields
+        ):
+            raise ValueError("Initial planning input-budget evidence must be complete")
+        if self.initial_planning_input_estimate is not None:
+            if (
+                self.initial_planning_input_ceiling
+                != self.initial_planning_input_estimate.token_ceiling
+            ):
+                raise ValueError("Initial planning input estimate does not match its ceiling")
+            assert self.max_input_tokens is not None
+            fits_input = self.initial_planning_input_estimate.token_ceiling <= self.max_input_tokens
+            if self.initial_planning_fits_input_budget != fits_input:
+                raise ValueError("Initial planning input-budget verdict is inconsistent")
+            planning_ready = planning_ready and fits_input
 
         expected_ready = all(
             (

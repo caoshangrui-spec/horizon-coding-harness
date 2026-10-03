@@ -1,17 +1,42 @@
 import pytest
 
 from horizon.application.context import ContextProjector
+from horizon.application.model_probe import conservative_input_estimate
 from horizon.domain.common import canonical_json
 from horizon.domain.context import MandatoryFactLedger
 from horizon.domain.errors import Conflict
 from horizon.domain.memory import RunMemoryEntry, RunMemorySnapshot
-from horizon.domain.model import FunctionCall, ModelMessage, ToolCall
+from horizon.domain.model import FunctionCall, ModelMessage, ModelRequest, ToolCall
 
 
 def _prefix() -> tuple[ModelMessage, ModelMessage]:
     return (
         ModelMessage(role="system", content="bounded coding agent"),
         ModelMessage(role="user", content="complete the immutable task"),
+    )
+
+
+def _projector(
+    *,
+    max_chars: int,
+    preserve_recent_units: int,
+    max_input_tokens: int = 1_000_000,
+) -> ContextProjector:
+    return ContextProjector(
+        max_chars=max_chars,
+        preserve_recent_units=preserve_recent_units,
+        max_input_tokens=max_input_tokens,
+        estimate_input_tokens=_input_estimate,
+    )
+
+
+def _input_estimate(messages: tuple[ModelMessage, ...]):
+    return conservative_input_estimate(
+        ModelRequest(
+            model="test-model",
+            messages=messages,
+            max_output_tokens=256,
+        )
     )
 
 
@@ -100,7 +125,7 @@ def _run_memory(*, status: str = "active") -> RunMemorySnapshot:
 def test_projection_is_identity_when_source_is_within_budget():
     messages = (*_prefix(), *_tool_unit(1, "small result"))
 
-    projected = ContextProjector(max_chars=2_000, preserve_recent_units=1).project(messages)
+    projected = _projector(max_chars=2_000, preserve_recent_units=1).project(messages)
 
     assert projected.messages == messages
     assert projected.compacted is False
@@ -108,6 +133,55 @@ def test_projection_is_identity_when_source_is_within_budget():
     assert projected.source_message_count == projected.projected_message_count == 4
     assert projected.max_chars == 2_000
     assert projected.preserve_recent_units == 1
+    assert projected.projected_chars == len(
+        canonical_json([item.model_dump(mode="json") for item in projected.messages])
+    )
+    assert projected.input_token_budget.estimate == _input_estimate(projected.messages)
+
+
+def test_projection_compacts_when_full_request_token_ceiling_exceeds_budget():
+    messages = (
+        *_prefix(),
+        *_tool_unit(1, "汉" * 1_200),
+        *_tool_unit(2, "recent result"),
+    )
+    source_estimate = _input_estimate(messages)
+    max_input_tokens = source_estimate.token_ceiling - 1
+
+    projection = _projector(
+        max_chars=20_000,
+        preserve_recent_units=1,
+        max_input_tokens=max_input_tokens,
+    ).project(messages)
+
+    assert len(canonical_json([item.model_dump(mode="json") for item in messages])) < 20_000
+    assert projection.compacted is True
+    assert projection.compacted_unit_count == 1
+    assert projection.input_token_budget.max_input_tokens == max_input_tokens
+    assert projection.input_token_budget.estimate.token_ceiling <= max_input_tokens
+    assert projection.messages[-2:] == messages[-2:]
+
+
+def test_projection_rejects_uncompactable_turn_over_token_budget():
+    incomplete = ModelMessage(
+        role="assistant",
+        content="汉" * 1_200,
+        tool_calls=(
+            ToolCall(
+                id="pending-token-call",
+                function=FunctionCall(name="read_file", arguments={"path": "src/pending.py"}),
+            ),
+        ),
+    )
+    messages = (*_prefix(), incomplete)
+    source_estimate = _input_estimate(messages)
+
+    with pytest.raises(Conflict, match="character/token budget"):
+        _projector(
+            max_chars=20_000,
+            preserve_recent_units=1,
+            max_input_tokens=source_estimate.token_ceiling - 1,
+        ).project(messages)
 
 
 def test_projection_compacts_only_old_complete_units_deterministically():
@@ -117,7 +191,7 @@ def test_projection_compacts_only_old_complete_units_deterministically():
         *_tool_unit(2, "b" * 1_200),
         *_tool_unit(3, "c" * 1_200),
     )
-    projector = ContextProjector(max_chars=3_400, preserve_recent_units=1)
+    projector = _projector(max_chars=3_400, preserve_recent_units=1)
 
     first = projector.project(messages)
     second = projector.project(messages)
@@ -141,7 +215,7 @@ def test_projection_never_creates_an_orphan_tool_message():
         *_tool_unit(3, "c" * 1_100),
     )
 
-    projection = ContextProjector(max_chars=3_300, preserve_recent_units=1).project(messages)
+    projection = _projector(max_chars=3_300, preserve_recent_units=1).project(messages)
 
     seen_calls: set[str] = set()
     for message in projection.messages:
@@ -168,7 +242,7 @@ def test_projection_preserves_an_incomplete_tool_turn():
         incomplete,
     )
 
-    projection = ContextProjector(max_chars=3_200, preserve_recent_units=1).project(messages)
+    projection = _projector(max_chars=3_200, preserve_recent_units=1).project(messages)
 
     assert projection.compacted_unit_count == 2
     assert projection.messages[-1] == incomplete
@@ -177,7 +251,7 @@ def test_projection_preserves_an_incomplete_tool_turn():
 def test_projection_compacts_recent_complete_unit_when_hard_budget_requires_it():
     messages = (*_prefix(), *_tool_unit(1, "x" * 4_000))
 
-    projection = ContextProjector(max_chars=2_000, preserve_recent_units=1).project(messages)
+    projection = _projector(max_chars=2_000, preserve_recent_units=1).project(messages)
 
     assert projection.compacted is True
     assert projection.compacted_unit_count == 1
@@ -190,7 +264,7 @@ def test_projection_compacts_recent_complete_unit_when_hard_budget_requires_it()
 def test_projection_compacts_a_pilot_sized_recent_tool_result():
     messages = (*_prefix(), *_tool_unit(1, "x" * 122_665))
 
-    projection = ContextProjector(max_chars=60_000, preserve_recent_units=6).project(messages)
+    projection = _projector(max_chars=60_000, preserve_recent_units=6).project(messages)
 
     assert projection.compacted_unit_count == 1
     assert projection.source_message_count == 4
@@ -215,7 +289,7 @@ def test_projection_rejects_when_incomplete_turn_alone_exceeds_budget():
     messages = (*_prefix(), incomplete)
 
     with pytest.raises(Conflict, match="incomplete Agent turn"):
-        ContextProjector(max_chars=2_000, preserve_recent_units=1).project(messages)
+        _projector(max_chars=2_000, preserve_recent_units=1).project(messages)
 
 
 def test_projection_rejects_noncanonical_prefix():
@@ -225,7 +299,7 @@ def test_projection_rejects_noncanonical_prefix():
     )
 
     with pytest.raises(Conflict, match="start with system and user"):
-        ContextProjector(max_chars=2_000, preserve_recent_units=1).project(messages)
+        _projector(max_chars=2_000, preserve_recent_units=1).project(messages)
 
 
 def test_projection_rejects_an_orphan_tool_result():
@@ -235,14 +309,14 @@ def test_projection_rejects_an_orphan_tool_result():
     )
 
     with pytest.raises(Conflict, match="orphan tool result"):
-        ContextProjector(max_chars=2_000, preserve_recent_units=1).project(messages)
+        _projector(max_chars=2_000, preserve_recent_units=1).project(messages)
 
 
 def test_projection_injects_content_addressed_mandatory_facts_without_mutating_source():
     messages = (*_prefix(), *_tool_unit(1, "small result"))
     facts = _mandatory_facts()
 
-    projection = ContextProjector(max_chars=4_000, preserve_recent_units=1).project(
+    projection = _projector(max_chars=4_000, preserve_recent_units=1).project(
         messages,
         mandatory_facts=facts,
         mandatory_facts_ref=facts.sha256,
@@ -265,7 +339,7 @@ def test_compaction_cannot_remove_or_replace_mandatory_facts():
     )
     facts = _mandatory_facts()
 
-    projection = ContextProjector(max_chars=4_500, preserve_recent_units=1).project(
+    projection = _projector(max_chars=4_500, preserve_recent_units=1).project(
         messages,
         mandatory_facts=facts,
         mandatory_facts_ref=facts.sha256,
@@ -281,7 +355,7 @@ def test_projection_rejects_mandatory_fact_artifact_mismatch():
     facts = _mandatory_facts()
 
     with pytest.raises(Conflict, match="content-addressed artifact"):
-        ContextProjector(max_chars=4_000, preserve_recent_units=1).project(
+        _projector(max_chars=4_000, preserve_recent_units=1).project(
             _prefix(),
             mandatory_facts=facts,
             mandatory_facts_ref="0" * 64,
@@ -290,7 +364,7 @@ def test_projection_rejects_mandatory_fact_artifact_mismatch():
 
 def test_projection_injects_only_active_run_memory_evidence():
     active = _run_memory(status="active")
-    active_projection = ContextProjector(max_chars=4_000, preserve_recent_units=1).project(
+    active_projection = _projector(max_chars=4_000, preserve_recent_units=1).project(
         _prefix(),
         run_memory=active,
         run_memory_ref=active.sha256,
@@ -302,7 +376,7 @@ def test_projection_injects_only_active_run_memory_evidence():
     assert "def parse(value)" in (active_projection.messages[0].content or "")
 
     stale = _run_memory(status="stale")
-    stale_projection = ContextProjector(max_chars=4_000, preserve_recent_units=1).project(
+    stale_projection = _projector(max_chars=4_000, preserve_recent_units=1).project(
         _prefix(),
         run_memory=stale,
         run_memory_ref=stale.sha256,
@@ -323,7 +397,7 @@ def test_compaction_preserves_run_memory_binding():
     )
     memory = _run_memory()
 
-    projection = ContextProjector(max_chars=4_500, preserve_recent_units=1).project(
+    projection = _projector(max_chars=4_500, preserve_recent_units=1).project(
         messages,
         run_memory=memory,
         run_memory_ref=memory.sha256,
@@ -340,7 +414,7 @@ def test_projection_rejects_run_memory_artifact_mismatch():
     memory = _run_memory()
 
     with pytest.raises(Conflict, match="Run memory does not match"):
-        ContextProjector(max_chars=4_000, preserve_recent_units=1).project(
+        _projector(max_chars=4_000, preserve_recent_units=1).project(
             _prefix(),
             run_memory=memory,
             run_memory_ref="0" * 64,

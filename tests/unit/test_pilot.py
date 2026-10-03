@@ -318,6 +318,13 @@ def test_preflight_persists_bound_task_and_launch_receipt(tmp_path):
     assert result.report.validation_backend_ref == image_id
     assert result.report.harness_source_digest == compute_harness_source_digest()
     assert result.report.initial_planning_input_ceiling is not None
+    assert result.report.initial_planning_input_estimate is not None
+    assert (
+        result.report.initial_planning_input_estimate.token_ceiling
+        == result.report.initial_planning_input_ceiling
+    )
+    assert result.report.max_input_tokens == provider.request.max_input_tokens
+    assert result.report.initial_planning_fits_input_budget is True
     assert result.report.initial_planning_output_ceiling == provider.request.max_output_tokens
     assert result.report.initial_planning_reserved_cost is not None
     assert result.report.initial_planning_fits_run_cap is True
@@ -338,6 +345,24 @@ def test_preflight_persists_bound_task_and_launch_receipt(tmp_path):
         source_snapshot_revision=loaded.source_snapshot_revision,
         validation_backend_ref=image_id,
     )
+
+    constrained_provider = provider.model_copy(
+        update={"request": provider.request.model_copy(update={"max_input_tokens": 2_000})}
+    )
+    constrained = PilotPreflightService(
+        FailingAcceptance(),
+        validation_backend_ref=image_id,
+    ).evaluate(
+        manifest,
+        source=source,
+        state_dir=tmp_path / "input-budget-state",
+        provider=constrained_provider,
+        campaign=campaign,
+    )
+    assert constrained.report.ready is False
+    assert constrained.report.initial_planning_fits_input_budget is False
+    assert constrained.report.initial_planning_input_ceiling > 2_000
+
     changed = prepared.model_copy(update={"title": "Changed after preflight"})
     with pytest.raises(Conflict, match="TaskSpec changed"):
         verify_pilot_launch_binding(
@@ -368,6 +393,22 @@ def test_preflight_persists_bound_task_and_launch_receipt(tmp_path):
             source_snapshot_revision=loaded.source_snapshot_revision,
             validation_backend_ref=image_id,
         )
+    legacy_input_budget = loaded.model_copy(
+        update={
+            "initial_planning_input_estimate": None,
+            "max_input_tokens": None,
+            "initial_planning_fits_input_budget": None,
+        }
+    )
+    with pytest.raises(PolicyDenied, match="planning input-token gate"):
+        verify_pilot_launch_binding(
+            legacy_input_budget,
+            task=prepared,
+            provider=provider,
+            source_git_head=head,
+            source_snapshot_revision=loaded.source_snapshot_revision,
+            validation_backend_ref=image_id,
+        )
     legacy_planning = loaded.model_copy(
         update={
             "initial_planning_input_ceiling": None,
@@ -375,6 +416,9 @@ def test_preflight_persists_bound_task_and_launch_receipt(tmp_path):
             "initial_planning_reserved_cost": None,
             "initial_planning_fits_run_cap": None,
             "initial_planning_fits_campaign": None,
+            "initial_planning_input_estimate": None,
+            "max_input_tokens": None,
+            "initial_planning_fits_input_budget": None,
         }
     )
     with pytest.raises(PolicyDenied, match="planning reservation gate"):

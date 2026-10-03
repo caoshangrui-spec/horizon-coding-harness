@@ -16,6 +16,7 @@ request:
   max_attempts: 1
   enable_thinking: false
   max_context_chars: 5000
+  max_input_tokens: 120000
   preserve_recent_context_units: 2
 
 pricing:

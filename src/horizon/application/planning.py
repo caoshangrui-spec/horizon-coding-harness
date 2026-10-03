@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from pydantic import Field, ValidationError
 
-from horizon.application.model_probe import conservative_input_ceiling
+from horizon.application.model_probe import conservative_input_estimate
 from horizon.application.model_recovery import RecoverableModelTurn, load_recorded_model_response
 from horizon.application.services import HarnessService, LeaseToken
 from horizon.domain.budget import Usage
@@ -23,6 +23,7 @@ from horizon.domain.errors import (
 )
 from horizon.domain.model import (
     CampaignBudget,
+    InputTokenBudget,
     ModelCallRecord,
     ModelCallReservation,
     ModelMessage,
@@ -47,6 +48,7 @@ class PlanGeneratorConfig(Contract):
     max_work_items: int = Field(default=8, ge=1, le=20)
     max_inventory_paths: int = Field(default=DEFAULT_MAX_INVENTORY_PATHS, ge=1, le=2_000)
     max_output_tokens: int = Field(default=1_024, ge=128, le=8_192)
+    max_input_tokens: int = Field(default=120_000, ge=2_000, le=2_000_000)
     max_run_cost: Decimal = Field(default=Decimal("1.00"), gt=0)
     enable_thinking: bool = False
 
@@ -385,6 +387,15 @@ class PlanGenerator:
             max_output_tokens=self.config.max_output_tokens,
             enable_thinking=self.config.enable_thinking,
         )
+        input_estimate = conservative_input_estimate(request)
+        if input_estimate.token_ceiling > self.config.max_input_tokens:
+            raise PolicyDenied(
+                "Planning request exceeds the configured conservative input-token budget"
+            )
+        input_token_budget = InputTokenBudget(
+            max_input_tokens=self.config.max_input_tokens,
+            estimate=input_estimate,
+        )
         reusable = self._reusable_response(run, request, context_ref)
         if reusable is not None:
             record, response = reusable
@@ -407,7 +418,7 @@ class PlanGenerator:
             ]
             if campaign_only:
                 raise Conflict("Campaign-only planning attempt requires reconciliation")
-            input_ceiling = conservative_input_ceiling(request)
+            input_ceiling = input_estimate.token_ceiling
             reserved_cost = self.pricing.reserve_cost(
                 input_ceiling,
                 request.max_output_tokens,
@@ -424,6 +435,7 @@ class PlanGenerator:
                 reserved_cost=reserved_cost,
                 planning_context_ref=context_ref,
                 planning_context_hash=context.sha256,
+                input_token_budget=input_token_budget,
             )
             try:
                 self.campaign_ledger.reserve(

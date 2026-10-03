@@ -18,6 +18,8 @@ request:
   # Deterministic character bound for the model-visible projection. The full
   # canonical transcript remains in immutable artifacts.
   max_context_chars: 60000
+  # Hard ceiling for the conservative full-request estimate, including tool schemas.
+  max_input_tokens: 120000
   preserve_recent_context_units: 6
 
 # Conservative normal-period ceiling, CNY per one million tokens.

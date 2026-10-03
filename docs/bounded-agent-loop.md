@@ -45,7 +45,7 @@ Harness 最终 Docker 验证 → checkpoint → validation evidence
 | 循环编排 | [`application/agent_loop.py`](../src/horizon/application/agent_loop.py) | 顺序 DAG 调度、模型迭代、单次受限 replan、工具 observation、submit、验证、repair、终态 |
 | 自动计划 | [`application/planning.py`](../src/horizon/application/planning.py)、[`domain/planning.py`](../src/horizon/domain/planning.py) | 有界 PlanningContext、单次计划调用、DAG/权限/验收校验、response 复用 |
 | 会话快照 | [`domain/agent.py`](../src/horizon/domain/agent.py) | 完整消息、下一 iteration、工作区 revision 和已覆盖事件序号 |
-| 上下文投影 | [`application/context.py`](../src/horizon/application/context.py)、[`domain/context.py`](../src/horizon/domain/context.py) | 完整 transcript 的确定性字符预算视图、工具对完整性和投影证据 |
+| 上下文投影 | [`application/context.py`](../src/horizon/application/context.py)、[`domain/context.py`](../src/horizon/domain/context.py) | 完整 transcript 的字符 + 完整请求保守 token 双门视图、工具对完整性和投影证据 |
 | 悬空调用恢复 | [`application/recovery.py`](../src/horizon/application/recovery.py) | Run/Campaign 对账、未知副作用分类、恢复处置报告 |
 | Run 服务 | [`application/services.py`](../src/horizon/application/services.py) | policy 绑定、模型/工具预留与结算、验证和 WorkItem 事件 |
 | Run 投影 | [`domain/run.py`](../src/horizon/domain/run.py) | 从追加事件重建预算、调用、checkpoint、验证和终态 |
@@ -88,10 +88,10 @@ CLI 先对源目录做内容寻址快照，再恢复到 `.horizon/staging/agent-
 
 每次模型调用按以下顺序：
 
-1. 从完整 canonical transcript 生成确定性 `ContextProjection`；
-2. 将投影及字符预算参数写入内容寻址 Artifact，并校验回读；
-3. 用投影消息和当前工具 Schema 生成严格 `ModelRequest`；
-4. 用保守 token 上界和冻结 PriceCard 估算 reservation；
+1. 从完整 canonical transcript 生成候选 `ContextProjection`；
+2. 用候选消息和当前工具 Schema 生成完整 `ModelRequest`，同时检查字符与保守 token 上限；
+3. 将最终投影、字符使用和 `InputTokenBudget` 写入内容寻址 Artifact，并校验回读；
+4. 复用同一个 token 上界和冻结 PriceCard 估算 reservation；
 5. 在 Campaign ledger 预留 CNY；
 6. 在 Run event stream 绑定 request hash、投影 Artifact、源/投影消息数并预留调用；
 7. 调用 Provider；
@@ -164,18 +164,23 @@ workspace 与派发前 revision 完全一致，才可写入 `cancelled/discard_c
 ### 5.1 上下文投影边界
 
 完整 Agent transcript 始终保存在会话 Artifact 中，是恢复和审计的权威记录。模型可见视图
-使用 `max_context_chars` 的保守字符上限，而不是声称精确 token 计数：初始 system/user 合同
-总是保留；assistant tool calls 与其全部 tool results 组成不可拆分单元；最近 N 个单元和任何
-未完成单元保留；更旧的完整单元折叠为确定性事实清单，保存原单元 digest、工具参数 hash、
-结果 hash 和最多 240 字符片段。孤立、重复或错配的 tool result 会直接拒绝。
+同时受 `max_context_chars` 和 `max_input_tokens` 两个硬上限约束：前者测量投影消息规范 JSON
+字符数；后者对包含工具 Schema 和参数的完整 `ModelRequest` 使用
+`2 * utf8_bytes + 1024` 保守上界。它可离线重算并用于派发门禁/费用预留，但不是精确
+tokenizer 计数或模型窗口探测。初始 system/user 合同总是保留；assistant tool calls 与其全部
+tool results 组成不可拆分单元；最近 N 个单元和任何未完成单元保留；更旧的完整单元折叠为
+确定性事实清单，保存原单元 digest、工具参数 hash、结果 hash 和最多 240 字符片段。孤立、
+重复或错配的 tool result 会直接拒绝。
 
-每次投影记录算法 Schema、字符上限、近期单元数、完整 transcript digest、源/投影消息数和
-实际消息。跨 Worker 消费已结算响应时会重新生成并逐字段比较；配置漂移、Artifact 损坏或
+每次投影记录算法 Schema、字符上限/实际字符数、token 估算算法、完整请求字节数、token
+上界/配置上限、近期单元数、完整 transcript digest、源/投影消息数和实际消息。对应模型
+reservation 绑定同一个 `InputTokenBudget`。跨 Worker 消费已结算响应时会重新生成并逐字段比较；配置漂移、Artifact 损坏或
 消息变化都会阻止继续。MandatoryFactLedger 另行绑定任务、计划、权限、验收、预算、模型
 策略、工具 Schema 和 workspace。证据驱动的 Run Memory 从工具事件/Artifact 派生：失败保留
 失败，旧 revision 标为 stale，unknown 保持 unresolved，模型 `submit` 声明不能升级为事实；
-恢复按原请求事件边界重建。它们仍不是 tokenizer-aware 或模型生成的语义摘要，也不是跨 Run
-的 Project Memory。详见[上下文投影](context-projection.md)与[Run Memory](run-memory.md)。
+恢复按原请求事件边界重建。当前实现是 conservative-token-ceiling-aware，但仍不是精确
+tokenizer 或模型生成的语义摘要，也不是跨 Run 的 Project Memory。详见
+[上下文投影](context-projection.md)与[Run Memory](run-memory.md)。
 另行接入的词法 Code RAG 只提供带来源片段，不能宣称语义等价或真实任务召回率已验证。
 
 ## 6. 验证和 repair
@@ -201,7 +206,7 @@ checks。成功条件同时要求：
 - Run CNY policy：本 Run 的模型费用占用；
 - Campaign CNY ledger：所有已授权联调 Run 的累计占用；
 - Provider config：单请求输出上限、模型 ID、thinking/fallback 设置。
-- Context policy：字符预算和必须原样保留的最近工具单元数。
+- Context policy：字符硬上限、完整请求保守 input-token 硬上限，以及近期工具单元的软保留数。
 
 `reserved + settled + unknown` 都占硬上限。真实回执超过预留时先记录真实用量，再让 Run
 失败；不能为了“预算通过”丢弃实际费用。TaskSpec 的 `max_cost_usd` 尚未迁移为通用多币种
@@ -321,10 +326,10 @@ Trace 文件拒绝覆盖已有文件。重放不会调用模型、工具或 Dock
 
 ## 9. 当前验证证据
 
-2026-10-03 当前环境：
+2026-10-04 当前环境：
 
-- 离线全量回归：282 passed、6 skipped；
-- 随后指定本机已有 `python:3.12-alpine` 单独复跑跳过项：6 passed，均为真实 Docker 合同；
+- 离线全量回归：287 passed、6 skipped；
+- 随后指定本机已有 `redis:7-alpine` 单独复跑跳过项：6 passed，均为真实 Docker 合同；
 - Fake Model E2E：精确编辑后成功，以及首次验收失败后一次 repair 成功；
 - 自动计划 Fake E2E：Plan provenance/预算、越权拒绝且不重试、Plan 事件前崩溃复用响应，
   以及 CLI 从 PLANNING 恢复后完成保护验收；

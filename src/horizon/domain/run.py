@@ -143,7 +143,7 @@ class Run:
                 self.model_policy.model_dump(mode="json") if self.model_policy else None
             ),
             "model_reserved": {
-                key: value.model_dump(mode="json") for key, value in self.model_reservations.items()
+                key: value.as_dict() for key, value in self.model_reservations.items()
             },
             "unknown_model_calls": sorted(self.unknown_model_calls),
             "model_calls": [item.model_dump(mode="json") for item in self.model_calls],

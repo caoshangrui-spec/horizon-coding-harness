@@ -7,6 +7,7 @@ from horizon.domain.common import canonical_json
 from horizon.domain.errors import ProviderError
 from horizon.domain.model import (
     CampaignBudget,
+    InputTokenEstimate,
     ModelMessage,
     ModelProbeResult,
     ModelRequest,
@@ -55,10 +56,20 @@ def build_probe_request(
     )
 
 
+def conservative_input_estimate(request: ModelRequest) -> InputTokenEstimate:
+    """Return a reproducible upper bound, not a provider-tokenizer prediction."""
+
+    request_bytes = len(canonical_json(request).encode("utf-8"))
+    return InputTokenEstimate(
+        request_bytes=request_bytes,
+        token_ceiling=2 * request_bytes + 1024,
+    )
+
+
 def conservative_input_ceiling(request: ModelRequest) -> int:
     # Token count is bounded by source bytes. Doubling covers JSON-in-JSON escaping for tool
     # arguments; the fixed allowance covers provider framing and special tokens.
-    return 2 * len(canonical_json(request).encode("utf-8")) + 1024
+    return conservative_input_estimate(request).token_ceiling
 
 
 class ModelProbeService:

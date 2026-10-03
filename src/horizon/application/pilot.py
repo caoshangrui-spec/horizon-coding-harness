@@ -11,7 +11,7 @@ from horizon.adapters.model.config import ProviderConfig
 from horizon.adapters.persistence.artifacts import ArtifactStore
 from horizon.adapters.vcs.git import verify_clean_git_checkout
 from horizon.adapters.workspace.snapshot import SnapshotManager
-from horizon.application.model_probe import conservative_input_ceiling
+from horizon.application.model_probe import conservative_input_estimate
 from horizon.application.planning import build_plan_request, build_planning_context
 from horizon.domain.common import canonical_json, digest
 from horizon.domain.errors import Conflict, IntegrityError, PolicyDenied
@@ -165,13 +165,15 @@ class PilotPreflightService:
             max_output_tokens=planning_output_ceiling,
             enable_thinking=provider.request.enable_thinking,
         )
-        planning_input_ceiling = conservative_input_ceiling(planning_request)
+        planning_input_estimate = conservative_input_estimate(planning_request)
+        planning_input_ceiling = planning_input_estimate.token_ceiling
         planning_reserved_cost = provider.pricing.reserve_cost(
             planning_input_ceiling,
             planning_output_ceiling,
         )
         planning_fits_run = planning_reserved_cost <= provider.run_budget.max_cost
         planning_fits_campaign = planning_reserved_cost <= campaign.remaining_cost
+        planning_fits_input = planning_input_ceiling <= provider.request.max_input_tokens
 
         observed_failures = tuple(
             sorted(result.check_id for result in initial_validation if not result.passed)
@@ -193,6 +195,7 @@ class PilotPreflightService:
                 campaign.remaining_cost >= manifest.max_paid_cost,
                 planning_fits_run,
                 planning_fits_campaign,
+                planning_fits_input,
             )
         )
         report = RealModelPilotPreflightReport(
@@ -221,6 +224,9 @@ class PilotPreflightService:
             initial_planning_reserved_cost=planning_reserved_cost,
             initial_planning_fits_run_cap=planning_fits_run,
             initial_planning_fits_campaign=planning_fits_campaign,
+            initial_planning_input_estimate=planning_input_estimate,
+            max_input_tokens=provider.request.max_input_tokens,
+            initial_planning_fits_input_budget=planning_fits_input,
             max_model_calls=prepared_task.budgets.max_model_calls,
             initial_validation=initial_validation,
             expected_initial_failed_checks=expected_failures,
@@ -280,8 +286,16 @@ def verify_pilot_launch_binding(
         raise PolicyDenied(
             "Pilot preflight predates the initial planning reservation gate; regenerate it"
         )
+    if (
+        report.initial_planning_input_estimate is None
+        or report.max_input_tokens is None
+        or report.initial_planning_fits_input_budget is None
+    ):
+        raise PolicyDenied("Pilot preflight predates the planning input-token gate; regenerate it")
     if not report.initial_planning_fits_run_cap or not report.initial_planning_fits_campaign:
         raise PolicyDenied("Pilot preflight cannot fund its initial planning dispatch")
+    if not report.initial_planning_fits_input_budget:
+        raise PolicyDenied("Pilot preflight exceeds its planning input-token budget")
     current_harness_source_digest = current_harness_source_digest or compute_harness_source_digest()
     if current_harness_source_digest != report.harness_source_digest:
         raise Conflict("Harness source changed after pilot preflight")

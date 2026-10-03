@@ -4,8 +4,8 @@ from typing import Annotated, Literal, Self
 
 from pydantic import Field, StrictInt, model_validator
 
-from horizon.domain.common import Contract, digest
-from horizon.domain.model import ModelMessage
+from horizon.domain.common import Contract, canonical_json, digest
+from horizon.domain.model import InputTokenBudget, ModelMessage
 from horizon.domain.task import Identifier, Mode, PositiveInt
 
 Sha256 = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
@@ -51,11 +51,13 @@ class MandatoryFactLedger(Contract):
 
 
 class ContextProjection(Contract):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     max_chars: Annotated[StrictInt, Field(ge=2_000, le=1_000_000)]
     preserve_recent_units: Annotated[StrictInt, Field(ge=1, le=50)]
     source_message_count: Annotated[StrictInt, Field(ge=2)]
     projected_message_count: Annotated[StrictInt, Field(ge=2)]
+    projected_chars: Annotated[StrictInt, Field(ge=1)]
+    input_token_budget: InputTokenBudget
     compacted_unit_count: Annotated[StrictInt, Field(ge=0)]
     source_digest: Sha256
     mandatory_facts_ref: Sha256 | None = None
@@ -72,6 +74,11 @@ class ContextProjection(Contract):
             raise ValueError("Projected message count must match the stored messages")
         if self.projected_message_count > self.source_message_count:
             raise ValueError("A projection cannot contain more messages than its source")
+        actual_chars = len(
+            canonical_json([message.model_dump(mode="json") for message in self.messages])
+        )
+        if self.projected_chars != actual_chars or self.projected_chars > self.max_chars:
+            raise ValueError("Projected character usage does not match its configured budget")
         if self.compacted != (self.compacted_unit_count > 0):
             raise ValueError("Compaction flag and compacted unit count are inconsistent")
         if (self.mandatory_facts_ref is None) != (self.mandatory_facts_hash is None):

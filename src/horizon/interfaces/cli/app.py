@@ -29,6 +29,7 @@ from horizon.application.model_probe import (
     ModelProbeService,
     build_probe_request,
     conservative_input_ceiling,
+    conservative_input_estimate,
 )
 from horizon.application.pilot import (
     PilotPreflightService,
@@ -54,7 +55,13 @@ from horizon.application.run_ab_eval import (
 from horizon.application.services import HarnessService, LeaseToken
 from horizon.application.tool_recovery import ToolRecoveryService
 from horizon.domain.common import canonical_json, digest
-from horizon.domain.errors import BudgetExceeded, HorizonError, NotFound, PlanProposalError
+from horizon.domain.errors import (
+    BudgetExceeded,
+    HorizonError,
+    NotFound,
+    PlanProposalError,
+    PolicyDenied,
+)
 from horizon.domain.evaluation import RetrievalEvalManifest
 from horizon.domain.human import HumanGuidanceRequest, HumanPlanRequest
 from horizon.domain.model import ModelPolicyBinding
@@ -612,8 +619,11 @@ def model_check(
         max_output_tokens=config.request.probe_max_output_tokens,
         enable_thinking=config.request.enable_thinking,
     )
+    probe_estimate = conservative_input_estimate(probe_request)
+    if probe_estimate.token_ceiling > config.request.max_input_tokens:
+        raise PolicyDenied("Probe request exceeds the configured input-token budget")
     probe_reservation = config.pricing.reserve_cost(
-        conservative_input_ceiling(probe_request),
+        probe_estimate.token_ceiling,
         probe_request.max_output_tokens,
     )
     typer.echo(
@@ -633,6 +643,8 @@ def model_check(
                 "probe_reserved_cost": str(probe_reservation),
                 "probe_max_output_tokens": probe_request.max_output_tokens,
                 "max_context_chars": config.request.max_context_chars,
+                "max_input_tokens": config.request.max_input_tokens,
+                "probe_input_token_estimate": probe_estimate.model_dump(mode="json"),
                 "preserve_recent_context_units": (config.request.preserve_recent_context_units),
                 "fallback_enabled": config.fallback_enabled,
                 "network_called": False,
@@ -669,6 +681,8 @@ def model_probe(
         max_output_tokens=config.request.probe_max_output_tokens,
         enable_thinking=config.request.enable_thinking,
     )
+    if conservative_input_ceiling(request) > config.request.max_input_tokens:
+        raise PolicyDenied("Probe request exceeds the configured input-token budget")
     result = ModelProbeService(gateway, CampaignBudgetLedger(ledger_path)).run(
         provider_id=config.provider_id,
         request=request,
@@ -859,6 +873,7 @@ def agent_run(
                 campaign=provider.campaign,
                 config=PlanGeneratorConfig(
                     max_output_tokens=min(1024, provider.request.max_output_tokens),
+                    max_input_tokens=provider.request.max_input_tokens,
                     max_run_cost=provider.run_budget.max_cost,
                     enable_thinking=provider.request.enable_thinking,
                 ),
@@ -978,6 +993,7 @@ def agent_run(
                 max_run_cost=provider.run_budget.max_cost,
                 enable_thinking=provider.request.enable_thinking,
                 max_context_chars=provider.request.max_context_chars,
+                max_input_tokens=provider.request.max_input_tokens,
                 preserve_recent_context_units=provider.request.preserve_recent_context_units,
             ),
         ).run(
@@ -1179,6 +1195,7 @@ def agent_resume(
                 campaign=provider.campaign,
                 config=PlanGeneratorConfig(
                     max_output_tokens=min(1024, provider.request.max_output_tokens),
+                    max_input_tokens=provider.request.max_input_tokens,
                     max_run_cost=provider.run_budget.max_cost,
                     enable_thinking=provider.request.enable_thinking,
                 ),
@@ -1289,6 +1306,7 @@ def agent_resume(
                 max_run_cost=provider.run_budget.max_cost,
                 enable_thinking=provider.request.enable_thinking,
                 max_context_chars=provider.request.max_context_chars,
+                max_input_tokens=provider.request.max_input_tokens,
                 preserve_recent_context_units=provider.request.preserve_recent_context_units,
             ),
         ).run(

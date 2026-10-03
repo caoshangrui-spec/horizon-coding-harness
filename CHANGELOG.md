@@ -5,6 +5,9 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Added a replayable full-request input-token budget: execution context projection now compacts
+  against both character and conservative token ceilings, while planning and probes fail before
+  provider dispatch when the same configured ceiling is exceeded.
 - Added real-Docker hard-exit coverage for the indistinguishable pre-create and post-cleanup
   `run_check` recovery windows.
 

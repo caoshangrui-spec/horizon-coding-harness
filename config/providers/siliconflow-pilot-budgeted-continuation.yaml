@@ -18,6 +18,7 @@ request:
   # Keeps the conservative byte-based reservation below the remaining Campaign headroom while
   # retaining one ranked code chunk or one ranged file read in the active model view.
   max_context_chars: 7000
+  max_input_tokens: 120000
   preserve_recent_context_units: 2
 
 pricing:
