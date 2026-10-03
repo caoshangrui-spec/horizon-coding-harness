@@ -1,0 +1,9 @@
+version: 1
+items:
+  - work_item_id: repair-parser
+    title: Repair and verify parser
+    objective: Locate the empty-input failure, implement a compatible fix, and pass the regression check.
+    dependencies: []
+    expected_artifacts: [candidate.patch, validation-report.json]
+    acceptance_ids: [parser_regression]
+    allowed_tools: [read_file, search_repo]

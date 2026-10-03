@@ -1,0 +1,114 @@
+# 确定性费用停止语义
+
+更新：2026-10-03。本文描述模型请求在 Provider 派发前因 CNY 硬上限被拒绝时，Harness 如何
+形成可重放终态。它只处理能够由持久账本确定证明的费用不足，不把 unknown 用量、Provider
+不确定结果或一般执行错误误判为“费用已耗尽”。
+
+## 1. 要解决的问题
+
+历史第四轮真实模型 Pilot 在下一次请求前正确触发单 Run 费用闸门，但 CLI 只释放了 Worker
+Lease，Run 投影仍停留在 `RUNNING`。账本实际上没有开放 reservation 或活跃 Worker，状态却容易
+让人误以为任务仍在后台执行。
+
+新合同要求：只要控制器能在派发前确定请求不可能进入既定费用上限，就必须原子记录明确原因并
+终止该 Run；不能依靠异常字符串、进程状态或人工查看 SQLite 推断。
+
+## 2. 类型化停止原因
+
+领域层的 `BudgetStop` 固定以下字段：
+
+| 字段 | 含义 |
+|---|---|
+| `reason_code` | 稳定的机器可判定原因 |
+| `scope` | `run` 或 `campaign` |
+| `currency` | 当前为 `CNY` |
+| `required_cost` | 本次请求的保守费用预留 |
+| `available_cost` | 对应硬边界当时可使用的金额 |
+
+当前只定义三类确定性、派发前停止：
+
+| `reason_code` | 触发条件 |
+|---|---|
+| `run_model_cost_limit` | 已结算/预留费用加本次请求超过不可变单 Run 上限 |
+| `campaign_call_cost_limit` | 本次请求预留超过 Campaign 单调用上限 |
+| `campaign_cost_limit` | Campaign 已占用费用加本次请求超过 Campaign 总上限 |
+
+unknown 用量阻断、wall-clock 到期和 Provider 返回后的实际账单超限不套用这三个原因：前两者仍需
+原有对账/到期流程，后者必须先保存真实回执再按 usage overrun 处理。
+
+## 3. 状态和数据流
+
+```text
+PLANNING / RUNNING
+        │
+        ├─ 构造有界请求并计算保守预留
+        │
+        ├─ Campaign reserve gate
+        │      └─ 失败：没有 Campaign attempt 被创建
+        │
+        └─ Run reserve gate
+               └─ 失败：已有 Campaign-only reservation 先以 0 结算
+                              │
+                              v
+                    RUN_FAILED + BudgetStop
+                              │
+                              v
+                 FAILED / Lease 自动清除
+```
+
+`HarnessService.fail_budget_stop()` 只接受没有 Run reservation 的静止边界。它在同一个事件事务中
+写入 `RUN_FAILED`、稳定的 `failure_reason` 和完整 `budget_stop`。领域投影进入终态时统一清除
+Lease/Worker/expiry，避免出现“终态但 Worker 仍活跃”。
+
+## 4. 不变量
+
+确定性费用停止必须同时满足：
+
+1. Provider Gateway 尚未被调用；
+2. Run 内没有开放 model/tool/generic reservation；
+3. 如果 Campaign reservation 已先创建，则在终止 Run 前以 0 结算；
+4. `failure_reason == budget_stop.reason_code`；
+5. `required_cost > available_cost`；
+6. JSONL Trace 重放得到相同投影；
+7. CLI/status 同时展示原因、所需金额和可用金额；
+8. unknown 用量存在时不得走该终态捷径。
+
+历史 Trace 没有 `budget_stop` 字段。`Run.as_dict()` 只在新字段实际存在时输出它，因此旧 Trace
+重放 hash 不因新增能力而变化。第四轮 Pilot 仍保留其原始非终态投影，不做追溯改写。
+
+## 5. CLI 输出
+
+未来的确定性费用停止会返回类似：
+
+```json
+{
+  "run_id": "run_...",
+  "status": "FAILED",
+  "failure_reason": "run_model_cost_limit",
+  "budget_stop": {
+    "reason_code": "run_model_cost_limit",
+    "scope": "run",
+    "currency": "CNY",
+    "required_cost": "0.067530",
+    "available_cost": "0.059648"
+  },
+  "continuation_required": false
+}
+```
+
+终态 Run 不在原地追加预算或恢复执行。若未来需要换合同继续，应创建新 Run，并重新绑定任务、
+Provider policy、源码和预算；真实模型 Pilot 还必须重新预检并取得新的外发/费用授权。
+
+## 6. 离线验收
+
+- `test_planning_budget_stop_is_terminal_and_replayable_before_dispatch`：规划阶段 Run 上限不足；
+- `test_agent_run_reports_planning_budget_stop_before_model_dispatch`：规划阶段 CLI 在零模型调用时
+  返回 Run ID、终态和结构化金额；
+- `test_agent_loop_terminalizes_pre_dispatch_run_budget_stop`：执行阶段 Run 上限不足；
+- `test_agent_loop_terminalizes_pre_dispatch_campaign_budget_stop`：Campaign 总余额不足；
+- `test_agent_run_reports_terminal_budget_stop_as_structured_json`：CLI 输出和持久投影一致；
+- Campaign/Run 账本单测分别检查 reason code、所需金额和可用金额；
+- 第四轮历史 Trace 继续重放为原 projection hash
+  `ad88aada8bd5342c41ee02fb570ae37cfc24ec8e59347dd1ec615f1e7163a8a9`。
+
+这些测试不联网、不调用真实模型，也不修改历史账本。

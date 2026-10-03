@@ -1,0 +1,35 @@
+schema_version: 1
+suite_id: bugsinpy-full-checkout-pilot-v1
+
+cases:
+  - case_id: tqdm-1-tenumerate-start-full
+    manifest_path: full/tqdm-1-tenumerate-start/manifest.yaml
+    source:
+      benchmark: BugsInPy
+      project: tqdm
+      bug_id: "1"
+      repository_url: https://github.com/tqdm/tqdm
+      buggy_commit: 8cc777fe8401a05d07f2c97e65d15e4460feab88
+      fixed_commit: c0dcf39b046d1b4ff6de14ac99ad9a1b10487512
+      fix_url: https://github.com/tqdm/tqdm/commit/c0dcf39b046d1b4ff6de14ac99ad9a1b10487512
+      upstream_test: tqdm/tests/tests_contrib.py::test_enumerate
+      license_spdx: MPL-2.0
+      license_url: https://github.com/tqdm/tqdm/blob/8cc777fe8401a05d07f2c97e65d15e4460feab88/LICENCE
+      reduction: full_checkout
+      reduction_note: Uses the clean 82-file upstream checkout at the exact buggy commit; the protected regression command is dependency-free and stricter than the historical test because it asserts the nonzero start value.
+
+  - case_id: youtube-dl-3-unescape-html-full
+    manifest_path: full/youtube-dl-3-unescape-html/manifest.yaml
+    source:
+      benchmark: BugsInPy
+      project: youtube-dl
+      bug_id: "3"
+      repository_url: https://github.com/ytdl-org/youtube-dl
+      buggy_commit: f5469da9e6e259c1690c7ef54f1da1c19f65036f
+      fixed_commit: 95f3f7c20a05e7ac490e768b8470b20538ef8581
+      fix_url: https://github.com/ytdl-org/youtube-dl/commit/95f3f7c20a05e7ac490e768b8470b20538ef8581
+      upstream_test: test/test_utils.py::TestUtil.test_unescape_html
+      license_spdx: Unlicense
+      license_url: https://github.com/ytdl-org/youtube-dl/blob/f5469da9e6e259c1690c7ef54f1da1c19f65036f/LICENSE
+      reduction: full_checkout
+      reduction_note: Uses the clean 872-file upstream checkout at the exact buggy commit and executes a dependency-free assertion equivalent to the fixed commit's nested HTML-entity regression.

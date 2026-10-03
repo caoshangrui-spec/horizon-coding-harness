@@ -1,0 +1,142 @@
+schema_version: 1
+benchmark_id: youtube-dl-3-unescape-html-multi-stage-full
+fixture_path: fixture
+
+task:
+  task_id: youtube-dl-unescape-html-multi-stage-full
+  title: Repair nested HTML entities and preserve the upstream regression
+  objective: Fix production behavior first, then add the exact regression assertion without regressing the completed repair
+  repository:
+    source: local
+    path: /fixture
+    base_commit: f5469da9e6e259c1690c7ef54f1da1c19f65036f
+  constraints:
+    allowed_paths: ["**"]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+  acceptance:
+    - id: youtube-dl-unescape-html-behavior
+      command: >-
+        python -B -c "from youtube_dl.utils import unescapeHTML; assert unescapeHTML('&a&quot;') == '&a' + chr(34)"
+      timeout_seconds: 60
+      required: true
+    - id: youtube-dl-unescape-html-regression-source
+      command: >-
+        python -B -c "from pathlib import Path; text=Path('test/test_utils.py').read_text(encoding='utf-8'); expected=chr(32)*8 + 'self.assertEqual(unescapeHTML(' + chr(39) + '&a&quot;' + chr(39) + '), ' + chr(39) + '&a' + chr(34) + chr(39) + ')'; assert expected in text"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 30
+    max_model_calls: 20
+    max_tool_calls: 30
+    max_wall_time_seconds: 600
+    max_cost_usd: "1.00"
+    max_input_tokens: 100000
+    max_output_tokens: 5000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+
+initial_plan:
+  version: 1
+  items:
+    - &production_item
+      work_item_id: repair-unescape-html-production
+      title: Repair the nested HTML entity matcher
+      objective: Decode the final valid entity without consuming an earlier ampersand
+      dependencies: []
+      expected_artifacts: [Code EvidencePack, youtube-dl-unescape-html-behavior receipt]
+      acceptance_ids: [youtube-dl-unescape-html-behavior]
+      allowed_tools: [retrieve_code, replace_text, run_check]
+    - work_item_id: add-unescape-html-regression
+      title: Add the upstream nested-entity regression assertion
+      objective: Preserve the fixed input/output pair in the existing upstream test module
+      dependencies: [repair-unescape-html-production]
+      expected_artifacts: [Code EvidencePack, youtube-dl-unescape-html-regression-source receipt]
+      acceptance_ids: [youtube-dl-unescape-html-regression-source]
+      allowed_tools: [retrieve_code]
+
+expected_initial_failed_checks:
+  - youtube-dl-unescape-html-behavior
+  - youtube-dl-unescape-html-regression-source
+
+arms:
+  - arm_id: no-replan
+    role: baseline
+    description: Complete the production repair, then remain stalled while locating the regression test.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items: [repair-unescape-html-production]
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 7
+    expected_tool_calls: 8
+    expected_steps: 8
+    restart_after_model_calls: 3
+    actions:
+      - &retrieve_production
+        tool: retrieve_code
+        arguments:
+          query: unescapeHTML html entity ampersand quot regex
+          max_chunks: 4
+      - &replace_production
+        tool: replace_text
+        arguments:
+          path: youtube_dl/utils.py
+          old: "r'&([^;]+;)', lambda m: _htmlentity_transform(m.group(1)), s)"
+          new: "r'&([^&;]+;)', lambda m: _htmlentity_transform(m.group(1)), s)"
+      - &submit_production
+        tool: submit
+        arguments:
+          summary: Repaired nested HTML entity decoding and verified the production behavior.
+      - &retrieve_regression
+        tool: retrieve_code
+        arguments:
+          query: test_unescape_html assertEqual unescapeHTML html entity
+          max_chunks: 4
+      - *retrieve_regression
+      - *retrieve_regression
+      - *retrieve_regression
+
+  - arm_id: single-replan
+    role: single_replan
+    description: Preserve the completed production repair, replan only the stalled test item, and finish both required checks.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items:
+      - repair-unescape-html-production
+      - add-unescape-html-regression-after-stall
+    expected_model_calls: 9
+    expected_tool_calls: 12
+    expected_steps: 12
+    restart_after_model_calls: 3
+    actions:
+      - *retrieve_production
+      - *replace_production
+      - *submit_production
+      - *retrieve_regression
+      - *retrieve_regression
+      - *retrieve_regression
+      - tool: revise_plan
+        arguments:
+          reason: The production repair is already validated; replace only the stalled regression-test investigation with a bounded edit-ready item.
+          items:
+            - *production_item
+            - work_item_id: add-unescape-html-regression-after-stall
+              title: Add the evidence-backed nested-entity regression assertion
+              objective: Preserve the fixed input/output pair in the existing upstream test module
+              dependencies: [repair-unescape-html-production]
+              expected_artifacts: [Code EvidencePack, youtube-dl-unescape-html-regression-source receipt]
+              acceptance_ids: [youtube-dl-unescape-html-regression-source]
+              allowed_tools: [retrieve_code, replace_text, run_check]
+      - tool: replace_text
+        arguments:
+          path: test/test_utils.py
+          old: "        self.assertEqual(unescapeHTML('&#2013266066;'), '&#2013266066;')\r\n        # HTML5 entities\r\n"
+          new: "        self.assertEqual(unescapeHTML('&#2013266066;'), '&#2013266066;')\r\n        self.assertEqual(unescapeHTML('&a&quot;'), '&a\"')\r\n        # HTML5 entities\r\n"
+      - tool: submit
+        arguments:
+          summary: Preserved the completed production repair, added the upstream regression assertion, and reran all required checks.

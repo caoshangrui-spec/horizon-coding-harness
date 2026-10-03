@@ -1,0 +1,11 @@
+version: 1
+items:
+  - work_item_id: fix_greeting
+    title: Fix greeting output and verify
+    objective: Inspect the greeting implementation, make the smallest authorized fix, and verify it.
+    dependencies: []
+    expected_artifacts: ["src/greet.sh"]
+    acceptance_ids: ["greeting_regression"]
+    allowed_tools: ["search_repo", "read_file", "retrieve_code", "replace_text", "apply_patch", "run_check"]
+    requirement_ids: []
+    evidence_refs: []

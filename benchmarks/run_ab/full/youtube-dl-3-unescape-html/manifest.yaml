@@ -1,0 +1,104 @@
+schema_version: 1
+benchmark_id: youtube-dl-3-unescape-html-full
+fixture_path: fixture
+
+task:
+  task_id: youtube-dl-unescape-html-full
+  title: Preserve a preceding ampersand while decoding a nested HTML entity
+  objective: Decode the final valid entity without consuming an earlier ampersand and unknown name prefix
+  repository:
+    source: local
+    path: /fixture
+    base_commit: f5469da9e6e259c1690c7ef54f1da1c19f65036f
+  constraints:
+    allowed_paths: ["**"]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+  acceptance:
+    - id: youtube-dl-unescape-html-full
+      command: >-
+        python -B -c "from youtube_dl.utils import unescapeHTML; assert unescapeHTML('&a&quot;') == '&a' + chr(34)"
+      timeout_seconds: 60
+      required: true
+  budgets:
+    max_steps: 20
+    max_model_calls: 10
+    max_tool_calls: 20
+    max_wall_time_seconds: 600
+    max_cost_usd: "1.00"
+    max_input_tokens: 100000
+    max_output_tokens: 5000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+
+initial_plan:
+  version: 1
+  items:
+    - work_item_id: locate-unescape-html-full
+      title: Locate nested HTML entity handling in the upstream checkout
+      objective: Retrieve revision-bound evidence before changing the entity matcher
+      dependencies: []
+      expected_artifacts: [Code EvidencePack, youtube-dl-unescape-html-full receipt]
+      acceptance_ids: [youtube-dl-unescape-html-full]
+      allowed_tools: [retrieve_code]
+
+expected_initial_failed_checks: [youtube-dl-unescape-html-full]
+
+arms:
+  - arm_id: no-replan
+    role: baseline
+    description: Continue the stalled code retrieval until deterministic guidance is required.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items: []
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 4
+    expected_tool_calls: 4
+    expected_steps: 4
+    actions:
+      - &retrieve_target
+        tool: retrieve_code
+        arguments:
+          query: unescapeHTML html entity ampersand quot regex
+          max_chunks: 4
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+
+  - arm_id: single-replan
+    role: single_replan
+    description: Replace the stalled investigation with the bounded upstream entity-matcher repair.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items: [repair-unescape-html-full]
+    expected_model_calls: 6
+    expected_tool_calls: 7
+    expected_steps: 7
+    actions:
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+      - tool: revise_plan
+        arguments:
+          reason: Repeated retrieval produced no new evidence; exclude nested ampersands as upstream did.
+          items:
+            - work_item_id: repair-unescape-html-full
+              title: Bound the HTML entity matcher
+              objective: Decode the final entity without consuming an earlier ampersand
+              dependencies: []
+              expected_artifacts: [Code EvidencePack, youtube-dl-unescape-html-full receipt]
+              acceptance_ids: [youtube-dl-unescape-html-full]
+              allowed_tools: [retrieve_code, replace_text, run_check]
+      - tool: replace_text
+        arguments:
+          path: youtube_dl/utils.py
+          old: "r'&([^;]+;)', lambda m: _htmlentity_transform(m.group(1)), s)"
+          new: "r'&([^&;]+;)', lambda m: _htmlentity_transform(m.group(1)), s)"
+      - tool: submit
+        arguments:
+          summary: Applied the upstream nested-entity matcher repair and ran the protected regression check.

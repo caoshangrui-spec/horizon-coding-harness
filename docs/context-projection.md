@@ -1,0 +1,185 @@
+# 确定性上下文投影：实现与恢复合同
+
+更新：2026-10-02。本文描述当前已经接入 `CodingAgentRunner` 的实现，不把确定性裁剪冒充
+语义摘要或 RAG。权威完整消息始终保留；投影只是一次模型调用的可重放视图。证据驱动的
+Run Memory 已作为独立派生层接入，其边界见 [Run Memory](run-memory.md)。
+
+## 1. 目标与非目标
+
+当前增量解决三个具体问题：
+
+1. 长轮次工具输出持续累积时，模型请求不能无限增长；
+2. assistant tool call 与 tool result 不能在裁剪时被拆开或形成孤立消息；
+3. 已结算模型响应跨进程恢复时，必须证明新 Worker 重建的是同一个请求上下文。
+
+当前明确不解决：
+
+- tokenizer 精确预算或模型最大窗口探测；
+- LLM 生成的语义摘要、语义等价验证或摘要重试；
+- 模型生成的语义 Memory 或跨 Run 的 Project Memory；当前 Run Memory 只接受控制器可重建的
+  工具观察，不保存模型 `submit` 声明、猜测或人类对话摘要；词法 Code RAG 是独立工具；
+- 用压缩结果覆盖或删除完整 transcript；
+- 证明真实任务成功率、关键信息召回率或成本得到提升。
+
+## 2. 三层数据及权威关系
+
+| 层 | 对象 | 持久化 | 权威性 |
+|---|---|---|---|
+| 完整会话 | `AgentSession.messages` | 内容寻址 Agent session Artifact | 恢复与审计的唯一权威消息序列 |
+| 强制事实 | `MandatoryFactLedger` | 每次模型调用前的内容寻址 Artifact | Task/Plan/权限/验收/预算/策略/工具 Schema/workspace 的控制器事实 |
+| Run 记忆 | `RunMemorySnapshot` | 每次模型调用前的内容寻址 Artifact | 工具事件与输出证据的有界、可失效投影 |
+| 调用投影 | `ContextProjection.messages` | 每次模型调用前的内容寻址 Artifact | 该次请求的派生、可验证视图，并绑定强制事实和 Run Memory ref/hash |
+| Provider 请求 | `ModelRequest` | request hash + Provider response Artifact | 实际工具 Schema、模型参数与投影消息的请求合同 |
+
+`ContextProjection.source_digest` 对完整源消息的规范 JSON 做 SHA-256；投影自身保留算法
+Schema、字符预算、近期单元数、源/投影消息数、强制事实 ref/hash、Run Memory ref/hash/count
+和实际投影消息。`ModelCallReservation` 再绑定 Fact Ledger Artifact、Memory Artifact 及历史
+事件边界、投影 Artifact、两个消息数及完整 `ModelRequest` hash。各对象不互相替代。
+
+`MandatoryFactLedger` 不复制秘密或完整任务文本。schema v2 记录 TaskSpec/objective、Plan/当前
+WorkItem、按 Plan 顺序排列的已完成 WorkItems、
+allowed/denied paths、预算、模型策略、工具 Schema 的 hash，以及 required acceptance IDs、权限模式
+和当前 workspace revision。完整 objective、路径和 WorkItem 仍来自不可压缩的初始任务合同；
+ledger ref 对完整事实集合提供内容寻址绑定。
+
+## 3. 确定性算法
+
+输入必须至少以一个 system 消息和一个 user 消息开头。这两个消息是不可压缩前缀。其余
+消息从前到后组装为单元：
+
+- 没有 tool calls 的普通消息是一个单消息单元；
+- 一个包含 N 个 tool calls 的 assistant 消息，以及紧随其后的、ID 一一对应的 N 个 tool
+  results，是一个不可拆分单元；
+- 缺少部分 results 的 assistant 单元标为 incomplete，绝不压缩；
+- 孤立、重复、未知 ID 的 tool result 直接触发 `Conflict`，不向 Provider 发送坏消息链。
+
+字符尺寸定义为消息列表规范 JSON 的 Python 字符数：
+
+```text
+context_chars = len(canonical_json(messages))
+```
+
+这不是 UTF-8 字节数，也不是 token 数。选择字符数是为了让首版在无模型 tokenizer、离线测试
+和跨进程恢复时完全确定；Provider 的费用预留仍对最终 `ModelRequest` 使用独立的保守 token
+上界。
+
+每次调用先在投影的 system 消息末尾追加控制器拥有的有界 binding：MandatoryFactLedger 包含
+ledger ref、关键 hash、WorkItem ID、required acceptance IDs、权限模式与 workspace revision；
+Run Memory 包含 snapshot ref、失效/未知/省略计数，以及最近 2 条观察的来源 WorkItem、工具、
+outcome、status 和最多 80 字符 active excerpt。stale excerpt 不注入。完整 canonical transcript
+不被改写。
+若加上 binding 后仍未超过 `max_context_chars`，除 system binding 外其余投影消息与源消息相同。
+超过时：
+
+1. 保留初始 system/user；
+2. 优先保留最后 `preserve_recent_context_units` 个单元；这是软保留目标，不覆盖字符硬上限；
+3. 从第一个 incomplete 单元开始全部保留；
+4. 更旧且完整的单元折叠成一个 user 消息；
+5. 折叠消息记录全部被折叠单元的聚合 digest；最多最近 20 个旧单元另记录工具名、参数 hash、
+   内容 hash 和最多 240 字符片段；更早单元只有聚合 digest，不伪造细节；
+6. 如果仍超限，按最旧到最新删除摘要中的单元细节，同时记录 retained/omitted fact count；
+   聚合 digest、合同和 Memory binding 不删除；
+7. 若优先保留的近期完整单元仍使请求超限，则从最老的近期完整单元开始，确定性扩大折叠前缀，
+   只折叠满足上限所需的最少单元；完整 canonical transcript 不变；
+8. incomplete 单元始终不折叠。若不可压缩前缀加 incomplete 单元本身仍超限，则抛出
+   `Conflict`，不向 Provider 发送越界请求。
+
+因此首版是“结构化、可审计、有损裁剪”。它能证明哪些字节被折叠、摘要如何重建，不能证明
+240 字符片段包含所有语义关键事实。
+
+## 4. 模型调用与提交顺序
+
+一次新模型调用的关键顺序为：
+
+```text
+完整 AgentSession
+  → 从当前 Run/tool schema/workspace 重建 MandatoryFactLedger
+  → 写 ledger Artifact 并按 hash 回读校验
+  → 从 EventLog/tool Artifact 派生 RunMemorySnapshot
+  → 写 memory Artifact 并按 hash 回读校验
+  → 重新计算并绑定 ContextProjection
+  → 写 Artifact 并按 hash 回读校验
+  → 构造 ModelRequest 和 request hash
+  → Campaign reservation
+  → Run MODEL_CALL_RESERVED（绑定 ledger + memory boundary + projection）
+  → Provider
+  → response Artifact
+  → Run receipt
+  → Campaign settlement
+```
+
+投影 Artifact 写入后、Campaign 预留前退出只会留下无引用的内容寻址对象，不会计费。Campaign
+预留后、Run intent 前退出沿用已有 campaign-only hold 对账。Run intent 之后的 Provider/receipt
+窗口沿用模型调用恢复规则；投影并未放宽 unknown 费用处理。
+
+## 5. 跨进程恢复校验
+
+当 Run 已有可信 response Artifact/receipt，但上次进程未完成 Campaign settlement 或工具轮次
+时，新 Worker 会：
+
+1. 读取最后一个权威 `AgentSession`；
+2. 校验 TaskSpec、Plan、iteration、event boundary 和 workspace revision；
+3. 从当前 Run、工具定义与 workspace 重建 MandatoryFactLedger，要求其 hash 等于 reservation，
+   并回读 ledger Artifact 做逐字段比较；
+4. 回读 RunMemorySnapshot，再从 reservation 记录的历史事件边界重建，要求 ref/hash、revision、
+   count 与完整对象一致；恢复后新增的 unknown/cancelled 事件不得倒灌原请求；
+5. 使用当前配置和已验证 ledger/memory 重新计算 ContextProjection；
+6. 重新构造 ModelRequest，要求 request hash 等于已记录 response 的 request hash；
+7. 读取 reservation 绑定的 projection Artifact，要求对象、ledger/memory binding、字符预算和消息数
+   逐字段一致；
+8. 通过后消费原 response，不再次调用 Provider、不重复计费。
+
+Artifact 缺失/损坏、任务/权限/验收/预算/模型策略/工具 Schema/workspace 漂移、上下文配置
+漂移、消息变化或投影算法输出变化都会保守拒绝。升级前缺少 MandatoryFactLedger 的悬空模型
+响应不会跨版本自动恢复；已完成的历史 Trace 仍可读取。新调用一律产生 ledger 和 projection。
+
+## 6. 配置
+
+当前 SiliconFlow 非秘密配置位于 `config/providers/siliconflow.yaml`：
+
+```yaml
+request:
+  max_context_chars: 60000
+  preserve_recent_context_units: 6
+```
+
+Schema 约束为：字符上限 2,000～1,000,000；近期单元 1～50。`agent run` 与
+`agent resume` 都从同一 Provider 配置构造 `AgentLoopConfig`。改变配置不会修改历史 Artifact；
+如果存在待恢复 response，变化会因投影不一致而拒绝。
+
+## 7. 已执行验证
+
+离线测试覆盖：
+
+- 预算内投影恒等；
+- 多个旧完整工具单元确定性折叠；
+- 摘要细节超预算时确定性丢弃最旧事实并保留聚合 digest 与遗漏计数；
+- 近期完整工具对在硬上限需要时可整体折叠，输出不存在孤立 tool result；
+- incomplete tool call 原样保留；
+- 单个 122,665 字符的近期完整工具结果在 60,000 字符生产配置下可确定性折叠；
+- 孤立/错配 tool result 拒绝，不可压缩前缀或 incomplete 单元自身超限时拒绝；
+- 模型请求使用投影，而 Agent session 继续保存更长的完整 transcript；
+- 压缩前后 system binding 都保留同一个 MandatoryFactLedger ref/hash；
+- 压缩前后 Run Memory ref/hash/count 保持绑定，active excerpt 可见而 stale excerpt 隐藏；
+- canonical system/user 任务前缀与当前 Run 重建结果不一致时拒绝；
+- workspace 写入生成新 ledger，Task/Plan/required acceptance 保持绑定；
+- 待恢复 response 遇到工具 Schema 漂移时在调用 Provider 前拒绝；
+- reservation 中的 projection Artifact 可解析且与实际模型请求一致；
+- 压缩后的 pending response 在 Campaign settlement 中断后由新 Worker 恢复，原响应不重派、
+  不重复计费；显式只读重试产生后续事件时仍按原历史边界重建 Memory。
+
+这些测试使用 Scripted Fake Model，不联网、不产生模型费用。全量数字以
+[开发进度与验证记录](development-progress.md)的最新一次完整回归为准；Docker skip 不算通过。
+
+## 8. 下一增量的进入条件
+
+下一步不是直接接一个向量数据库。优先补以下两层：
+
+1. 当前 ledger 和 Run Memory 已覆盖控制器结构化事实与工具观察；下一步只有在实现 repo identity、
+   文件级依赖重检、显式 promotion/revoke 后，才增加 Project Memory；人类决定必须绑定可信
+   actor 和请求版本，不能解析自由文本猜测；
+2. revision-aware lexical Code RAG 已加入 camelCase/snake_case 词项与有界定义优先，并保留
+   外部 checkout 的失败/成功诊断；下一步补 dirty-revision、同名符号歧义和盲测案例。
+
+只有固定诊断任务显示 lexical retrieval 的召回不足，才评估 embedding/vector 依赖。语义摘要
+进入主循环前还需独立事实保留 QA；在此之前 `semantic_compaction=false` 保持为公开能力边界。

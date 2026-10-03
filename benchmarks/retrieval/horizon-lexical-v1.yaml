@@ -1,0 +1,35 @@
+schema_version: 1
+benchmark_id: horizon-lexical-v1
+allowed_paths:
+  - src/**
+denied_paths:
+  - .git/**
+  - .env
+  - .env.*
+  - secrets/**
+cases:
+  - case_id: campaign-budget-occupancy
+    query: campaign reservation reserved actual cost unknown occupied
+    expected_paths:
+      - src/horizon/adapters/persistence/campaign_budget.py
+    max_chunks: 5
+  - case_id: deterministic-context-projection
+    query: deterministic history projection compacted units context budget
+    expected_paths:
+      - src/horizon/application/context.py
+    max_chunks: 5
+  - case_id: crash-recoverable-promotion
+    query: promotion crash recover reserved intent rollback source workspace candidate
+    expected_paths:
+      - src/horizon/adapters/workspace/promotion.py
+    max_chunks: 5
+  - case_id: unknown-readonly-tool-retry
+    query: unknown readonly tool retry recovery disposition reservation
+    expected_paths:
+      - src/horizon/application/model_recovery.py
+    max_chunks: 5
+  - case_id: immutable-retrieval-evidence
+    query: retrieval evidence immutable source FTS5 content hash
+    expected_paths:
+      - src/horizon/adapters/retrieval/sqlite_fts.py
+    max_chunks: 5

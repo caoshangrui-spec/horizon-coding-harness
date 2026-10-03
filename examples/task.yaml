@@ -1,0 +1,30 @@
+schema_version: "1.0"
+spec_version: 1
+task_id: parser-example
+title: Fix empty parser input
+objective: Return an empty list for empty input while preserving the public API.
+repository:
+  source: local
+  path: ./example-repository
+  # Schema illustration only. Replace this and path with a real repository before execution.
+  base_commit: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+execution_mode: workspace_write
+authority_scope: workspace_write
+task_kind: bugfix
+constraints:
+  allowed_paths: ["src/**", "tests/**"]
+  denied_paths: [".git/**", ".env", ".env.*", "secrets/**"]
+  network: deny
+acceptance:
+  - id: parser_regression
+    kind: command
+    command: python -m pytest -q tests/test_parser.py
+    timeout_seconds: 60
+    required: true
+budgets:
+  max_steps: 20
+  max_model_calls: 20
+  max_tool_calls: 60
+  max_wall_time_seconds: 1800
+  max_cost_usd: "1.00"
+  max_repair_cycles: 2

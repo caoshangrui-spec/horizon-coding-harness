@@ -1,0 +1,19 @@
+schema_version: 1
+benchmark_id: youtube-dl-identifier-variants-v1
+allowed_paths:
+  - youtube_dl/**
+denied_paths:
+  - .git/**
+  - .env
+  - .env.*
+cases:
+  - case_id: natural-language-to-camel-case
+    query: unescape HTML
+    expected_paths:
+      - youtube_dl/utils.py
+    max_chunks: 5
+  - case_id: camel-case-to-snake-case
+    query: registerSocksProtocols
+    expected_paths:
+      - youtube_dl/utils.py
+    max_chunks: 5

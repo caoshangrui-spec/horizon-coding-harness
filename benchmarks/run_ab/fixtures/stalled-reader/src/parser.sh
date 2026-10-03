@@ -1,0 +1,3 @@
+#!/bin/sh
+value="${1-}"
+printf '%s\n' "$value"

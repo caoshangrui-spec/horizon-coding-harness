@@ -1,0 +1,70 @@
+schema_version: 1
+pilot_id: youtube-dl-3-unescape-html-real-model-retry-v4
+source_path: fixture
+
+source:
+  benchmark: BugsInPy
+  project: youtube-dl
+  bug_id: "3"
+  repository_url: https://github.com/ytdl-org/youtube-dl
+  buggy_commit: f5469da9e6e259c1690c7ef54f1da1c19f65036f
+  fixed_commit: 95f3f7c20a05e7ac490e768b8470b20538ef8581
+  fix_url: https://github.com/ytdl-org/youtube-dl/commit/95f3f7c20a05e7ac490e768b8470b20538ef8581
+  upstream_test: test/test_utils.py::TestUtil.test_unescape_html
+  license_spdx: Unlicense
+  license_url: https://github.com/ytdl-org/youtube-dl/blob/f5469da9e6e259c1690c7ef54f1da1c19f65036f/LICENSE
+  reduction: full_checkout
+  reduction_note: The model receives a clean full checkout at the exact buggy commit. The fixed commit and private solution marker remain only in this controller-side manifest.
+
+task:
+  schema_version: "1.0"
+  spec_version: 1
+  task_id: youtube-dl-unescape-html-real-model-retry-v4
+  title: Preserve an earlier ampersand while decoding a later HTML entity
+  objective: >-
+    Fix nested HTML-entity decoding so a valid final entity is decoded without consuming
+    an earlier ampersand and unknown-name prefix. Keep the change narrowly scoped.
+  repository:
+    source: local
+    path: /pilot-source
+    base_commit: f5469da9e6e259c1690c7ef54f1da1c19f65036f
+  constraints:
+    allowed_paths: [youtube_dl/**]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+    requirements:
+      - Do not change tests, dependencies, or public APIs.
+      - Use repository evidence before editing production code.
+  acceptance:
+    - id: youtube-dl-unescape-html-behavior
+      command: >-
+        python -B -c "from youtube_dl.utils import unescapeHTML; assert unescapeHTML('&a&quot;') == '&a' + chr(34)"
+      timeout_seconds: 60
+      required: true
+  budgets:
+    max_steps: 16
+    max_model_calls: 6
+    max_tool_calls: 16
+    max_wall_time_seconds: 600
+    # Legacy TaskSpec field; the enforced paid limit is the CNY provider Run cap below.
+    max_cost_usd: "0.11"
+    max_input_tokens: 100000
+    max_output_tokens: 4096
+    max_repair_cycles: 1
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: siliconflow-deepseek-v4-flash-pilot-budgeted-continuation-011
+  memory_scope: youtube-dl-3-unescape-html-real-model-retry-v4
+
+provider_policy_id: siliconflow-deepseek-v4-flash-pilot-budgeted-continuation-011
+currency: CNY
+max_paid_cost: "0.11"
+expected_initial_failed_checks: [youtube-dl-unescape-html-behavior]
+auto_plan: true
+
+solution_isolation:
+  # Acceptance is intentionally visible; exact upstream repair information is not.
+  acceptance_visibility: visible
+  forbidden_task_literals:
+    - "r'&([^&;]+;)'"

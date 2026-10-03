@@ -1,0 +1,51 @@
+schema_version: 1
+suite_id: bugsinpy-reduced-v1
+
+cases:
+  - case_id: cookiecutter-1-utf8-context
+    manifest_path: external/cookiecutter-1-utf8-context/manifest.yaml
+    source:
+      benchmark: BugsInPy
+      project: cookiecutter
+      bug_id: "1"
+      repository_url: https://github.com/cookiecutter/cookiecutter
+      buggy_commit: c15633745df6abdb24e02746b82aadb20b8cdf8c
+      fixed_commit: 7f6804c4953a18386809f11faf4d86898570debc
+      fix_url: https://github.com/cookiecutter/cookiecutter/commit/7f6804c4953a18386809f11faf4d86898570debc
+      upstream_test: tests/test_generate_context.py::test_generate_context_decodes_non_ascii_chars
+      license_spdx: BSD-3-Clause
+      license_url: https://github.com/cookiecutter/cookiecutter/blob/c15633745df6abdb24e02746b82aadb20b8cdf8c/LICENSE
+      reduction: dependency_reduced
+      reduction_note: Keeps the buggy production open call and UTF-8 behavior while replacing tox and project dependencies with a standard-library executable check.
+
+  - case_id: fastapi-5-nested-field-clone
+    manifest_path: external/fastapi-5-nested-field-clone/manifest.yaml
+    source:
+      benchmark: BugsInPy
+      project: fastapi
+      bug_id: "5"
+      repository_url: https://github.com/fastapi/fastapi
+      buggy_commit: 7cea84b74ca3106a7f861b774e9d215e5228728f
+      fixed_commit: 75a07f24bf01a31225ee687f3e2b3fc1981b67ab
+      fix_url: https://github.com/fastapi/fastapi/commit/75a07f24bf01a31225ee687f3e2b3fc1981b67ab
+      upstream_test: tests/test_filter_pydantic_sub_model.py::test_filter_sub_model
+      license_spdx: MIT
+      license_url: https://github.com/fastapi/fastapi/blob/7cea84b74ca3106a7f861b774e9d215e5228728f/LICENSE
+      reduction: dependency_reduced
+      reduction_note: Preserves the missing recursive field clone and nested aliasing failure with a dependency-free model-field reproduction.
+
+  - case_id: tqdm-1-tenumerate-start
+    manifest_path: external/tqdm-1-tenumerate-start/manifest.yaml
+    source:
+      benchmark: BugsInPy
+      project: tqdm
+      bug_id: "1"
+      repository_url: https://github.com/tqdm/tqdm
+      buggy_commit: 8cc777fe8401a05d07f2c97e65d15e4460feab88
+      fixed_commit: c0dcf39b046d1b4ff6de14ac99ad9a1b10487512
+      fix_url: https://github.com/tqdm/tqdm/commit/c0dcf39b046d1b4ff6de14ac99ad9a1b10487512
+      upstream_test: tqdm/tests/tests_contrib.py::test_enumerate
+      license_spdx: MPL-2.0
+      license_url: https://github.com/tqdm/tqdm/blob/8cc777fe8401a05d07f2c97e65d15e4460feab88/LICENCE
+      reduction: dependency_reduced
+      reduction_note: Preserves the positional start bug with a deterministic progress-wrapper stub and the upstream start-index assertion.

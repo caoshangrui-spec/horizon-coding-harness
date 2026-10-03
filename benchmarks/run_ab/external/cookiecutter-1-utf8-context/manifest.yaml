@@ -1,0 +1,101 @@
+schema_version: 1
+benchmark_id: cookiecutter-1-utf8-context
+fixture_path: fixture
+
+task:
+  task_id: cookiecutter-utf8-context
+  title: Decode non-ASCII context values consistently
+  objective: Load the context JSON as UTF-8 even when the platform default encoding is ASCII
+  repository:
+    source: local
+    path: /fixture
+    base_commit: c15633745df6abdb24e02746b82aadb20b8cdf8c
+  constraints:
+    allowed_paths: [cookiecutter/**, tests/**]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+  acceptance:
+    - id: cookiecutter-utf8
+      command: python -B tests/test_generate_context.py
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 20
+    max_model_calls: 10
+    max_tool_calls: 20
+    max_wall_time_seconds: 600
+    max_cost_usd: "1.00"
+    max_input_tokens: 100000
+    max_output_tokens: 5000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+
+initial_plan:
+  version: 1
+  items:
+    - work_item_id: inspect-context-loader
+      title: Inspect context decoding
+      objective: Establish evidence before changing the context loader
+      dependencies: []
+      expected_artifacts: [cookiecutter/generate.py, cookiecutter-utf8 receipt]
+      acceptance_ids: [cookiecutter-utf8]
+      allowed_tools: [read_file]
+
+expected_initial_failed_checks: [cookiecutter-utf8]
+
+arms:
+  - arm_id: no-replan
+    role: baseline
+    description: Continue the stalled source read until deterministic guidance is required.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items: []
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 4
+    expected_tool_calls: 4
+    expected_steps: 4
+    actions:
+      - &read_target
+        tool: read_file
+        arguments: {path: cookiecutter/generate.py}
+      - *read_target
+      - *read_target
+      - *read_target
+
+  - arm_id: single-replan
+    role: single_replan
+    description: Replace the stalled investigation with the bounded upstream encoding repair.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items: [repair-context-loader]
+    expected_model_calls: 6
+    expected_tool_calls: 7
+    expected_steps: 7
+    actions:
+      - *read_target
+      - *read_target
+      - *read_target
+      - tool: revise_plan
+        arguments:
+          reason: Repeated reads produced no new evidence; apply the source-bound UTF-8 repair.
+          items:
+            - work_item_id: repair-context-loader
+              title: Bind context reads to UTF-8
+              objective: Make non-ASCII JSON decoding independent of the platform default
+              dependencies: []
+              expected_artifacts: [cookiecutter/generate.py, cookiecutter-utf8 receipt]
+              acceptance_ids: [cookiecutter-utf8]
+              allowed_tools: [read_file, replace_text, run_check]
+      - tool: replace_text
+        arguments:
+          path: cookiecutter/generate.py
+          old: "with open(context_file) as file_handle:"
+          new: "with open(context_file, encoding='utf-8') as file_handle:"
+      - tool: submit
+        arguments:
+          summary: Bound context JSON decoding to UTF-8 and ran the protected regression check.

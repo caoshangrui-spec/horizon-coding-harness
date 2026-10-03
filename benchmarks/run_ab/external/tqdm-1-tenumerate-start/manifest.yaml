@@ -1,0 +1,101 @@
+schema_version: 1
+benchmark_id: tqdm-1-tenumerate-start
+fixture_path: fixture
+
+task:
+  task_id: tqdm-tenumerate-start
+  title: Honor the tenumerate start index
+  objective: Apply start to enumerate rather than passing it positionally into the progress wrapper
+  repository:
+    source: local
+    path: /fixture
+    base_commit: 8cc777fe8401a05d07f2c97e65d15e4460feab88
+  constraints:
+    allowed_paths: [tqdm/**, tests/**]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+  acceptance:
+    - id: tqdm-enumerate-start
+      command: python -B tests/test_tenumerate.py
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 20
+    max_model_calls: 10
+    max_tool_calls: 20
+    max_wall_time_seconds: 600
+    max_cost_usd: "1.00"
+    max_input_tokens: 100000
+    max_output_tokens: 5000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+
+initial_plan:
+  version: 1
+  items:
+    - work_item_id: inspect-tenumerate
+      title: Inspect tenumerate start handling
+      objective: Establish evidence before changing the wrapper composition
+      dependencies: []
+      expected_artifacts: [tqdm/contrib/__init__.py, tqdm-enumerate-start receipt]
+      acceptance_ids: [tqdm-enumerate-start]
+      allowed_tools: [read_file]
+
+expected_initial_failed_checks: [tqdm-enumerate-start]
+
+arms:
+  - arm_id: no-replan
+    role: baseline
+    description: Continue the stalled source read until deterministic guidance is required.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items: []
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 4
+    expected_tool_calls: 4
+    expected_steps: 4
+    actions:
+      - &read_target
+        tool: read_file
+        arguments: {path: tqdm/contrib/__init__.py}
+      - *read_target
+      - *read_target
+      - *read_target
+
+  - arm_id: single-replan
+    role: single_replan
+    description: Replace the stalled investigation with the bounded upstream start-index repair.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items: [repair-tenumerate]
+    expected_model_calls: 6
+    expected_tool_calls: 7
+    expected_steps: 7
+    actions:
+      - *read_target
+      - *read_target
+      - *read_target
+      - tool: revise_plan
+        arguments:
+          reason: Repeated reads produced no new evidence; move start to enumerate as upstream did.
+          items:
+            - work_item_id: repair-tenumerate
+              title: Apply start to enumerate
+              objective: Preserve wrapper arguments while honoring the requested enumeration index
+              dependencies: []
+              expected_artifacts: [tqdm/contrib/__init__.py, tqdm-enumerate-start receipt]
+              acceptance_ids: [tqdm-enumerate-start]
+              allowed_tools: [read_file, replace_text, run_check]
+      - tool: replace_text
+        arguments:
+          path: tqdm/contrib/__init__.py
+          old: "return enumerate(tqdm_class(iterable, start, **tqdm_kwargs))"
+          new: "return enumerate(tqdm_class(iterable, **tqdm_kwargs), start)"
+      - tool: submit
+        arguments:
+          summary: Applied start to enumerate and ran the protected regression check.
