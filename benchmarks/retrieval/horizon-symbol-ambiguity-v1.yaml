@@ -1,0 +1,23 @@
+schema_version: 1
+benchmark_id: horizon-symbol-ambiguity-v1
+allowed_paths:
+  - src/**
+denied_paths:
+  - .git/**
+  - .env
+  - .env.*
+cases:
+  - case_id: orders-render-invoice
+    query: orders renderInvoice
+    expected_paths:
+      - src/orders/invoice.py
+    forbidden_paths:
+      - src/audit/invoice.py
+    max_chunks: 1
+  - case_id: audit-render-invoice
+    query: audit renderInvoice
+    expected_paths:
+      - src/audit/invoice.py
+    forbidden_paths:
+      - src/orders/invoice.py
+    max_chunks: 1

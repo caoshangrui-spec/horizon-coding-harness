@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from typer.testing import CliRunner
 
@@ -85,3 +86,28 @@ cases:
     assert result.exit_code == 2
     assert "source/.horizon" in result.output
     assert not (workspace / "visible-state").exists()
+
+
+def test_checked_in_symbol_ambiguity_diagnostic_prefers_module_context(tmp_path):
+    root = Path(__file__).resolve().parents[2]
+    result = runner.invoke(
+        app,
+        [
+            "eval",
+            "retrieval",
+            str(root / "benchmarks/retrieval/horizon-symbol-ambiguity-v1.yaml"),
+            "--source",
+            str(root / "benchmarks/retrieval/fixtures/symbol-ambiguity-v1"),
+            "--state-dir",
+            str(tmp_path / "state"),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    report = json.loads(result.stdout)["report"]
+    assert report["hit_count"] == 2
+    assert report["hit_rate_at_case_k"] == 1.0
+    assert report["mean_reciprocal_rank"] == 1.0
+    assert report["leakage_count"] == 0
+    assert report["paid_model_called"] is False
+    assert report["network_called"] is False

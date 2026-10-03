@@ -1,6 +1,6 @@
 # Revision-aware 词法 Code RAG：实现与证据合同
 
-更新：2026-10-03。当前实现是本地、无模型费用的首个 Code RAG 垂直切片：SQLite FTS5
+更新：2026-10-04。当前实现是本地、无模型费用的首个 Code RAG 垂直切片：SQLite FTS5
 召回 + immutable snapshot 复核 + Typed Tool 输出。它不是向量检索、语义搜索或完整代码图。
 
 ## 1. 为什么现在做这一层
@@ -72,14 +72,18 @@ POSIX 路径。
 Artifacts 不删除，所以旧 revision 再次查询时可确定性重建。
 
 查询先用 Unicode word 规则提取并去重词项；保留原词的同时拆分 snake_case、camelCase 和
-PascalCase，并对全 ASCII 标识符片段生成一个组合词。例如 `unescape HTML` 会增加
-`unescapehtml`，`registerSocksProtocols` 会增加 `register/socks/protocols`。所有词项再生成只含
-转义 phrase 的 FTS 表达式，用户文本不能直接注入 FTS 操作符。
+PascalCase。每个包含多个片段的原始 token 会单独生成标识符候选，整句的全 ASCII 片段也保留
+一个组合候选。例如 `orders renderInvoice` 同时保留 `renderinvoice` 和
+`ordersrenderinvoice`，不会再把模块语境误当成符号本身；`unescape HTML` 仍会增加
+`unescapehtml`。所有词项再生成只含转义 phrase 的 FTS 表达式，用户文本不能直接注入 FTS
+操作符。
 
 组合词命中先进入至多 256 个 chunk 的候选集；若片段内有规范化后同名的 `def`、`async def`
-或 `class` 声明，定义片段排在调用/导入片段前，其余仍按 SQLite BM25、path、start line 排序。
-若组合词没有命中，普通词项候选也应用同一有界定义启发式，因此 camelCase 查询可以定位
-snake_case 定义。该规则不是 AST、符号表或调用图；BM25 分数也不暴露为跨版本稳定指标。
+或 `class` 声明，定义片段排在调用/导入片段前。多个片段都定义同一查询符号时，才比较查询
+词与模块路径 token 的交集，再按 SQLite BM25、path、start line 排序。普通自然语言查询没有
+定义命中时不使用路径加权，避免 `tool_recovery.py` 一类文件名偶然压过正文证据；FTS5 与
+lexical-scan fallback 使用同一条消歧规则。索引算法版本为 6，因此不会复用 v5 派生缓存。
+该规则不是 AST、符号表或调用图；BM25 分数也不暴露为跨版本稳定指标。
 
 ## 5. EvidencePack 合同
 
@@ -130,12 +134,13 @@ workspace revision 未变且用户显式选择 `--retry-readonly` 时保守取�
 
 ## 7. 固定离线诊断
 
-新增 `horizon eval retrieval`，读取严格 manifest，对 scoped immutable snapshot 逐案例执行当前
+`horizon eval retrieval` 读取严格 manifest，对 scoped immutable snapshot 逐案例执行当前
 Retriever，并生成内容寻址 `RetrievalEvalReport`。报告给出 Hit@case-K、micro path recall、MRR、
 forbidden-path leakage、empty 和 degraded 计数，并显式记录零模型/零网络。首个 5 案例内部诊断
-结果是 Hit=5/5、micro recall=1.0、MRR=0.9、leakage/empty/degraded 均为 0；promotion adapter
-为 rank 2，其余 rank 1。它是实现者编写的本仓小样例，不是 benchmark 或泛化证据。协议、公式、
-命令和限制见[词法检索离线诊断](retrieval-evaluation.md)。
+在 v6 上仍是 Hit=5/5、micro recall=1.0、MRR=0.9、leakage/empty/degraded 均为 0；promotion
+adapter 为 rank 2，其余 rank 1。新增 2 案例同名符号诊断在 v5 基线上 Hit@1=0/2、leakage=2，
+v6 为 Hit@1=2/2、MRR=1.0、leakage=0。它们都是实现者编写的小样例，不是 benchmark 或泛化
+证据。协议、公式、命令、负结果和限制见[词法检索离线诊断](retrieval-evaluation.md)。
 
 ## 8. 已执行验证
 
@@ -144,8 +149,11 @@ forbidden-path leakage、empty 和 degraded 计数，并显式记录零模型/�
 - FTS5 多词召回、rank、路径/行号/content hash 和相同 revision 缓存复用；
 - 自然语言到 camelCase、camelCase 到 snake_case 的双向词项扩展，并在高频文档/调用片段前
   优先同名定义；
+- 两个模块定义同名函数且交叉说明文本误导 BM25 时，模块限定词只在定义候选之间消歧；FTS5
+  与 scan fallback 结果一致；
 - allowed/denied path scope，不召回未授权测试文件或 `.env`；
-- dirty workspace 产生新 index key，旧 manifest 仍只能召回旧内容；
+- dirty workspace 产生新 index key；同名目标移动后新 revision 排到新路径，旧 manifest 仍能
+  逐对象重放原排序；
 - 非 UTF-8 文件使状态变为 degraded，但不隐藏合法命中；
 - FTS5 不可用时显式 lexical-scan 降级；
 - manifest/revision 不一致与派生索引篡改拒绝；
@@ -170,10 +178,12 @@ camelCase 定义和 `registerSocksProtocols` 的 snake_case 定义都排在 rank
 
 - 当前只有 camelCase/snake_case 子词与 `def/class` 文本启发式，没有 AST、符号表、import
   解析或调用图；超过 256 个组合词候选时，定义仍可能被截断。中文长串分词能力有限。
+- 同名定义消歧依赖查询中显式出现的模块/路径词；缺少限定词时仍按 BM25/path 决定，也不会
+  生成完整的“候选符号集合”或证明首项语义正确。
 - 当前索引 path + 文本 chunk，不索引 Git history、互联网、Memory 或 benchmark gold。
 - BM25 rank 依赖 SQLite/分词配置，不作为跨环境科学比较指标。
 - Evidence snippet 进入 Agent transcript/Trace Artifact；生产级敏感信息分类与脱敏仍未完成，
   因此 TaskSpec path scope 必须继续最小化。
-- 下一步应扩充 dirty-revision、同名符号歧义和更多外部小仓盲测，再评估真正的 symbol-aware 索引；
-  根据内部 5 案例与两个完整 checkout 保留的降级结果决定是否加入 embedding，不能因两次 rank 1
-  就声称 RAG 效果完成。
+- 下一步应增加未参与规则设计的外部小仓盲测，再评估真正的 symbol-aware 索引；根据内部
+  5+2+2 案例、dirty-revision 诊断与两个完整 checkout 保留的降级结果决定是否加入 embedding，
+  不能因作者构造案例通过就声称 RAG 效果完成。

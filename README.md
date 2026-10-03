@@ -66,7 +66,7 @@ EvidencePack 自检。模型动作由冻结脚本提供，外部费用为 0。�
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | Python 3.12/3.13 的测试、静态检查、演示和构建已通过 | CI 不读取 API Key、不运行付费模型 |
-| 离线回归 | `287 passed, 6 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `291 passed, 6 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | Docker 契约 | `redis:7-alpine` 上单独复跑 `6 passed` | 有限隔离合同，不是恶意代码安全认证 |
 | 完整 checkout A/B | tqdm 82 files、youtube-dl 872 files；初始失败门、恢复、replan、最终验收和 Trace replay 通过 | 使用 Scripted Model，不是模型能力成绩 |
 | 真实模型 Pilot | 四轮均可重放、费用可核对、source 未变 | 四轮均未编辑或验证成功，保留为负结果 |
@@ -127,8 +127,9 @@ observation，不能改写完成项或扩大合同。详细合同见
 [执行停滞后的可恢复人工指导](docs/operator-guidance.md)。
 WorkItem 还可授权 `retrieve_code`，从当前 immutable manifest 的允许路径建立 revision-bound
 FTS5/BM25 索引，返回带 path/range/hash 的 EvidencePack；自然语言与 camelCase/snake_case
-标识符可互相生成有界词项，最多检查 256 个组合词候选以优先同名定义；无 FTS 或跳过文件时
-显式标 degraded。
+标识符可互相生成有界词项，查询中的复合标识符与整句组合候选会分开保留；最多检查 256 个
+候选以优先同名定义，并只在确实命中同名定义时用模块路径词消歧。无 FTS 或跳过文件时显式标
+degraded；未提供模块语境时不会假装已经解决同名符号歧义。
 无法证明是否执行过的模型/工具调用仍保守标为 `unknown`；当前可显式处理单个只读调用，或
 在工作区精确等于预期前态/后态时接纳、回滚一个 `replace_text` 或 `apply_patch`。后者一次
 预校验并修改最多 8 个不同的既有 UTF-8 文件；部分写入保持 unknown，不会被误判为成功。
@@ -156,6 +157,11 @@ uv run --locked horizon agent guide <run-id> .\guidance.txt
 # 离线固定检索诊断；不加载模型、不联网、不执行仓库代码。
 uv run --locked --cache-dir .uv-cache horizon eval retrieval `
   benchmarks/retrieval/horizon-lexical-v1.yaml --source .
+
+# 两个模块定义同名函数、说明文本互相干扰的固定 Hit@1 诊断。
+uv run --locked --cache-dir .uv-cache horizon eval retrieval `
+  benchmarks/retrieval/horizon-symbol-ambiguity-v1.yaml `
+  --source benchmarks/retrieval/fixtures/symbol-ambiguity-v1
 
 # 固定 youtube-dl checkout 上的两类标识符命名变体；需先按完整 checkout 文档准备被 Git 忽略
 # 的本地 fixture，同样零模型、零网络且不执行源码。
@@ -294,7 +300,7 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **287 passed，6 skipped**；6 个跳过项指定本机已有
+当前离线全量回归为 **291 passed，6 skipped**；6 个跳过项指定本机已有
 `redis:7-alpine` 单独复跑，得到 **6 passed** 的真实 Docker 契约结果。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实
 Issue 效果。新增真实模型 Pilot 单元测试覆盖私有答案拒绝、初始失败证据、内容寻址报告和

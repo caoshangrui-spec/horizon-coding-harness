@@ -126,6 +126,107 @@ def test_camel_case_query_finds_a_snake_case_identifier(tmp_path):
     assert result.chunks[0].path == "src/status_parser.py"
 
 
+@pytest.mark.parametrize("force_scan", [False, True])
+def test_same_name_definitions_use_module_path_context(tmp_path, force_scan):
+    workspace, snapshots, _, _, retriever = setup_retrieval(tmp_path)
+    if force_scan:
+        retriever.fts5_available = False
+    (workspace / "src/orders").mkdir()
+    (workspace / "src/audit").mkdir()
+    (workspace / "src/orders/invoice.py").write_text(
+        '"""Audit audit audit integration notes."""\n'
+        "def render_invoice(order):\n"
+        "    return order['id']\n",
+        encoding="utf-8",
+    )
+    (workspace / "src/audit/invoice.py").write_text(
+        '"""Orders orders orders integration notes."""\n'
+        "def render_invoice(event):\n"
+        "    return event['id']\n",
+        encoding="utf-8",
+    )
+    snapshot, manifest = snapshots.capture(workspace)
+
+    orders = retriever.retrieve(
+        source_manifest_ref=manifest,
+        workspace_revision=snapshot.workspace_revision,
+        allowed_paths=("src/**",),
+        denied_paths=(".env",),
+        query="orders renderInvoice",
+        max_chunks=1,
+    )
+    audit = retriever.retrieve(
+        source_manifest_ref=manifest,
+        workspace_revision=snapshot.workspace_revision,
+        allowed_paths=("src/**",),
+        denied_paths=(".env",),
+        query="audit renderInvoice",
+        max_chunks=1,
+    )
+
+    assert "renderinvoice" in orders.normalized_terms
+    assert orders.chunks[0].path == "src/orders/invoice.py"
+    assert audit.chunks[0].path == "src/audit/invoice.py"
+    assert orders.backend == ("lexical_scan" if force_scan else "sqlite_fts5")
+
+
+def test_dirty_revision_rebuilds_same_name_ranking_and_preserves_old_evidence(tmp_path):
+    workspace, snapshots, _, _, retriever = setup_retrieval(tmp_path)
+    (workspace / "src/orders").mkdir()
+    (workspace / "src/audit").mkdir()
+    orders_path = workspace / "src/orders/invoice.py"
+    orders_path.write_text(
+        "def render_invoice(order):\n    return order['id']\n",
+        encoding="utf-8",
+    )
+    (workspace / "src/audit/invoice.py").write_text(
+        "# orders orders orders\ndef render_invoice(event):\n    return event['id']\n",
+        encoding="utf-8",
+    )
+    first_snapshot, first_manifest = snapshots.capture(workspace)
+    before = retriever.retrieve(
+        source_manifest_ref=first_manifest,
+        workspace_revision=first_snapshot.workspace_revision,
+        allowed_paths=("src/**",),
+        denied_paths=(".env",),
+        query="orders renderInvoice",
+        max_chunks=1,
+    )
+
+    orders_path.write_text(
+        "def render_order_receipt(order):\n    return order['id']\n",
+        encoding="utf-8",
+    )
+    (workspace / "src/billing").mkdir()
+    (workspace / "src/billing/invoice.py").write_text(
+        "# audit audit audit\ndef render_invoice(invoice):\n    return invoice['id']\n",
+        encoding="utf-8",
+    )
+    second_snapshot, second_manifest = snapshots.capture(workspace)
+    after = retriever.retrieve(
+        source_manifest_ref=second_manifest,
+        workspace_revision=second_snapshot.workspace_revision,
+        allowed_paths=("src/**",),
+        denied_paths=(".env",),
+        query="billing renderInvoice",
+        max_chunks=1,
+    )
+    old_replay = retriever.retrieve(
+        source_manifest_ref=first_manifest,
+        workspace_revision=first_snapshot.workspace_revision,
+        allowed_paths=("src/**",),
+        denied_paths=(".env",),
+        query="orders renderInvoice",
+        max_chunks=1,
+    )
+
+    assert before.chunks[0].path == "src/orders/invoice.py"
+    assert after.chunks[0].path == "src/billing/invoice.py"
+    assert after.index_key != before.index_key
+    assert after.workspace_revision != before.workspace_revision
+    assert old_replay == before
+
+
 def test_scope_and_empty_are_distinct_from_degraded(tmp_path):
     _, _, snapshot, manifest, retriever = setup_retrieval(tmp_path)
 

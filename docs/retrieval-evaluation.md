@@ -1,6 +1,6 @@
 # 词法检索离线诊断：协议、指标与当前结果
 
-更新：2026-10-03。该诊断用于回答“当前 Code RAG 在一组冻结查询上能否找到指定源码路径”，
+更新：2026-10-04。该诊断用于回答“当前 Code RAG 在一组冻结查询上能否找到指定源码路径”，
 不能回答“Agent 能否解决真实 Issue”，也不能作为 SWE-bench 或跨项目泛化成绩。
 
 ## 1. 固定输入
@@ -77,9 +77,9 @@ MRR         = Σ RR_i / 案例数
 样例由实现者编写、规模小、与代码同仓，不是独立测试集，也没有测跨项目、自然语言 Issue、
 中文查询、代码变体或最终修复成功率。
 
-本轮最终报告的内容地址为
-`30f76f6b41a5d6ded7afc4278747f249869e84b3312e6e5205e6d5d51498fe7f`，对应 scoped source
-workspace revision `faf080297de017960f7ab9bd67f27eb3b034a878f8c916339b9557cfa6f3d0da`。
+v6 本轮报告的内容地址为
+`4fb244757043f2a211fac19b7fc622c7bd98b34e98e250ec4de72771ca335103`，对应 scoped source
+workspace revision `11b930dabb207447a8a6a80b716285a112437e446f923c83a964575f99709943`。
 它是本机 `.horizon/retrieval-eval` 下的可回读证据，不是 Git commit 或公开 benchmark ID。
 
 ## 5. 测试与失败保留
@@ -94,7 +94,9 @@ workspace revision `faf080297de017960f7ab9bd67f27eb3b034a878f8c916339b9557cfa6f3
 只捕获完整 checkout 的 `youtube_dl/**`，不执行源码，包含两个作者选定案例：自然词组
 `unescape HTML` → camelCase 定义，以及 camelCase 查询 `registerSocksProtocols` → snake_case
 定义。最终 2/2 命中，两个目标均 rank 1，Recall/MRR=1.0，empty/degraded/leakage=0；报告 ref 为
-`d711215e24ebf7dd98610a1d96a6a2bc84c2cb3901267e0524d091f1239c08c4`。
+v6 报告 ref 为
+`84448f19b56575084e257323a3f29ab429f05aa262f2dc7b8a09560739897560`；v5 历史成功报告
+`d711215e24ebf7dd98610a1d96a6a2bc84c2cb3901267e0524d091f1239c08c4` 继续保留。
 
 负结果没有删除：仅加入命名拆分/组合时，第一案例 Hit@5=0，报告 ref
 `52922a0aaf100589f6a84faa547b3094966c24718bd79e3b6702c05d3ae242e6`；只把精确组合 token 放在
@@ -103,9 +105,29 @@ workspace revision `faf080297de017960f7ab9bd67f27eb3b034a878f8c916339b9557cfa6f3
 151 个精确 token 命中中约排第 100，原因是大文件长度惩罚与大量 import/call。最终规则只在
 最多 256 个候选中优先规范化同名 `def/class`，没有引入 AST、向量库或模型 reranker。
 
-下一批有价值的增量是：dirty-revision 查询对、同名符号混淆和更多外部小仓库盲测。当前
-youtube-dl 清单由实现者选题，不能算盲测；若这些结果仍显示稳定的词法缺口，再决定是否承担
-embedding/vector 的依赖、成本和索引一致性复杂度。
+## 6. 同名符号与 dirty-revision 诊断
+
+新增固定清单
+[`horizon-symbol-ambiguity-v1.yaml`](../benchmarks/retrieval/horizon-symbol-ambiguity-v1.yaml)
+及其[双模块夹具](../benchmarks/retrieval/fixtures/symbol-ambiguity-v1/)。`orders` 与 `audit` 模块
+都定义 `render_invoice`，并故意在说明文本中高频提及对方模块；两个查询都只取 rank 1，并把
+另一个同名实现列为 forbidden path。
+
+修复前 v5 的真实离线结果为 Hit@1=0/2、MRR=0、leakage=2，report ref
+`7ef81a374121e54b1e6e6cde6ed4fe6ca3b345f218fff275ba79a3399a4287a9`。负结果显示整句
+`orders renderInvoice` 被错误组合成一个符号候选，随后 BM25 被交叉说明文本误导。v6 分开保留
+token 内的 `renderinvoice` 与整句组合候选，并只在确实定义该符号的片段之间比较路径 token；
+结果为 Hit@1=2/2、MRR=1.0、leakage=0，report ref
+`022383e9996623c69335c9b1d8e4ca6cec8426cadccd89c06adfae59eed10465`。
+
+配套 dirty-revision 集成测试在同一 workspace 中先建立两个同名定义，再重命名旧实现并增加
+新模块：新 snapshot 必须生成不同 revision/index key 并把新模块排到 rank 1；旧 manifest 在
+新索引创建后仍逐对象重放原 EvidencePack。FTS5 与显式 lexical-scan fallback 都覆盖同名路径
+规则。该夹具由实现者有意构造，不是外部盲测；查询缺少模块限定词时仍无法可靠消歧。
+
+下一批有价值的增量是更多未参与规则设计的外部小仓库盲测。当前 youtube-dl 与同名夹具都由
+实现者选题；只有盲测继续显示稳定词法缺口时，才决定是否承担 symbol-aware/embedding/vector
+的依赖、成本和索引一致性复杂度。
 
 补充证据不并入上述固定 5 案例分数：[双项目完整 checkout suite](full-checkout-pilot.md)用作者
 冻结的查询在 82/872 文件上游仓库中都返回目标生产文件 rank 1；分别有 73/870 个文件可索引、

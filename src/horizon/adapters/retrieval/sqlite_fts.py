@@ -47,7 +47,7 @@ CHUNK_LINES = 40
 CHUNK_OVERLAP = 5
 MAX_SNIPPET_CHARS = 1_200
 MAX_PRIORITY_CANDIDATES = 256
-INDEX_ALGORITHM_VERSION = 5
+INDEX_ALGORITHM_VERSION = 6
 TERM_PATTERN = re.compile(r"[^\W]+", re.UNICODE)
 IDENTIFIER_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 DEFINITION_PATTERN = re.compile(
@@ -66,18 +66,26 @@ def _term_sets(query: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
     raw_values = TERM_PATTERN.findall(query)
     candidates = [value.casefold() for value in raw_values]
     identifier_parts: list[str] = []
+    identifier_candidates: list[str] = []
     for value in raw_values:
+        value_parts: list[str] = []
         for segment in value.split("_"):
-            identifier_parts.extend(
+            value_parts.extend(
                 part.casefold() for part in IDENTIFIER_BOUNDARY.split(segment) if part
             )
-    candidates.extend(identifier_parts)
-    joined_identifier = ""
+        identifier_parts.extend(value_parts)
+        candidates.extend(value_parts)
+        if len(value_parts) > 1 and all(part.isascii() and part.isalnum() for part in value_parts):
+            joined_value = "".join(value_parts)[:80]
+            candidates.append(joined_value)
+            identifier_candidates.append(joined_value)
+
     if len(identifier_parts) > 1 and all(
         part.isascii() and part.isalnum() for part in identifier_parts
     ):
         joined_identifier = "".join(identifier_parts)[:80]
         candidates.append(joined_identifier)
+        identifier_candidates.append(joined_identifier)
 
     terms: list[str] = []
     for value in candidates:
@@ -87,7 +95,9 @@ def _term_sets(query: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
         if len(terms) == 20:
             break
     normalized = tuple(terms)
-    priority = (joined_identifier,) if joined_identifier and joined_identifier in normalized else ()
+    priority = tuple(
+        dict.fromkeys(value for value in identifier_candidates if value and value in normalized)
+    )
     return normalized, priority
 
 
@@ -107,6 +117,16 @@ def _defines_identifier(content: str, identifiers: tuple[str, ...]) -> bool:
         match.group(1).replace("_", "").casefold() in normalized
         for match in DEFINITION_PATTERN.finditer(content)
     )
+
+
+def _path_term_overlap(path: str, terms: tuple[str, ...]) -> int:
+    path_terms: set[str] = set()
+    for value in TERM_PATTERN.findall(path):
+        for segment in value.split("_"):
+            path_terms.update(
+                part.casefold() for part in IDENTIFIER_BOUNDARY.split(segment) if part
+            )
+    return len(path_terms.intersection(terms))
 
 
 def _file_chunks(content: str):
@@ -343,14 +363,18 @@ class SQLiteCodeRetriever:
                     (_fts_query(query_terms), index_key, candidate_limit),
                 ).fetchall()
                 if priority_terms:
-                    rows.sort(
-                        key=lambda row: (
-                            -int(_defines_identifier(row["content"], priority_terms)),
+
+                    def priority_key(row):
+                        defines_identifier = _defines_identifier(row["content"], priority_terms)
+                        return (
+                            -int(defines_identifier),
+                            -(_path_term_overlap(row["path"], terms) if defines_identifier else 0),
                             row["score"],
                             row["path"],
                             int(row["start_line"]),
                         )
-                    )
+
+                    rows.sort(key=priority_key)
                 for row in rows:
                     key = (
                         row["path"],
@@ -425,6 +449,7 @@ class SQLiteCodeRetriever:
             if score:
                 priority_score = sum(haystack.count(term) for term in priority_terms)
                 definition_priority = _defines_identifier(content, priority_terms)
+                path_term_overlap = _path_term_overlap(path, terms) if definition_priority else 0
                 matches.append(
                     {
                         "path": path,
@@ -435,11 +460,13 @@ class SQLiteCodeRetriever:
                         "score": score,
                         "priority_score": priority_score,
                         "definition_priority": definition_priority,
+                        "path_term_overlap": path_term_overlap,
                     }
                 )
         matches.sort(
             key=lambda row: (
                 -int(row["definition_priority"]),
+                -row["path_term_overlap"],
                 -int(row["priority_score"] > 0),
                 -row["priority_score"],
                 -row["score"],
