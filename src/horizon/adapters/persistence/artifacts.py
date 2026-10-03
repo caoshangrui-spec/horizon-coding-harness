@@ -82,10 +82,12 @@ class ArtifactStore:
                     os.fsync(descriptor)
                 finally:
                     os.close(descriptor)
-            if published:
-                self._remember_verified(sha256, self._signature(path))
         finally:
             temporary.unlink(missing_ok=True)
+        if published:
+            # Removing the temporary hard link changes the inode ctime on POSIX. Cache the
+            # stable post-unlink signature so an unchanged artifact keeps the verified fast path.
+            self._remember_verified(sha256, self._signature(path))
         return sha256
 
     def read(self, sha256: str, max_bytes: int = 64 * 1024 * 1024) -> bytes:
