@@ -54,6 +54,10 @@ BUDGETED_CONTINUATION_MANIFEST = (
 BUDGETED_CONTINUATION_CONFIG = (
     ROOT / "config" / "providers" / "siliconflow-pilot-budgeted-continuation.yaml"
 )
+TQDM_PILOT_MANIFEST = (
+    ROOT / "benchmarks" / "run_ab" / "full" / "tqdm-1-tenumerate-start" / "real-model-pilot.yaml"
+)
+TQDM_PILOT_CONFIG = ROOT / "config" / "providers" / "siliconflow-tqdm-pilot.yaml"
 
 
 def load_manifest() -> RealModelPilotManifest:
@@ -129,6 +133,27 @@ def test_budgeted_continuation_fits_remaining_campaign_and_user_caps():
     )
     assert Decimal("0.0652398") + provider.campaign.max_cost <= Decimal("0.25")
     assert provider.request.max_attempts == 1
+    assert provider.fallback_enabled is False
+
+
+def test_tqdm_pilot_is_narrow_and_fits_remaining_campaign_and_user_caps():
+    manifest = RealModelPilotManifest.model_validate(
+        yaml.safe_load(TQDM_PILOT_MANIFEST.read_text(encoding="utf-8"))
+    )
+    provider = load_provider_config(TQDM_PILOT_CONFIG)
+
+    assert manifest.provider_policy_id == provider.policy_id
+    assert manifest.max_paid_cost == Decimal("0.06")
+    assert manifest.task.constraints.allowed_paths == ("tqdm/contrib/**",)
+    assert manifest.task.budgets.max_model_calls == 6
+    assert provider.run_budget.max_cost == Decimal("0.06")
+    assert provider.request.max_context_chars == 5_000
+    assert provider.request.preserve_recent_context_units == 2
+    assert provider.request.max_attempts == 1
+    assert provider.campaign.campaign_id == "siliconflow-pilot-retry-2026-10"
+    assert provider.campaign.max_cost == Decimal("0.18")
+    assert Decimal("0.1118334") + provider.run_budget.max_cost <= provider.campaign.max_cost
+    assert Decimal("0.1770732") + provider.run_budget.max_cost <= Decimal("0.25")
     assert provider.fallback_enabled is False
 
 
@@ -292,6 +317,11 @@ def test_preflight_persists_bound_task_and_launch_receipt(tmp_path):
     assert result.report.repository_code_executed is True
     assert result.report.validation_backend_ref == image_id
     assert result.report.harness_source_digest == compute_harness_source_digest()
+    assert result.report.initial_planning_input_ceiling is not None
+    assert result.report.initial_planning_output_ceiling == provider.request.max_output_tokens
+    assert result.report.initial_planning_reserved_cost is not None
+    assert result.report.initial_planning_fits_run_cap is True
+    assert result.report.initial_planning_fits_campaign is True
     prepared = TaskSpec.model_validate(
         yaml.safe_load(result.prepared_task_path.read_text(encoding="utf-8"))
     )
@@ -332,6 +362,24 @@ def test_preflight_persists_bound_task_and_launch_receipt(tmp_path):
     with pytest.raises(PolicyDenied, match="predates Harness source binding"):
         verify_pilot_launch_binding(
             legacy,
+            task=prepared,
+            provider=provider,
+            source_git_head=head,
+            source_snapshot_revision=loaded.source_snapshot_revision,
+            validation_backend_ref=image_id,
+        )
+    legacy_planning = loaded.model_copy(
+        update={
+            "initial_planning_input_ceiling": None,
+            "initial_planning_output_ceiling": None,
+            "initial_planning_reserved_cost": None,
+            "initial_planning_fits_run_cap": None,
+            "initial_planning_fits_campaign": None,
+        }
+    )
+    with pytest.raises(PolicyDenied, match="planning reservation gate"):
+        verify_pilot_launch_binding(
+            legacy_planning,
             task=prepared,
             provider=provider,
             source_git_head=head,

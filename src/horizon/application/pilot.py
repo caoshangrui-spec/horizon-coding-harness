@@ -11,6 +11,8 @@ from horizon.adapters.model.config import ProviderConfig
 from horizon.adapters.persistence.artifacts import ArtifactStore
 from horizon.adapters.vcs.git import verify_clean_git_checkout
 from horizon.adapters.workspace.snapshot import SnapshotManager
+from horizon.application.model_probe import conservative_input_ceiling
+from horizon.application.planning import build_plan_request, build_planning_context
 from horizon.domain.common import canonical_json, digest
 from horizon.domain.errors import Conflict, IntegrityError, PolicyDenied
 from horizon.domain.model import CampaignSummary
@@ -150,6 +152,27 @@ class PilotPreflightService:
         if artifacts.read(prepared_task_ref) != task_payload:
             raise IntegrityError("Prepared pilot TaskSpec failed artifact verification")
 
+        planning_output_ceiling = min(1024, provider.request.max_output_tokens)
+        planning_context = build_planning_context(
+            prepared_task,
+            workspace_revision=source_snapshot.workspace_revision,
+            source_manifest_ref=source_manifest_ref,
+            repository_paths=(entry.path for entry in source_snapshot.files),
+        )
+        planning_request = build_plan_request(
+            provider.model.id,
+            planning_context,
+            max_output_tokens=planning_output_ceiling,
+            enable_thinking=provider.request.enable_thinking,
+        )
+        planning_input_ceiling = conservative_input_ceiling(planning_request)
+        planning_reserved_cost = provider.pricing.reserve_cost(
+            planning_input_ceiling,
+            planning_output_ceiling,
+        )
+        planning_fits_run = planning_reserved_cost <= provider.run_budget.max_cost
+        planning_fits_campaign = planning_reserved_cost <= campaign.remaining_cost
+
         observed_failures = tuple(
             sorted(result.check_id for result in initial_validation if not result.passed)
         )
@@ -168,6 +191,8 @@ class PilotPreflightService:
                 initial_failure_matches,
                 solution_isolation_passed,
                 campaign.remaining_cost >= manifest.max_paid_cost,
+                planning_fits_run,
+                planning_fits_campaign,
             )
         )
         report = RealModelPilotPreflightReport(
@@ -191,6 +216,11 @@ class PilotPreflightService:
             currency=manifest.currency,
             run_cost_cap=manifest.max_paid_cost,
             campaign_remaining_cost=campaign.remaining_cost,
+            initial_planning_input_ceiling=planning_input_ceiling,
+            initial_planning_output_ceiling=planning_output_ceiling,
+            initial_planning_reserved_cost=planning_reserved_cost,
+            initial_planning_fits_run_cap=planning_fits_run,
+            initial_planning_fits_campaign=planning_fits_campaign,
             max_model_calls=prepared_task.budgets.max_model_calls,
             initial_validation=initial_validation,
             expected_initial_failed_checks=expected_failures,
@@ -246,6 +276,12 @@ def verify_pilot_launch_binding(
         raise PolicyDenied(
             "Pilot preflight predates Harness source binding; regenerate it before launch"
         )
+    if report.initial_planning_reserved_cost is None:
+        raise PolicyDenied(
+            "Pilot preflight predates the initial planning reservation gate; regenerate it"
+        )
+    if not report.initial_planning_fits_run_cap or not report.initial_planning_fits_campaign:
+        raise PolicyDenied("Pilot preflight cannot fund its initial planning dispatch")
     current_harness_source_digest = current_harness_source_digest or compute_harness_source_digest()
     if current_harness_source_digest != report.harness_source_digest:
         raise Conflict("Harness source changed after pilot preflight")

@@ -8,7 +8,7 @@ from pydantic import Field, model_validator
 from horizon.domain.common import Contract, canonical_json, digest
 from horizon.domain.model import Currency, PositiveMoney
 from horizon.domain.run_evaluation import ExternalTaskSource
-from horizon.domain.task import Identifier, TaskSpec, Text, relative_pattern
+from horizon.domain.task import Identifier, PositiveInt, TaskSpec, Text, relative_pattern
 from horizon.domain.tools import AcceptanceResult, Digest
 
 PrivateLiteral = Annotated[str, Field(min_length=4, max_length=500)]
@@ -110,6 +110,13 @@ class RealModelPilotPreflightReport(Contract):
     currency: Currency
     run_cost_cap: PositiveMoney
     campaign_remaining_cost: Annotated[Decimal, Field(ge=0, allow_inf_nan=False)]
+    # Optional only so historical reports remain readable. New launches require
+    # an offline upper bound for the first automatic-planning dispatch.
+    initial_planning_input_ceiling: PositiveInt | None = None
+    initial_planning_output_ceiling: PositiveInt | None = None
+    initial_planning_reserved_cost: PositiveMoney | None = None
+    initial_planning_fits_run_cap: bool | None = None
+    initial_planning_fits_campaign: bool | None = None
     max_model_calls: int
     initial_validation: tuple[AcceptanceResult, ...]
     expected_initial_failed_checks: tuple[Identifier, ...]
@@ -136,6 +143,27 @@ class RealModelPilotPreflightReport(Contract):
         matches = tuple(sorted(self.expected_initial_failed_checks)) == observed
         if self.initial_failure_matches != matches:
             raise ValueError("Initial-failure verdict does not match validation receipts")
+        planning_fields = (
+            self.initial_planning_input_ceiling,
+            self.initial_planning_output_ceiling,
+            self.initial_planning_reserved_cost,
+            self.initial_planning_fits_run_cap,
+            self.initial_planning_fits_campaign,
+        )
+        if any(value is not None for value in planning_fields) and any(
+            value is None for value in planning_fields
+        ):
+            raise ValueError("Initial planning reservation evidence must be complete")
+        planning_ready = True
+        if self.initial_planning_reserved_cost is not None:
+            fits_run = self.initial_planning_reserved_cost <= self.run_cost_cap
+            fits_campaign = self.initial_planning_reserved_cost <= self.campaign_remaining_cost
+            if self.initial_planning_fits_run_cap != fits_run:
+                raise ValueError("Initial planning Run-cap verdict is inconsistent")
+            if self.initial_planning_fits_campaign != fits_campaign:
+                raise ValueError("Initial planning Campaign verdict is inconsistent")
+            planning_ready = fits_run and fits_campaign
+
         expected_ready = all(
             (
                 self.source_unchanged,
@@ -144,6 +172,7 @@ class RealModelPilotPreflightReport(Contract):
                 self.initial_failure_matches,
                 self.solution_isolation_passed,
                 self.campaign_remaining_cost >= self.run_cost_cap,
+                planning_ready,
             )
         )
         if self.ready != expected_ready:

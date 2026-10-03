@@ -353,7 +353,47 @@ reserved/unknown 均为 0。连同首轮独立 Campaign 的 `CNY 0.0652398`，�
 误终止。离线脚本回归还证明 Agent 能从同类单边范围错误收到结构化回执、改用双边界读取并完成
 编辑、保护性验收和 Trace 重放，但这不是第四轮真实模型成功。
 
-## 10. 后续付费 Pilot 的完成条件
+## 10. tqdm 新任务的零费用候选预检
+
+在不复跑 youtube-dl、也不增加 Campaign 的前提下，新增了一个来源绑定的 tqdm-1 候选：
+
+- Pilot manifest：
+  [`full/tqdm-1-tenumerate-start/real-model-pilot.yaml`](../benchmarks/run_ab/full/tqdm-1-tenumerate-start/real-model-pilot.yaml)；
+- Provider policy：
+  [`siliconflow-tqdm-pilot.yaml`](../config/providers/siliconflow-tqdm-pilot.yaml)；
+- 干净完整 checkout：82 files，Git HEAD
+  `8cc777fe8401a05d07f2c97e65d15e4460feab88`；
+- 模型可见范围只允许 `tqdm/contrib/**`，验收可见，但 fixed commit、fix URL 和精确修复字面量
+  只存在于控制器 manifest；
+- `max_attempts=1`、`fallback_enabled=false`，Run cap 为 `CNY 0.06`。以现有历史结算计，
+  最坏情形下 retry Campaign 占用为 `0.1118334 + 0.06 = CNY 0.1718334`，系列累计为
+  `0.1770732 + 0.06 = CNY 0.2370732`，分别低于 Campaign `CNY 0.18` 和用户累计
+  `CNY 0.25` 上限。
+
+preflight 同时补上了一个此前缺失的门：根据冻结 TaskSpec、允许路径 inventory、规划工具 Schema
+和 Provider PriceCard，离线计算**首次自动规划请求**的保守预留，并要求它同时不超过 Run cap
+和当前 Campaign 余额。该门只证明首个确定性请求可派发；后续动态上下文仍在每次派发前重新计算，
+不会预先承诺整条 Run 一定能在预算内完成。
+
+2026-10-03 的本地禁网 Docker preflight 结果：
+
+- `ready=true`；初始保护性验收按预期 exit code 1，source 再快照不变；
+- 首次规划 input ceiling 8,220 tokens、output ceiling 768 tokens，保守预留
+  `CNY 0.031572`，同时通过 `CNY 0.06` Run cap 和 `CNY 0.0681666` Campaign 余额门；
+- prepared TaskSpec ref：
+  `a5ab50188c4ddf0941dfe1ef247218fbc8c38156722b7671a96934b6c2f5dc72`；
+- preflight report ref：
+  `1b029f1008f1f8438a793d0ef14864165e45d92d34e4bb75d1381ffa59b20db1`；
+- Harness source digest：
+  `787a7f0f7b9c2ee3ffa711a48886630c767cf68dc9b0a8b35c89eeeb99a5a595`；
+- Docker image digest：
+  `sha256:0687a6bc9716edc2a6ee0fbfb0f87e7ee358b262b67c9215de91bc9b2d38ba71`；
+- `credential_loaded=false`、`paid_model_called=false`、`network_called=false`。
+
+这不是第五个真实模型 Run，也不是成功证据。生成的 launch command 被刻意停在
+`--confirm-paid` 之前；现有旧授权均已用完，只有新的明确外发与费用授权才能启动。
+
+## 11. 后续付费 Pilot 的完成条件
 
 正式运行时只接受 preflight 输出的 TaskSpec/report、同一镜像和专用 Provider policy。结果无论
 成功还是失败，都必须记录：

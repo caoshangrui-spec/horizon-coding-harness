@@ -34,7 +34,7 @@
 | 冻结控制器策略评测 | [reliability.py](../src/horizon/domain/reliability.py)、[reliability_eval.py](../src/horizon/application/reliability_eval.py) | 12 案例/41 判断覆盖精确 NoProgress 与单次 replan 接受/拒绝；生产路径共享判定函数、报告内容寻址、零外部调用；不是模型或真实 Issue 效果评测 |
 | 完整 Run A/B 与来源绑定 Suite | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[scripted.py](../src/horizon/adapters/model/scripted.py) | 同一 Task/Plan/workspace 的 baseline 与单次 replan arm；先真实确认初始失败，再检查 EventLog/预算/Gateway/Trace；1 个内部、3 个 BugsInPy 依赖裁剪案例，以及 tqdm 82 files、youtube-dl 872 files 两个完整 checkout 经禁网 Docker 通过；完整案例还验证干净 Git HEAD 与 Code RAG，仍是脚本模型 |
 | 完整 checkout 多阶段/重启 A/B | [multi-stage.yaml](../benchmarks/run_ab/full/youtube-dl-3-unescape-html/multi-stage.yaml) | youtube-dl 872 files 上 production → regression-test 两个依赖 WorkItem；两 arm 均在安全边界换为 epoch 2 Worker，跨 revision RAG、active/stale Run Memory、完成项保留 replan、最终两项 required checks 与 Trace replay 通过；CRLF 精确替换失败和 60 秒重启 Lease 到期均作为负结果保留 |
-| 真实模型 Pilot | [pilot.py](../src/horizon/domain/pilot.py)、[pilot.py](../src/horizon/application/pilot.py)、[real-model-pilot.md](real-model-pilot.md) | 离线预检绑定完整干净 checkout、初始失败、source snapshot、Docker image、Provider policy、Harness 源码指纹和费用 cap。四个付费 Run 分别暴露计划/检索、无界读取/上下文、Plan 假设路径/保守预留，以及单边范围读取/单 Run 预留问题；四次均无编辑/验证，Trace 可重放、source 未变。对应窄修复及后续离线演示已有 281 项回归；旧 preflight 已随源码修复失效，没有继续付费运行 |
+| 真实模型 Pilot | [pilot.py](../src/horizon/domain/pilot.py)、[pilot.py](../src/horizon/application/pilot.py)、[real-model-pilot.md](real-model-pilot.md) | 离线预检绑定完整干净 checkout、初始失败、source snapshot、Docker image、Provider policy、Harness 源码指纹、费用 cap 和首次规划保守预留。四个付费 Run 分别暴露计划/检索、无界读取/上下文、Plan 假设路径/保守预留，以及单边范围读取/单 Run 预留问题；四次均无编辑/验证，Trace 可重放、source 未变。对应窄修复、离线演示及 tqdm 新候选预检已有 282 项回归；没有继续付费运行 |
 | 安全轮次续跑 | [agent.py](../src/horizon/domain/agent.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 消息 Artifact + event/revision 绑定；新 Worker 续跑；PLANNING/READY 也可恢复，任意崩溃窗口对账未完成 |
 | 悬空调用恢复与对账 | [recovery.py](../src/horizon/application/recovery.py)、[model_recovery.py](../src/horizon/application/model_recovery.py)、[tool_recovery.py](../src/horizon/application/tool_recovery.py) | Campaign-only 预留释放；response Artifact 跨 Worker 续跑；只读重试；精确 `replace_text` / `apply_patch` accept/rollback；Docker `run_check` 用 call ID 标签 attempt，可查询/显式停止/删除后丢弃未知结果，missing 仍需人工确认；部分 patch 与无停止证明的验证副作用仍阻塞 |
 | 受控候选提升 | [promotion.py](../src/horizon/application/promotion.py)、[promotion.py](../src/horizon/adapters/workspace/promotion.py)、[git.py](../src/horizon/adapters/vcs/git.py) | 只读 diff、源/候选 revision 与可选 Git HEAD 绑定、显式 1～8 个既有文件修改、完整/部分 effect 崩溃恢复；不创建 commit |
@@ -70,15 +70,15 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 ### 2026-10-03 Provider、完整 Checkout 与快照优化
 
-- 2026-10-03 当前离线全量回归为 **281 passed，5 skipped**；5 项跳过项指定本机已有
+- 2026-10-03 当前离线全量回归为 **282 passed，5 skipped**；5 项跳过项指定本机已有
   `python:3.12-alpine` 单独复跑，得到 **5 passed** 的真实 Docker 契约结果。
 - Pilot 合同测试覆盖 checked-in CNY 0.25 首轮、CNY 0.18 复跑 Campaign 和已执行的 CNY 0.11
   收窄 continuation policy、累计最坏费用
   `CNY 0.2452398`、私有修复信息进入 TaskSpec 时拒绝、初始失败证据、prepared Task/report 内容
   寻址，以及任务/Provider/source/image/Harness Python 源码在启动前漂移时拒绝。
 - `ruff format --check src tests`、`ruff check src tests`、`uv --cache-dir .uv-cache lock --check` 和
-  `uv --cache-dir .uv-cache build` 通过；源码分发包与 wheel 成功生成。29 个公开 Markdown
-  文件中的 199 个本地链接全部解析到现有、未被 Git 忽略的目标。
+  `uv --cache-dir .uv-cache build` 通过；源码分发包与 wheel 成功生成。公开 Markdown
+  文档中的本地链接已检查到现有、未被 Git 忽略的目标。
 - 新增安全轮次续跑测试会释放第一任 Worker Lease，重新打开 SQLite 和 ArtifactStore，由
   第二任 Worker 从下一 iteration 完成任务；workspace drift 或会话后的额外操作事件均在
   新模型调用前拒绝。
@@ -414,8 +414,10 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
    缺口，但仍没有完成目标修复或 protected validation。仍缺固定 20～30 个真实任务、长程/检索/记忆诊断、
    A/B/C/D 与消融、关键安全独立复核。单个负样本不能替代这些证据。
 
-四轮负证据驱动修复与后续作品集演示已完成 281 项离线回归；同一 CNY 0.18 retry Campaign 尚余
-`CNY 0.0681666`，系列累计实际费用为 `CNY 0.1770732`。第四轮旧 preflight 已因 Harness
+四轮负证据驱动修复、后续作品集演示和新的 tqdm 零费用 preflight 已完成 282 项离线回归；
+该 preflight 证明首次规划保守预留 `CNY 0.031572` 可由 `CNY 0.06` Run cap 覆盖，但没有启动
+第五个真实模型 Run。同一 CNY 0.18 retry Campaign 尚余 `CNY 0.0681666`，系列累计实际费用为
+`CNY 0.1770732`。第四轮旧 preflight 已因 Harness
 源码修复失效，剩余 Campaign 或用户总额度都不能自动扩权；任何新付费 Run 仍须重新预检并取得
 明确授权。当前优先继续零费用可靠性验证，现有证据不支持立即引入 symbol/vector
 索引、模型摘要或自动 replan。Run Memory 已形成最小垂直切片，

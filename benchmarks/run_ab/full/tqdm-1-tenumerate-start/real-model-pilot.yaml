@@ -1,0 +1,71 @@
+schema_version: 1
+pilot_id: tqdm-1-tenumerate-start-real-model-v1
+source_path: fixture
+
+source:
+  benchmark: BugsInPy
+  project: tqdm
+  bug_id: "1"
+  repository_url: https://github.com/tqdm/tqdm
+  buggy_commit: 8cc777fe8401a05d07f2c97e65d15e4460feab88
+  fixed_commit: c0dcf39b046d1b4ff6de14ac99ad9a1b10487512
+  fix_url: https://github.com/tqdm/tqdm/commit/c0dcf39b046d1b4ff6de14ac99ad9a1b10487512
+  upstream_test: tqdm/tests/tests_contrib.py::test_enumerate
+  license_spdx: MPL-2.0
+  license_url: https://github.com/tqdm/tqdm/blob/8cc777fe8401a05d07f2c97e65d15e4460feab88/LICENCE
+  reduction: full_checkout
+  reduction_note: >-
+    The model receives the clean 82-file upstream checkout at the exact buggy commit.
+    The fixed commit and private repair literal remain controller-only evidence.
+
+task:
+  schema_version: "1.0"
+  spec_version: 1
+  task_id: tqdm-tenumerate-start-real-model-v1
+  title: Honor a caller-provided start index in tenumerate
+  objective: >-
+    Make tenumerate produce the same nonzero indices as enumerate while preserving progress
+    display behavior and keeping the production change narrow.
+  repository:
+    source: local
+    path: /pilot-source
+    base_commit: 8cc777fe8401a05d07f2c97e65d15e4460feab88
+  constraints:
+    allowed_paths: [tqdm/contrib/**]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+    requirements:
+      - Do not change tests, dependencies, or public APIs.
+      - Use revision-bound repository evidence before editing production code.
+  acceptance:
+    - id: tqdm-enumerate-start-behavior
+      command: >-
+        python -B -c "from tqdm.contrib import tenumerate; assert list(tenumerate(['a', 'b'], 42, disable=True)) == [(42, 'a'), (43, 'b')]"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 14
+    max_model_calls: 6
+    max_tool_calls: 14
+    max_wall_time_seconds: 600
+    # Legacy TaskSpec field; the enforced paid limit is the CNY provider Run cap below.
+    max_cost_usd: "0.06"
+    max_input_tokens: 60000
+    max_output_tokens: 3072
+    max_repair_cycles: 1
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: siliconflow-deepseek-v4-flash-tqdm-pilot-006
+  memory_scope: tqdm-1-tenumerate-start-real-model-v1
+
+provider_policy_id: siliconflow-deepseek-v4-flash-tqdm-pilot-006
+currency: CNY
+max_paid_cost: "0.06"
+expected_initial_failed_checks: [tqdm-enumerate-start-behavior]
+auto_plan: true
+
+solution_isolation:
+  acceptance_visibility: visible
+  forbidden_task_literals:
+    - "return enumerate(tqdm_class(iterable, **tqdm_kwargs), start)"

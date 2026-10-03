@@ -16,6 +16,8 @@ for public releases; unreleased work must not be presented as a published releas
 - Added narrow persistent HITL paths and one evidence-bound execution replan.
 - Added offline retrieval, reliability, and source-bound Run A/B evaluations.
 - Added a one-command portfolio demo with a self-verified EvidencePack.
+- Added task-specific real-model preflight evidence for the initial planning reservation.
+- Stabilized POSIX artifact verification after hard-link publication and enforced LF checkouts.
 
 Evidence boundaries remain explicit: the release does not claim a real-model Issue success,
 official benchmark score, production sandbox security, or completion of the full design backlog.

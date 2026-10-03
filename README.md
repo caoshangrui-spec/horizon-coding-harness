@@ -1,50 +1,78 @@
 # Horizon — Recoverable Coding Agent Harness
 
-面向长程软件工程任务的可恢复 Coding Agent Harness。当前已经有一个可执行的、受预算
-保护的顺序多 WorkItem Coding Agent 闭环：真实模型提出工具调用，Harness 在一次性工作副本中
-执行受控读取、单文件或有界多文件精确编辑，并用 Linux Docker 做受保护验收。它仍不是完整的长程 Agent，
-但已经补上精确写入崩溃处置、最多 8 个既有文件的受控 promotion，以及保留完整原始会话的确定性上下文
-投影、控制器 MandatoryFactLedger 和有证据的 Run Memory。执行前现可用一次受预算模型调用
-提出最多 8 项的 WorkItem DAG；控制器校验权限、DAG 和验收覆盖并保存来源 receipt，规划提交
-窗口崩溃后可复用响应而不重复计费。无效自动计划不会把 Run 直接判死：Harness 会持久化
-与模型响应证据绑定的人工替换请求，原子进入等待态并释放 Lease；本机 CLI 提交通过同一控制器
-校验的 Plan 后可从 `READY` 继续，且不会自动再调用模型。执行模型还可基于当前 Run 证据显式
-提交一次受限 `revise_plan`：已通过 WorkItem 必须原样保留，TaskSpec/验收/权限/预算不变，
-  工具记账、Plan vN+1 和新 session 原子提交。它已有三个同一真实 Issue 的冻结失败 Run，但还没有
-真实 Issue 成功或 benchmark 成绩，也尚未实现自然
-语言 TaskSpec intake、自动或多次 replan、并行工作项、任意副作用恢复、语义压缩、Project
-Memory、向量/符号检索、通用审批式 HITL 和自动模型 fallback。当前
-`retrieve_code` 已提供 revision-aware 的本地 SQLite FTS5 词法 Code RAG，并对每个命中回查
-immutable source Artifact；它还能有界展开 camelCase/snake_case 词项并优先同名 `def/class` 定义。
-固定 5 案例本仓诊断、2 案例外部 checkout 命名变体诊断和 12 案例控制器策略诊断均可离线重复运行。
-同一真实任务的三个 Pilot Run 都观察到 ranked retrieval 命中目标定义，但单一任务的失败轨迹仍不足以形成检索或
-replan 效果结论。完整 Run A/B 现包含一个内部 fixture、
-三个 BugsInPy 来源的依赖裁剪历史缺陷，以及 tqdm（82 files）与 youtube-dl（872 files）两个
-干净、固定的完整 checkout：均先确认初始验收失败，再比较 Baseline 可恢复等待与单次 replan
-成功，并保存禁网 Docker 验收与可重放 Trace。两个完整案例的 revision-bound Code RAG 均把目标
-文件排在 rank 1，同时如实保留 9 和 2 个文件未索引的 degraded 结果。它们是 Harness 路径与
-规模开销证据，不是真实模型或官方 benchmark 成绩。872 文件案例暴露的重复 CAS blob 校验已
-修复：同进程同 revision 再快照从 19.931 秒降至 2.247 秒，完整双项目 suite 墙钟从 1124.65 秒
-降至 340.00 秒；内容哈希、元数据变化失效、新进程复核和 Trace replay 仍保留。
-在同一 youtube-dl 完整 checkout 上还完成了一个两阶段 production → regression-test 任务：
-Baseline 在完成第一项后于第二项等待，Treatment 保留已完成项、只 replan 剩余项并通过最终两项
-验收；两个 arm 都在 WorkItem 安全边界释放第一任 Worker、重新打开持久化适配器，再由
-`lease_epoch=2` 的新 Worker 续跑。跨 revision RAG、active/stale Run Memory 和 86/116-event
-Trace 均有内容寻址证据。第一次真实重启运行还保留了 60 秒租约在大仓校验期间到期的负结果；
-修正为显式 600 秒后，fencing、Trace replay、最终 revision 与验收均通过。
-同一 youtube-dl 完整 checkout 现有四个真实模型 Pilot Run：离线预检先绑定干净 buggy
-commit、初始失败、源码 snapshot、Docker image、Provider policy 和费用 cap，再生成 solution-blind、
-acceptance-visible 的内容寻址 TaskSpec/report。四轮分别暴露：不可执行的 Plan 和重复
-exact search；无范围整文件读取与近期上下文硬保留；以及 Plan 猜测路径压过 rank 1 仓库证据、
-下一请求预留超过 Campaign 余额；以及单边范围读取与单 Run 预留不足。四轮都没有编辑或验证，
-source 未变、费用已结算、Trace 可重放。对应窄修复已完成离线回归，但仍没有真实 Issue 成功或
-benchmark 成绩；第四轮的一次性付费授权已经用完。
-后续零费用实现已把未来同类 Run/Campaign 派发前费用不足变成带 required/available 金额的
-可重放 `FAILED`，并用 Scripted Model 证明单边范围错误能够收到结构化反馈、改为双边界读取后
-完成编辑和保护性验收；历史第四轮 Trace 保持原样。
-现在还提供一条命令的离线作品集演示：它在结构化读取错误后完成 epoch 1 → 2 Worker handoff，
-从持久化会话继续修复和验证，并导出可自检的 Trace、最终投影、报告与 EvidencePack。该演示
-不调用真实模型、不联网、外部费用为 0，也不宣称真实模型质量或官方 benchmark 成绩。
+[![CI](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/Python-3.12%20%7C%203.13-3776AB?logo=python&logoColor=white)
+![Version](https://img.shields.io/badge/version-v0.1.0-2563EB)
+![License](https://img.shields.io/badge/license-MIT-16A34A)
+
+Horizon 是一个面向长程软件工程任务的**可恢复执行控制层**。它让 Coding Agent 在模型调用、
+工具执行、进程重启和验证之间保留可审计状态，并以预算、权限和证据门禁约束每一步。
+
+它不是另一个聊天界面。核心问题是：当任务跨越多个模型—工具轮次、Worker 发生故障、上下文
+需要压缩或费用即将耗尽时，如何继续执行而不重复付费、不丢失事实、不越权，也不把部分成功
+包装成完成。
+
+> **当前状态：** v0.1.0 工程核心可运行。离线 Harness 主链路和来源绑定的完整 checkout
+> A/B 已有可重放证据；四次真实模型 Pilot 均为负结果，因此目前**不宣称真实 Issue 成功率或
+> 官方 benchmark 成绩**。
+
+## 为什么值得看
+
+- **可恢复执行**：追加式事件、幂等命令、Worker Lease/epoch、内容寻址 checkpoint，以及模型、
+  工具和 promotion 提交窗口的保守恢复。
+- **上下文与知识**：确定性上下文投影、不可丢失的 Mandatory Facts、有来源的 Run Memory，
+  以及绑定 workspace revision 的 SQLite FTS5 Code RAG。
+- **验证与治理**：有界工具权限、禁网 Docker 验收、Campaign/Run 双层费用门禁、持久化 HITL、
+  单次证据驱动 replan 和可离线重放的 JSONL Trace。
+
+## 架构
+
+```mermaid
+flowchart LR
+    T[TaskSpec] --> P[Plan / WorkItem DAG]
+    P --> C[Context Projection]
+    C --> M[Run Memory]
+    M --> R[Revision-bound Code RAG]
+    R --> L[Model Gateway]
+    L --> G[Typed Tool Gateway]
+    G --> K[(Events + Checkpoints)]
+    K --> V[Protected Docker Validation]
+    V --> X[Replayable Trace + EvidencePack]
+    G -->|crash / pause| K
+    K -->|new lease epoch| C
+    B[Budget + Authority + HITL] -. gates .-> P
+    B -. gates .-> L
+    B -. gates .-> G
+```
+
+详细数据流、恢复不变量和模块边界见
+[开发设计](docs/coding-agent-development-design.md) 与
+[能力设计](docs/agent-capabilities-design.md)。
+
+## 60 秒演示
+
+```powershell
+uv sync --locked
+uv run --locked --cache-dir .uv-cache horizon demo run
+```
+
+这条命令无需 API Key、Docker 或网络。它会故意触发一次结构化工具错误，释放第一任 Worker，
+由 `lease_epoch=2` 的新 Worker 从持久化会话继续，完成精确编辑、保护性验证、Trace 重放和
+EvidencePack 自检。模型动作由冻结脚本提供，外部费用为 0。输出合同见
+[作品集演示文档](docs/portfolio-demo.md)。
+
+## 已验证证据
+
+| 证据面 | 当前结果 | 严格边界 |
+|---|---|---|
+| 公共 CI | Python 3.12/3.13 的测试、静态检查、演示和构建已通过 | CI 不读取 API Key、不运行付费模型 |
+| 离线回归 | `282 passed, 5 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| Docker 契约 | `python:3.12-alpine` 上单独复跑 `5 passed` | 有限隔离合同，不是恶意代码安全认证 |
+| 完整 checkout A/B | tqdm 82 files、youtube-dl 872 files；初始失败门、恢复、replan、最终验收和 Trace replay 通过 | 使用 Scripted Model，不是模型能力成绩 |
+| 真实模型 Pilot | 四轮均可重放、费用可核对、source 未变 | 四轮均未编辑或验证成功，保留为负结果 |
+
+更完整的数字、失败记录与未完成项见
+[开发进度与验证记录](docs/development-progress.md)。
 
 ## 开发环境
 
@@ -153,13 +181,13 @@ uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
 uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
   benchmarks/run_ab/bugsinpy-multi-stage-pilot-v1.yaml --image python:3.12-alpine
 
-# 第四轮历史零费用预检命令；不读取 API Key、不调用模型，并绑定当时的源码指纹。
-# 当前源码已改变，因此旧报告只能审计、不能再次启动付费 Run。
+# 当前 tqdm 候选的零费用预检；不读取 API Key、不调用模型，并绑定当前源码指纹。
+# 它只生成启动条件，不授予或触发付费运行。
 uv run --locked --cache-dir .uv-cache horizon eval pilot-preflight `
-  benchmarks/run_ab/full/youtube-dl-3-unescape-html/real-model-pilot-budgeted-continuation.yaml `
+  benchmarks/run_ab/full/tqdm-1-tenumerate-start/real-model-pilot.yaml `
   --image python:3.12-alpine `
-  --config config/providers/siliconflow-pilot-budgeted-continuation.yaml `
-  --state-dir .horizon/real-model-pilot-retry-v4
+  --config config/providers/siliconflow-tqdm-pilot.yaml `
+  --state-dir .horizon/real-model-pilot-tqdm-v1
 ```
 
 示例 TaskSpec 的仓库路径和 SHA 是占位值，仅验证控制面，不会执行示例测试命令。
@@ -198,9 +226,8 @@ uv run --locked --cache-dir .uv-cache horizon agent run `
   examples/agent-task.yaml --auto-plan `
   --image redis:7-alpine --confirm-paid
 
-# 不要复用第四轮的旧报告或 CNY 0.11 cap：retry Campaign 当前余额只有 CNY 0.0681666。
-# 任意后续付费 continuation 都须先生成绑定当前源码的新 preflight，使用不超过剩余额度的新合同，
-# 并取得新的明确外发和费用授权。
+# 当前 tqdm 候选使用 CNY 0.06 Run cap；retry Campaign 余额为 CNY 0.0681666。
+# preflight 不构成付费授权。任何真实运行仍须取得新的明确外发和费用授权。
 
 # 长任务可在完整模型—工具轮次后安全让出，再由新进程继续。
 $partial = uv run --locked --cache-dir .uv-cache horizon agent run `
@@ -265,12 +292,12 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **281 passed，5 skipped**；5 个跳过项指定本机已有
+当前离线全量回归为 **282 passed，5 skipped**；5 个跳过项指定本机已有
 `python:3.12-alpine` 单独复跑，得到 **5 passed** 的真实 Docker 契约结果。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实
 Issue 效果。新增真实模型 Pilot 单元测试覆盖私有答案拒绝、初始失败证据、内容寻址报告和
 启动时任务/源码/镜像/Provider/Harness 源码漂移拒绝；真实 checkout 的离线 Docker preflight
-已通过。四轮真实模型负结果均已导出并可重放，分别驱动 Plan/搜索反馈、有界行读取/
+已通过，新的 tqdm 候选还把首次规划保守预留纳入 `ready` 门。四轮真实模型负结果均已导出并可重放，分别驱动 Plan/搜索反馈、有界行读取/
 近期完整单元应急压缩/异常租约释放、“不猜路径、优先 revision-bound 证据、默认 rank 1”，
 以及范围参数成对约束/规划输入收窄。retry Campaign 当前仍剩 `CNY 0.0681666`，本系列实际
 累计付费 `CNY 0.1770732`；第四轮源码修复已使旧 preflight 失效，没有自动重试或 fallback。
@@ -293,7 +320,8 @@ Docker 测试以非 root、禁网、只读根目录、资源限制运行，仅�
 
 Horizon 原创代码和文档使用 [MIT License](LICENSE)。依赖裁剪的外部 benchmark fixture 继续
 遵循各自上游许可证，来源、固定 commit 与许可证见
-[Third-party notices](THIRD_PARTY_NOTICES.md)。版本变化记录在 [Changelog](CHANGELOG.md)。
+[Third-party notices](THIRD_PARTY_NOTICES.md)。版本变化记录在 [Changelog](CHANGELOG.md)，
+首个公开版本说明见 [v0.1.0 release notes](docs/release-v0.1.0.md)。
 
 提交修改前请阅读 [Contributing guide](CONTRIBUTING.md)；安全问题和当前隔离边界见
 [Security policy](SECURITY.md)。GitHub CI 只运行锁定依赖下的离线测试、静态检查、一键演示和
@@ -323,6 +351,7 @@ Horizon 原创代码和文档使用 [MIT License](LICENSE)。依赖裁剪的外�
 - [完整上游 Checkout Suite：BugsInPy tqdm-1 与 youtube-dl-3](docs/full-checkout-pilot.md)
 - [完整 Checkout 多阶段 Pilot：youtube-dl-3](docs/multi-stage-full-checkout-pilot.md)
 - [真实模型 Pilot：预检、首轮负结果与付费边界](docs/real-model-pilot.md)
+- [v0.1.0 Release Notes](docs/release-v0.1.0.md)
 
 既有 79 项需求继续保留。当前采用直接实现、自检和风险触发复核；历史工作流标签不构成
 产品运行时依赖。测试、实现、真实任务效果、独立安全复核分别报告。
