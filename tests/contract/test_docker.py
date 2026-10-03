@@ -98,6 +98,45 @@ def test_real_container_restrictions_and_disposable_write(sandbox):
         )
 
 
+def test_missing_attempt_cannot_distinguish_pre_create_from_post_cleanup_crash(sandbox):
+    workspace = stage(sandbox)
+    helper = Path(__file__).parents[1] / "fault_injection" / "_docker_check_worker.py"
+    cases = (
+        ("before-create", "tool_contract_before_create", 31, False),
+        ("after-cleanup", "tool_contract_after_cleanup", 32, True),
+    )
+
+    for mode, attempt_id, exit_code, marker_expected in cases:
+        _, name = sandbox._attempt_identity(attempt_id)
+        marker = workspace / "after-cleanup.txt"
+        marker.unlink(missing_ok=True)
+        try:
+            worker = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    str(sandbox.staging_root),
+                    str(workspace),
+                    os.environ["HORIZON_TEST_DOCKER_IMAGE"],
+                    attempt_id,
+                    mode,
+                ],
+                capture_output=True,
+                timeout=30,
+            )
+            assert worker.returncode == exit_code, worker.stderr.decode(errors="replace")
+            assert marker.exists() is marker_expected
+            # Both crash windows are externally indistinguishable after restart. A missing
+            # container therefore remains insufficient proof that the check never executed.
+            assert sandbox.attempt_status(attempt_id).state == "missing"
+        finally:
+            subprocess.run(
+                ["docker", "rm", "--force", "--volumes", name],
+                capture_output=True,
+                check=False,
+            )
+
+
 def test_real_timeout_kills_container_and_child(sandbox):
     result = sandbox.execute(
         stage(sandbox),

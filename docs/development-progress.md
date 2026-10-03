@@ -70,8 +70,8 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 ### 2026-10-03 Provider、完整 Checkout 与快照优化
 
-- 2026-10-03 当前离线全量回归为 **282 passed，5 skipped**；5 项跳过项指定本机已有
-  `python:3.12-alpine` 单独复跑，得到 **5 passed** 的真实 Docker 契约结果。
+- 2026-10-03 当前离线全量回归为 **282 passed，6 skipped**；6 项跳过项指定本机已有
+  `python:3.12-alpine` 单独复跑，得到 **6 passed** 的真实 Docker 契约结果。
 - Pilot 合同测试覆盖 checked-in CNY 0.25 首轮、CNY 0.18 复跑 Campaign 和已执行的 CNY 0.11
   收窄 continuation policy、累计最坏费用
   `CNY 0.2452398`、私有修复信息进入 TaskSpec 时拒绝、初始失败证据、prepared Task/report 内容
@@ -106,7 +106,9 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
   只有追加 `--stop-check-sandbox` 才会终止，owner/attempt/image 任一不符都拒绝。missing 不被
   当作停止证明，仍需 `--confirm-check-sandbox-stopped`。单元/CLI 测试覆盖 running/stopped/mismatch，
   真实 Docker 合同覆盖正常自动清理，并在独立 Python 验证 Worker 运行 60 秒检查时强制终止，
-  再由新 Sandbox 查询、停止、删除遗留容器；容器创建前和命令退出后清理前两个窗口尚未覆盖。
+  再由新 Sandbox 查询、停止、删除遗留容器。新增真实子进程分别在容器创建前，以及命令完成、
+  容器已清理但 receipt 未提交时硬退出；两者重启后都呈现 `missing`，同时后者保留仓库内 marker
+  证明命令实际执行，因此 missing 继续只允许人工确认，不能被提升为“未执行”证明。
 - `replace_text` reservation 现绑定派发前 workspace revision 与 manifest。若 receipt 前退出，
   恢复服务只接受 live workspace 精确等于前态或由原参数推导出的唯一后态；可信 CLI 可显式
   accept 或 rollback，部分写入/额外文件漂移继续阻塞。真实子进程在写入后 `os._exit(26)` 的
@@ -426,8 +428,9 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 suite 还给出两个 Code RAG rank 1，以及 9/2 个文件跳过的显式降级证据；重复 CAS blob 校验的
 规模开销已完成前后对照优化。完整 checkout 的两阶段 production → regression-test 任务及其
 WorkItem 边界 epoch 1 → 2 Worker 恢复也已通过。`run_check` 已有不采信结果、不自动重派的窄
-丢弃合同和可查询标签 attempt，真实运行中硬退出已覆盖；下一主链路只补其余窗口与 missing
-启动证明。首轮失败已经提供一个真实样本，但尚无分布或收益证据；在形成多样本证据前不增加
+丢弃合同和可查询标签 attempt，真实子进程硬退出已覆盖 running、pre-create 与 post-cleanup
+窗口，并保留 missing 不足以证明未执行的负证据。首轮失败已经提供一个真实样本，但尚无分布
+或收益证据；在形成多样本证据前不增加
 自动触发、第二次修订或语义循环检测。
 计划失败和确定性停滞的两条窄持久 HITL 已落地，通用审批暂不扩张。
 Project Memory 等

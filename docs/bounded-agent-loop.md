@@ -323,8 +323,8 @@ Trace 文件拒绝覆盖已有文件。重放不会调用模型、工具或 Dock
 
 2026-10-03 当前环境：
 
-- 离线全量回归：241 passed、5 skipped；
-- 随后指定本机已有 `redis:7-alpine` 单独复跑跳过项：5 passed，均为真实 Docker 合同；
+- 离线全量回归：282 passed、6 skipped；
+- 随后指定本机已有 `python:3.12-alpine` 单独复跑跳过项：6 passed，均为真实 Docker 合同；
 - Fake Model E2E：精确编辑后成功，以及首次验收失败后一次 repair 成功；
 - 自动计划 Fake E2E：Plan provenance/预算、越权拒绝且不重试、Plan 事件前崩溃复用响应，
   以及 CLI 从 PLANNING 恢复后完成保护验收；
@@ -359,15 +359,17 @@ Trace 文件拒绝覆盖已有文件。重放不会调用模型、工具或 Dock
 
 ## 10. 下一开发顺序
 
-1. 真实子进程已覆盖 Docker attempt 的 running 窗口；继续覆盖容器创建前和命令退出后清理前
-   两个窗口。missing attempt 仍保持人工确认，除非以后增加独立的持久启动回执；
-2. 在现有确定性投影、MandatoryFactLedger 和 Run Memory 上增加 tokenizer-aware 预算；
-3. 扩充 dirty-revision、同名符号和外部盲测，再按负结果决定 symbol/vector 增量；
-4. 为现有 Run Memory 增加文件级依赖重检，再设计显式 Project Memory promotion/revoke；
-5. 在现有 Plan replacement 与 NoProgress guidance 两条窄 HumanRequest/Decision 上，只有真实
+真实子进程现已覆盖 Docker attempt 的 running、容器创建前，以及命令完成并清理后但 receipt
+未提交三个窗口。后两个窗口在重启后都表现为 `missing`，证明 missing 不能区分“从未执行”与
+“已执行并清理”；因此仍保持人工确认，暂不增加持久启动回执。接下来的顺序为：
+
+1. 在现有确定性投影、MandatoryFactLedger 和 Run Memory 上增加 tokenizer-aware 预算；
+2. 扩充 dirty-revision、同名符号和外部盲测，再按负结果决定 symbol/vector 增量；
+3. 为现有 Run Memory 增加文件级依赖重检，再设计显式 Project Memory promotion/revoke；
+4. 在现有 Plan replacement 与 NoProgress guidance 两条窄 HumanRequest/Decision 上，只有真实
    任务需要时再抽象通用审批；
-6. 加入统一 retry/breaker 和仅预授权的 fallback；
-7. 冻结真实任务集后再做长程、恢复、成本和消融评测。
+5. 加入统一 retry/breaker 和仅预授权的 fallback；
+6. 冻结真实任务集后再做长程、恢复、成本和消融评测。
 
 每一步继续区分：代码存在、确定性测试、真实运行、独立复核和 benchmark 效果，不能互相
 替代。

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -11,14 +12,23 @@ def main() -> None:
     workspace = Path(sys.argv[2])
     image = sys.argv[3]
     attempt_id = sys.argv[4]
-    DockerSandbox(staging_root, image).execute(
+    mode = sys.argv[5] if len(sys.argv) > 5 else "running"
+    sandbox = DockerSandbox(staging_root, image)
+    if mode == "before-create":
+        os._exit(31)
+    command = "sleep 60"
+    if mode == "after-cleanup":
+        command = "printf executed > /workspace/after-cleanup.txt"
+    sandbox.execute(
         workspace,
         CommandRequest(
-            argv=("/bin/sh", "-c", "sleep 60"),
+            argv=("/bin/sh", "-c", command),
             timeout_seconds=120,
         ),
         attempt_id=attempt_id,
     )
+    if mode == "after-cleanup":
+        os._exit(32)
 
 
 if __name__ == "__main__":

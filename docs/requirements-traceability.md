@@ -5,7 +5,7 @@
 本表是完整开发与验收导航。2026-09-30 已开始基础内核实现，实际证据列记录当前子范围与剩余缺口。目标路径相对 `src/horizon/`；计划测试路径相对 `tests/`；实际证据列的 `tests/` 路径相对仓库根。同一测试文件可验证多个 ID，但不能把子范围通过等同于整项通过。
 
 当前结果：2026-09-30 可靠性内核为 **92 项测试通过**；2026-10-03 的最新离线回归为
-**282 passed，5 skipped**，此前还单独补跑 **5 项真实 Docker 合同并全部通过**；另已完成一次 Tool Calling 探针和一次受预算
+**282 passed，6 skipped**，并单独补跑 **6 项真实 Docker 合同且全部通过**；另已完成一次 Tool Calling 探针和一次受预算
 保护的真实单 WorkItem Agent fixture Run。完整长程 Agent 未实现，未做独立安全复核。命令、环境、证据与限制见
 [开发进度](development-progress.md)。仍为“待填”的条目没有实现证据；“部分/初步”不代表
 完整需求通过。普通工作直接自检，关键风险及用户指定验收按需独立复核，
@@ -49,7 +49,7 @@
 | FR-504 | M5 | `trace/exporter.py` | `integration/test_trace_export.py`：JSONL 可逐行校验并重读 | 当前控制面已实现 JSONL 导出；`horizon demo run` 还把 Trace、最终投影、报告和摘要写入带大小/SHA-256 的 EvidencePack，并在返回前重读文件、重放 Trace：`application/portfolio_demo.py`、`tests/integration/test_portfolio_demo.py` |
 | FR-505 | M5 | `trace/replay.py` | `e2e/test_projection_replay.py`：禁止模型/执行依赖仍能重建状态和账本 | 部分：控制面及模型/工具/验证/checkpoint 事件可在无模型、无 Docker下重放；真实 fixture JSONL 与 SQLite projection hash 一致；Execution Fork 未实现 |
 | FR-506 | M5 | `application/replay_run.py` | `e2e/test_execution_fork.py`：新 Run/预算/工作区；父事件产物 hash 不变 | 待填 / 未审核 |
-| FR-601 | M0/M4 | `adapters/sandbox/swerex.py` | `contract/test_sandbox.py`：默认容器执行，未授权无宿主执行路径 | 部分：`adapters/sandbox/docker.py` 无宿主 Shell 回退，已接入 `agent run` 保护验收；5 项真实 Docker 契约和一次真实 Agent fixture；SWE-ReX 未接入 |
+| FR-601 | M0/M4 | `adapters/sandbox/swerex.py` | `contract/test_sandbox.py`：默认容器执行，未授权无宿主执行路径 | 部分：`adapters/sandbox/docker.py` 无宿主 Shell 回退，已接入 `agent run` 保护验收；6 项真实 Docker 契约和一次真实 Agent fixture；SWE-ReX 未接入 |
 | FR-602 | M4 | `tools/gateway.py` | `integration/test_command_limits.py`：超时、超量输出、越界 cwd 被约束 | 部分：`adapters/sandbox/docker.py` 的超时、输出上限、临时目录边界；`tests/contract/test_docker.py`；非完整安全验收 |
 | FR-603 | M2/M4 | `application/cancel_run.py` | `e2e/test_cancel.py`：所有非终态取消，持久标记后派发为 0 | 部分：控制面取消使终态与 Lease 失效；`tests/integration/test_event_store.py`；在途工具联动未接入 |
 | FR-604 | M2/M4 | `approval/service.py` | `e2e/test_approval.py`：未批准高风险调用为 0，永久禁令不可审批绕过 | 待填 / 未审核 |

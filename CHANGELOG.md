@@ -5,7 +5,8 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
-- No unreleased public changes yet.
+- Added real-Docker hard-exit coverage for the indistinguishable pre-create and post-cleanup
+  `run_check` recovery windows.
 
 ## 0.1.0 - 2026-10-03
 
