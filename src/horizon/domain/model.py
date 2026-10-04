@@ -44,6 +44,17 @@ class InputTokenBudget(Contract):
         return self
 
 
+class ModelRequestBudgetEvidence(Contract):
+    """Pre-dispatch request sizing persisted when a monetary gate stops a model call."""
+
+    schema_version: Literal[1] = 1
+    call_id: Identifier
+    purpose: Literal["execution", "planning"]
+    request_hash: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
+    input_token_budget: InputTokenBudget
+    output_token_ceiling: PositiveInt
+
+
 class FunctionCall(Contract):
     name: Identifier
     arguments: dict[str, Any]
@@ -294,6 +305,17 @@ class ModelCallReservation(Contract):
         if self.input_token_budget is None:
             result.pop("input_token_budget")
         return result
+
+    def budget_evidence(self, output_token_ceiling: int) -> ModelRequestBudgetEvidence:
+        if self.input_token_budget is None:
+            raise ValueError("Budget evidence requires an input-token estimate")
+        return ModelRequestBudgetEvidence(
+            call_id=self.call_id,
+            purpose=self.purpose,
+            request_hash=self.request_hash,
+            input_token_budget=self.input_token_budget,
+            output_token_ceiling=output_token_ceiling,
+        )
 
 
 class ModelCallRecord(Contract):

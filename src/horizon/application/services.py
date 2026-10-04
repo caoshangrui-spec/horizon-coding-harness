@@ -24,7 +24,12 @@ from horizon.domain.human import (
     NoProgressPattern,
     matches_no_progress_evidence,
 )
-from horizon.domain.model import ModelCallRecord, ModelCallReservation, ModelPolicyBinding
+from horizon.domain.model import (
+    ModelCallRecord,
+    ModelCallReservation,
+    ModelPolicyBinding,
+    ModelRequestBudgetEvidence,
+)
 from horizon.domain.plan import (
     MAX_EXECUTION_REPLANS,
     ExecutionReplanProposal,
@@ -1331,6 +1336,8 @@ class HarnessService:
         stop: BudgetStop,
         token: LeaseToken,
         key: str,
+        *,
+        model_request_budget: ModelRequestBudgetEvidence | None = None,
     ) -> Run:
         """Atomically terminalize a deterministic, pre-dispatch monetary stop."""
 
@@ -1339,18 +1346,35 @@ class HarnessService:
             "budget_stop": stop.model_dump(mode="json"),
             "token": token.model_dump(),
         }
+        if model_request_budget is not None:
+            request["model_request_budget"] = model_request_budget.model_dump(mode="json")
 
         def decide(run):
             self.check_worker(run, token)
             if run.reservations:
                 raise Conflict("Budget stop requires a quiescent Run")
+            if model_request_budget is not None:
+                expected_status = (
+                    RunStatus.PLANNING
+                    if model_request_budget.purpose == "planning"
+                    else RunStatus.RUNNING
+                )
+                if run.status != expected_status:
+                    raise Conflict("Model request budget evidence does not match the Run phase")
+                if model_request_budget.call_id in run.model_reservations or any(
+                    record.call_id == model_request_budget.call_id for record in run.model_calls
+                ):
+                    raise Conflict("Budget-stopped model request was already dispatched")
+            payload = {
+                "reason": stop.reason_code.value,
+                "budget_stop": stop.model_dump(mode="json"),
+            }
+            if model_request_budget is not None:
+                payload["model_request_budget"] = model_request_budget.model_dump(mode="json")
             return [
                 NewEvent(
                     event_type="RUN_FAILED",
-                    payload={
-                        "reason": stop.reason_code.value,
-                        "budget_stop": stop.model_dump(mode="json"),
-                    },
+                    payload=payload,
                 )
             ]
 

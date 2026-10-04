@@ -97,6 +97,31 @@ def test_model_reservation_omits_absent_budget_for_historical_wire_compatibility
     assert current.as_dict()["input_token_budget"]["estimate"]["token_ceiling"] == 3_024
 
 
+def test_model_reservation_builds_pre_dispatch_budget_evidence():
+    current = ModelCallReservation(
+        call_id="execution-call",
+        request_hash="a" * 64,
+        provider_id="fake-provider",
+        model="fake-model",
+        currency="CNY",
+        reserved_cost="0.01",
+        input_token_budget=InputTokenBudget(
+            max_input_tokens=4_000,
+            estimate=InputTokenEstimate(request_bytes=1_000, token_ceiling=3_024),
+        ),
+    )
+
+    evidence = current.budget_evidence(512)
+
+    assert evidence.call_id == current.call_id
+    assert evidence.purpose == "execution"
+    assert evidence.request_hash == current.request_hash
+    assert evidence.input_token_budget == current.input_token_budget
+    assert evidence.output_token_ceiling == 512
+    with pytest.raises(ValueError, match="input-token estimate"):
+        current.model_copy(update={"input_token_budget": None}).budget_evidence(512)
+
+
 def test_budget_stop_requires_matching_scope_and_exceeded_amount():
     with pytest.raises(ValidationError, match="scope"):
         BudgetStop(

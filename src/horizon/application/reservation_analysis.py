@@ -12,9 +12,14 @@ from horizon.adapters.persistence.sqlite import SQLiteEventStore
 from horizon.domain.budget import Usage
 from horizon.domain.errors import BudgetStop
 from horizon.domain.events import Event
-from horizon.domain.model import ModelCallRecord, ModelCallReservation
+from horizon.domain.model import (
+    ModelCallRecord,
+    ModelCallReservation,
+    ModelRequestBudgetEvidence,
+)
 
 RATIO_QUANTUM = Decimal("0.000001")
+CANDIDATE_ESTIMATOR = "request_utf8_bytes_plus_1024_candidate_v1"
 
 
 def _decimal_text(value: Decimal) -> str:
@@ -37,6 +42,10 @@ def _ratio(numerator: int | Decimal, denominator: int | Decimal) -> Decimal | No
 def _ratio_text(numerator: int | Decimal, denominator: int | Decimal) -> str | None:
     value = _ratio(numerator, denominator)
     return _decimal_text(value) if value is not None else None
+
+
+def _candidate_input_ceiling(request_bytes: int) -> int:
+    return request_bytes + 1024
 
 
 def _distribution(values: Sequence[Decimal]) -> dict[str, Any]:
@@ -170,6 +179,9 @@ def analyze_reservation_traces(paths: Sequence[Path]) -> dict[str, Any]:
                 )
                 reserved_cost = reservation.reserved_cost
                 settled_cost = record.estimated_cost
+                candidate_ceiling = (
+                    _candidate_input_ceiling(estimate.request_bytes) if estimate else None
+                )
                 calls.append(
                     {
                         "trace": str(path),
@@ -183,6 +195,12 @@ def analyze_reservation_traces(paths: Sequence[Path]) -> dict[str, Any]:
                         "request_bytes": estimate.request_bytes if estimate else None,
                         "reserved_input_tokens": budget.input_tokens,
                         "actual_input_tokens": record.usage.input_tokens,
+                        "candidate_input_token_ceiling": candidate_ceiling,
+                        "candidate_input_to_reported_input_ratio": (
+                            _ratio_text(candidate_ceiling, record.usage.input_tokens)
+                            if candidate_ceiling is not None
+                            else None
+                        ),
                         "reserved_input_to_reported_input_ratio": _ratio_text(
                             budget.input_tokens,
                             record.usage.input_tokens,
@@ -210,6 +228,12 @@ def analyze_reservation_traces(paths: Sequence[Path]) -> dict[str, Any]:
 
             if event.event_type == "RUN_FAILED" and "budget_stop" in event.payload:
                 stop = BudgetStop.model_validate(event.payload["budget_stop"])
+                request_budget = (
+                    ModelRequestBudgetEvidence.model_validate(event.payload["model_request_budget"])
+                    if event.payload.get("model_request_budget") is not None
+                    else None
+                )
+                estimate = request_budget.input_token_budget.estimate if request_budget else None
                 trace_stop_count += 1
                 budget_stops.append(
                     {
@@ -221,6 +245,18 @@ def analyze_reservation_traces(paths: Sequence[Path]) -> dict[str, Any]:
                         "required_cost": _decimal_text(stop.required_cost),
                         "available_cost": _decimal_text(stop.available_cost),
                         "shortfall": _decimal_text(stop.required_cost - stop.available_cost),
+                        "call_id": request_budget.call_id if request_budget else None,
+                        "purpose": request_budget.purpose if request_budget else None,
+                        "request_hash": request_budget.request_hash if request_budget else None,
+                        "estimator": estimate.estimator if estimate else None,
+                        "request_bytes": estimate.request_bytes if estimate else None,
+                        "input_token_ceiling": estimate.token_ceiling if estimate else None,
+                        "output_token_ceiling": (
+                            request_budget.output_token_ceiling if request_budget else None
+                        ),
+                        "candidate_input_token_ceiling": (
+                            _candidate_input_ceiling(estimate.request_bytes) if estimate else None
+                        ),
                     }
                 )
 
@@ -257,6 +293,18 @@ def analyze_reservation_traces(paths: Sequence[Path]) -> dict[str, Any]:
         {key: value for key, value in call.items() if not key.startswith("_")} for call in calls
     ]
     calls_without_estimator = sum(call["request_bytes"] is None for call in calls)
+    candidate_calls = [call for call in calls if call["request_bytes"] is not None]
+    candidate_ratios = [
+        value
+        for call in candidate_calls
+        if (
+            value := _ratio(
+                call["candidate_input_token_ceiling"],
+                call["actual_input_tokens"],
+            )
+        )
+        is not None
+    ]
     return {
         "schema_version": 1,
         "trace_count": len(traces),
@@ -267,6 +315,22 @@ def analyze_reservation_traces(paths: Sequence[Path]) -> dict[str, Any]:
         "calls": public_calls,
         "budget_stops": budget_stops,
         "traces": traces,
+        "candidate_estimator_replays": [
+            {
+                "estimator": CANDIDATE_ESTIMATOR,
+                "formula": "request_bytes + 1024",
+                "settled_call_count": len(candidate_calls),
+                "budget_stop_count_with_request_metadata": sum(
+                    stop["request_bytes"] is not None for stop in budget_stops
+                ),
+                "observed_underestimate_count": sum(
+                    call["candidate_input_token_ceiling"] < call["actual_input_tokens"]
+                    for call in candidate_calls
+                ),
+                "candidate_input_to_reported_input_ratio": _distribution(candidate_ratios),
+                "production_gate_changed": False,
+            }
+        ],
         "limitations": {
             "calls_without_request_byte_metadata": calls_without_estimator,
             "settled_cost_is_local_price_card_estimate_not_provider_invoice": True,

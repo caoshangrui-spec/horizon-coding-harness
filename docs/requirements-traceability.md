@@ -5,7 +5,7 @@
 本表是完整开发与验收导航。2026-09-30 已开始基础内核实现，实际证据列记录当前子范围与剩余缺口。目标路径相对 `src/horizon/`；计划测试路径相对 `tests/`；实际证据列的 `tests/` 路径相对仓库根。同一测试文件可验证多个 ID，但不能把子范围通过等同于整项通过。
 
 当前结果：2026-09-30 可靠性内核为 **92 项测试通过**；2026-10-04 的最新离线回归为
-**299 passed，6 skipped**，并在上一批边界单独补跑 **6 项真实 Docker 合同且全部通过**；另已完成一次 Tool Calling 探针和一次受预算
+**301 passed，6 skipped**，并在上一批边界单独补跑 **6 项真实 Docker 合同且全部通过**；另已完成一次 Tool Calling 探针和一次受预算
 保护的真实单 WorkItem Agent fixture Run。完整长程 Agent 未实现，未做独立安全复核。命令、环境、证据与限制见
 [开发进度](development-progress.md)。仍为“待填”的条目没有实现证据；“部分/初步”不代表
 完整需求通过。普通工作直接自检，关键风险及用户指定验收按需独立复核，
@@ -35,7 +35,7 @@
 | FR-301 | M3 | `domain/budget.py` | `unit/test_budget.py`：逐项验证 token/费用/调用/步骤/时间/返修上限 | 部分：Run 已同时约束模型/工具/step/token/repair，并用绑定 CNY policy 记录模型费用；Campaign 跨 Run 限额；`test_budget.py`、`test_campaign_budget.py`、`test_model_run_accounting.py`；TaskSpec 多币种迁移未完成 |
 | FR-302 | M3 | `domain/budget.py` | `unit/test_budget.py`：软阈与硬上限具有不同动作 | 待填 / 未审核 |
 | FR-303 | M3 | `orchestration/policies.py` | `integration/test_budget_gate.py`：软阈动作可见，硬上限后新调用为 0 | 部分：模型/工具派发前执行 Run 与 Campaign 硬门禁，unknown 阻止后续调用；软阈动作未实现 |
-| FR-304 | M3 | `trace/projector.py` | `integration/test_budget_replay.py`：重建账本与摘要完全一致 | 部分：`domain/run.py` 可重建通用、模型 CNY、工具和 unknown 账本；真实 Run JSONL 重放 projection hash 与 SQLite 一致；`trace reservation-report` 在 replay 校验后关联模型预留/结算并按币种量化压力，六轮 20 调用的聚合预留/结算比为 6.861621，但不自动修改 estimator；完整跨组件恢复仍待实现 |
+| FR-304 | M3 | `trace/projector.py` | `integration/test_budget_replay.py`：重建账本与摘要完全一致 | 部分：`domain/run.py` 可重建通用、模型 CNY、工具和 unknown 账本；真实 Run JSONL 重放 projection hash 与 SQLite 一致；`trace reservation-report` 在 replay 校验后关联模型预留/结算及新 BudgetStop 请求尺寸，六轮 20 调用的聚合预留/结算比为 6.861621；候选公式仅有 3 个历史样本，不自动修改生产 estimator；完整跨组件恢复仍待实现 |
 | FR-305 | M3 | `domain/budget.py` | `fault_injection/test_unknown_cost.py`：未知费用不结算为 0 | 部分：Run 与 Campaign 均保留 unknown 占用；reconciliation 可补齐已存在的可信 Run receipt，但供应商主动查询/迟到回执尚未接入 |
 | FR-401 | M4 | `tools/gateway.py`, `application/agent_loop.py` | `integration/test_agent_loop.py`：逐项验收与最终 required 全量回归，缺结构化结果拒绝 | 部分：中间项运行自身 acceptance，最后项重跑全部 required checks；控制器可执行注册检查而模型仍受当前项 ID 限制；多类型检查/环境分类未实现 |
 | FR-402 | M4 | `validation/engine.py` | `e2e/test_completion_gate.py`：submit 只触发验收，失败不能成功 | 已在首个闭环实现：自然语言完成不被接受，`submit` 只触发 protected validation；`test_agent_loop.py` 与真实 fixture Run |
@@ -98,7 +98,7 @@
 | FR-1201 | M3 | `reliability/retry.py`, `breaker.py` | `fault_injection/test_retry_breaker.py`：总次数有界，breaker 重启持续，隐藏重试不倍增 | 待填 / 未审核 |
 | FR-1202 | M3/M5 | `reliability/fallback.py` | `contract/test_model_fallback.py`：未授权/不兼容/超预算模型拒绝，正式比较不换模型 | 待填 / 未审核 |
 | FR-1203 | M3 | `reliability/fallback.py` | `integration/test_degraded_summary.py`：原错误、降级策略、质量标记存在且必需检查不变 | 待填 / 未审核 |
-| FR-1204 | M2/M3 | `reliability/classifier.py` | `fault_injection/test_conservative_failure.py`：未知费用和效果保守处理，存储失败/截止后停机 | 部分：恢复服务分类模型未知、模型响应缺失、工具未知和不安全会话边界；确定性的 Run/Campaign 派发前费用不足现在以结构化 `BudgetStop` 原子进入 `FAILED`，记录 required/available 并清除 Lease，unknown 用量不走该终态路径；不自动重试。迟到回执查询和统一 retry/breaker 仍待实现 |
+| FR-1204 | M2/M3 | `reliability/classifier.py` | `fault_injection/test_conservative_failure.py`：未知费用和效果保守处理，存储失败/截止后停机 | 部分：恢复服务分类模型未知、模型响应缺失、工具未知和不安全会话边界；确定性的 Run/Campaign 派发前费用不足现在以结构化 `BudgetStop` 原子进入 `FAILED`，记录 required/available 和未派发请求 sizing evidence 并清除 Lease，unknown 用量不走该终态路径；不自动重试。迟到回执查询和统一 retry/breaker 仍待实现 |
 | FR-1301 | M3 | `domain/context.py`, `domain/memory.py`, `application/context.py` | `unit/test_context.py` + `integration/test_agent_loop.py`：每次模型调用绑定 ledger、Run Memory、投影及恢复边界 | 部分：每次 reservation 绑定 schema-versioned ContextProjection、MandatoryFactLedger 和 RunMemorySnapshot Artifact；ledger 显式包含工具 Schema、Task/Plan/权限/验收/预算/策略/workspace hash，memory 绑定事件来源/revision/evidence；完整六层内容来源和逐层 token 预算仍未实现 |
 | FR-1302 | M3/M5 | `context/compactor.py` | `unit/test_compaction_contract.py` + 冻结事实 QA：hash 保留和语义结果分开记录 | 部分：控制器事实 ledger 和旧单元/content hash 均确定性保留，完整 transcript 独立留存；当前明确无模型语义摘要和语义 QA，不能宣称事实等价 |
 | FR-1303 | M1/M4 | `application/agent_loop.py`, `domain/plan.py` | `integration/test_agent_loop.py` + `benchmarks/reliability/horizon-controller-v1.yaml`：精确模式无进展反馈/等待，返修/replan 有界，合同验收不改动 | 部分：模型 iteration/repair 有硬上限；相同动作与 A/B period-2 先反馈、继续模式进入人工指导；模型可基于证据显式 replan 一次，完成项/合同/工具权限不变且原子恢复。冻结策略诊断 7 个 NoProgress Trace、5 个 replan 合同当前 41/41；没有 period-3+、语义检测、自动触发或多次修订 |

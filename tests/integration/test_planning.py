@@ -275,10 +275,18 @@ def test_planning_budget_stop_is_terminal_and_replayable_before_dispatch(tmp_pat
 
     assert failure.value.stop is not None
     assert failure.value.stop.reason_code == BudgetStopReason.RUN_MODEL_COST_LIMIT
+    assert failure.value.model_request_budget is not None
+    assert failure.value.model_request_budget.purpose == "planning"
+    assert failure.value.model_request_budget.input_token_budget.estimate.request_bytes > 0
+    assert (
+        failure.value.model_request_budget.output_token_ceiling
+        == generator.config.max_output_tokens
+    )
     stopped = store.get(run_id)
     assert stopped.status == RunStatus.FAILED
     assert stopped.failure_reason == BudgetStopReason.RUN_MODEL_COST_LIMIT.value
     assert stopped.budget_stop == failure.value.stop
+    assert stopped.model_request_budget == failure.value.model_request_budget
     assert stopped.lease_id is None
     assert stopped.reservations == {}
     assert stopped.model_reservations == {}
@@ -288,6 +296,7 @@ def test_planning_budget_stop_is_terminal_and_replayable_before_dispatch(tmp_pat
     assert campaign.unknown_cost == Decimal("0")
     assert campaign.settled_cost == Decimal("0")
     replayed = SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id))
+    assert replayed.model_request_budget == stopped.model_request_budget
     assert projection_hash(replayed) == projection_hash(stopped)
 
 

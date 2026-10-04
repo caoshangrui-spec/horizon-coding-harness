@@ -657,6 +657,13 @@ def test_agent_loop_terminalizes_pre_dispatch_run_budget_stop(tmp_path, task_dic
     assert result.budget_stop is not None
     assert result.budget_stop.reason_code == BudgetStopReason.RUN_MODEL_COST_LIMIT
     assert result.budget_stop.required_cost > result.budget_stop.available_cost
+    assert result.model_request_budget is not None
+    assert result.model_request_budget.purpose == "execution"
+    assert result.model_request_budget.input_token_budget.max_input_tokens == (
+        runner.config.max_input_tokens
+    )
+    assert result.model_request_budget.input_token_budget.estimate.request_bytes > 0
+    assert result.model_request_budget.output_token_ceiling == runner.config.max_output_tokens
     assert result.lease_id is None
     assert result.reservations == {}
     assert result.model_reservations == {}
@@ -666,6 +673,7 @@ def test_agent_loop_terminalizes_pre_dispatch_run_budget_stop(tmp_path, task_dic
     assert campaign.unknown_cost == Decimal("0")
     assert campaign.settled_cost == Decimal("0")
     replayed = SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id))
+    assert replayed.model_request_budget == result.model_request_budget
     assert projection_hash(replayed) == projection_hash(result)
 
 
@@ -702,6 +710,10 @@ def test_agent_loop_terminalizes_pre_dispatch_campaign_budget_stop(tmp_path, tas
     assert result.budget_stop is not None
     assert result.budget_stop.reason_code == BudgetStopReason.CAMPAIGN_COST_LIMIT
     assert result.budget_stop.required_cost > result.budget_stop.available_cost
+    assert result.model_request_budget is not None
+    assert result.model_request_budget.purpose == "execution"
+    assert result.model_request_budget.input_token_budget.estimate.request_bytes > 0
+    assert result.model_request_budget.output_token_ceiling == runner.config.max_output_tokens
     assert result.lease_id is None
     assert result.reservations == {}
     assert len(model.requests) == 0
@@ -710,6 +722,7 @@ def test_agent_loop_terminalizes_pre_dispatch_campaign_budget_stop(tmp_path, tas
     assert campaign.unknown_cost == Decimal("0")
     assert campaign.settled_cost == Decimal("2.99999")
     replayed = SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id))
+    assert replayed.model_request_budget == result.model_request_budget
     assert projection_hash(replayed) == projection_hash(result)
 
 

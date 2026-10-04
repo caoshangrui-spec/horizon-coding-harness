@@ -25,6 +25,21 @@ Lease，Run 投影仍停留在 `RUNNING`。账本实际上没有开放 reservati
 | `required_cost` | 本次请求的保守费用预留 |
 | `available_cost` | 对应硬边界当时可使用的金额 |
 
+从 2026-10-04 起，新发生的模型费用停止还会在同一 `RUN_FAILED` 事件中相邻保存
+`model_request_budget`。它不改变停止金额合同，而是保留“本来准备派发什么请求”的可审计证据：
+
+| 字段 | 含义 |
+|---|---|
+| `call_id` / `request_hash` | 未派发调用的稳定身份和规范请求摘要 |
+| `purpose` | `planning` 或 `execution`，并且必须匹配 Run 当时阶段 |
+| `input_token_budget.max_input_tokens` | 当前配置允许的 input cap |
+| `input_token_budget.estimate.estimator` | 生产估算器版本 |
+| `input_token_budget.estimate.request_bytes` | 完整规范 Provider 请求的 UTF-8 字节数 |
+| `input_token_budget.estimate.token_ceiling` | 生产 estimator 算出的 input token 上界 |
+| `output_token_ceiling` | 本次请求配置的最大输出 token 数 |
+
+该证据不包含 Provider usage，因为请求没有派发；不得把 input/output ceiling 当作真实消费。
+
 当前只定义三类确定性、派发前停止：
 
 | `reason_code` | 触发条件 |
@@ -50,7 +65,7 @@ PLANNING / RUNNING
                └─ 失败：已有 Campaign-only reservation 先以 0 结算
                               │
                               v
-                    RUN_FAILED + BudgetStop
+          RUN_FAILED + BudgetStop + request sizing evidence
                               │
                               v
                  FAILED / Lease 自动清除
@@ -58,7 +73,9 @@ PLANNING / RUNNING
 
 `HarnessService.fail_budget_stop()` 只接受没有 Run reservation 的静止边界。它在同一个事件事务中
 写入 `RUN_FAILED`、稳定的 `failure_reason` 和完整 `budget_stop`。领域投影进入终态时统一清除
-Lease/Worker/expiry，避免出现“终态但 Worker 仍活跃”。
+Lease/Worker/expiry，避免出现“终态但 Worker 仍活跃”。若停止来自已完成尺寸估算的模型请求，
+同一事件还写入 `model_request_budget`；证据的 purpose 必须与 `PLANNING`/`RUNNING` 阶段一致，
+且其 call ID 不得已经出现在 reservation 或 settlement 中。
 
 ## 4. 不变量
 
@@ -72,9 +89,12 @@ Lease/Worker/expiry，避免出现“终态但 Worker 仍活跃”。
 6. JSONL Trace 重放得到相同投影；
 7. CLI/status 同时展示原因、所需金额和可用金额；
 8. unknown 用量存在时不得走该终态捷径。
+9. 新模型停止的 request sizing evidence 必须与停止原子提交，并能由 JSONL Trace 重建。
 
-历史 Trace 没有 `budget_stop` 字段。`Run.as_dict()` 只在新字段实际存在时输出它，因此旧 Trace
-重放 hash 不因新增能力而变化。第四轮 Pilot 仍保留其原始非终态投影，不做追溯改写。
+历史 Trace 可能没有 `budget_stop`，较新的历史停止也可能只有 `budget_stop` 而没有
+`model_request_budget`。`Run.as_dict()` 只在字段实际存在时输出它们，因此旧 Trace 重放 hash
+不因新增能力而变化。第四轮 Pilot 仍保留其原始非终态投影，不做追溯改写；第六轮原
+projection hash 也保持不变。
 
 ## 5. CLI 输出
 
@@ -91,6 +111,23 @@ Lease/Worker/expiry，避免出现“终态但 Worker 仍活跃”。
     "currency": "CNY",
     "required_cost": "0.067530",
     "available_cost": "0.059648"
+  },
+  "model_request_budget": {
+    "schema_version": 1,
+    "call_id": "model_run_example_2",
+    "purpose": "execution",
+    "request_hash": "<64-hex-sha256>",
+    "input_token_budget": {
+      "schema_version": 1,
+      "max_input_tokens": 60000,
+      "estimate": {
+        "schema_version": 1,
+        "estimator": "request_utf8_bytes_x2_plus_1024_v1",
+        "request_bytes": 28160,
+        "token_ceiling": 57344
+      }
+    },
+    "output_token_ceiling": 512
   },
   "continuation_required": false
 }

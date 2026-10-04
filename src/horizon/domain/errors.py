@@ -7,6 +7,7 @@ from typing import Annotated, Literal
 from pydantic import Field, model_validator
 
 from horizon.domain.common import Contract
+from horizon.domain.model import ModelRequestBudgetEvidence
 
 
 class HorizonError(Exception):
@@ -61,8 +62,15 @@ class BudgetStop(Contract):
 
 
 class BudgetExceeded(HorizonError):
-    def __init__(self, message: str, *, stop: BudgetStop | None = None):
+    def __init__(
+        self,
+        message: str,
+        *,
+        stop: BudgetStop | None = None,
+        model_request_budget: ModelRequestBudgetEvidence | None = None,
+    ):
         self.stop = stop
+        self.model_request_budget = model_request_budget
         super().__init__(message)
 
 

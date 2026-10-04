@@ -21,7 +21,12 @@ from horizon.domain.human import (
     parse_human_decision,
     parse_human_request,
 )
-from horizon.domain.model import ModelCallRecord, ModelCallReservation, ModelPolicyBinding
+from horizon.domain.model import (
+    ModelCallRecord,
+    ModelCallReservation,
+    ModelPolicyBinding,
+    ModelRequestBudgetEvidence,
+)
 from horizon.domain.plan import (
     MAX_EXECUTION_REPLANS,
     ExecutionReplanProposal,
@@ -78,6 +83,7 @@ class Run:
     promotion_receipt: PromotionReceipt | None = None
     failure_reason: str | None = None
     budget_stop: BudgetStop | None = None
+    model_request_budget: ModelRequestBudgetEvidence | None = None
 
     @property
     def occupied(self) -> Usage:
@@ -170,6 +176,8 @@ class Run:
         }
         if self.budget_stop is not None:
             result["budget_stop"] = self.budget_stop.model_dump(mode="json")
+        if self.model_request_budget is not None:
+            result["model_request_budget"] = self.model_request_budget.model_dump(mode="json")
         return result
 
 
@@ -401,14 +409,29 @@ def apply(run: Run | None, event: Event) -> Run:
         _transition(run, RunStatus.CANCELLED)
     elif event.event_type == "RUN_FAILED":
         stop = None
+        request_budget = None
         if p.get("budget_stop") is not None:
             stop = BudgetStop.model_validate(p["budget_stop"])
             if p["reason"] != stop.reason_code.value:
                 raise IntegrityError("Budget stop reason does not match the Run failure reason")
+        if p.get("model_request_budget") is not None:
+            if stop is None:
+                raise IntegrityError("Model request budget evidence requires a budget stop")
+            request_budget = ModelRequestBudgetEvidence.model_validate(p["model_request_budget"])
+            expected_status = (
+                RunStatus.PLANNING if request_budget.purpose == "planning" else RunStatus.RUNNING
+            )
+            if run.status != expected_status:
+                raise IntegrityError("Model request budget evidence does not match the Run phase")
+            if request_budget.call_id in run.model_reservations or any(
+                record.call_id == request_budget.call_id for record in run.model_calls
+            ):
+                raise IntegrityError("Budget-stopped model request was already dispatched")
         _transition(run, RunStatus.FAILED)
         run.failure_reason = p["reason"]
         if stop is not None:
             run.budget_stop = stop
+            run.model_request_budget = request_budget
     elif event.event_type == "LEASE_ACQUIRED":
         if run.terminal or p["epoch"] != run.lease_epoch + 1:
             raise IntegrityError("Invalid lease epoch or terminal run")

@@ -6,8 +6,16 @@ import pytest
 
 from horizon.adapters.persistence.sqlite import SQLiteEventStore
 from horizon.application.services import LeaseToken
-from horizon.domain.errors import Conflict, IntegrityError, InvalidTransition, LeaseConflict
+from horizon.domain.errors import (
+    BudgetStop,
+    BudgetStopReason,
+    Conflict,
+    IntegrityError,
+    InvalidTransition,
+    LeaseConflict,
+)
 from horizon.domain.events import NewEvent
+from horizon.domain.model import InputTokenBudget, InputTokenEstimate, ModelRequestBudgetEvidence
 from horizon.domain.run import projection_hash
 from horizon.domain.states import RunStatus
 from horizon.domain.task import TaskSpec
@@ -90,6 +98,44 @@ def test_trace_tampering_and_future_schema_rejected(store, task):
     data["schema_version"] = 2
     with pytest.raises(IntegrityError, match="Malformed"):
         SQLiteEventStore.replay_jsonl(json.dumps(data))
+
+
+def test_budget_stop_request_evidence_must_match_replayed_run_phase(store, running):
+    run, _ = running
+    stop = BudgetStop(
+        reason_code=BudgetStopReason.RUN_MODEL_COST_LIMIT,
+        scope="run",
+        currency="CNY",
+        required_cost="0.02",
+        available_cost="0.01",
+    )
+    evidence = ModelRequestBudgetEvidence(
+        call_id="planner-call",
+        purpose="planning",
+        request_hash="a" * 64,
+        input_token_budget=InputTokenBudget(
+            max_input_tokens=4_000,
+            estimate=InputTokenEstimate(request_bytes=1_000, token_ceiling=3_024),
+        ),
+        output_token_ceiling=512,
+    )
+
+    with pytest.raises(IntegrityError, match="Run phase"):
+        store.command(
+            run.run_id,
+            "invalid-budget-evidence",
+            {"operation": "invalid-budget-evidence"},
+            lambda _: [
+                NewEvent(
+                    event_type="RUN_FAILED",
+                    payload={
+                        "reason": stop.reason_code.value,
+                        "budget_stop": stop.model_dump(mode="json"),
+                        "model_request_budget": evidence.model_dump(mode="json"),
+                    },
+                )
+            ],
+        )
 
 
 def test_concurrent_writers_cannot_both_claim_lease(store, service, task):

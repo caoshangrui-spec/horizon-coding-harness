@@ -106,6 +106,8 @@ def guarded(function):
             payload = {"error": type(exc).__name__, "message": str(exc)}
             if exc.stop is not None:
                 payload["budget_stop"] = exc.stop.model_dump(mode="json")
+            if exc.model_request_budget is not None:
+                payload["model_request_budget"] = exc.model_request_budget.model_dump(mode="json")
             typer.echo(canonical_json(payload), err=True)
             raise typer.Exit(2) from None
         except (HorizonError, OSError, ValueError, yaml.YAMLError) as exc:
@@ -939,6 +941,11 @@ def agent_run(
                         "status": stopped.status,
                         "failure_reason": stopped.failure_reason,
                         "budget_stop": stopped.budget_stop.model_dump(mode="json"),
+                        "model_request_budget": (
+                            stopped.model_request_budget.model_dump(mode="json")
+                            if stopped.model_request_budget
+                            else None
+                        ),
                         "workspace": str(workspace.resolve()),
                         "campaign": ledger.summary(provider.campaign.campaign_id).model_dump(
                             mode="json"
@@ -1043,6 +1050,11 @@ def agent_run(
                 "failure_reason": result.failure_reason,
                 "budget_stop": (
                     result.budget_stop.model_dump(mode="json") if result.budget_stop else None
+                ),
+                "model_request_budget": (
+                    result.model_request_budget.model_dump(mode="json")
+                    if result.model_request_budget
+                    else None
                 ),
                 "workspace": str(workspace.resolve()),
                 "source_workspace_unchanged": source_unchanged,
@@ -1261,6 +1273,11 @@ def agent_resume(
                         "status": stopped.status,
                         "failure_reason": stopped.failure_reason,
                         "budget_stop": stopped.budget_stop.model_dump(mode="json"),
+                        "model_request_budget": (
+                            stopped.model_request_budget.model_dump(mode="json")
+                            if stopped.model_request_budget
+                            else None
+                        ),
                         "workspace": str(workspace),
                         "campaign": ledger.summary(provider.campaign.campaign_id).model_dump(
                             mode="json"
@@ -1351,6 +1368,11 @@ def agent_resume(
                 "failure_reason": result.failure_reason,
                 "budget_stop": (
                     result.budget_stop.model_dump(mode="json") if result.budget_stop else None
+                ),
+                "model_request_budget": (
+                    result.model_request_budget.model_dump(mode="json")
+                    if result.model_request_budget
+                    else None
                 ),
                 "workspace": str(workspace),
                 "continuation_required": result.status

@@ -18,7 +18,9 @@ replay 和 hash-chain 校验；同一 Run 重复输入会被拒绝，避免累�
 - `BUDGET_RESERVED`：派发时保留的 input/output token 上界；
 - `MODEL_CALL_RESERVED`：币种、模型、request hash、保守费用与可选 estimator 元数据；
 - `MODEL_CALL_SETTLED`：Provider 回执中的 token usage，以及本地冻结 PriceCard 算出的结算费用；
-- `RUN_FAILED.budget_stop`：未派发请求的 required/available/shortfall。
+- `RUN_FAILED.budget_stop`：未派发请求的 required/available/shortfall；
+- `RUN_FAILED.model_request_budget`：新停止事件相邻保存的 call/request 标识、purpose、
+  `request_bytes`、生产 estimator、input cap/ceiling 与 output ceiling。旧 Trace 可以没有该字段。
 
 金额字段中的 `settled_price_card_cost` 是本地 PriceCard 对 Provider usage 的复算值，不冒充供应商
 最终账单。未派发的 budget stop 没有 Provider usage，不能虚构“如果派发会花多少钱”。
@@ -38,14 +40,20 @@ replay 和 hash-chain 校验；同一 Run 重复输入会被拒绝，避免累�
 | input token 上界/Provider input 中位数 | 7.100207 |
 | output token 上界/Provider output 中位数 | 4.491228 |
 | 类型化 pre-dispatch BudgetStop | 2 |
+| 可回放候选 estimator 的已结算调用 | 3 |
+| 候选 `request_bytes + 1024` 上界/Provider input 中位数 | 4.137869 |
+| 候选公式在可观测样本中的低估次数 | 0 |
 
 这里的“预留费用累计”是各调用在派发瞬间的压力之和；每次结算后多余预留都会释放，不能把
 `CNY 1.341318` 解释成已消费费用。20 次调用都保存了 token 上界和实际 usage，但只有最新 3 次
 保存 `request_bytes`/estimator 元数据，因此当前证据足以确认**存在系统性预留放大**，不足以直接
-证明某个新估算公式是安全上界。
+证明某个新估算公式是安全上界。候选公式在这 3 次调用中的上界/实际 input 比范围为
+`3.905058～4.201220`；这是历史观测，不是所有请求形态的硬上界证明。两个历史 BudgetStop
+都早于本字段，因此没有 request metadata；后续新停止会留下该证据。
 
 ## 决策边界
 
-该报告不会自动改变 estimator、调低安全系数、扩大 Campaign 或触发复跑。下一步应先让后续
-pre-dispatch stop 也保留可审计的请求尺寸元数据，并对候选公式做零费用历史回放；只有在新的
-公式仍满足硬上界合同和足够样本的情况下，才替换生产门禁。
+该报告不会自动改变 estimator、调低安全系数、扩大 Campaign 或触发复跑。生产门禁仍使用
+`2 * request_bytes + 1024`；`request_bytes + 1024` 只作为报告中的候选回放。下一步是积累更多
+不同请求形态的 settled call 与新 BudgetStop 尺寸证据，并明确验证 Provider token usage 的覆盖
+边界；只有候选公式在足够样本和边界测试中仍满足硬上界合同，才考虑替换生产门禁。

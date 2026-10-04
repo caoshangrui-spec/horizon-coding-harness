@@ -471,6 +471,7 @@ class PlanGenerator:
                 planning_context_hash=context.sha256,
                 input_token_budget=input_token_budget,
             )
+            request_budget = reservation.budget_evidence(request.max_output_tokens)
             try:
                 self.campaign_ledger.reserve(
                     self.campaign,
@@ -499,14 +500,22 @@ class PlanGenerator:
                     )
                     raise
             except BudgetExceeded as exc:
-                if exc.stop is not None and not self.service.store.get(run_id).reservations:
+                if exc.stop is None:
+                    raise
+                enriched = BudgetExceeded(
+                    str(exc),
+                    stop=exc.stop,
+                    model_request_budget=request_budget,
+                )
+                if not self.service.store.get(run_id).reservations:
                     self.service.fail_budget_stop(
                         run_id,
                         exc.stop,
                         token,
                         f"planning_budget_stop_{uuid4().hex}",
+                        model_request_budget=request_budget,
                     )
-                raise
+                raise enriched from exc
             try:
                 response = self.model.generate(request, trace_id)
             except ProviderError as exc:

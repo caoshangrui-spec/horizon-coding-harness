@@ -570,28 +570,44 @@ class CodingAgentRunner:
             projected_message_count=projection.projected_message_count,
             input_token_budget=projection.input_token_budget,
         )
-        self.campaign_ledger.reserve(
-            self.campaign,
-            call_id,
-            request.sha256,
-            reserved_cost,
-        )
+        request_budget = reservation.budget_evidence(request.max_output_tokens)
         try:
-            self.service.reserve_model_call(
-                run_id,
-                reservation,
-                Usage(
-                    model_calls=1,
-                    input_tokens=input_ceiling,
-                    output_tokens=request.max_output_tokens,
-                ),
-                token,
-                f"reserve_{call_id}",
+            self.campaign_ledger.reserve(
+                self.campaign,
+                call_id,
+                request.sha256,
+                reserved_cost,
             )
-        except BaseException:
-            # No request was dispatched. Release only the campaign reservation with a zero receipt.
-            self.campaign_ledger.settle(self.campaign.campaign_id, call_id, Decimal("0"), None)
-            raise
+            try:
+                self.service.reserve_model_call(
+                    run_id,
+                    reservation,
+                    Usage(
+                        model_calls=1,
+                        input_tokens=input_ceiling,
+                        output_tokens=request.max_output_tokens,
+                    ),
+                    token,
+                    f"reserve_{call_id}",
+                )
+            except BaseException:
+                # No request was dispatched. Release only the Campaign reservation with a zero
+                # receipt before preserving the original failure.
+                self.campaign_ledger.settle(
+                    self.campaign.campaign_id,
+                    call_id,
+                    Decimal("0"),
+                    None,
+                )
+                raise
+        except BudgetExceeded as exc:
+            if exc.stop is None:
+                raise
+            raise BudgetExceeded(
+                str(exc),
+                stop=exc.stop,
+                model_request_budget=request_budget,
+            ) from exc
         try:
             response = self.model.generate(request, trace_id)
         except ProviderError as exc:
@@ -1071,6 +1087,7 @@ class CodingAgentRunner:
                         exc.stop,
                         token,
                         f"budget_stop_{uuid4().hex}",
+                        model_request_budget=exc.model_request_budget,
                     )
                 except ProviderError as exc:
                     return self.service.fail(

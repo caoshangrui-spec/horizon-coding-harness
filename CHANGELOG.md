@@ -5,6 +5,14 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Persisted pre-dispatch model request sizing beside typed budget stops, including call/request
+  identity, purpose, estimator input bytes, input ceiling, configured input cap, and output ceiling;
+  planning/execution CLI output and Trace replay expose the same evidence without changing old
+  Trace projection hashes.
+- Added a zero-cost candidate-estimator replay to `trace reservation-report`. On the three
+  historical calls that contain request-byte metadata, `request_bytes + 1024` had zero observed
+  underestimates and a 4.137869 median ceiling/usage ratio; the sample is explicitly insufficient
+  to change the production gate.
 - Added an offline `trace reservation-report` command that replay-verifies one or more traces,
   correlates model reservations with settlements, quantifies token/cost pressure, rejects duplicate
   Runs, and preserves the distinction between PriceCard estimates and provider invoices.

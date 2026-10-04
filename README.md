@@ -67,11 +67,11 @@ workspace revision 绑定并从 Trace 复算。模型动作由冻结脚本提供
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | Python 3.12/3.13 的测试、静态检查、演示和构建已通过 | CI 不读取 API Key、不运行付费模型 |
-| 离线回归 | `299 passed, 6 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `301 passed, 6 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | Docker 契约 | `redis:7-alpine` 上单独复跑 `6 passed` | 有限隔离合同，不是恶意代码安全认证 |
 | 完整 checkout A/B | tqdm 82 files、youtube-dl 872 files；初始失败门、恢复、replan、最终验收和 Trace replay 通过 | 使用 Scripted Model，不是模型能力成绩 |
 | 真实模型 Pilot | 六轮均可重放、费用可核对、source 未变 | 六轮均未编辑或验证成功，保留为负结果 |
-| 预算预留诊断 | 6 Trace、20 个已结算调用；聚合预留/结算比 6.861621 | 离线诊断，不自动降低费用安全门槛 |
+| 预算预留诊断 | 6 Trace、20 个已结算调用；聚合预留/结算比 6.861621；候选公式仅有 3 个可回放样本 | 新 BudgetStop 保存请求尺寸；样本不足，不自动降低费用安全门槛 |
 
 更完整的数字、失败记录与未完成项见
 [开发进度与验证记录](docs/development-progress.md)和
@@ -304,7 +304,7 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **299 passed，6 skipped**；6 个跳过项指定本机已有
+当前离线全量回归为 **301 passed，6 skipped**；6 个跳过项指定本机已有
 `redis:7-alpine` 单独复跑，得到 **6 passed** 的真实 Docker 契约结果。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实
 Issue 效果。新增真实模型 Pilot 单元测试覆盖私有答案拒绝、初始失败证据、内容寻址报告和
@@ -317,7 +317,9 @@ execution 与一次 rank-1 检索，但下一请求需 `CNY 0.05832`，被 Campa
 门禁在派发前终止。当前 Campaign 剩 `CNY 0.0497586`，本系列累计付费 `CNY 0.1954812`；
 没有自动重试或 fallback，也没有代码编辑或 protected validation。
 未来确定性费用拒绝不再留下无 Lease 的 `RUNNING`：控制器会持久化类型化 `BudgetStop`、进入
-`FAILED` 并在 CLI/status 中报告所需与可用金额；unknown 用量仍保守进入对账路径。
+`FAILED` 并在 CLI/status 中报告所需与可用金额。新停止还会相邻保存未派发请求的 call/request
+标识、purpose、估算器、请求字节、input cap/ceiling 和 output ceiling，便于零费用回放；unknown
+用量仍保守进入对账路径。历史 Trace 不被追溯改写。
 详情见下方文档。故障测试实际强制退出
 子进程，覆盖 Run receipt、response Artifact、精确写入副作用和 promotion receipt 附近的提交
 窗口；它们仍不等于设计里的全部故障矩阵。新增顺序双 WorkItem E2E 覆盖原子阶段交接、跨

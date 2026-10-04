@@ -542,12 +542,17 @@ def test_agent_run_reports_planning_budget_stop_before_model_dispatch(tmp_path, 
     assert Decimal(data["budget_stop"]["required_cost"]) > Decimal(
         data["budget_stop"]["available_cost"]
     )
+    assert data["model_request_budget"]["purpose"] == "planning"
+    assert data["model_request_budget"]["input_token_budget"]["estimate"]["request_bytes"] > 0
+    assert data["model_request_budget"]["output_token_ceiling"] > 0
     assert data["campaign"]["reserved_cost"] == "0"
     assert data["campaign"]["unknown_cost"] == "0"
     assert len(model.requests) == 0
     persisted = SQLiteEventStore(tmp_path / ".horizon/control.sqlite3").get(data["run_id"])
     assert persisted.status == RunStatus.FAILED
     assert persisted.budget_stop is not None
+    assert persisted.model_request_budget is not None
+    assert persisted.model_request_budget.model_dump(mode="json") == data["model_request_budget"]
     assert persisted.lease_id is None
     assert persisted.reservations == {}
 

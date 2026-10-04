@@ -36,13 +36,13 @@
 | 完整 Run A/B 与来源绑定 Suite | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[scripted.py](../src/horizon/adapters/model/scripted.py) | 同一 Task/Plan/workspace 的 baseline 与单次 replan arm；先真实确认初始失败，再检查 EventLog/预算/Gateway/Trace；1 个内部、3 个 BugsInPy 依赖裁剪案例，以及 tqdm 82 files、youtube-dl 872 files 两个完整 checkout 经禁网 Docker 通过；完整案例还验证干净 Git HEAD 与 Code RAG，仍是脚本模型 |
 | 完整 checkout 多阶段/重启 A/B | [multi-stage.yaml](../benchmarks/run_ab/full/youtube-dl-3-unescape-html/multi-stage.yaml) | youtube-dl 872 files 上 production → regression-test 两个依赖 WorkItem；两 arm 均在安全边界换为 epoch 2 Worker，跨 revision RAG、active/stale Run Memory、完成项保留 replan、最终两项 required checks 与 Trace replay 通过；CRLF 精确替换失败和 60 秒重启 Lease 到期均作为负结果保留 |
 | 真实模型 Pilot | [pilot.py](../src/horizon/domain/pilot.py)、[pilot.py](../src/horizon/application/pilot.py)、[real-model-pilot.md](real-model-pilot.md) | 离线预检绑定完整干净 checkout、初始失败、source snapshot、Docker image、Provider policy、Harness 源码指纹、费用 cap 和首次规划保守预留。六个付费 Run 均无编辑/验证、Trace 可重放且 source 未变；第六轮的 Plan 错把已有 `itertools.py` 当实现位置，但 execution 先检索并把真实 `__init__.py` 排为 rank 1，下一模型请求再因 Campaign 预留不足停止。当前累计 `CNY 0.1954812`；没有自动复跑或真实 Issue 成功 |
-| 模型预留压力诊断 | [reservation_analysis.py](../src/horizon/application/reservation_analysis.py)、[reservation-diagnostics.md](reservation-diagnostics.md) | `trace reservation-report` 在 replay/hash-chain 校验后关联 budget/model reservation 与 settlement；六轮 20 次调用的聚合预留/结算比为 6.861621、input 上界/Provider input 中位数为 7.100207。只量化，不自动修改 estimator 或付费预算 |
+| 模型预留压力诊断 | [reservation_analysis.py](../src/horizon/application/reservation_analysis.py)、[reservation-diagnostics.md](reservation-diagnostics.md) | `trace reservation-report` 在 replay/hash-chain 校验后关联 reservation、settlement 和新 BudgetStop 请求尺寸；六轮 20 次调用的聚合预留/结算比为 6.861621。候选 `request_bytes + 1024` 仅可回放 3 次，0 次观测低估、中位比 4.137869；生产 estimator、费用门禁和付费预算均未改变 |
 | 安全轮次续跑 | [agent.py](../src/horizon/domain/agent.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 消息 Artifact + event/revision 绑定；新 Worker 续跑；PLANNING/READY 也可恢复，任意崩溃窗口对账未完成 |
 | 悬空调用恢复与对账 | [recovery.py](../src/horizon/application/recovery.py)、[model_recovery.py](../src/horizon/application/model_recovery.py)、[tool_recovery.py](../src/horizon/application/tool_recovery.py) | Campaign-only 预留释放；response Artifact 跨 Worker 续跑；只读重试；精确 `replace_text` / `apply_patch` accept/rollback；Docker `run_check` 用 call ID 标签 attempt，可查询/显式停止/删除后丢弃未知结果，missing 仍需人工确认；部分 patch 与无停止证明的验证副作用仍阻塞 |
 | 受控候选提升 | [promotion.py](../src/horizon/application/promotion.py)、[promotion.py](../src/horizon/adapters/workspace/promotion.py)、[git.py](../src/horizon/adapters/vcs/git.py) | 只读 diff、源/候选 revision 与可选 Git HEAD 绑定、显式 1～8 个既有文件修改、完整/部分 effect 崩溃恢复；不创建 commit |
 | 任务准备、计划、状态、取消、执行、导出与重放 CLI | [app.py](../src/horizon/interfaces/cli/app.py) | `run` 保持 prepare-only；`agent run` 接受 PLAN_PATH 或 `--auto-plan` 且只操作 staging；`agent resume` 支持 PLANNING/READY/RUNNING；执行前 HorizonError 仅在无非 unknown 在途 reservation 时释放租约；promotion 需显式确认 |
 | SiliconFlow 严格配置与 OpenAI-compatible adapter | [config.py](../src/horizon/adapters/model/config.py)、[openai_compatible.py](../src/horizon/adapters/model/openai_compatible.py) | 真实 Tool Calling 探针和历史 fixture Agent Run 通过；完整 checkout Pilot 已真实调用并以受控终态失败，无隐式 retry/fallback |
-| CNY Campaign 与 Run 模型费用账本 | [campaign_budget.py](../src/horizon/adapters/persistence/campaign_budget.py)、[run.py](../src/horizon/domain/run.py)、[budget-stop-semantics.md](budget-stop-semantics.md) | Campaign 跨重启硬上限；Run 绑定 CNY policy 并事件化；确定性派发前费用不足携带 reason/scope/required/available 原子进入 `FAILED` 并清除 Lease，unknown 用量仍保守对账；TaskSpec 旧 USD 字段尚未迁移 |
+| CNY Campaign 与 Run 模型费用账本 | [campaign_budget.py](../src/horizon/adapters/persistence/campaign_budget.py)、[run.py](../src/horizon/domain/run.py)、[budget-stop-semantics.md](budget-stop-semantics.md) | Campaign 跨重启硬上限；Run 绑定 CNY policy 并事件化；确定性派发前费用不足携带 reason/scope/required/available 及未派发请求 sizing evidence 原子进入 `FAILED` 并清除 Lease，unknown 用量仍保守对账；TaskSpec 旧 USD 字段尚未迁移 |
 | 一键离线作品集 EvidencePack | [portfolio_demo.py](../src/horizon/application/portfolio_demo.py)、[portfolio_demo.py](../src/horizon/domain/portfolio_demo.py)、[portfolio-demo.md](portfolio-demo.md) | `horizon demo run` 复用真实事件/Lease/会话/RAG/Gateway/验证主链路，在结构化工具错误后由 epoch 2 Worker 续跑；v2 报告把检索 Artifact、写入时 ContextProjection、目标路径、旧文本哈希和同一 revision 组成可从 Trace 复算的 lineage，Trace/最终投影/报告/摘要再由 SHA-256 清单自检。兼容读取 v1；零网络/零真实模型/零外部费用，且不冒充真实模型因果使用证据 |
 
 2026-10-04 的零费用增量把原先仅用于费用预留的完整请求保守上界接入实际派发门禁。
@@ -125,6 +125,19 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
   新模块，旧 manifest 仍重放原 EvidencePack；FTS5 与 scan fallback 使用同一消歧规则。
 - 该批次离线全量回归：**291 passed，6 skipped**；真实 Docker 合同另行补跑，不把 skip 算通过。
   本增量不加载 Provider、不调用模型、不联网、不执行被检索夹具代码，外部费用为 0。
+
+### 2026-10-04 BudgetStop 请求证据与候选 estimator 回放
+
+- planning/execution 在构造完整模型请求、通过 Provider 派发前，生成
+  `ModelRequestBudgetEvidence`。若 Run 或 Campaign 金额门禁拒绝请求，`RUN_FAILED` 会原子保存
+  call/request 标识、purpose、生产 estimator、请求字节、input cap/ceiling 和 output ceiling；
+  CLI 与离线 Trace replay 读取同一证据，Provider 调用数保持 0。
+- `trace reservation-report` 新增候选 `request_bytes + 1024` 的零费用历史回放。六轮真实 Trace
+  仍只有 3/20 个已结算调用含 request-byte metadata；这 3 个样本中观测低估为 0，上界/Provider
+  input 比为 3.905058～4.201220，中位数 4.137869。两个历史 BudgetStop 都没有新元数据。
+- 生产公式仍为 `2 * request_bytes + 1024`，没有修改任何费用上限、建立 Campaign、调用 Provider、
+  retry 或 fallback。第六轮历史 Trace 重放 hash 仍为
+  `a3a9ff4b0067a6b323c14cc5f954ca1197d20b13099a63c96d5be97f1d66c4bc`。
 
 ### 2026-10-04 完整请求 input-token 门禁
 
@@ -486,7 +499,8 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
    缺口和完整 inventory 路径准入，但仍没有完成目标修复或 protected validation。仍缺固定 20～30 个真实任务、长程/检索/记忆诊断、
    A/B/C/D 与消融、关键安全独立复核。单个负样本不能替代这些证据。
 
-六轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断和外部定位盲测后，当前主干已完成 299 项离线回归。
+六轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
+BudgetStop 请求证据回放后，当前主干已完成 301 项离线回归。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
 `run_model_cost_limit` 进入 `FAILED`。没有工具、编辑、checkpoint 或验证，Trace 14 事件可重放，
