@@ -239,6 +239,11 @@ def test_generated_plan_is_budgeted_validated_and_trace_linked(tmp_path):
     assert reservation.input_token_budget is not None
     assert reservation.input_token_budget.max_input_tokens == generator.config.max_input_tokens
     assert reservation.input_token_budget.estimate == conservative_input_estimate(model.requests[0])
+    assert reservation.request_payload == model.requests[0].openai_compatible_payload_evidence()
+    assert (
+        reservation.request_payload.payload_bytes
+        == reservation.input_token_budget.estimate.request_bytes
+    )
     assert result.run.usage.input_tokens == 180
     event = next(event for event in store.events(run_id) if event.event_type == "PLAN_CREATED")
     assert event.payload["source_model_call_id"] == result.model_call_id
@@ -278,6 +283,11 @@ def test_planning_budget_stop_is_terminal_and_replayable_before_dispatch(tmp_pat
     assert failure.value.model_request_budget is not None
     assert failure.value.model_request_budget.purpose == "planning"
     assert failure.value.model_request_budget.input_token_budget.estimate.request_bytes > 0
+    assert failure.value.model_request_budget.request_payload is not None
+    assert (
+        failure.value.model_request_budget.request_payload.payload_bytes
+        == failure.value.model_request_budget.input_token_budget.estimate.request_bytes
+    )
     assert (
         failure.value.model_request_budget.output_token_ceiling
         == generator.config.max_output_tokens

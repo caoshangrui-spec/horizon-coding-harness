@@ -173,12 +173,14 @@ Run 证据显式提交一次受限 Plan revision；该 revision 不新增模型�
 
 Provider 配置同时固定 `request.max_context_chars=60000`、
 `request.max_input_tokens=120000` 和 `preserve_recent_context_units=6`。字符门只测量投影消息；
-input-token 门对包含工具 Schema 的完整规范请求使用 `2 * UTF-8 bytes + 1024` 上界。120,000
-是 Horizon 的可配置请求策略，不冒充模型官方窗口或 tokenizer 精确计数。完整 canonical
-transcript 继续作为会话 Artifact 保存；每次请求绑定另一份 ContextProjection Artifact，记录
-source digest、算法 Schema、字符使用、请求字节、token 上界和实际消息；模型 reservation 绑定
-同一预算。恢复 pending response 时重新生成并逐字段比较，防止配置或会话漂移。自动规划与
-probe 也在 Provider 派发前检查该上限，离线 pilot preflight 将其纳入 `ready`。
+input-token 门对包含工具 Schema 的最终 OpenAI-compatible HTTP body 使用
+`2 * UTF-8 bytes + 1024` 上界。Adapter 与预算器共用同一个 canonical wire encoder；新
+reservation 还保存 payload hash、总字节、顶层字段 value 字节和 JSON 结构字节。120,000 是
+Horizon 的可配置请求策略，不冒充模型官方窗口或 tokenizer 精确计数。完整 canonical transcript
+继续作为会话 Artifact 保存；每次请求绑定另一份 ContextProjection Artifact，记录 source digest、
+算法 Schema、字符使用、请求字节、token 上界和实际消息；模型 reservation 绑定同一预算。
+恢复 pending response 时按历史 estimator ID 重新生成并逐字段比较，防止配置或会话漂移。自动
+规划与 probe 也在 Provider 派发前检查该上限，离线 pilot preflight 将其纳入 `ready`。
 
 探针固定为单次请求，不读取 `request.max_attempts` 进行隐式重试。配置中的最多两次尝试是
 未来统一 Retry Gateway 的上限，当前尚未实现；自动 fallback 固定关闭。
@@ -190,6 +192,7 @@ probe 也在 Provider 派发前检查该上限，离线 pilot preflight 将其�
 - Config 禁止未知字段、错误 endpoint 和币种不一致；
 - 环境变量优先级、`.env` 重复定义拒绝、Key 不出现在 repr/CLI；
 - 请求非流式、关闭 thinking、输出 token 有界、Authorization 只在 header；
+- Adapter 实际 body 与预算器测量的 payload 字节/hash 完全一致，字段分量精确加总；
 - Tool Call arguments 严格 JSON object，模型静默切换、缺 usage、坏响应拒绝；
 - Campaign 原子预留、幂等、重启、unknown、硬上限和超额回执先记账；
 - 字符预算与完整请求 input-token 上界分别生效，规划/probe 超限时不派发；

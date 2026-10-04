@@ -28,7 +28,7 @@
 | Typed Tool Gateway | [gateway.py](../src/horizon/tools/gateway.py) | 搜索、读取、单文件精确替换、最多 8 文件的结构化精确 patch、受保护检查和 submit；路径/链接/大小受限，每次 intent/receipt 持久化；exact search 饱和时显式标记截断并引导 ranked retrieval；`retrieve_code` 默认只返回 rank 1，需要时才显式扩大；大文件整读拒绝并要求最多 400 行、32 Ki 字符的范围读取 |
 | 顺序多 WorkItem Agent Loop | [agent_loop.py](../src/horizon/application/agent_loop.py) | dependency-ready 调度、逐项会话/权限/验收、原子交接、最终全量回归、有限 repair 与单次受限 replan；不支持并行或自动/多次 replan |
 | 执行证据驱动的受限 Replan | [plan.py](../src/horizon/domain/plan.py)、[services.py](../src/horizon/application/services.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 模型显式 `revise_plan`，最多 1 次成功；完成项逐字段不可变，工具 receipt、Plan vN+1、新 session 同事务；NoProgress 后成功、跨项保留、非法提案回退和 Trace 重放已测；未做真实模型效果评测 |
-| 确定性 ContextProjection + MandatoryFactLedger | [context.py](../src/horizon/application/context.py)、[context.py](../src/horizon/domain/context.py) | 完整 transcript 留存；候选投影同时满足字符上限与覆盖工具 Schema 的完整请求保守 token 上界，近期完整单元在任一硬上限需要时只折叠最少数量，incomplete 单元绝不折叠；Projection/Reservation 绑定版本化 estimator、请求字节、上界与配置 cap；Task/Plan/权限/验收/预算/策略/工具 Schema/workspace 另做内容寻址绑定；不是精确 tokenizer、语义压缩或 Project Memory |
+| 确定性 ContextProjection + MandatoryFactLedger | [context.py](../src/horizon/application/context.py)、[context.py](../src/horizon/domain/context.py) | 完整 transcript 留存；候选投影同时满足字符上限与覆盖工具 Schema 的完整请求保守 token 上界，近期完整单元在任一硬上限需要时只折叠最少数量，incomplete 单元绝不折叠；新 Projection/Reservation 使用 Adapter 实际 OpenAI-compatible body 字节，绑定版本化 estimator、payload hash/字段分量、上界与配置 cap，并按 estimator ID 恢复 v1；Task/Plan/权限/验收/预算/策略/工具 Schema/workspace 另做内容寻址绑定；不是精确 tokenizer、语义压缩或 Project Memory |
 | 证据驱动的 Run Memory | [memory.py](../src/horizon/application/memory.py)、[memory.py](../src/horizon/domain/memory.py) | 从工具事件和内容寻址输出派生；保留失败/unknown，按 workspace revision 失效并绑定模型请求恢复边界；仅 run scope，不是 Project Memory |
 | 精确模式无进展保护 | [agent_loop.py](../src/horizon/application/agent_loop.py) | 同一 revision 下，相同精确动作第 3 次、A/B 精确循环第 5 步软阻断；继续模式分别在第 4/6 步进入可恢复人工等待；不是语义或任意周期检测 |
 | Revision-aware 词法 Code RAG | [retrieval.py](../src/horizon/domain/retrieval.py)、[sqlite_fts.py](../src/horizon/adapters/retrieval/sqlite_fts.py)、[retrieval_eval.py](../src/horizon/application/retrieval_eval.py) | SQLite FTS5/BM25、有界 EvidencePack、权限/revision/hash 回查、显式 scan fallback；camelCase/snake_case、同名定义路径语境和不同文件优先已测，内部 5+2+2 与外部 3 案例的成功/负结果均记录；dirty revision 可重建新排名并重放旧证据；外部盲测仍为 Hit@1 0/3，且无 AST/向量/symbol 图或真实模型收益结论 |
@@ -41,7 +41,7 @@
 | 悬空调用恢复与对账 | [recovery.py](../src/horizon/application/recovery.py)、[model_recovery.py](../src/horizon/application/model_recovery.py)、[tool_recovery.py](../src/horizon/application/tool_recovery.py) | Campaign-only 预留释放；response Artifact 跨 Worker 续跑；只读重试；精确 `replace_text` / `apply_patch` accept/rollback；Docker `run_check` 用 call ID 标签 attempt，可查询/显式停止/删除后丢弃未知结果，missing 仍需人工确认；部分 patch 与无停止证明的验证副作用仍阻塞 |
 | 受控候选提升 | [promotion.py](../src/horizon/application/promotion.py)、[promotion.py](../src/horizon/adapters/workspace/promotion.py)、[git.py](../src/horizon/adapters/vcs/git.py) | 只读 diff、源/候选 revision 与可选 Git HEAD 绑定、显式 1～8 个既有文件修改、完整/部分 effect 崩溃恢复；不创建 commit |
 | 任务准备、计划、状态、取消、执行、导出与重放 CLI | [app.py](../src/horizon/interfaces/cli/app.py) | `run` 保持 prepare-only；`agent run` 接受 PLAN_PATH 或 `--auto-plan` 且只操作 staging；`agent resume` 支持 PLANNING/READY/RUNNING；执行前 HorizonError 仅在无非 unknown 在途 reservation 时释放租约；promotion 需显式确认 |
-| SiliconFlow 严格配置与 OpenAI-compatible adapter | [config.py](../src/horizon/adapters/model/config.py)、[openai_compatible.py](../src/horizon/adapters/model/openai_compatible.py) | 真实 Tool Calling 探针和历史 fixture Agent Run 通过；完整 checkout Pilot 已真实调用并以受控终态失败，无隐式 retry/fallback |
+| SiliconFlow 严格配置与 OpenAI-compatible adapter | [config.py](../src/horizon/adapters/model/config.py)、[openai_compatible.py](../src/horizon/adapters/model/openai_compatible.py) | Adapter 与预算器共用 canonical wire encoder，实际 HTTP body 的 bytes/hash 可复算；真实 Tool Calling 探针和历史 fixture Agent Run 通过；完整 checkout Pilot 已真实调用并以受控终态失败，无隐式 retry/fallback |
 | CNY Campaign 与 Run 模型费用账本 | [campaign_budget.py](../src/horizon/adapters/persistence/campaign_budget.py)、[run.py](../src/horizon/domain/run.py)、[budget-stop-semantics.md](budget-stop-semantics.md) | Campaign 跨重启硬上限；Run 绑定 CNY policy 并事件化；确定性派发前费用不足携带 reason/scope/required/available 及未派发请求 sizing evidence 原子进入 `FAILED` 并清除 Lease，unknown 用量仍保守对账；TaskSpec 旧 USD 字段尚未迁移 |
 | 一键离线作品集 EvidencePack | [portfolio_demo.py](../src/horizon/application/portfolio_demo.py)、[portfolio_demo.py](../src/horizon/domain/portfolio_demo.py)、[portfolio-demo.md](portfolio-demo.md) | `horizon demo run` 复用真实事件/Lease/会话/RAG/Gateway/验证主链路，在结构化工具错误后由 epoch 2 Worker 续跑；v2 报告把检索 Artifact、写入时 ContextProjection、目标路径、旧文本哈希和同一 revision 组成可从 Trace 复算的 lineage，Trace/最终投影/报告/摘要再由 SHA-256 清单自检。兼容读取 v1；零网络/零真实模型/零外部费用，且不冒充真实模型因果使用证据 |
 
@@ -125,6 +125,20 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
   新模块，旧 manifest 仍重放原 EvidencePack；FTS5 与 scan fallback 使用同一消歧规则。
 - 该批次离线全量回归：**291 passed，6 skipped**；真实 Docker 合同另行补跑，不把 skip 算通过。
   本增量不加载 Provider、不调用模型、不联网、不执行被检索夹具代码，外部费用为 0。
+
+### 2026-10-04 精确 OpenAI-compatible payload 尺寸
+
+- 生产 byte basis 从领域 `ModelRequest` JSON 切换到 Adapter 实际发送的 canonical body，算法 ID
+  升为 `openai_payload_utf8_bytes_x2_plus_1024_v2`；`2 * bytes + 1024` 保守公式未降低。
+- 新 reservation/BudgetStop 记录 payload SHA-256、总 UTF-8 字节、每个顶层字段 value 字节及
+  JSON 结构字节；领域校验要求分量精确加总，v2 estimate 与 payload bytes 必须一致。Adapter
+  测试再核对 post body 的 bytes/hash，避免预算器与传输层各自序列化后漂移。
+- 新增零网络、零模型的 `model sizing-report`：minimal ASCII、Unicode、nested tool schema、
+  JSON-in-JSON tool arguments 和 8 KiB tool result 共 5 类，wire body 为 167～9,061 bytes；相对
+  v1 domain JSON 的 delta 同时出现 -96 和 +3，不能用固定开销替代实际编码。
+- 历史 v1 Trace 按原 byte basis 展示，reservation report 显式给出 basis counts；第六轮 replay
+  hash 仍为 `a3a9ff4b0067a6b323c14cc5f954ca1197d20b13099a63c96d5be97f1d66c4bc`。没有 Provider
+  usage、新 Campaign、费用、retry 或 fallback；五类合成请求不构成候选安全性或模型效果结论。
 
 ### 2026-10-04 BudgetStop 请求证据与候选 estimator 回放
 
@@ -500,7 +514,7 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
    A/B/C/D 与消融、关键安全独立复核。单个负样本不能替代这些证据。
 
 六轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
-BudgetStop 请求证据回放后，当前主干已完成 301 项离线回归。
+BudgetStop 请求证据回放与精确 wire payload 尺寸接入后，当前主干已完成 304 项离线回归。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
 `run_model_cost_limit` 进入 `FAILED`。没有工具、编辑、checkpoint 或验证，Trace 14 事件可重放，

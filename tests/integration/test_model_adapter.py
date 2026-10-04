@@ -1,4 +1,5 @@
 import json
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -77,11 +78,16 @@ def test_adapter_sends_bounded_nonstreaming_tool_request_and_parses_usage():
             response_body(),
         )
 
-    response = gateway(post).generate(probe_request(), "client-trace")
+    request = probe_request()
+    response = gateway(post).generate(request, "client-trace")
     payload = json.loads(captured["body"])
+    evidence = request.openai_compatible_payload_evidence()
     assert captured["url"] == "https://api.siliconflow.cn/v1/chat/completions"
     assert captured["headers"]["Authorization"] == "Bearer test-secret"
     assert b"test-secret" not in captured["body"]
+    assert captured["body"] == request.openai_compatible_body()
+    assert evidence.payload_bytes == len(captured["body"])
+    assert evidence.payload_sha256 == sha256(captured["body"]).hexdigest()
     assert payload["stream"] is False
     assert payload["enable_thinking"] is False
     assert payload["max_tokens"] == 128

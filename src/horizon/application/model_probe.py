@@ -6,11 +6,14 @@ from uuid import uuid4
 from horizon.domain.common import canonical_json
 from horizon.domain.errors import ProviderError
 from horizon.domain.model import (
+    CONSERVATIVE_INPUT_TOKEN_ESTIMATOR,
+    OPENAI_PAYLOAD_INPUT_TOKEN_ESTIMATOR,
     CampaignBudget,
     InputTokenEstimate,
     ModelMessage,
     ModelProbeResult,
     ModelRequest,
+    ModelRequestPayloadEvidence,
     PriceCard,
     ToolDefinition,
 )
@@ -56,14 +59,38 @@ def build_probe_request(
     )
 
 
-def conservative_input_estimate(request: ModelRequest) -> InputTokenEstimate:
-    """Return a reproducible upper bound, not a provider-tokenizer prediction."""
+def legacy_input_estimate(request: ModelRequest) -> InputTokenEstimate:
+    """Rebuild the v1 domain-contract estimate for recovery of historical Runs."""
 
     request_bytes = len(canonical_json(request).encode("utf-8"))
     return InputTokenEstimate(
+        estimator=CONSERVATIVE_INPUT_TOKEN_ESTIMATOR,
         request_bytes=request_bytes,
         token_ceiling=2 * request_bytes + 1024,
     )
+
+
+def conservative_input_sizing(
+    request: ModelRequest,
+) -> tuple[InputTokenEstimate, ModelRequestPayloadEvidence]:
+    """Measure the exact outbound body and return its conservative token upper bound."""
+
+    payload = request.openai_compatible_payload_evidence()
+    return (
+        InputTokenEstimate(
+            estimator=OPENAI_PAYLOAD_INPUT_TOKEN_ESTIMATOR,
+            request_bytes=payload.payload_bytes,
+            token_ceiling=2 * payload.payload_bytes + 1024,
+        ),
+        payload,
+    )
+
+
+def conservative_input_estimate(request: ModelRequest) -> InputTokenEstimate:
+    """Return a reproducible upper bound, not a provider-tokenizer prediction."""
+
+    estimate, _ = conservative_input_sizing(request)
+    return estimate
 
 
 def conservative_input_ceiling(request: ModelRequest) -> int:

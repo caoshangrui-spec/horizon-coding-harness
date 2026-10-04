@@ -10,7 +10,11 @@ from pydantic import Field, ValidationError
 from horizon.application.checkpoints import commit_checkpoint
 from horizon.application.context import ContextProjector, build_mandatory_fact_ledger
 from horizon.application.memory import RunMemoryProjector
-from horizon.application.model_probe import conservative_input_estimate
+from horizon.application.model_probe import (
+    conservative_input_estimate,
+    conservative_input_sizing,
+    legacy_input_estimate,
+)
 from horizon.application.model_recovery import (
     LEASE_EVENTS,
     events_after_agent_session,
@@ -27,6 +31,7 @@ from horizon.domain.errors import BudgetExceeded, Conflict, PolicyDenied, Provid
 from horizon.domain.human import NoProgressPattern, classify_no_progress
 from horizon.domain.memory import RunMemorySnapshot
 from horizon.domain.model import (
+    CONSERVATIVE_INPUT_TOKEN_ESTIMATOR,
     CampaignBudget,
     ModelCallRecord,
     ModelCallReservation,
@@ -357,14 +362,21 @@ class CodingAgentRunner:
         facts_ref: str,
         memory: RunMemorySnapshot,
         memory_ref: str,
+        *,
+        estimator: str | None = None,
     ) -> ContextProjection:
         if tuple(messages[:2]) != tuple(_initial_messages(run, _active_work_item(run))):
             raise Conflict("Canonical Agent task prefix does not match the current Run")
+        estimate_input = (
+            legacy_input_estimate
+            if estimator == CONSERVATIVE_INPUT_TOKEN_ESTIMATOR
+            else conservative_input_estimate
+        )
         return ContextProjector(
             max_chars=self.config.max_context_chars,
             preserve_recent_units=self.config.preserve_recent_context_units,
             max_input_tokens=self.config.max_input_tokens,
-            estimate_input_tokens=lambda projected_messages: conservative_input_estimate(
+            estimate_input_tokens=lambda projected_messages: estimate_input(
                 self._request_for_messages(projected_messages, run)
             ),
         ).project(
@@ -495,9 +507,21 @@ class CodingAgentRunner:
             reservation.mandatory_facts_ref,
             recorded_memory,
             reservation.run_memory_ref,
+            estimator=(
+                reservation.input_token_budget.estimate.estimator
+                if reservation.input_token_budget is not None
+                else None
+            ),
         )
-        if self._request_from_projection(projection, run).sha256 != pending.record.request_hash:
+        recovered_request = self._request_from_projection(projection, run)
+        if recovered_request.sha256 != pending.record.request_hash:
             raise Conflict("Recovered model request does not match the persisted Agent session")
+        if (
+            reservation.request_payload is not None
+            and recovered_request.openai_compatible_payload_evidence()
+            != reservation.request_payload
+        ):
+            raise Conflict("Recovered model request payload does not match its reservation")
         if reservation.context_projection_ref is not None:
             recorded_projection = ContextProjection.model_validate_json(
                 self.session_store.read(reservation.context_projection_ref)
@@ -541,7 +565,7 @@ class CodingAgentRunner:
             run_memory_ref,
         )
         request = self._request_from_projection(projection, run)
-        request_estimate = conservative_input_estimate(request)
+        request_estimate, request_payload = conservative_input_sizing(request)
         if request_estimate != projection.input_token_budget.estimate:
             raise Conflict("Context projection input-token estimate does not match its request")
         input_ceiling = request_estimate.token_ceiling
@@ -569,6 +593,7 @@ class CodingAgentRunner:
             source_message_count=projection.source_message_count,
             projected_message_count=projection.projected_message_count,
             input_token_budget=projection.input_token_budget,
+            request_payload=request_payload,
         )
         request_budget = reservation.budget_evidence(request.max_output_tokens)
         try:

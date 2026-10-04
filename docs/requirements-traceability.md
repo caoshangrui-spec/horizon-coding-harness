@@ -5,7 +5,7 @@
 本表是完整开发与验收导航。2026-09-30 已开始基础内核实现，实际证据列记录当前子范围与剩余缺口。目标路径相对 `src/horizon/`；计划测试路径相对 `tests/`；实际证据列的 `tests/` 路径相对仓库根。同一测试文件可验证多个 ID，但不能把子范围通过等同于整项通过。
 
 当前结果：2026-09-30 可靠性内核为 **92 项测试通过**；2026-10-04 的最新离线回归为
-**301 passed，6 skipped**，并在上一批边界单独补跑 **6 项真实 Docker 合同且全部通过**；另已完成一次 Tool Calling 探针和一次受预算
+**304 passed，6 skipped**，并在上一批边界单独补跑 **6 项真实 Docker 合同且全部通过**；另已完成一次 Tool Calling 探针和一次受预算
 保护的真实单 WorkItem Agent fixture Run。完整长程 Agent 未实现，未做独立安全复核。命令、环境、证据与限制见
 [开发进度](development-progress.md)。仍为“待填”的条目没有实现证据；“部分/初步”不代表
 完整需求通过。普通工作直接自检，关键风险及用户指定验收按需独立复核，
@@ -29,13 +29,13 @@
 | FR-107 | M2 | `orchestration/recovery.py` | `fault_injection/test_unknown_effect.py`：未知副作用不重复派发，查询或人工对账 | 部分：unknown 阻止重派；只读可显式重试；`replace_text` / `apply_patch` 仅在 live workspace 精确等于前态/唯一后态时 accept/rollback，部分写入和额外漂移继续阻塞；`run_check` 已有确定性 attempt 身份、标签核验与显式停止，尚无容器创建前的持久启动回执或检查结果恢复 |
 | FR-201 | M3 | `context/builder.py` | `unit/test_context_layers.py`：必保/事实/近期/历史内容正确分层 | 部分：`application/context.py` 固定保留初始合同和所有未完成工具对，优先保留最近 N 个完整单元；若字符或完整请求保守 input-token 硬上限超限，则确定性折叠最少数量的最老近期完整单元。尚非设计中的完整六层 ContextPack |
 | FR-202 | M3 | `domain/context.py`, `application/context.py` | `unit/test_context.py` + `integration/test_agent_loop.py`：必保 ID 与内容 hash 均一致 | 部分：`MandatoryFactLedger` v2 对 Task/Plan/当前 WorkItem/已完成 WorkItems、路径权限、required acceptance、预算、模型策略、工具 Schema 和 workspace revision 做内容寻址绑定，并在压缩/恢复前后机器校验；尚无模型语义摘要的事实等价 QA，也未纳入 HITL 决定 |
-| FR-203 | M3 | `context/compactor.py` | `integration/test_compaction_trace.py`：范围/模型/token/校验记录完整 | 部分：ContextProjection v2 保存字符上限/实际值、近期单元数、完整请求字节、版本化保守 token 上界、配置上限、源/投影消息数和 request hash；同一 `InputTokenBudget` 绑定 reservation 并在恢复时重算。尚无精确 tokenizer 或模型摘要元数据 |
+| FR-203 | M3 | `context/compactor.py` | `integration/test_compaction_trace.py`：范围/模型/token/校验记录完整 | 部分：ContextProjection v2 保存字符上限/实际值、近期单元数、完整请求字节、版本化保守 token 上界、配置上限、源/投影消息数和 request hash；新 reservation 还绑定 Adapter 实际 body 的 hash、字段 value/结构字节并精确加总，恢复按 estimator ID 兼容 v1。同一 `InputTokenBudget` 在恢复时重算；尚无精确 tokenizer 或模型摘要元数据 |
 | FR-204 | M3 | `context/projector.py` | `integration/test_compaction_trace.py`：压缩前后原始事件字节摘要不变 | 部分：完整 canonical transcript Artifact 不被投影覆盖，projection 保存 source digest；`tests/integration/test_agent_loop.py` 验证完整会话长于模型视图且可恢复 |
 | FR-205 | M3 | `context/compactor.py` | `fault_injection/test_compaction_failure.py`：坏摘要拒绝，旧上下文保全 | 部分：孤立/重复/错配工具结果、不可压缩前缀或 incomplete 单元超过字符/token 任一硬上限、Artifact 损坏和恢复重算不一致均拒绝；近期完整单元可整体应急折叠，122,665 字符 Pilot 尺寸及多字节 token 门已有回归。没有语义摘要，因此语义 QA 尚未实现 |
 | FR-301 | M3 | `domain/budget.py` | `unit/test_budget.py`：逐项验证 token/费用/调用/步骤/时间/返修上限 | 部分：Run 已同时约束模型/工具/step/token/repair，并用绑定 CNY policy 记录模型费用；Campaign 跨 Run 限额；`test_budget.py`、`test_campaign_budget.py`、`test_model_run_accounting.py`；TaskSpec 多币种迁移未完成 |
 | FR-302 | M3 | `domain/budget.py` | `unit/test_budget.py`：软阈与硬上限具有不同动作 | 待填 / 未审核 |
 | FR-303 | M3 | `orchestration/policies.py` | `integration/test_budget_gate.py`：软阈动作可见，硬上限后新调用为 0 | 部分：模型/工具派发前执行 Run 与 Campaign 硬门禁，unknown 阻止后续调用；软阈动作未实现 |
-| FR-304 | M3 | `trace/projector.py` | `integration/test_budget_replay.py`：重建账本与摘要完全一致 | 部分：`domain/run.py` 可重建通用、模型 CNY、工具和 unknown 账本；真实 Run JSONL 重放 projection hash 与 SQLite 一致；`trace reservation-report` 在 replay 校验后关联模型预留/结算及新 BudgetStop 请求尺寸，六轮 20 调用的聚合预留/结算比为 6.861621；候选公式仅有 3 个历史样本，不自动修改生产 estimator；完整跨组件恢复仍待实现 |
+| FR-304 | M3 | `trace/projector.py` | `integration/test_budget_replay.py`：重建账本与摘要完全一致 | 部分：`domain/run.py` 可重建通用、模型 CNY、工具和 unknown 账本；真实 Run JSONL 重放 projection hash 与 SQLite 一致；`trace reservation-report` 关联预留/结算/BudgetStop，显式区分历史 domain-JSON 与新 wire-payload byte basis。六轮 20 调用聚合预留/结算比为 6.861621；候选公式仅有 3 个 v1 历史样本，不自动修改生产公式；完整跨组件恢复仍待实现 |
 | FR-305 | M3 | `domain/budget.py` | `fault_injection/test_unknown_cost.py`：未知费用不结算为 0 | 部分：Run 与 Campaign 均保留 unknown 占用；reconciliation 可补齐已存在的可信 Run receipt，但供应商主动查询/迟到回执尚未接入 |
 | FR-401 | M4 | `tools/gateway.py`, `application/agent_loop.py` | `integration/test_agent_loop.py`：逐项验收与最终 required 全量回归，缺结构化结果拒绝 | 部分：中间项运行自身 acceptance，最后项重跑全部 required checks；控制器可执行注册检查而模型仍受当前项 ID 限制；多类型检查/环境分类未实现 |
 | FR-402 | M4 | `validation/engine.py` | `e2e/test_completion_gate.py`：submit 只触发验收，失败不能成功 | 已在首个闭环实现：自然语言完成不被接受，`submit` 只触发 protected validation；`test_agent_loop.py` 与真实 fixture Run |

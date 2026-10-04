@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from pydantic import Field, ValidationError
 
-from horizon.application.model_probe import conservative_input_estimate
+from horizon.application.model_probe import conservative_input_sizing
 from horizon.application.model_recovery import RecoverableModelTurn, load_recorded_model_response
 from horizon.application.services import HarnessService, LeaseToken
 from horizon.domain.budget import Usage
@@ -297,6 +297,11 @@ class PlanGenerator:
             or reservation.planning_context_hash != context_ref
         ):
             raise IntegrityError("Planning receipt has no matching context-bound intent")
+        if (
+            reservation.request_payload is not None
+            and request.openai_compatible_payload_evidence() != reservation.request_payload
+        ):
+            raise IntegrityError("Planning receipt has mismatched request payload evidence")
         if run.model_policy is None:
             raise IntegrityError("Planning receipt has no model policy")
         attempt = self.campaign_ledger.attempt(run.model_policy.campaign_id, record.call_id)
@@ -421,7 +426,7 @@ class PlanGenerator:
             max_output_tokens=self.config.max_output_tokens,
             enable_thinking=self.config.enable_thinking,
         )
-        input_estimate = conservative_input_estimate(request)
+        input_estimate, request_payload = conservative_input_sizing(request)
         if input_estimate.token_ceiling > self.config.max_input_tokens:
             raise PolicyDenied(
                 "Planning request exceeds the configured conservative input-token budget"
@@ -470,6 +475,7 @@ class PlanGenerator:
                 planning_context_ref=context_ref,
                 planning_context_hash=context.sha256,
                 input_token_budget=input_token_budget,
+                request_payload=request_payload,
             )
             request_budget = reservation.budget_evidence(request.max_output_tokens)
             try:

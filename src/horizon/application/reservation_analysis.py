@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Sequence
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
@@ -20,6 +20,7 @@ from horizon.domain.model import (
 
 RATIO_QUANTUM = Decimal("0.000001")
 CANDIDATE_ESTIMATOR = "request_utf8_bytes_plus_1024_candidate_v1"
+LEGACY_REQUEST_BYTE_BASIS = "model_request_canonical_json_legacy_v1"
 
 
 def _decimal_text(value: Decimal) -> str:
@@ -177,6 +178,7 @@ def analyze_reservation_traces(paths: Sequence[Path]) -> dict[str, Any]:
                     if reservation.input_token_budget
                     else None
                 )
+                payload = reservation.request_payload
                 reserved_cost = reservation.reserved_cost
                 settled_cost = record.estimated_cost
                 candidate_ceiling = (
@@ -193,6 +195,22 @@ def analyze_reservation_traces(paths: Sequence[Path]) -> dict[str, Any]:
                         "currency": record.currency,
                         "estimator": estimate.estimator if estimate else None,
                         "request_bytes": estimate.request_bytes if estimate else None,
+                        "request_byte_basis": (
+                            payload.encoding
+                            if payload is not None
+                            else LEGACY_REQUEST_BYTE_BASIS
+                            if estimate is not None
+                            else None
+                        ),
+                        "request_payload_sha256": (
+                            payload.payload_sha256 if payload is not None else None
+                        ),
+                        "request_payload_field_value_bytes": (
+                            payload.field_value_bytes if payload is not None else None
+                        ),
+                        "request_payload_json_structure_bytes": (
+                            payload.json_structure_bytes if payload is not None else None
+                        ),
                         "reserved_input_tokens": budget.input_tokens,
                         "actual_input_tokens": record.usage.input_tokens,
                         "candidate_input_token_ceiling": candidate_ceiling,
@@ -234,6 +252,7 @@ def analyze_reservation_traces(paths: Sequence[Path]) -> dict[str, Any]:
                     else None
                 )
                 estimate = request_budget.input_token_budget.estimate if request_budget else None
+                payload = request_budget.request_payload if request_budget else None
                 trace_stop_count += 1
                 budget_stops.append(
                     {
@@ -250,6 +269,22 @@ def analyze_reservation_traces(paths: Sequence[Path]) -> dict[str, Any]:
                         "request_hash": request_budget.request_hash if request_budget else None,
                         "estimator": estimate.estimator if estimate else None,
                         "request_bytes": estimate.request_bytes if estimate else None,
+                        "request_byte_basis": (
+                            payload.encoding
+                            if payload is not None
+                            else LEGACY_REQUEST_BYTE_BASIS
+                            if estimate is not None
+                            else None
+                        ),
+                        "request_payload_sha256": (
+                            payload.payload_sha256 if payload is not None else None
+                        ),
+                        "request_payload_field_value_bytes": (
+                            payload.field_value_bytes if payload is not None else None
+                        ),
+                        "request_payload_json_structure_bytes": (
+                            payload.json_structure_bytes if payload is not None else None
+                        ),
                         "input_token_ceiling": estimate.token_ceiling if estimate else None,
                         "output_token_ceiling": (
                             request_budget.output_token_ceiling if request_budget else None
@@ -294,6 +329,18 @@ def analyze_reservation_traces(paths: Sequence[Path]) -> dict[str, Any]:
     ]
     calls_without_estimator = sum(call["request_bytes"] is None for call in calls)
     candidate_calls = [call for call in calls if call["request_bytes"] is not None]
+    candidate_basis_counts = dict(
+        sorted(Counter(call["request_byte_basis"] for call in candidate_calls).items())
+    )
+    stop_basis_counts = dict(
+        sorted(
+            Counter(
+                stop["request_byte_basis"]
+                for stop in budget_stops
+                if stop["request_byte_basis"] is not None
+            ).items()
+        )
+    )
     candidate_ratios = [
         value
         for call in candidate_calls
@@ -320,9 +367,11 @@ def analyze_reservation_traces(paths: Sequence[Path]) -> dict[str, Any]:
                 "estimator": CANDIDATE_ESTIMATOR,
                 "formula": "request_bytes + 1024",
                 "settled_call_count": len(candidate_calls),
+                "request_byte_basis_counts": candidate_basis_counts,
                 "budget_stop_count_with_request_metadata": sum(
                     stop["request_bytes"] is not None for stop in budget_stops
                 ),
+                "budget_stop_request_byte_basis_counts": stop_basis_counts,
                 "observed_underestimate_count": sum(
                     call["candidate_input_token_ceiling"] < call["actual_input_tokens"]
                     for call in candidate_calls
@@ -333,6 +382,13 @@ def analyze_reservation_traces(paths: Sequence[Path]) -> dict[str, Any]:
         ],
         "limitations": {
             "calls_without_request_byte_metadata": calls_without_estimator,
+            "settled_calls_with_exact_wire_payload_metadata": sum(
+                call["request_payload_sha256"] is not None for call in calls
+            ),
+            "budget_stops_with_exact_wire_payload_metadata": sum(
+                stop["request_payload_sha256"] is not None for stop in budget_stops
+            ),
+            "mixed_request_byte_bases_present": len(candidate_basis_counts) > 1,
             "settled_cost_is_local_price_card_estimate_not_provider_invoice": True,
             "pre_dispatch_budget_stops_have_no_provider_usage": True,
             "automatic_estimator_change_performed": False,

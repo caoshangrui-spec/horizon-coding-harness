@@ -8,10 +8,12 @@
 
 ```text
 horizon trace reservation-report TRACE_1.jsonl TRACE_2.jsonl ...
+horizon model sizing-report --config config/providers/siliconflow.yaml
 ```
 
-命令只读取本地 Trace，不读取凭据、不连接模型，也不执行仓库代码。每个输入都会先走完整 Trace
-replay 和 hash-chain 校验；同一 Run 重复输入会被拒绝，避免累计值被重复计算。
+两个命令都不连接模型，也不执行仓库代码。`reservation-report` 只读取本地 Trace；每个输入都会
+先走完整 replay 和 hash-chain 校验，同一 Run 重复输入会被拒绝，避免累计值被重复计算。
+`sizing-report` 只读取无凭据 Provider 配置，并让五类固定请求通过生产 wire encoder。
 
 报告逐调用关联以下证据：
 
@@ -20,7 +22,8 @@ replay 和 hash-chain 校验；同一 Run 重复输入会被拒绝，避免累�
 - `MODEL_CALL_SETTLED`：Provider 回执中的 token usage，以及本地冻结 PriceCard 算出的结算费用；
 - `RUN_FAILED.budget_stop`：未派发请求的 required/available/shortfall；
 - `RUN_FAILED.model_request_budget`：新停止事件相邻保存的 call/request 标识、purpose、
-  `request_bytes`、生产 estimator、input cap/ceiling 与 output ceiling。旧 Trace 可以没有该字段。
+  `request_bytes`、生产 estimator、input cap/ceiling 与 output ceiling。v2 还保存实际出站 payload
+  hash、总字节、各顶层字段 value 字节和 JSON 结构字节。旧 Trace 可以没有这些字段。
 
 金额字段中的 `settled_price_card_cost` 是本地 PriceCard 对 Provider usage 的复算值，不冒充供应商
 最终账单。未派发的 budget stop 没有 Provider usage，不能虚构“如果派发会花多少钱”。
@@ -46,14 +49,35 @@ replay 和 hash-chain 校验；同一 Run 重复输入会被拒绝，避免累�
 
 这里的“预留费用累计”是各调用在派发瞬间的压力之和；每次结算后多余预留都会释放，不能把
 `CNY 1.341318` 解释成已消费费用。20 次调用都保存了 token 上界和实际 usage，但只有最新 3 次
-保存 `request_bytes`/estimator 元数据，因此当前证据足以确认**存在系统性预留放大**，不足以直接
+保存 `request_bytes`/estimator 元数据，而且它们使用历史 v1 领域请求 JSON byte basis，并非新
+v2 wire payload basis。因此当前证据足以确认**存在系统性预留放大**，不足以直接
 证明某个新估算公式是安全上界。候选公式在这 3 次调用中的上界/实际 input 比范围为
 `3.905058～4.201220`；这是历史观测，不是所有请求形态的硬上界证明。两个历史 BudgetStop
 都早于本字段，因此没有 request metadata；后续新停止会留下该证据。
 
+## 五类零费用 wire payload 边界
+
+`model sizing-report` 覆盖 minimal ASCII、中文/emoji、多层工具 Schema、带多字节嵌套参数的
+assistant tool call，以及 8 KiB tool result。默认 SiliconFlow 配置的确定性结果为：
+
+| case | wire payload bytes | v1 domain bytes | wire - v1 | v2 token ceiling |
+|---|---:|---:|---:|---:|
+| minimal ASCII | 167 | 227 | -60 | 1,358 |
+| Unicode messages | 271 | 367 | -96 | 1,566 |
+| nested tool schema | 532 | 529 | +3 | 2,088 |
+| tool-call arguments | 916 | 973 | -57 | 2,856 |
+| 8 KiB tool result | 9,061 | 9,118 | -57 | 19,146 |
+
+五类请求的字段 value 字节加 JSON 结构字节均精确等于 Adapter body，总范围为 167～9,061 bytes。
+正负 delta 都存在，说明不能用一个固定“领域对象开销”修正 wire size；生产路径因此直接测最终
+body。该诊断没有 Provider usage，不能证明 `request_bytes + 1024` 候选公式安全，也不是模型或
+真实任务效果证据。
+
 ## 决策边界
 
-该报告不会自动改变 estimator、调低安全系数、扩大 Campaign 或触发复跑。生产门禁仍使用
-`2 * request_bytes + 1024`；`request_bytes + 1024` 只作为报告中的候选回放。下一步是积累更多
-不同请求形态的 settled call 与新 BudgetStop 尺寸证据，并明确验证 Provider token usage 的覆盖
-边界；只有候选公式在足够样本和边界测试中仍满足硬上界合同，才考虑替换生产门禁。
+报告不会自动调低安全系数、扩大 Campaign 或触发复跑。生产门禁的公式仍是
+`2 * request_bytes + 1024`，但新请求的 `request_bytes` 已由近似的领域对象 JSON 切换为 Adapter
+实际发送的 canonical wire body；`request_bytes + 1024` 仍只作为候选回放。历史报告新增
+`request_byte_basis_counts`，防止把 v1/v2 样本静默混合。下一步是积累带 v2 wire metadata 的
+settled call 与 BudgetStop，并明确验证 Provider token usage 覆盖边界；只有候选公式在足够样本
+和边界测试中仍满足硬上界合同，才考虑替换生产公式。

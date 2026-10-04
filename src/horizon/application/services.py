@@ -1347,7 +1347,7 @@ class HarnessService:
             "token": token.model_dump(),
         }
         if model_request_budget is not None:
-            request["model_request_budget"] = model_request_budget.model_dump(mode="json")
+            request["model_request_budget"] = model_request_budget.as_dict()
 
         def decide(run):
             self.check_worker(run, token)
@@ -1370,7 +1370,7 @@ class HarnessService:
                 "budget_stop": stop.model_dump(mode="json"),
             }
             if model_request_budget is not None:
-                payload["model_request_budget"] = model_request_budget.model_dump(mode="json")
+                payload["model_request_budget"] = model_request_budget.as_dict()
             return [
                 NewEvent(
                     event_type="RUN_FAILED",

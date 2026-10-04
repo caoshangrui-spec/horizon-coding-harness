@@ -37,8 +37,13 @@ Lease，Run 投影仍停留在 `RUNNING`。账本实际上没有开放 reservati
 | `input_token_budget.estimate.request_bytes` | 完整规范 Provider 请求的 UTF-8 字节数 |
 | `input_token_budget.estimate.token_ceiling` | 生产 estimator 算出的 input token 上界 |
 | `output_token_ceiling` | 本次请求配置的最大输出 token 数 |
+| `request_payload.payload_sha256` | Adapter 最终 canonical HTTP body 的 SHA-256 |
+| `request_payload.payload_bytes` | 与 v2 `request_bytes` 相同的实际出站 body 字节数 |
+| `request_payload.field_value_bytes` | 每个顶层 payload value 的规范 UTF-8 字节数 |
+| `request_payload.json_structure_bytes` | 顶层 key、引号、冒号、逗号和外层对象等剩余字节 |
 
 该证据不包含 Provider usage，因为请求没有派发；不得把 input/output ceiling 当作真实消费。
+历史 v1 证据可以没有 `request_payload`；新 v2 estimator 若缺少它或总字节不一致会被领域合同拒绝。
 
 当前只定义三类确定性、派发前停止：
 
@@ -116,18 +121,35 @@ projection hash 也保持不变。
     "schema_version": 1,
     "call_id": "model_run_example_2",
     "purpose": "execution",
-    "request_hash": "<64-hex-sha256>",
+    "request_hash": "58cdaeb5b81c09339449b87ebb4594cc4f0f0c2002f50ea206e3490c4bd5c790",
     "input_token_budget": {
       "schema_version": 1,
       "max_input_tokens": 60000,
       "estimate": {
         "schema_version": 1,
-        "estimator": "request_utf8_bytes_x2_plus_1024_v1",
-        "request_bytes": 28160,
-        "token_ceiling": 57344
+        "estimator": "openai_payload_utf8_bytes_x2_plus_1024_v2",
+        "request_bytes": 916,
+        "token_ceiling": 2856
       }
     },
-    "output_token_ceiling": 512
+    "output_token_ceiling": 512,
+    "request_payload": {
+      "schema_version": 1,
+      "encoding": "openai_compatible_canonical_json_v1",
+      "payload_sha256": "d9b03438f86132d3176af0ed5406752105aaa568c7ee4b3d72c0426412906ad2",
+      "payload_bytes": 916,
+      "field_value_bytes": {
+        "enable_thinking": 5,
+        "max_tokens": 3,
+        "messages": 451,
+        "model": 31,
+        "stream": 5,
+        "temperature": 3,
+        "tool_choice": 6,
+        "tools": 308
+      },
+      "json_structure_bytes": 104
+    }
   },
   "continuation_required": false
 }

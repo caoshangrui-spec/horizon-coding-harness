@@ -29,8 +29,9 @@ from horizon.application.model_probe import (
     ModelProbeService,
     build_probe_request,
     conservative_input_ceiling,
-    conservative_input_estimate,
+    conservative_input_sizing,
 )
+from horizon.application.model_sizing import analyze_model_request_sizing
 from horizon.application.pilot import (
     PilotPreflightService,
     load_pilot_preflight_report,
@@ -107,7 +108,7 @@ def guarded(function):
             if exc.stop is not None:
                 payload["budget_stop"] = exc.stop.model_dump(mode="json")
             if exc.model_request_budget is not None:
-                payload["model_request_budget"] = exc.model_request_budget.model_dump(mode="json")
+                payload["model_request_budget"] = exc.model_request_budget.as_dict()
             typer.echo(canonical_json(payload), err=True)
             raise typer.Exit(2) from None
         except (HorizonError, OSError, ValueError, yaml.YAMLError) as exc:
@@ -635,7 +636,7 @@ def model_check(
         max_output_tokens=config.request.probe_max_output_tokens,
         enable_thinking=config.request.enable_thinking,
     )
-    probe_estimate = conservative_input_estimate(probe_request)
+    probe_estimate, probe_payload = conservative_input_sizing(probe_request)
     if probe_estimate.token_ceiling > config.request.max_input_tokens:
         raise PolicyDenied("Probe request exceeds the configured input-token budget")
     probe_reservation = config.pricing.reserve_cost(
@@ -661,10 +662,30 @@ def model_check(
                 "max_context_chars": config.request.max_context_chars,
                 "max_input_tokens": config.request.max_input_tokens,
                 "probe_input_token_estimate": probe_estimate.model_dump(mode="json"),
+                "probe_request_payload": probe_payload.model_dump(mode="json"),
                 "preserve_recent_context_units": (config.request.preserve_recent_context_units),
                 "fallback_enabled": config.fallback_enabled,
                 "network_called": False,
             }
+        )
+    )
+
+
+@models.command("sizing-report")
+@guarded
+def model_sizing_report(
+    config_path: Annotated[
+        Path, typer.Option("--config", help="Provider configuration without secrets.")
+    ] = Path("config/providers/siliconflow.yaml"),
+):
+    config = load_provider_config(config_path)
+    typer.echo(
+        canonical_json(
+            analyze_model_request_sizing(
+                config.model.id,
+                max_output_tokens=min(512, config.request.max_output_tokens),
+                enable_thinking=config.request.enable_thinking,
+            )
         )
     )
 
@@ -942,7 +963,7 @@ def agent_run(
                         "failure_reason": stopped.failure_reason,
                         "budget_stop": stopped.budget_stop.model_dump(mode="json"),
                         "model_request_budget": (
-                            stopped.model_request_budget.model_dump(mode="json")
+                            stopped.model_request_budget.as_dict()
                             if stopped.model_request_budget
                             else None
                         ),
@@ -1052,9 +1073,7 @@ def agent_run(
                     result.budget_stop.model_dump(mode="json") if result.budget_stop else None
                 ),
                 "model_request_budget": (
-                    result.model_request_budget.model_dump(mode="json")
-                    if result.model_request_budget
-                    else None
+                    result.model_request_budget.as_dict() if result.model_request_budget else None
                 ),
                 "workspace": str(workspace.resolve()),
                 "source_workspace_unchanged": source_unchanged,
@@ -1274,7 +1293,7 @@ def agent_resume(
                         "failure_reason": stopped.failure_reason,
                         "budget_stop": stopped.budget_stop.model_dump(mode="json"),
                         "model_request_budget": (
-                            stopped.model_request_budget.model_dump(mode="json")
+                            stopped.model_request_budget.as_dict()
                             if stopped.model_request_budget
                             else None
                         ),
@@ -1370,9 +1389,7 @@ def agent_resume(
                     result.budget_stop.model_dump(mode="json") if result.budget_stop else None
                 ),
                 "model_request_budget": (
-                    result.model_request_budget.model_dump(mode="json")
-                    if result.model_request_budget
-                    else None
+                    result.model_request_budget.as_dict() if result.model_request_budget else None
                 ),
                 "workspace": str(workspace),
                 "continuation_required": result.status

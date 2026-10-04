@@ -311,6 +311,13 @@ def test_model_check_is_offline_and_redacts_credential(tmp_path):
     assert data["max_context_chars"] == 60_000
     assert data["max_input_tokens"] == 120_000
     assert data["probe_input_token_estimate"]["token_ceiling"] < 120_000
+    assert data["probe_input_token_estimate"]["estimator"] == (
+        "openai_payload_utf8_bytes_x2_plus_1024_v2"
+    )
+    assert (
+        data["probe_request_payload"]["payload_bytes"]
+        == (data["probe_input_token_estimate"]["request_bytes"])
+    )
     assert data["preserve_recent_context_units"] == 6
     assert 0 < float(data["probe_reserved_cost"]) < 1
     assert "cli-test-secret" not in result.output
@@ -544,6 +551,10 @@ def test_agent_run_reports_planning_budget_stop_before_model_dispatch(tmp_path, 
     )
     assert data["model_request_budget"]["purpose"] == "planning"
     assert data["model_request_budget"]["input_token_budget"]["estimate"]["request_bytes"] > 0
+    assert (
+        data["model_request_budget"]["request_payload"]["payload_bytes"]
+        == (data["model_request_budget"]["input_token_budget"]["estimate"]["request_bytes"])
+    )
     assert data["model_request_budget"]["output_token_ceiling"] > 0
     assert data["campaign"]["reserved_cost"] == "0"
     assert data["campaign"]["unknown_cost"] == "0"

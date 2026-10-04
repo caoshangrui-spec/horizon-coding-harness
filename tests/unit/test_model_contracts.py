@@ -10,6 +10,7 @@ from horizon.domain.model import (
     InputTokenEstimate,
     ModelCallReservation,
     ModelMessage,
+    ModelRequest,
     ModelUsage,
     PriceCard,
 )
@@ -120,6 +121,49 @@ def test_model_reservation_builds_pre_dispatch_budget_evidence():
     assert evidence.output_token_ceiling == 512
     with pytest.raises(ValueError, match="input-token estimate"):
         current.model_copy(update={"input_token_budget": None}).budget_evidence(512)
+
+
+def test_openai_payload_estimator_requires_exact_wire_evidence():
+    request = ModelRequest(
+        model="fake-model",
+        messages=(ModelMessage(role="user", content="检查 parser 🧪"),),
+        max_output_tokens=512,
+    )
+    payload = request.openai_compatible_payload_evidence()
+    estimate = InputTokenEstimate(
+        estimator="openai_payload_utf8_bytes_x2_plus_1024_v2",
+        request_bytes=payload.payload_bytes,
+        token_ceiling=2 * payload.payload_bytes + 1024,
+    )
+    shared = {
+        "call_id": "execution-wire-call",
+        "request_hash": request.sha256,
+        "provider_id": "fake-provider",
+        "model": request.model,
+        "currency": "CNY",
+        "reserved_cost": "0.01",
+        "input_token_budget": InputTokenBudget(
+            max_input_tokens=4_000,
+            estimate=estimate,
+        ),
+    }
+
+    reservation = ModelCallReservation(**shared, request_payload=payload)
+
+    assert reservation.as_dict()["request_payload"]["payload_sha256"] == payload.payload_sha256
+    with pytest.raises(ValidationError, match="requires matching request payload evidence"):
+        ModelCallReservation(**shared)
+    with pytest.raises(ValidationError, match="Legacy request estimator"):
+        ModelCallReservation(
+            **{
+                **shared,
+                "input_token_budget": InputTokenBudget(
+                    max_input_tokens=4_000,
+                    estimate=InputTokenEstimate(request_bytes=100, token_ceiling=1_224),
+                ),
+            },
+            request_payload=payload,
+        )
 
 
 def test_budget_stop_requires_matching_scope_and_exceeded_amount():

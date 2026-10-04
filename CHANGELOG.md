@@ -5,6 +5,13 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Unified input sizing with the exact canonical OpenAI-compatible body sent by the adapter. New
+  reservations persist the payload hash, total UTF-8 bytes, per-top-level-field value bytes, and
+  JSON structural bytes under estimator `openai_payload_utf8_bytes_x2_plus_1024_v2`; historical
+  v1 traces and recovery remain readable.
+- Added an offline `model sizing-report` over five deterministic request shapes: minimal ASCII,
+  multibyte messages, nested tool schema, JSON-in-JSON tool arguments, and an 8 KiB tool result.
+  It performs no network/model call and does not promote the candidate estimator.
 - Persisted pre-dispatch model request sizing beside typed budget stops, including call/request
   identity, purpose, estimator input bytes, input ceiling, configured input cap, and output ceiling;
   planning/execution CLI output and Trace replay expose the same evidence without changing old

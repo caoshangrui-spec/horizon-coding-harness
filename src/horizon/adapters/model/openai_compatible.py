@@ -63,55 +63,6 @@ def urllib_post(url: str, body: bytes, headers: Mapping[str, str], timeout: int)
         raise ProviderConnectionError("Provider connection failed or timed out") from exc
 
 
-def _message_payload(message: ModelMessage) -> dict[str, Any]:
-    payload: dict[str, Any] = {"role": message.role, "content": message.content}
-    if message.tool_calls:
-        payload["tool_calls"] = [
-            {
-                "id": call.id,
-                "type": "function",
-                "function": {
-                    "name": call.function.name,
-                    "arguments": json.dumps(
-                        call.function.arguments,
-                        sort_keys=True,
-                        separators=(",", ":"),
-                        ensure_ascii=False,
-                    ),
-                },
-            }
-            for call in message.tool_calls
-        ]
-    if message.tool_call_id is not None:
-        payload["tool_call_id"] = message.tool_call_id
-    return payload
-
-
-def request_payload(request: ModelRequest) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "model": request.model,
-        "messages": [_message_payload(message) for message in request.messages],
-        "stream": False,
-        "max_tokens": request.max_output_tokens,
-        "temperature": float(request.temperature),
-        "enable_thinking": request.enable_thinking,
-    }
-    if request.tools:
-        payload["tools"] = [
-            {
-                "type": "function",
-                "function": {
-                    "name": tool.name,
-                    "description": tool.description,
-                    "parameters": tool.parameters,
-                },
-            }
-            for tool in request.tools
-        ]
-        payload["tool_choice"] = request.tool_choice
-    return payload
-
-
 def _parse_tool_calls(raw: Any) -> tuple[ToolCall, ...]:
     if raw is None:
         return ()
@@ -176,12 +127,7 @@ class OpenAICompatibleModelGateway:
     def generate(self, request: ModelRequest, trace_id: str) -> ModelResponse:
         if request.model != self.config.model.id:
             raise ProviderProtocolError("Request model does not match the configured model")
-        body = json.dumps(
-            request_payload(request),
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-        ).encode("utf-8")
+        body = request.openai_compatible_body()
         result = self._post(
             f"{self.config.base_url.rstrip('/')}/chat/completions",
             body,

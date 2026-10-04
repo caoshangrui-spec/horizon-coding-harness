@@ -177,7 +177,7 @@ class Run:
         if self.budget_stop is not None:
             result["budget_stop"] = self.budget_stop.model_dump(mode="json")
         if self.model_request_budget is not None:
-            result["model_request_budget"] = self.model_request_budget.model_dump(mode="json")
+            result["model_request_budget"] = self.model_request_budget.as_dict()
         return result
 
 

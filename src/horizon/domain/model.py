@@ -5,7 +5,7 @@ from typing import Annotated, Any, Literal, Self
 
 from pydantic import Field, StrictInt, field_validator, model_validator
 
-from horizon.domain.common import Contract, digest
+from horizon.domain.common import Contract, canonical_json, digest
 from horizon.domain.task import Identifier, PositiveInt, Text
 
 Currency = Literal["CNY", "USD"]
@@ -13,13 +13,51 @@ NonNegativeInt = Annotated[StrictInt, Field(ge=0)]
 NonNegativeMoney = Annotated[Decimal, Field(ge=0, allow_inf_nan=False)]
 PositiveMoney = Annotated[Decimal, Field(gt=0, allow_inf_nan=False)]
 CONSERVATIVE_INPUT_TOKEN_ESTIMATOR = "request_utf8_bytes_x2_plus_1024_v1"
+OPENAI_PAYLOAD_INPUT_TOKEN_ESTIMATOR = "openai_payload_utf8_bytes_x2_plus_1024_v2"
+OPENAI_COMPATIBLE_PAYLOAD_ENCODING = "openai_compatible_canonical_json_v1"
+
+
+class ModelRequestPayloadEvidence(Contract):
+    """Exact byte composition of the canonical OpenAI-compatible request body."""
+
+    schema_version: Literal[1] = 1
+    encoding: Literal["openai_compatible_canonical_json_v1"] = OPENAI_COMPATIBLE_PAYLOAD_ENCODING
+    payload_sha256: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
+    payload_bytes: PositiveInt
+    field_value_bytes: dict[str, NonNegativeInt]
+    json_structure_bytes: NonNegativeInt
+
+    @model_validator(mode="after")
+    def check_composition(self) -> Self:
+        required = {
+            "model",
+            "messages",
+            "stream",
+            "max_tokens",
+            "temperature",
+            "enable_thinking",
+        }
+        optional = {"tools", "tool_choice"}
+        fields = set(self.field_value_bytes)
+        if not required <= fields or fields - required - optional:
+            raise ValueError("Request payload evidence has an invalid top-level field set")
+        if ("tools" in fields) != ("tool_choice" in fields):
+            raise ValueError(
+                "Tools and tool choice must appear together in request payload evidence"
+            )
+        if self.payload_bytes != sum(self.field_value_bytes.values()) + self.json_structure_bytes:
+            raise ValueError("Request payload byte composition does not sum to its total")
+        return self
 
 
 class InputTokenEstimate(Contract):
     """Deterministic upper bound for one complete provider request."""
 
     schema_version: Literal[1] = 1
-    estimator: Literal["request_utf8_bytes_x2_plus_1024_v1"] = CONSERVATIVE_INPUT_TOKEN_ESTIMATOR
+    estimator: Literal[
+        "request_utf8_bytes_x2_plus_1024_v1",
+        "openai_payload_utf8_bytes_x2_plus_1024_v2",
+    ] = CONSERVATIVE_INPUT_TOKEN_ESTIMATOR
     request_bytes: NonNegativeInt
     token_ceiling: PositiveInt
 
@@ -53,6 +91,29 @@ class ModelRequestBudgetEvidence(Contract):
     request_hash: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
     input_token_budget: InputTokenBudget
     output_token_ceiling: PositiveInt
+    request_payload: ModelRequestPayloadEvidence | None = None
+
+    @model_validator(mode="after")
+    def check_payload_binding(self) -> Self:
+        _check_request_payload_binding(self.input_token_budget.estimate, self.request_payload)
+        return self
+
+    def as_dict(self) -> dict[str, Any]:
+        result = self.model_dump(mode="json")
+        if self.request_payload is None:
+            result.pop("request_payload")
+        return result
+
+
+def _check_request_payload_binding(
+    estimate: InputTokenEstimate,
+    payload: ModelRequestPayloadEvidence | None,
+) -> None:
+    if estimate.estimator == OPENAI_PAYLOAD_INPUT_TOKEN_ESTIMATOR:
+        if payload is None or payload.payload_bytes != estimate.request_bytes:
+            raise ValueError("OpenAI payload estimator requires matching request payload evidence")
+    elif payload is not None:
+        raise ValueError("Legacy request estimator cannot carry OpenAI payload evidence")
 
 
 class FunctionCall(Contract):
@@ -102,6 +163,25 @@ class ToolDefinition(Contract):
         return value
 
 
+def _openai_compatible_message_payload(message: ModelMessage) -> dict[str, Any]:
+    payload: dict[str, Any] = {"role": message.role, "content": message.content}
+    if message.tool_calls:
+        payload["tool_calls"] = [
+            {
+                "id": call.id,
+                "type": "function",
+                "function": {
+                    "name": call.function.name,
+                    "arguments": canonical_json(call.function.arguments),
+                },
+            }
+            for call in message.tool_calls
+        ]
+    if message.tool_call_id is not None:
+        payload["tool_call_id"] = message.tool_call_id
+    return payload
+
+
 class ModelRequest(Contract):
     model: Text
     messages: Annotated[tuple[ModelMessage, ...], Field(min_length=1)]
@@ -114,6 +194,46 @@ class ModelRequest(Contract):
     @property
     def sha256(self) -> str:
         return digest(self)
+
+    def openai_compatible_payload(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": [_openai_compatible_message_payload(message) for message in self.messages],
+            "stream": False,
+            "max_tokens": self.max_output_tokens,
+            "temperature": float(self.temperature),
+            "enable_thinking": self.enable_thinking,
+        }
+        if self.tools:
+            payload["tools"] = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": tool.parameters,
+                    },
+                }
+                for tool in self.tools
+            ]
+            payload["tool_choice"] = self.tool_choice
+        return payload
+
+    def openai_compatible_body(self) -> bytes:
+        return canonical_json(self.openai_compatible_payload()).encode("utf-8")
+
+    def openai_compatible_payload_evidence(self) -> ModelRequestPayloadEvidence:
+        payload = self.openai_compatible_payload()
+        body = canonical_json(payload).encode("utf-8")
+        field_value_bytes = {
+            key: len(canonical_json(value).encode("utf-8")) for key, value in payload.items()
+        }
+        return ModelRequestPayloadEvidence(
+            payload_sha256=digest(payload),
+            payload_bytes=len(body),
+            field_value_bytes=field_value_bytes,
+            json_structure_bytes=len(body) - sum(field_value_bytes.values()),
+        )
 
 
 class ModelUsage(Contract):
@@ -250,6 +370,7 @@ class ModelCallReservation(Contract):
     source_message_count: NonNegativeInt = 0
     projected_message_count: NonNegativeInt = 0
     input_token_budget: InputTokenBudget | None = None
+    request_payload: ModelRequestPayloadEvidence | None = None
 
     @model_validator(mode="after")
     def check_context_projection(self) -> Self:
@@ -296,6 +417,11 @@ class ModelCallReservation(Contract):
                 )
         elif self.planning_context_ref is not None:
             raise ValueError("Execution calls cannot carry a planning context")
+        if self.input_token_budget is None:
+            if self.request_payload is not None:
+                raise ValueError("Request payload evidence requires an input-token estimate")
+        else:
+            _check_request_payload_binding(self.input_token_budget.estimate, self.request_payload)
         return self
 
     def as_dict(self) -> dict[str, Any]:
@@ -304,6 +430,8 @@ class ModelCallReservation(Contract):
         result = self.model_dump(mode="json")
         if self.input_token_budget is None:
             result.pop("input_token_budget")
+        if self.request_payload is None:
+            result.pop("request_payload")
         return result
 
     def budget_evidence(self, output_token_ceiling: int) -> ModelRequestBudgetEvidence:
@@ -315,6 +443,7 @@ class ModelCallReservation(Contract):
             request_hash=self.request_hash,
             input_token_budget=self.input_token_budget,
             output_token_ceiling=output_token_ceiling,
+            request_payload=self.request_payload,
         )
 
 

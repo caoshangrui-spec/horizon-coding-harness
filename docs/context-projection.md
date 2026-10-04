@@ -67,13 +67,21 @@ context_chars = len(canonical_json(messages))
 tool choice、输出上限和 thinking 设置，并计算：
 
 ```text
-request_bytes = len(utf8(canonical_json(ModelRequest)))
+wire_payload = canonical_openai_compatible_json(ModelRequest)
+request_bytes = len(utf8(wire_payload))
 input_token_ceiling = 2 * request_bytes + 1024
 ```
 
-算法 ID 固定为 `request_utf8_bytes_x2_plus_1024_v1`。UTF-8 请求字节乘 2 为 JSON-in-JSON
-转义保留余量，额外 1,024 覆盖 Provider framing/special tokens。它是费用与输入门禁共用的
-保守上界，不是 tokenizer 预测，也不等于供应商最终 usage。
+`wire_payload` 与 OpenAI-compatible Adapter 最终交给 HTTP 层的 body 共用同一编码函数，包括
+`max_tokens` 字段名、非流式/thinking 控制字段、工具 Schema，以及已完成 JSON-in-JSON 转义的
+tool-call arguments。算法 ID 为 `openai_payload_utf8_bytes_x2_plus_1024_v2`；每次 reservation
+还记录 payload SHA-256、各顶层字段 value 的 UTF-8 字节数和其余 JSON key/标点结构字节，所有
+分量必须精确加总为 `request_bytes`。乘 2 与额外 1,024 仍是费用和输入门禁共用的保守余量，
+不是 tokenizer 预测，也不等于供应商最终 usage。
+
+历史 `request_utf8_bytes_x2_plus_1024_v1` 以领域 `ModelRequest` 的规范 JSON 为 byte basis。
+旧 Trace 继续按原字节和 projection hash 重放；恢复旧 pending Run 时控制器按 reservation 中的
+estimator ID 重建 v1 投影，新请求才使用 v2，不把两种 byte basis 静默混为同一证据。
 
 每次调用先在投影的 system 消息末尾追加控制器拥有的有界 binding：MandatoryFactLedger 包含
 ledger ref、关键 hash、WorkItem ID、required acceptance IDs、权限模式与 workspace revision；

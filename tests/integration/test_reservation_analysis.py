@@ -2,6 +2,7 @@ import json
 
 from typer.testing import CliRunner
 
+from horizon.application.model_probe import conservative_input_sizing
 from horizon.application.reservation_analysis import analyze_reservation_traces
 from horizon.domain.budget import Usage
 from horizon.domain.errors import BudgetStop, BudgetStopReason
@@ -10,7 +11,9 @@ from horizon.domain.model import (
     InputTokenEstimate,
     ModelCallRecord,
     ModelCallReservation,
+    ModelMessage,
     ModelPolicyBinding,
+    ModelRequest,
     ModelUsage,
 )
 from horizon.interfaces.cli.app import app
@@ -74,17 +77,24 @@ def test_replay_verified_reservation_report_quantifies_dispatch_pressure(
         token,
         "settle-model",
     )
+    stopped_request = ModelRequest(
+        model="deepseek-ai/DeepSeek-V4-Flash",
+        messages=(ModelMessage(role="user", content="Inspect parser 🧪"),),
+        max_output_tokens=60,
+    )
+    stopped_estimate, stopped_payload = conservative_input_sizing(stopped_request)
     stopped_reservation = ModelCallReservation(
         call_id="model-call-stopped",
-        request_hash="c" * 64,
+        request_hash=stopped_request.sha256,
         provider_id="siliconflow",
         model="deepseek-ai/DeepSeek-V4-Flash",
         currency="CNY",
         reserved_cost="0.020",
         input_token_budget=InputTokenBudget(
             max_input_tokens=10_000,
-            estimate=InputTokenEstimate(request_bytes=2_000, token_ceiling=5_024),
+            estimate=stopped_estimate,
         ),
+        request_payload=stopped_payload,
     )
     service.fail_budget_stop(
         run.run_id,
@@ -113,16 +123,22 @@ def test_replay_verified_reservation_report_quantifies_dispatch_pressure(
     assert report["summaries"][0]["released_after_settlement_cost"] == "0.015"
     assert report["budget_stop_count"] == 1
     assert report["budget_stops"][0]["call_id"] == "model-call-stopped"
-    assert report["budget_stops"][0]["request_bytes"] == 2_000
-    assert report["budget_stops"][0]["input_token_ceiling"] == 5_024
+    assert report["budget_stops"][0]["request_bytes"] == stopped_payload.payload_bytes
+    assert report["budget_stops"][0]["input_token_ceiling"] == stopped_estimate.token_ceiling
     assert report["budget_stops"][0]["output_token_ceiling"] == 60
-    assert report["budget_stops"][0]["candidate_input_token_ceiling"] == 3_024
+    assert report["budget_stops"][0]["candidate_input_token_ceiling"] == (
+        stopped_payload.payload_bytes + 1024
+    )
+    assert report["budget_stops"][0]["request_byte_basis"] == stopped_payload.encoding
+    assert report["budget_stops"][0]["request_payload_sha256"] == stopped_payload.payload_sha256
     assert report["candidate_estimator_replays"] == [
         {
             "estimator": "request_utf8_bytes_plus_1024_candidate_v1",
             "formula": "request_bytes + 1024",
             "settled_call_count": 1,
+            "request_byte_basis_counts": {"model_request_canonical_json_legacy_v1": 1},
             "budget_stop_count_with_request_metadata": 1,
+            "budget_stop_request_byte_basis_counts": {"openai_compatible_canonical_json_v1": 1},
             "observed_underestimate_count": 0,
             "candidate_input_to_reported_input_ratio": {
                 "count": 1,
@@ -135,6 +151,9 @@ def test_replay_verified_reservation_report_quantifies_dispatch_pressure(
     ]
     assert report["limitations"] == {
         "calls_without_request_byte_metadata": 0,
+        "settled_calls_with_exact_wire_payload_metadata": 0,
+        "budget_stops_with_exact_wire_payload_metadata": 1,
+        "mixed_request_byte_bases_present": False,
         "settled_cost_is_local_price_card_estimate_not_provider_invoice": True,
         "pre_dispatch_budget_stops_have_no_provider_usage": True,
         "automatic_estimator_change_performed": False,

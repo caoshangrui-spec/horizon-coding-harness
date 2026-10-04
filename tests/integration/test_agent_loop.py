@@ -663,6 +663,11 @@ def test_agent_loop_terminalizes_pre_dispatch_run_budget_stop(tmp_path, task_dic
         runner.config.max_input_tokens
     )
     assert result.model_request_budget.input_token_budget.estimate.request_bytes > 0
+    assert result.model_request_budget.request_payload is not None
+    assert (
+        result.model_request_budget.request_payload.payload_bytes
+        == result.model_request_budget.input_token_budget.estimate.request_bytes
+    )
     assert result.model_request_budget.output_token_ceiling == runner.config.max_output_tokens
     assert result.lease_id is None
     assert result.reservations == {}
@@ -713,6 +718,11 @@ def test_agent_loop_terminalizes_pre_dispatch_campaign_budget_stop(tmp_path, tas
     assert result.model_request_budget is not None
     assert result.model_request_budget.purpose == "execution"
     assert result.model_request_budget.input_token_budget.estimate.request_bytes > 0
+    assert result.model_request_budget.request_payload is not None
+    assert (
+        result.model_request_budget.request_payload.payload_bytes
+        == result.model_request_budget.input_token_budget.estimate.request_bytes
+    )
     assert result.model_request_budget.output_token_ceiling == runner.config.max_output_tokens
     assert result.lease_id is None
     assert result.reservations == {}
