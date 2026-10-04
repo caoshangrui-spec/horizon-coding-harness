@@ -163,13 +163,13 @@ config、6-call 上限、CNY 0.25 上限和 Campaign 当前 headroom。详细证
 
 该命令先把本地源目录内容寻址快照恢复到唯一 staging 目录，再创建 Run、Lease 和计划；
 所有模型动作只能经 Typed Tool Gateway。`agent run` 成功不会自动写回源目录，但之后可用
-`agent diff` 只读检查，并通过独立的 `agent promote --confirm-promote` 提升最多 8 个既有
-UTF-8 文件修改。当前只接受 local repository；Plan 可含多个 WorkItem，只做 dependency-ready
+`agent diff` 只读检查，并通过独立的 `agent promote --confirm-promote` 提升最多 8 个 UTF-8
+变更，其中至多 1 个是最多 64 KiB 的新文件。当前只接受 local repository；Plan 可含多个 WorkItem，只做 dependency-ready
 的确定性顺序执行。`--auto-plan` 最多生成 8 项，并将一次规划调用计入同一 Run/Campaign；它
 不读取验收命令正文、非法结果不自动重试，崩溃后可复用已结算 response。执行模型可基于当前
 Run 证据显式提交一次受限 Plan revision；该 revision 不新增模型调用，工具记账、Plan vN+1 与
 新 session 原子提交，但当前不自动触发、不允许第二次修订，也不并行。promotion 不支持
-新增、删除、重命名或自动 commit。
+多文件新增、删除、重命名或自动 commit。
 
 Provider 配置同时固定 `request.max_context_chars=60000`、
 `request.max_input_tokens=120000` 和 `preserve_recent_context_units=6`。字符门只测量投影消息；
@@ -222,9 +222,9 @@ Horizon 的可配置请求策略，不冒充模型官方窗口或 tokenizer 精�
   等于派发前 manifest 或唯一预期后态时显式 accept/rollback；部分写入或额外 drift 拒绝；
 - 单一 `create_file` 可在允许路径和已存在父目录中排他创建最多 64 KiB 的 UTF-8 文件；成功
   receipt 绑定 content 参数 hash、前后 revision 和 manifest，硬退出后保持 unknown 且不重放；
-- 成功候选的只读 diff 和最多 8 个既有文件的显式 promotion 绑定源/候选 revision 与可选 Git
-  HEAD；完整 effect 后、receipt 前可只补 receipt，部分 effect 可在每个目标仍为 before/after
-  时继续；
+- 成功候选的只读 diff 和最多 8 个总变更、至多 1 个新文件的显式 promotion 绑定源/候选
+  revision 与可选 Git HEAD；完整 effect 后、receipt 前可只补 receipt，部分 effect 可在既有
+  目标仍为 before/after、新目标仍为 absent/after 时继续；
 - 确定性 ContextProjection 保留初始合同、近期/未完成工具单元，拒绝孤立/错配工具结果；
   压缩 pending response 能跨 Worker 恢复而不重复计费；
 - MandatoryFactLedger 和证据驱动的 Run Memory 均按内容寻址绑定到每次模型请求；Memory 只从
@@ -245,8 +245,7 @@ Horizon 的可配置请求策略，不冒充模型官方窗口或 tokenizer 精�
 - retry/backoff、Circuit Breaker、迟到回执主动对账；
 - 生产级消息/Trace 脱敏，以及完整多调用崩溃/取消配对矩阵；
 - 自然语言 TaskSpec intake、自动触发/多次执行期 replan、并行 WorkItem、任意 diff/edit、
-  新增/删除/重命名 promotion 和自动 commit；当前单文件创建不会由 promotion 提升到源目录，
-  one-shot 自动计划、顺序 WorkItem DAG 与
+  多文件新增、删除/重命名 promotion 和自动 commit；当前 one-shot 自动计划、顺序 WorkItem DAG 与
   一次显式受限 revision 仅由 Scripted Model 离线 E2E 验证；
 - tokenizer-aware/语义 Context、跨 Run Project Memory、symbol/vector RAG、通用 HITL 与
   预授权 fallback；当前已实现 MandatoryFactLedger、run-scope 证据投影和 revision-aware

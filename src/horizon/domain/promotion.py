@@ -20,13 +20,17 @@ class WorkspaceOrigin(Contract):
 
 class WorkspaceChange(Contract):
     path: str
-    kind: Literal["modified"] = "modified"
-    before_sha256: Sha256
+    kind: Literal["modified", "created"] = "modified"
+    before_sha256: Sha256 | None = None
     after_sha256: Sha256
 
     @model_validator(mode="after")
     def validate_change(self) -> Self:
         relative_pattern(self.path)
+        if self.kind == "modified" and self.before_sha256 is None:
+            raise ValueError("Modified promotion changes require a before hash")
+        if self.kind == "created" and self.before_sha256 is not None:
+            raise ValueError("Created promotion changes cannot have a before hash")
         if self.before_sha256 == self.after_sha256:
             raise ValueError("Promotion changes must alter file content")
         return self
@@ -41,6 +45,15 @@ class PromotionPlan(Contract):
     diff_artifact_ref: Sha256
     git_head_before: GitCommit | None = None
     changes: Annotated[tuple[WorkspaceChange, ...], Field(min_length=1, max_length=8)]
+
+    @model_validator(mode="after")
+    def validate_changes(self) -> Self:
+        paths = [change.path.casefold() for change in self.changes]
+        if len(paths) != len(set(paths)):
+            raise ValueError("Promotion changes must target distinct paths")
+        if sum(change.kind == "created" for change in self.changes) > 1:
+            raise ValueError("Promotion supports at most one created file")
+        return self
 
     @property
     def sha256(self) -> str:

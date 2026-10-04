@@ -15,6 +15,8 @@ from horizon.domain.errors import Conflict, PolicyDenied
 from horizon.domain.promotion import PromotionPlan, WorkspaceChange, WorkspaceOrigin
 from horizon.domain.task import Constraints
 
+MAX_PROMOTION_CREATED_FILE_BYTES = 64 * 1024
+
 
 def workspace_path_hash(path: Path) -> str:
     resolved = path.resolve(strict=True)
@@ -22,7 +24,7 @@ def workspace_path_hash(path: Path) -> str:
 
 
 class WorkspacePromoter:
-    """Promote up to eight verified modified files with crash-recoverable intent."""
+    """Promote up to eight verified changes, including at most one created file."""
 
     def __init__(self, snapshots: SnapshotManager):
         self.snapshots = snapshots
@@ -75,40 +77,52 @@ class WorkspacePromoter:
         )
         before = self._maps(source_snapshot)
         after = self._maps(candidate_snapshot)
-        if set(before) != set(after):
-            raise Conflict("Initial promotion supports modified existing files only")
+        deleted_paths = set(before) - set(after)
+        if deleted_paths:
+            raise Conflict("Promotion does not support deleted files")
+        created_paths = set(after) - set(before)
+        if len(created_paths) > 1:
+            raise Conflict("Promotion supports at most one created file")
         changes = tuple(
             WorkspaceChange(
                 path=path,
-                before_sha256=before[path].sha256,
+                kind="modified" if path in before else "created",
+                before_sha256=before[path].sha256 if path in before else None,
                 after_sha256=after[path].sha256,
             )
-            for path in sorted(before)
-            if before[path].sha256 != after[path].sha256
+            for path in sorted(after)
+            if path not in before or before[path].sha256 != after[path].sha256
         )
         if not 1 <= len(changes) <= 8:
-            raise Conflict("Promotion requires between one and eight modified files")
+            raise Conflict("Promotion requires between one and eight changed files")
         patches: list[str] = []
         for change in changes:
             if not self._permitted(change.path, constraints):
                 raise PolicyDenied("Candidate diff is outside the TaskSpec path authority")
-            before_bytes = self.snapshots.artifacts.read(change.before_sha256)
             after_bytes = self.snapshots.artifacts.read(change.after_sha256)
+            if change.kind == "created":
+                if len(after_bytes) > MAX_PROMOTION_CREATED_FILE_BYTES:
+                    raise PolicyDenied("Created promotion file exceeds the 64 KiB byte limit")
+                before_bytes = b""
+            else:
+                assert change.before_sha256 is not None
+                before_bytes = self.snapshots.artifacts.read(change.before_sha256)
             try:
                 before_text = before_bytes.decode("utf-8")
                 after_text = after_bytes.decode("utf-8")
             except UnicodeDecodeError as exc:
                 raise PolicyDenied("Promotion supports UTF-8 text changes only") from exc
-            patches.append(
-                "".join(
-                    difflib.unified_diff(
-                        before_text.splitlines(keepends=True),
-                        after_text.splitlines(keepends=True),
-                        fromfile=f"a/{change.path}",
-                        tofile=f"b/{change.path}",
-                    )
+            file_patch = "".join(
+                difflib.unified_diff(
+                    before_text.splitlines(keepends=True),
+                    after_text.splitlines(keepends=True),
+                    fromfile=(f"a/{change.path}" if change.kind == "modified" else "/dev/null"),
+                    tofile=f"b/{change.path}",
                 )
             )
+            if change.kind == "created" and not file_patch:
+                file_patch = f"--- /dev/null\n+++ b/{change.path}\n"
+            patches.append(file_patch)
         patch = "".join(patches)
         if not patch or len(patch.encode("utf-8")) > 512 * 1024:
             raise PolicyDenied("Promotion diff is empty or exceeds the audit artifact limit")
@@ -137,6 +151,24 @@ class WorkspacePromoter:
         return resolved
 
     @staticmethod
+    def _new_target(root: Path, relative: str) -> Path:
+        target = root.joinpath(*relative.split("/"))
+        reject_link(target)
+        if target.exists():
+            raise Conflict("Promotion create target appeared after source snapshot verification")
+        for part in (target.parent.absolute(), *target.parent.absolute().parents):
+            reject_link(part)
+            if part == root:
+                break
+        try:
+            parent = target.parent.resolve(strict=True)
+        except OSError as exc:
+            raise Conflict("Promotion create parent is no longer an existing directory") from exc
+        if not parent.is_relative_to(root) or not parent.is_dir():
+            raise PolicyDenied("Promotion create parent must remain inside the source workspace")
+        return parent / target.name
+
+    @staticmethod
     def _atomic_write(target: Path, content: bytes, suffix: str) -> None:
         temporary = target.parent / f".{target.name}.{uuid4().hex}.{suffix}"
         try:
@@ -147,6 +179,61 @@ class WorkspacePromoter:
             os.replace(temporary, target)
         finally:
             temporary.unlink(missing_ok=True)
+
+    @staticmethod
+    def _exclusive_create(target: Path, content: bytes) -> tuple[int, int]:
+        created_identity: tuple[int, int] | None = None
+        try:
+            try:
+                with target.open("xb") as stream:
+                    stat = os.fstat(stream.fileno())
+                    created_identity = (stat.st_dev, stat.st_ino)
+                    stream.write(content)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            except FileExistsError as exc:
+                raise Conflict("Promotion create target appeared before publication") from exc
+        except BaseException:
+            if created_identity is not None:
+                try:
+                    stat = target.stat(follow_symlinks=False)
+                    if (stat.st_dev, stat.st_ino) == created_identity:
+                        target.unlink()
+                except FileNotFoundError:
+                    pass
+            raise
+        assert created_identity is not None
+        return created_identity
+
+    @classmethod
+    def _rollback_written(
+        cls,
+        written: list[str],
+        targets: dict[str, Path],
+        changes: dict[str, WorkspaceChange],
+        originals: dict[str, bytes],
+        created_identities: dict[str, tuple[int, int]],
+    ) -> None:
+        for path in reversed(written):
+            target = targets[path]
+            change = changes[path]
+            if target.is_symlink() or target.is_junction() or not target.is_file():
+                continue
+            if hashlib.sha256(target.read_bytes()).hexdigest() != change.after_sha256:
+                continue
+            if change.kind == "created":
+                identity = created_identities.get(path)
+                if identity is None:
+                    continue
+                stat = target.stat(follow_symlinks=False)
+                if (stat.st_dev, stat.st_ino) == identity:
+                    target.unlink()
+            else:
+                cls._atomic_write(
+                    target,
+                    originals[path],
+                    "horizon-promotion-rollback",
+                )
 
     def apply_or_recover(
         self,
@@ -180,14 +267,22 @@ class WorkspacePromoter:
         source_entries = self._maps(current)
         base_entries = self._maps(base_snapshot)
         candidate_entries = self._maps(candidate_snapshot)
-        if set(source_entries) != set(base_entries) or set(base_entries) != set(candidate_entries):
-            raise Conflict("Source workspace file set changed after promotion was reserved")
         changes = {change.path: change for change in plan.changes}
-        if set(changes) != {
+        created_paths = {path for path, change in changes.items() if change.kind == "created"}
+        if len(created_paths) > 1:
+            raise Conflict("Promotion intent contains more than one created file")
+        if set(candidate_entries) != set(base_entries) | created_paths:
+            raise Conflict("Promotion candidate contains unsupported file-set changes")
+        if not set(base_entries) <= set(source_entries) or not set(source_entries) <= set(
+            candidate_entries
+        ):
+            raise Conflict("Source workspace file set changed after promotion was reserved")
+        expected_changes = {
             path
-            for path in base_entries
-            if base_entries[path].sha256 != candidate_entries[path].sha256
-        }:
+            for path, entry in candidate_entries.items()
+            if path not in base_entries or base_entries[path].sha256 != entry.sha256
+        }
+        if set(changes) != expected_changes:
             raise Conflict("Promotion plan changes do not match its manifests")
 
         already_applied = False
@@ -195,36 +290,74 @@ class WorkspacePromoter:
         targets: dict[str, Path] = {}
         originals: dict[str, bytes] = {}
         replacements: dict[str, bytes] = {}
-        for path, base_entry in base_entries.items():
-            current_hash = source_entries[path].sha256
-            candidate_hash = candidate_entries[path].sha256
+        source_root = source.resolve(strict=True)
+        for path, candidate_entry in candidate_entries.items():
+            base_entry = base_entries.get(path)
+            current_entry = source_entries.get(path)
+            candidate_hash = candidate_entry.sha256
             change = changes.get(path)
             if change is None:
-                if current_hash != base_entry.sha256 or candidate_hash != base_entry.sha256:
+                if (
+                    base_entry is None
+                    or current_entry is None
+                    or current_entry.sha256 != base_entry.sha256
+                    or candidate_hash != base_entry.sha256
+                ):
                     raise Conflict("Unrelated source file changed during promotion")
                 continue
-            if change.before_sha256 != base_entry.sha256 or change.after_sha256 != candidate_hash:
+            if change.after_sha256 != candidate_hash:
                 raise Conflict("Promotion plan file hashes no longer match its manifests")
             if not self._permitted(path, constraints):
                 raise PolicyDenied("Reserved promotion path is outside TaskSpec authority")
-            if current_hash == change.after_sha256:
-                already_applied = True
-            elif current_hash == change.before_sha256:
-                pending_paths.append(path)
-            else:
-                raise Conflict("Source contains a divergent partial promotion effect")
-            target = self._target(source.resolve(strict=True), path)
-            originals[path] = self.snapshots.artifacts.read(change.before_sha256)
             replacements[path] = self.snapshots.artifacts.read(change.after_sha256)
-            if hashlib.sha256(target.read_bytes()).hexdigest() != current_hash:
-                raise Conflict("Promotion target changed after source snapshot verification")
-            targets[path] = target
+            if change.kind == "created":
+                if base_entry is not None or change.before_sha256 is not None:
+                    raise Conflict("Created promotion change does not match its base manifest")
+                if len(replacements[path]) > MAX_PROMOTION_CREATED_FILE_BYTES:
+                    raise PolicyDenied("Created promotion file exceeds the 64 KiB byte limit")
+                if current_entry is None:
+                    pending_paths.append(path)
+                    targets[path] = self._new_target(source_root, path)
+                elif current_entry.sha256 == change.after_sha256:
+                    already_applied = True
+                    target = self._target(source_root, path)
+                    if hashlib.sha256(target.read_bytes()).hexdigest() != current_entry.sha256:
+                        raise Conflict(
+                            "Promotion target changed after source snapshot verification"
+                        )
+                    targets[path] = target
+                else:
+                    raise Conflict("Source contains a divergent created promotion effect")
+            else:
+                if (
+                    base_entry is None
+                    or current_entry is None
+                    or change.before_sha256 != base_entry.sha256
+                ):
+                    raise Conflict("Modified promotion change does not match its base manifest")
+                if current_entry.sha256 == change.after_sha256:
+                    already_applied = True
+                elif current_entry.sha256 == change.before_sha256:
+                    pending_paths.append(path)
+                else:
+                    raise Conflict("Source contains a divergent partial promotion effect")
+                target = self._target(source_root, path)
+                originals[path] = self.snapshots.artifacts.read(change.before_sha256)
+                if hashlib.sha256(target.read_bytes()).hexdigest() != current_entry.sha256:
+                    raise Conflict("Promotion target changed after source snapshot verification")
+                targets[path] = target
 
         written: list[str] = []
+        created_identities: dict[str, tuple[int, int]] = {}
         try:
             for path in pending_paths:
-                self._atomic_write(targets[path], replacements[path], "horizon-promote")
                 written.append(path)
+                if changes[path].kind == "created":
+                    created_identities[path] = self._exclusive_create(
+                        targets[path], replacements[path]
+                    )
+                else:
+                    self._atomic_write(targets[path], replacements[path], "horizon-promote")
             promoted, manifest = self.snapshots.capture(
                 source,
                 denied_paths=constraints.denied_paths,
@@ -232,27 +365,21 @@ class WorkspacePromoter:
             if promoted.workspace_revision != plan.candidate_revision:
                 raise Conflict("Promoted source does not match the validated candidate revision")
         except BaseException:
-            for path in reversed(written):
-                if (
-                    hashlib.sha256(targets[path].read_bytes()).hexdigest()
-                    == changes[path].after_sha256
-                ):
-                    self._atomic_write(
-                        targets[path],
-                        originals[path],
-                        "horizon-promotion-rollback",
-                    )
+            self._rollback_written(
+                written,
+                targets,
+                changes,
+                originals,
+                created_identities,
+            )
             raise
         if read_git_head(source) != plan.git_head_before:
-            for path in reversed(written):
-                if (
-                    hashlib.sha256(targets[path].read_bytes()).hexdigest()
-                    == changes[path].after_sha256
-                ):
-                    self._atomic_write(
-                        targets[path],
-                        originals[path],
-                        "horizon-promotion-head-rollback",
-                    )
+            self._rollback_written(
+                written,
+                targets,
+                changes,
+                originals,
+                created_identities,
+            )
             raise Conflict("Git HEAD changed during promotion")
         return promoted.workspace_revision, manifest, already_applied

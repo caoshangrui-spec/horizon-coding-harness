@@ -5,6 +5,12 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Extended explicit staging promotion to carry at most one validated new UTF-8 file within the
+  existing eight-change cap. The plan records `kind=created`, an absent before hash, the candidate
+  hash, path authority, source/candidate revisions, optional Git HEAD, and a `/dev/null` audit diff.
+  Exclusive publication, identity-bound ordinary rollback, exact absent/after crash recovery,
+  mixed partial-effect continuation, CLI dry-run/confirmation, and Trace replay are covered; delete,
+  rename, and multiple created files remain rejected.
 - Added a deliberately narrow `create_file` tool: one allowed UTF-8 file, a 64 KiB byte cap,
   an existing-parent requirement, and exclusive no-overwrite creation. Exact arguments are bound
   through the recorded model response and intent hash; successful receipts bind revisions and the

@@ -55,7 +55,7 @@ Harness 最终 Docker 验证 → checkpoint → validation evidence
 | Docker 验证 | [`adapters/sandbox/validation.py`](../src/horizon/adapters/sandbox/validation.py) | 执行 TaskSpec 中控制器拥有的验收命令 |
 | Provider | [`adapters/model/openai_compatible.py`](../src/horizon/adapters/model/openai_compatible.py) | SiliconFlow Chat Completions 请求和严格响应解析 |
 | Campaign 账本 | [`adapters/persistence/campaign_budget.py`](../src/horizon/adapters/persistence/campaign_budget.py) | 跨 Run 的 CNY 累计费用上限 |
-| 候选提升 | [`application/promotion.py`](../src/horizon/application/promotion.py)、[`adapters/workspace/promotion.py`](../src/horizon/adapters/workspace/promotion.py) | Git HEAD/源 revision 绑定、只读 diff、最多 8 个既有文件的显式 promotion 和部分 effect 恢复 |
+| 候选提升 | [`application/promotion.py`](../src/horizon/application/promotion.py)、[`adapters/workspace/promotion.py`](../src/horizon/adapters/workspace/promotion.py) | Git HEAD/源 revision 绑定、只读 diff、最多 8 个总变更且至多 1 个新文件的显式 promotion 和部分 effect 恢复 |
 | CLI 组装 | [`interfaces/cli/app.py`](../src/horizon/interfaces/cli/app.py) | 快照、staging、Run/Lease、Gateway、Agent、结果摘要 |
 
 领域层只依赖 Port，不导入 HTTP、Docker 或 SQLite adapter。Fake Model 与真实 Provider 使用
@@ -80,9 +80,10 @@ Harness 最终 Docker 验证 → checkpoint → validation evidence
 
 CLI 先对源目录做内容寻址快照，再恢复到 `.horizon/staging/agent-<uuid>`。模型和容器都不
 操作源目录；成功首先只表示 staging 候选通过验收。之后可用只读 `agent diff` 检查候选，
-再用带 `--confirm-promote` 的独立命令提升。当前 promotion 接受 1～8 个既有 UTF-8 文件；若
-进程只提升一部分，新进程仅在每个目标仍精确等于 before 或 after 时继续。仍不支持新增、
-删除、重命名或自动 Git commit。
+再用带 `--confirm-promote` 的独立命令提升。当前 promotion 接受 1～8 个 UTF-8 变更，其中
+至多 1 个是允许路径内、最多 64 KiB 的新文件；若进程只提升一部分，新进程仅在既有目标仍
+精确等于 before/after，且新目标仍不存在或精确等于 after 时继续。仍不支持多文件新增、删除、
+重命名或自动 Git commit。
 
 ## 4. 模型调用协议
 
@@ -316,7 +317,9 @@ uv run --locked --cache-dir .uv-cache horizon agent promote `
 promotion intent 在源文件写入前持久化；如果进程在完整效果之后、receipt 之前退出，重跑会
 识别 source 已等于候选而只补 receipt。若最多 8 个目标只完成一部分，只有每个文件仍精确等于
 计划 before/after 且无额外漂移时才继续剩余写入。源 revision、候选 revision、TaskSpec 路径
-权限和（源路径本身为 Git 根时的）HEAD 必须全部匹配。命令不创建 commit。
+权限和（源路径本身为 Git 根时的）HEAD 必须全部匹配。单个 created change 用
+`before_sha256=null`、`after_sha256=<candidate hash>` 表示；源路径不存在时排他创建，已精确等于
+after 时按已完成效果恢复，其他内容均视为 diverged。命令不创建 commit。
 
 命令输出包含 Run ID、状态、staging 路径、源目录是否未变、usage、费用、调用数、验证、
 checkpoint、未决人工请求/下一动作和 Campaign 摘要。失败或 WAITING 退出码为 3；配置/合同错误
@@ -338,7 +341,7 @@ Trace 文件拒绝覆盖已有文件。重放不会调用模型、工具或 Dock
 
 2026-10-04 当前环境：
 
-- 离线全量回归：317 passed、6 skipped；
+- 离线全量回归：330 passed、6 skipped；
 - 随后指定本机已有 `redis:7-alpine` 单独复跑跳过项：6 passed，均为真实 Docker 合同；
 - Fake Model E2E：精确编辑后成功，以及首次验收失败后一次 repair 成功；
 - 自动计划 Fake E2E：Plan provenance/预算、越权拒绝且不重试、Plan 事件前崩溃复用响应，

@@ -39,7 +39,7 @@
 | 模型预留压力诊断 | [reservation_analysis.py](../src/horizon/application/reservation_analysis.py)、[reservation-diagnostics.md](reservation-diagnostics.md) | `trace reservation-report` 在 replay/hash-chain 校验后关联 reservation、settlement 和新 BudgetStop 请求尺寸；六轮 20 次调用的聚合预留/结算比为 6.861621。候选 `request_bytes + 1024` 仅可回放 3 次，0 次观测低估、中位比 4.137869；生产 estimator、费用门禁和付费预算均未改变 |
 | 安全轮次续跑 | [agent.py](../src/horizon/domain/agent.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 消息 Artifact + event/revision 绑定；新 Worker 续跑；PLANNING/READY 也可恢复，任意崩溃窗口对账未完成 |
 | 悬空调用恢复与对账 | [recovery.py](../src/horizon/application/recovery.py)、[model_recovery.py](../src/horizon/application/model_recovery.py)、[tool_recovery.py](../src/horizon/application/tool_recovery.py) | Campaign-only 预留释放；response Artifact 跨 Worker 续跑；模型派发前持久化 client Trace ID，返回后普通落盘失败立即隔离，Artifact 前硬退出重启后保守 `unknown`；只读重试；精确 `replace_text` / `apply_patch` accept/rollback；`create_file` 硬退出保留 unknown 且不重放；Docker `run_check` 用 call ID 标签 attempt，可查询/显式停止/删除后丢弃未知结果，missing 仍需人工确认；部分 patch、未知创建和无停止证明的验证副作用仍阻塞 |
-| 受控候选提升 | [promotion.py](../src/horizon/application/promotion.py)、[promotion.py](../src/horizon/adapters/workspace/promotion.py)、[git.py](../src/horizon/adapters/vcs/git.py) | 只读 diff、源/候选 revision 与可选 Git HEAD 绑定、显式 1～8 个既有文件修改、完整/部分 effect 崩溃恢复；不创建 commit |
+| 受控候选提升 | [promotion.py](../src/horizon/application/promotion.py)、[promotion.py](../src/horizon/adapters/workspace/promotion.py)、[git.py](../src/horizon/adapters/vcs/git.py) | 只读 diff、源/候选 revision 与可选 Git HEAD 绑定、显式 1～8 个总变更且至多 1 个 64 KiB UTF-8 新文件、完整/部分 effect 崩溃恢复；不删除/重命名或创建 commit |
 | 任务准备、计划、状态、取消、执行、导出与重放 CLI | [app.py](../src/horizon/interfaces/cli/app.py) | `run` 保持 prepare-only；`agent run` 接受 PLAN_PATH 或 `--auto-plan` 且只操作 staging；`agent resume` 支持 PLANNING/READY/RUNNING；执行前 HorizonError 仅在无非 unknown 在途 reservation 时释放租约；promotion 需显式确认 |
 | SiliconFlow 严格配置与 OpenAI-compatible adapter | [config.py](../src/horizon/adapters/model/config.py)、[openai_compatible.py](../src/horizon/adapters/model/openai_compatible.py) | Adapter 与预算器共用 canonical wire encoder，实际 HTTP body 的 bytes/hash 可复算；真实 Tool Calling 探针和历史 fixture Agent Run 通过；完整 checkout Pilot 已真实调用并以受控终态失败，无隐式 retry/fallback |
 | CNY Campaign 与 Run 模型费用账本 | [campaign_budget.py](../src/horizon/adapters/persistence/campaign_budget.py)、[run.py](../src/horizon/domain/run.py)、[budget-stop-semantics.md](budget-stop-semantics.md) | Campaign 跨重启硬上限；Run 绑定 CNY policy 并事件化；确定性派发前费用不足携带 reason/scope/required/available 及未派发请求 sizing evidence 原子进入 `FAILED` 并清除 Lease，unknown 用量仍保守对账；TaskSpec 旧 USD 字段尚未迁移 |
@@ -76,6 +76,19 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 仍是后续适配约束；不能以该文档代替本项目的实际联调。
 
 ## 验证结果
+
+### 2026-10-04 单个新增文件的显式 promotion
+
+- 成功且已验证的 staging 候选现可在既有 1～8 个总变更上限内，显式提升至多 1 个允许路径内、
+  最多 64 KiB 的 UTF-8 新文件；计划记录 `kind=created`、空 before hash、精确 after hash 和
+  `/dev/null` 审阅 diff，空文件也有明确审计头。
+- promotion intent 继续先于源目录副作用持久化。目标不存在时排他创建，已精确等于 after 时
+  可从崩溃恢复，其他同名内容保留并阻断；新增和既有修改混合时可继续可证明的部分效果。
+- 普通失败只回滚本次创建且文件身份仍一致的对象；并发替换即使内容相同也不会被误删。
+  CLI dry-run/确认、幂等重入、Trace replay、真实子进程硬退出、权限/编码/大小、空文件、删除和
+  多新增拒绝均已有确定性覆盖。
+- 本批没有网络、Docker 或模型调用，费用为 0；离线全量回归 **330 passed，6 skipped**，跳过项
+  仍是需要显式提供本机镜像的既有 Docker 合同。
 
 ### 2026-10-04 受限单文件创建
 
@@ -231,10 +244,11 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
   子进程覆盖完整两文件 effect 后退出、显式 accept、跨 Worker 续跑且不重放模型；详细合同见
   [有界多文件精确 Patch](bounded-multi-file-patch.md)。
 - 成功 Run 现可用 `agent diff` 只读检查候选，再以 `agent promote --confirm-promote` 提升 1～8
-  个既有 UTF-8 文件修改。promotion 绑定源 path hash、初始 revision/manifest、候选 revision、
-  TaskSpec 权限和可选 Git HEAD；完整 effect 后退出可只补 receipt，部分 effect 只有在每个目标
-  仍精确等于 before/after 时才继续。真实子进程已覆盖两种窗口。当前不支持新增/删除/重命名，
-  也不创建 commit。
+  个 UTF-8 变更，其中至多 1 个是允许路径内、最多 64 KiB 的新文件。promotion 绑定源 path
+  hash、初始 revision/manifest、候选 revision、TaskSpec 权限和可选 Git HEAD；完整 effect 后
+  退出可只补 receipt，部分 effect 只有在既有目标仍精确等于 before/after、新目标仍不存在或
+  精确等于 after 时才继续。真实子进程已覆盖新文件先落盘、既有文件未落盘的部分窗口。当前
+  不支持多文件新增、删除/重命名，也不创建 commit。
 - 每次模型调用都会持久化 `ContextProjection` Artifact。预算内除控制器 system ledger binding
   外保持 canonical 消息结构；超限时保留
   初始合同、最近单元和未完成工具对，只把旧完整单元变为 digest/参数 hash/结果 hash/有界片段。
@@ -517,7 +531,7 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
    unknown/no-replay，但尚无 create 专用 accept/rollback，也不代表多文件新增或删除已实现。
 3. **安全边界**：首个 Gateway 已阻止任意 shell，并把模型工具 intent/receipt 与 Run 预算
    事件化；但模型派发、文件写入和容器副作用还不是跨 SQLite/文件系统的单一原子事务，
-   也没有独立安全复核或通用审批系统；当前 promotion 仅覆盖最多 8 个既有文件修改。
+   也没有独立安全复核或通用审批系统；当前 promotion 仅覆盖最多 8 个总变更且至多 1 个新文件。
 4. **Agent 能力**：自然语言意图与 admission、通用审批/澄清式持久化 HITL、
    Project Memory、symbol/vector Code RAG、六层精确 tokenizer/semantic Context、统一
    retry/breaker/fallback、更完整的 repair/replan。现有确定性字符 + 完整请求保守 token 上界

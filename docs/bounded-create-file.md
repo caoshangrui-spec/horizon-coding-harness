@@ -82,7 +82,32 @@ prompt 要求只有不可变任务确实需要新路径时才使用该能力，�
 窗口；若模型反复对已存在目标提交相同参数，错误 receipt 保持同一 revision，既有相同动作与
 精确 A/B 循环规则会阻止继续浪费预算。
 
-## 5. 已验证场景
+## 5. 显式源目录 promotion
+
+`create_file` 仍只作用于隔离 staging workspace；Run 成功并通过保护性验证后，操作者可以先用
+`horizon agent diff` 审阅计划，再用 `horizon agent promote --confirm-promote` 把候选结果显式
+应用回源目录。promotion 总共接受 1–8 个变更，其中最多一个 `created` 文件；新增文件继续受
+TaskSpec 路径权限、UTF-8 和 64 KiB 上限约束，且父目录必须已经存在。
+
+新增文件的 PromotionPlan 固定记录：
+
+- `kind=created`；
+- `before_sha256=null`；
+- `after_sha256` 为候选文件的精确内容哈希；
+- 审阅 diff 从 `/dev/null` 指向新增路径，空文件也保留明确的审计头；
+- 原始 source revision/manifest、候选 checkpoint revision/manifest，以及 Git 仓库存在时的
+  HEAD 都绑定进计划。
+
+应用时，目标不存在才会排他创建；目标已经等于 `after_sha256` 时按已发生效果恢复；同名但内容
+不同则判定 source divergent 并停止。普通异常只回滚本次创建且身份仍一致的文件。若进程在
+新增文件落盘后硬退出，重启可以从精确 after-state 恢复；新增与既有文件修改混合时，也可识别
+已完成的局部效果并继续剩余变更。最终必须得到与候选 manifest 完全一致的 source revision，
+随后才写入 promotion receipt，因此重复执行保持幂等。
+
+这仍不是通用文件事务：不接受一次 promotion 新增多个文件，也不支持删除、重命名、创建目录
+或自动 Git commit。
+
+## 6. 已验证场景
 
 - Gateway：精确 UTF-8/多字节写入、字节数和 SHA-256、post-effect manifest；
 - Gateway：已存在目标、越权路径、缺失父目录、多字节超限均无副作用；
@@ -93,15 +118,19 @@ prompt 要求只有不可变任务确实需要新路径时才使用该能力，�
   Memory 和 Trace replay 一致；
 - 真实子进程故障注入：文件创建后、receipt 前 `os._exit`，重启保持 `unknown`、不重放，且
   Trace 可离线重建同一 Run。
+- Promotion：新增文件 dry-run 审阅、显式应用、重复调用幂等，以及 Trace replay 一致；
+- Promotion：空文件、权限/编码/大小边界、多个新增或删除均按约束处理；
+- Promotion 故障注入：普通失败按对象身份回滚，硬退出后的精确已发生效果可恢复，错误同名文件
+  则保留现场并阻断。
 
 这些证据证明的是受限 Harness 路径，不是生产级文件系统事务、安全沙箱或真实模型任务成功率。
 
-## 6. 明确不做
+## 7. 明确不做
 
 - 不创建父目录；
 - 不覆盖、append、delete、rename、chmod 或生成 symlink；
 - 不一次创建多个文件；
 - 不支持二进制内容或任意 patch/diff；
-- 不把 staging 中的新文件自动 promotion 到源目录；
+- 不在一次 promotion 中新增多个文件，也不删除、重命名或自动提交 Git；
 - 不把硬退出后的目标存在推断为成功；
 - 不因此宣称完整 CRUD、通用写工具或任意副作用恢复已经完成。

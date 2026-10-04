@@ -5,7 +5,7 @@
 本表是完整开发与验收导航。2026-09-30 已开始基础内核实现，实际证据列记录当前子范围与剩余缺口。目标路径相对 `src/horizon/`；计划测试路径相对 `tests/`；实际证据列的 `tests/` 路径相对仓库根。同一测试文件可验证多个 ID，但不能把子范围通过等同于整项通过。
 
 当前结果：2026-09-30 可靠性内核为 **92 项测试通过**；2026-10-04 的最新离线回归为
-**317 passed，6 skipped**，并在上一批边界单独补跑 **6 项真实 Docker 合同且全部通过**；另已完成一次 Tool Calling 探针和一次受预算
+**330 passed，6 skipped**，并在上一批边界单独补跑 **6 项真实 Docker 合同且全部通过**；另已完成一次 Tool Calling 探针和一次受预算
 保护的真实单 WorkItem Agent fixture Run。完整长程 Agent 未实现，未做独立安全复核。命令、环境、证据与限制见
 [开发进度](development-progress.md)。仍为“待填”的条目没有实现证据；“部分/初步”不代表
 完整需求通过。普通工作直接自检，关键风险及用户指定验收按需独立复核，
@@ -21,7 +21,7 @@
 | FR-004 | M1 | `orchestration/planner.py` | `integration/test_plan_revision.py`：修订追加事件，历史不覆盖 | 已实现连续版本事件及单次执行期 revision：`domain/run.py`、`application/services.py`；完成项不可变，工具 receipt、Plan vN+1、新 session 同事务；旧版本与 Trace 重放保留 |
 | FR-005 | M1 | `domain/plan.py`, `application/agent_loop.py` | `integration/test_agent_loop.py`：前置未通过不得派发，项间会话/权限切换，边界恢复 | 部分：按 Plan 声明顺序选择首个 dependency-ready WorkItem，原子提交 pass→RUNNING→下一 session；单次 replan 可替换剩余项并保留完成项。无并行、自动优先级、自动/多次 replan 或饥饿策略 |
 | FR-101 | M1 | `adapters/persistence/sqlite.py` | `integration/test_event_store.py`：事务回滚后状态/事件一致 | 部分：SQLite 原子追加/幂等回执/缓存已实现；`tests/integration/test_event_store.py`、`tests/fault_injection/test_database_crash.py` |
-| FR-102 | M2 | `adapters/workspace/promotion.py` | `fault_injection/test_step_boundary.py`：完整 checkpoint 间的写入可从产物链恢复 | 部分：promotion intent 先于源文件副作用提交；1～8 个既有文件提升可从完整 effect 补 receipt，或从每个目标均为 before/after 的部分 effect 继续，真实子进程退出已覆盖；通用步骤链未覆盖 |
+| FR-102 | M2 | `adapters/workspace/promotion.py` | `fault_injection/test_step_boundary.py`：完整 checkpoint 间的写入可从产物链恢复 | 部分：promotion intent 先于源文件副作用提交；1～8 个总变更且至多 1 个新文件可从完整 effect 补 receipt，或从既有目标为 before/after、新目标为 absent/after 的部分 effect 继续；真实子进程退出已覆盖新文件部分效果；通用步骤链未覆盖 |
 | FR-103 | M2 | `domain/checkpoint.py` | `integration/test_checkpoint.py`：显式与每 N 步触发都有有效 manifest | 部分：`application/checkpoints.py` 原子提交文件快照引用；Agent submit 后自动提交 checkpoint；`tests/integration/test_snapshots.py`、`test_agent_loop.py`；每 N 步策略未接入 |
 | FR-104 | M2 | `application/resume_run.py` | `integration/test_rebuild.py`：删除投影后恢复得到相同规范化状态 hash | 部分：PLANNING/READY、安全执行轮次、人工指导后的 session 及已持久化 model response receipt 可由新 Worker继续，且不重复旧模型调用；Provider 返回后、response Artifact 前的真实硬退出会以 client Trace ID 保守阻塞并可重放，不自动重派；任意崩溃窗口仍未完成 |
 | FR-105 | M2 | `orchestration/recovery.py` | `fault_injection/test_pending_operations.py`：模型/工具/验证悬空操作逐项对账 | 部分：Campaign-only 释放、可信 response receipt 补账续跑、只读显式重试；`replace_text` 与最多 8 文件的结构化 `apply_patch` 可基于派发前 manifest 精确 accept/rollback；`create_file` 的真实硬退出保持 unknown 且不重放；Docker `run_check` 以 tool call ID 绑定标签 attempt，可查询/显式停止/删除后丢弃未知结果，missing 时仍需人工停止确认；不推断 pass/fail。部分 patch、未知创建、无停止证明的 check 与其他任意写工具仍保持 unknown |
@@ -89,7 +89,7 @@
 | FR-1001 | M0/M4 | `tools/registry.py`, `tools/gateway.py` | `contract/test_tool_adapter.py`：只提议未执行；网关禁止后无副作用 | 部分：模型只返回 typed tool proposal；未知/未授权工具由 Gateway 拒绝；Fake 与真实模型闭环均验证；`retrieve_code` 也只能经 Gateway 返回 EvidencePack |
 | FR-1002 | M1/M4 | `tools/schemas.py`, `gateway.py` | `unit/test_tool_validation.py`：未知工具/非法参数/越界/旧版本/超预算拒绝 | 部分：Pydantic 参数、path allow/deny、symlink、大小、工具 allowlist、Run 预算门禁已实现；`read_file` Schema/错误回执强制行号上下界成对；`create_file` 强制单文件、UTF-8 64 KiB、父目录已存在和目标不覆盖；expected file hash/旧 revision CAS 未实现 |
 | FR-1003 | M2 | `tools/gateway.py` | `fault_injection/test_fenced_dispatch.py`：旧 epoch 无效，同调用意图与 receipt 可对账 | 部分：Lease epoch、工具 intent/receipt/unknown 已接入；只读可取消重试；`replace_text` 与最多 8 文件的结构化 `apply_patch` 可精确 accept/rollback；单文件 `create_file` 的正常 receipt 与硬退出 unknown/no-replay 已测，但无 create 恢复决策；`run_check` 把 reservation call ID 传到 Docker 标签并可控制器核验/显式停止；任意 diff、多文件新增、删除、missing attempt 证明和真正多副作用事务未完成 |
-| FR-1004 | M2/M4 | `adapters/workspace/promotion.py` | `e2e/test_staged_workspace.py`：命令修改禁止路径只在临时副本，权威树不变 | 部分：staging 与源隔离；`agent diff/promote` 复核路径权限、源/候选 revision 和可选 Git HEAD，允许显式提升 1～8 个既有 UTF-8 文件并恢复可证明的部分 effect；不支持新增/删除/重命名/commit |
+| FR-1004 | M2/M4 | `adapters/workspace/promotion.py` | `e2e/test_staged_workspace.py`：命令修改禁止路径只在临时副本，权威树不变 | 部分：staging 与源隔离；`agent diff/promote` 复核路径权限、源/候选 revision 和可选 Git HEAD，允许显式提升 1～8 个 UTF-8 变更且至多 1 个 64 KiB 新文件，并恢复可证明的部分 effect；不支持多文件新增、删除/重命名/commit |
 | FR-1005 | M3/M4 | `context/message_pairs.py` | `contract/test_tool_pairs.py`：多调用/失败/取消/摘要后无孤立消息 | 部分：ContextProjector 把 assistant tool calls 与全部 results 当作不可拆单元，孤立/重复/错配结果拒绝；只读与精确 write 恢复会追加完整 observation；更广多调用崩溃矩阵未完成 |
 | FR-1101 | M2 | `approval/service.py` | `integration/test_approval_binding.py`：请求及参数/版本绑定在重启后保留 | 部分：`domain/human.py` + `application/services.py` 已把非法规划请求绑定 response/Task/version；NoProgress 请求绑定 tool evidence、Task/Plan/WorkItem/workspace/session，事件重放后保留；仍非通用请求模型 |
 | FR-1102 | M2 | `approval/service.py` | `fault_injection/test_approval_resume.py`：重复点击单次消费，变参变版本失效 | 部分：replacement Plan 与 operator guidance 均单事务消费；hash/version/session 不匹配拒绝。指导保持 iteration、重置 streak 并由新 Worker 续跑；尚无过期/stale 和通用重复决策矩阵 |
