@@ -70,6 +70,37 @@ def test_fts_retrieval_is_revision_bound_ranked_and_cached(tmp_path):
         assert db.execute("SELECT count(*) FROM retrieval_indexes").fetchone()[0] == 1
 
 
+@pytest.mark.parametrize("force_scan", [False, True])
+def test_retrieval_diversifies_paths_before_repeating_a_file(tmp_path, force_scan):
+    workspace, snapshots, _, _, retriever = setup_retrieval(tmp_path)
+    if force_scan:
+        retriever.fts5_available = False
+    (workspace / "src/primary.py").write_text(
+        "\n".join(f"shared_marker = {index}" for index in range(90)) + "\n",
+        encoding="utf-8",
+    )
+    (workspace / "src/secondary.py").write_text(
+        "shared_marker = 'secondary'\n",
+        encoding="utf-8",
+    )
+    snapshot, manifest = snapshots.capture(workspace)
+
+    result = retriever.retrieve(
+        source_manifest_ref=manifest,
+        workspace_revision=snapshot.workspace_revision,
+        allowed_paths=("src/**",),
+        denied_paths=(".env",),
+        query="shared_marker",
+        max_chunks=3,
+    )
+
+    paths = tuple(chunk.path for chunk in result.chunks)
+    assert len(paths) == 3
+    assert set(paths[:2]) == {"src/primary.py", "src/secondary.py"}
+    assert paths[2] == "src/primary.py"
+    assert result.backend == ("lexical_scan" if force_scan else "sqlite_fts5")
+
+
 def test_natural_language_terms_find_a_camel_case_identifier(tmp_path):
     workspace, snapshots, _, _, retriever = setup_retrieval(tmp_path)
     (workspace / "src/http_client.py").write_text(

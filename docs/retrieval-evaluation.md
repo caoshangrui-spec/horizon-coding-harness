@@ -125,9 +125,38 @@ token 内的 `renderinvoice` 与整句组合候选，并只在确实定义该符
 新索引创建后仍逐对象重放原 EvidencePack。FTS5 与显式 lexical-scan fallback 都覆盖同名路径
 规则。该夹具由实现者有意构造，不是外部盲测；查询缺少模块限定词时仍无法可靠消歧。
 
-下一批有价值的增量是更多未参与规则设计的外部小仓库盲测。当前 youtube-dl 与同名夹具都由
-实现者选题；只有盲测继续显示稳定词法缺口时，才决定是否承担 symbol-aware/embedding/vector
-的依赖、成本和索引一致性复杂度。
+## 7. 三项目外部定位盲测
+
+[`external-blind-v1/selection.yaml`](../benchmarks/retrieval/external-blind-v1/selection.yaml)
+在查看上游补丁与 gold path 前冻结了 Cookiecutter 2、HTTPie 2、The Fuck 1 的错误/修复 commit
+及查询，并单独提交为 `74ddaaec2cd1ebdf79056777e5369102b59fa9c3`。查询只来自上游 Issue
+标题或修复 commit 标题；PySnooper 1 因 Issue 正文直接给出目标文件和行而排除。冻结后只读取
+`git diff --name-status` 生成 production gold path，没有读取补丁正文、执行仓库代码或调用模型。
+
+v6 的首次结果是：
+
+| 指标 | 盲测基线 |
+|---|---:|
+| Hit@1 | 0/3 |
+| Hit@5 | 3/3 |
+| Micro path recall@5 | 3/4 = 0.75 |
+| MRR | 0.416667 |
+| degraded | 0 |
+
+Cookiecutter 的目标为 rank 4；HTTPie 只返回两个修复 production path 中的一个；The Fuck 为
+rank 2。完整 returned path 和内容寻址 report ref 保存在
+[`baseline-v6.yaml`](../benchmarks/retrieval/external-blind-v1/baseline-v6.yaml)，负结果没有删除。
+
+三个案例共同暴露前 5 个 chunk 被同一文件重复占位。v7 只增加确定性路径多样化：原排序中每个
+文件的首个 chunk 先占槽，仍有空位时再按原顺序补同文件 chunk；候选仍最多 256，没有新服务、
+依赖或 gold path 特例。处理后 HTTPie 召回 2/2，整体 Micro path recall@5 为 4/4=1.0，MRR
+为 0.444444；但 **Hit@1 仍为 0/3**。完整结果见
+[`treatment-v7.yaml`](../benchmarks/retrieval/external-blind-v1/treatment-v7.yaml)。因为 v7 使用了该
+基线的失败信息，它是自适应 treatment，不是新的独立 holdout；不能据此声称跨任务泛化或真实
+Agent 成功率提升。后续只有在新冻结 holdout 上仍出现可解释的语义排序缺口，才评估 symbol 或
+embedding，而不是继续针对这三个案例调参。
+
+## 8. 其他外部执行证据
 
 补充证据不并入上述固定 5 案例分数：[双项目完整 checkout suite](full-checkout-pilot.md)用作者
 冻结的查询在 82/872 文件上游仓库中都返回目标生产文件 rank 1；分别有 73/870 个文件可索引、

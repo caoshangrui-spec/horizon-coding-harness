@@ -200,7 +200,8 @@ Schema 约束为：字符上限 2,000～1,000,000；保守 input-token 上限
    文件级依赖重检、显式 promotion/revoke 后，才增加 Project Memory；人类决定必须绑定可信
    actor 和请求版本，不能解析自由文本猜测；
 2. revision-aware lexical Code RAG 已加入 camelCase/snake_case 词项、有界定义优先、
-   dirty-revision 与同名符号路径语境诊断，并保留失败/成功证据；下一步补外部盲测案例。
+   dirty-revision、同名符号路径语境和三项目外部定位盲测，并保留失败/成功证据；下一步须先冻结
+   新 holdout，不能继续针对已揭示 gold 的三个案例调参。
 
 只有固定诊断任务显示 lexical retrieval 的召回不足，才评估 embedding/vector 依赖。语义摘要
 进入主循环前还需独立事实保留 QA；在此之前 `semantic_compaction=false` 保持为公开能力边界。

@@ -147,6 +147,7 @@ v6 为 Hit@1=2/2、MRR=1.0、leakage=0。它们都是实现者编写的小样例
 离线集成测试覆盖：
 
 - FTS5 多词召回、rank、路径/行号/content hash 和相同 revision 缓存复用；
+- 多 chunk 结果先覆盖不同文件，再按原排序补同文件 chunk；FTS5 与 scan fallback 共用规则；
 - 自然语言到 camelCase、camelCase 到 snake_case 的双向词项扩展，并在高频文档/调用片段前
   优先同名定义；
 - 两个模块定义同名函数且交叉说明文本误导 BM25 时，模块限定词只在定义候选之间消歧；FTS5
@@ -172,7 +173,9 @@ camelCase 定义和 `registerSocksProtocols` 的 snake_case 定义都排在 rank
 均保留，最终才加入有界定义优先。它是作者选定的固定诊断，不是盲测。补充的
 [双项目完整 checkout suite](full-checkout-pilot.md)在 82/872 文件历史仓库中分别索引 73/870、
 跳过 9/2，两个目标生产文件均 rank 1，但查询由作者冻结、Agent 动作由脚本给定，也没有无 RAG
-对照。因此仍没有真实模型生成查询、外部盲测、Agent 成功率或相对增益证据。
+对照。另有三个未参与规则开发的外部任务形成顺序冻结盲测：v6 为 Hit@1 0/3、top-5 production
+path recall 3/4；不同文件优先的 v7 为 Hit@1 0/3、recall 4/4。v7 已使用基线结果，不是独立
+holdout。因此仍没有真实模型生成查询、Agent 成功率或跨任务相对增益证据。
 
 ## 9. 已知限制与下一步
 
@@ -184,6 +187,6 @@ camelCase 定义和 `registerSocksProtocols` 的 snake_case 定义都排在 rank
 - BM25 rank 依赖 SQLite/分词配置，不作为跨环境科学比较指标。
 - Evidence snippet 进入 Agent transcript/Trace Artifact；生产级敏感信息分类与脱敏仍未完成，
   因此 TaskSpec path scope 必须继续最小化。
-- 下一步应增加未参与规则设计的外部小仓盲测，再评估真正的 symbol-aware 索引；根据内部
-  5+2+2 案例、dirty-revision 诊断与两个完整 checkout 保留的降级结果决定是否加入 embedding，
-  不能因作者构造案例通过就声称 RAG 效果完成。
+- 下一步应冻结新的外部 holdout，而不是继续针对现有三个任务调参；只有新样本仍显示稳定的
+  语义排序缺口，才评估真正的 symbol-aware/embedding 索引。内部 5+2+2、dirty revision、
+  两个完整 checkout 和本轮 3 个外部案例都不能单独支持“RAG 效果完成”的结论。

@@ -46,8 +46,8 @@ MAX_LINE_CHARS = 24_000
 CHUNK_LINES = 40
 CHUNK_OVERLAP = 5
 MAX_SNIPPET_CHARS = 1_200
-MAX_PRIORITY_CANDIDATES = 256
-INDEX_ALGORITHM_VERSION = 6
+MAX_RANKING_CANDIDATES = 256
+INDEX_ALGORITHM_VERSION = 7
 TERM_PATTERN = re.compile(r"[^\W]+", re.UNICODE)
 IDENTIFIER_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 DEFINITION_PATTERN = re.compile(
@@ -145,6 +145,25 @@ def _file_chunks(content: str):
         if offset + len(selected) == len(lines):
             break
         offset += step
+
+
+def _diversify_paths(rows, max_chunks: int):
+    """Keep rank order while giving distinct files the first available slots."""
+    selected = []
+    deferred = []
+    seen_paths: set[str] = set()
+    for row in rows:
+        path = row["path"]
+        if path in seen_paths:
+            deferred.append(row)
+            continue
+        selected.append(row)
+        seen_paths.add(path)
+        if len(selected) == max_chunks:
+            return selected
+
+    selected.extend(deferred[: max_chunks - len(selected)])
+    return selected
 
 
 class SQLiteCodeRetriever:
@@ -354,7 +373,7 @@ class SQLiteCodeRetriever:
             for query_terms in (priority_terms, terms):
                 if not query_terms:
                     continue
-                candidate_limit = MAX_PRIORITY_CANDIDATES if priority_terms else max_chunks
+                candidate_limit = MAX_RANKING_CANDIDATES
                 rows = db.execute(
                     "SELECT path,start_line,end_line,content_hash,content,"
                     "bm25(code_chunks) AS score FROM code_chunks "
@@ -385,9 +404,7 @@ class SQLiteCodeRetriever:
                     if key not in seen:
                         seen.add(key)
                         results.append(row)
-                    if len(results) == max_chunks:
-                        return results
-        return results
+        return _diversify_paths(results, max_chunks)
 
     @staticmethod
     def _chunks_from_rows(rows) -> tuple[EvidenceChunk, ...]:
@@ -475,7 +492,7 @@ class SQLiteCodeRetriever:
             )
         )
         return (
-            self._chunks_from_rows(matches[:max_chunks]),
+            self._chunks_from_rows(_diversify_paths(matches, max_chunks)),
             indexed_files,
             skipped_files,
             tuple(dict.fromkeys(("fts5_unavailable", *reasons))),

@@ -1,0 +1,72 @@
+schema_version: 1
+benchmark_id: external-blind-localization-v1
+baseline_ref: baseline-v6.yaml
+evaluated_at: "2026-10-04"
+
+treatment:
+  description: Preserve lexical rank order while allocating available result slots to distinct paths before repeated chunks from one path.
+  index_algorithm_version: 7
+  gold_specific_rules_added: false
+  dependencies_added: false
+  model_called: false
+  repository_code_executed: false
+  evidence_status: adaptive_treatment_not_independent_holdout
+
+aggregate:
+  case_count: 3
+  hit_at_1: 0
+  hit_at_5: 3
+  expected_path_count: 4
+  relevant_path_count: 4
+  micro_path_recall_at_5: 1.0
+  mean_reciprocal_rank: 0.444444
+  degraded_count: 0
+
+deltas_from_v6:
+  hit_at_1: 0
+  hit_at_5: 0
+  relevant_path_count: 1
+  micro_path_recall_at_5: 0.25
+  mean_reciprocal_rank: 0.027777
+  duplicate_result_slots: -3
+
+cases:
+  - case_id: cookiecutter-2-multiple-hooks
+    expected_paths: [cookiecutter/hooks.py]
+    returned_paths:
+      - cookiecutter/exceptions.py
+      - cookiecutter/main.py
+      - cookiecutter/hooks.py
+      - cookiecutter/generate.py
+      - cookiecutter/environment.py
+    first_relevant_rank: 3
+    path_recall_at_5: 1.0
+    report_ref: 72345e338a397b6219ab7523adb786ba5fd080534fbfddd3e736624a47eced34
+
+  - case_id: httpie-2-max-redirects
+    expected_paths: [httpie/client.py, httpie/core.py]
+    returned_paths:
+      - httpie/cli.py
+      - httpie/core.py
+      - httpie/input.py
+      - httpie/client.py
+      - httpie/__init__.py
+    first_relevant_rank: 2
+    path_recall_at_5: 1.0
+    report_ref: 7c90e9a90611ce7332f612cbf9a9722cbbce5a2a5949c1017614cf0b22b28c21
+
+  - case_id: thefuck-1-pip-unknown-command
+    expected_paths: [thefuck/rules/pip_unknown_command.py]
+    returned_paths:
+      - thefuck/rules/pip_install.py
+      - thefuck/rules/pip_unknown_command.py
+      - thefuck/rules/cd_parent.py
+      - thefuck/rules/adb_unknown_command.py
+      - thefuck/rules/systemctl.py
+    first_relevant_rank: 2
+    path_recall_at_5: 1.0
+    report_ref: dd858f70c43e7100a4ca905a993ade654c722d70b3a86416f1264101da00b537
+
+residual_failure:
+  statement: All three target cases remain below rank 1, so the default one-chunk Agent path would still miss them.
+  next_evidence_required: Freeze a new external holdout before considering query reformulation, symbol indexing, embeddings, or a larger default retrieval pack.
