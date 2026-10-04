@@ -1,0 +1,45 @@
+schema_version: 1
+benchmark_id: external-holdout-localization-v2
+frozen_at: "2026-10-04"
+retrieval_code_commit: 5c6fe2d0c7fbe295fd5be866799d2eb4f99e4cc7
+
+protocol:
+  purpose: Test v7 path-diverse lexical retrieval on external projects not used by the v7 treatment.
+  query_source_rule: Use only a fixed-commit subject and the BugsInPy failing-test name available before patch reveal.
+  patch_reveal_status: sealed
+  model_called: false
+  repository_code_executed: false
+
+cases:
+  - case_id: luigi-1-metrics-handler
+    project: luigi
+    repository_url: https://github.com/spotify/luigi
+    buggy_commit: 1164eb6b85b8a70f596dbb99452bec513e72c12e
+    fixed_commit: aec5dc2ed8db53fc282a0bd24aabe59031b6d1ba
+    source_file_count: 167
+    benchmark_test: test/server_test.py::MetricsHandlerTest::test_get
+    query: metrics handler get calling method on wrong object
+    query_source_kind: fixed_commit_subject_and_benchmark_test
+    query_source_url: https://github.com/spotify/luigi/commit/aec5dc2ed8db53fc282a0bd24aabe59031b6d1ba
+
+  - case_id: sanic-1-blueprint-middleware-order
+    project: sanic
+    repository_url: https://github.com/sanic-org/sanic
+    buggy_commit: e7001b00747b659f7042b0534802b936ee8a53e0
+    fixed_commit: 44973125c15304b4262c51c78b5a86bd1daafa86
+    source_file_count: 27
+    benchmark_test: tests/test_blueprints.py::test_bp_middleware_order
+    query: blueprint named response middleware execution order
+    query_source_kind: fixed_commit_subject_and_benchmark_test
+    query_source_url: https://github.com/sanic-org/sanic/commit/44973125c15304b4262c51c78b5a86bd1daafa86
+
+  - case_id: tornado-1-websocket-nodelay
+    project: tornado
+    repository_url: https://github.com/tornadoweb/tornado
+    buggy_commit: 6a5a0bfa370b6c0d3dbbf9589a560a98202d2baa
+    fixed_commit: 4677c54cc18bbfbdf0f4dadf11610fab6203fd63
+    source_file_count: 97
+    benchmark_test: tornado.test.websocket_test.WebSocketTest.test_nodelay
+    query: websocket set nodelay is broken
+    query_source_kind: fixed_commit_subject_and_benchmark_test
+    query_source_url: https://github.com/tornadoweb/tornado/commit/4677c54cc18bbfbdf0f4dadf11610fab6203fd63
