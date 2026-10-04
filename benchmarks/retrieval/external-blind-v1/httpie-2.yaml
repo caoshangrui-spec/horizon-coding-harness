@@ -1,0 +1,15 @@
+schema_version: 1
+benchmark_id: httpie-2-blind-localization-v1
+allowed_paths:
+  - httpie/**
+denied_paths:
+  - .git/**
+  - .env
+  - .env.*
+cases:
+  - case_id: httpie-2-max-redirects
+    query: max redirects option is not enforced
+    expected_paths:
+      - httpie/client.py
+      - httpie/core.py
+    max_chunks: 5

@@ -1,0 +1,62 @@
+schema_version: 1
+benchmark_id: external-blind-localization-v1
+selection_commit: 74ddaaec2cd1ebdf79056777e5369102b59fa9c3
+retrieval_code_commit: 60dc5887adf8aad1b45462876e16415e38b32668
+evaluated_at: "2026-10-04"
+
+gold_reveal:
+  rule: Production paths changed between each frozen buggy and fixed commit.
+  command_output_kind: name_status_only
+  patch_content_read: false
+  model_called: false
+  repository_code_executed: false
+
+aggregate:
+  case_count: 3
+  hit_at_1: 0
+  hit_at_5: 3
+  expected_path_count: 4
+  relevant_path_count: 3
+  micro_path_recall_at_5: 0.75
+  mean_reciprocal_rank: 0.416667
+  degraded_count: 0
+
+cases:
+  - case_id: cookiecutter-2-multiple-hooks
+    source_head: d7e7b28811e474e14d1bed747115e47dcdd15ba3
+    expected_paths: [cookiecutter/hooks.py]
+    returned_paths:
+      - cookiecutter/exceptions.py
+      - cookiecutter/main.py
+      - cookiecutter/exceptions.py
+      - cookiecutter/hooks.py
+      - cookiecutter/generate.py
+    first_relevant_rank: 4
+    path_recall_at_5: 1.0
+    report_ref: bd4cb772bbc2ee09e125812c8618053e9657cef44a169720cc182bfa909eb24e
+
+  - case_id: httpie-2-max-redirects
+    source_head: 356e0436510fee70b4071fac58be81c0a0a7db59
+    expected_paths: [httpie/client.py, httpie/core.py]
+    returned_paths:
+      - httpie/cli.py
+      - httpie/core.py
+      - httpie/cli.py
+      - httpie/input.py
+      - httpie/input.py
+    first_relevant_rank: 2
+    path_recall_at_5: 0.5
+    report_ref: 5a5c23258adb84836f87d4395507b115788e203f1c953376ef5f76cc415c1ea5
+
+  - case_id: thefuck-1-pip-unknown-command
+    source_head: 2ced7a7f33ae0bec3ffc7a43ce95330bdf6cfcb9
+    expected_paths: [thefuck/rules/pip_unknown_command.py]
+    returned_paths:
+      - thefuck/rules/pip_install.py
+      - thefuck/rules/pip_unknown_command.py
+      - thefuck/rules/cd_parent.py
+      - thefuck/rules/adb_unknown_command.py
+      - thefuck/rules/systemctl.py
+    first_relevant_rank: 2
+    path_recall_at_5: 1.0
+    report_ref: d11ccfcf796852c3199dda52cc7d1d90ef1e6fd8e74de19c0577a1bf5ad8cc94

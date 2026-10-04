@@ -1,0 +1,14 @@
+schema_version: 1
+benchmark_id: thefuck-1-blind-localization-v1
+allowed_paths:
+  - thefuck/**
+denied_paths:
+  - .git/**
+  - .env
+  - .env.*
+cases:
+  - case_id: thefuck-1-pip-unknown-command
+    query: crash when trying to correct pip un+install thefuck unknown command
+    expected_paths:
+      - thefuck/rules/pip_unknown_command.py
+    max_chunks: 5

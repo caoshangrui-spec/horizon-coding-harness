@@ -1,0 +1,14 @@
+schema_version: 1
+benchmark_id: cookiecutter-2-blind-localization-v1
+allowed_paths:
+  - cookiecutter/**
+denied_paths:
+  - .git/**
+  - .env
+  - .env.*
+cases:
+  - case_id: cookiecutter-2-multiple-hooks
+    query: generated projects multiple hook types at the same time shell and python
+    expected_paths:
+      - cookiecutter/hooks.py
+    max_chunks: 5
