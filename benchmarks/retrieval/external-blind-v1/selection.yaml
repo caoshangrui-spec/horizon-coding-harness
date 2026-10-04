@@ -1,0 +1,40 @@
+schema_version: 1
+benchmark_id: external-blind-localization-v1
+frozen_at: "2026-10-04"
+
+protocol:
+  purpose: Evaluate code-path localization on external bugs that did not participate in retrieval-rule development.
+  query_source_rule: Use only an upstream issue title or fixed-commit subject available before patch reveal.
+  patch_reveal_status: sealed
+  model_called: false
+  repository_code_executed: false
+  exclusions:
+    - pysnooper-1 was inspected but excluded because its public issue body names the target file and line.
+
+cases:
+  - case_id: cookiecutter-2-multiple-hooks
+    project: cookiecutter
+    repository_url: https://github.com/cookiecutter/cookiecutter
+    buggy_commit: d7e7b28811e474e14d1bed747115e47dcdd15ba3
+    fixed_commit: 90434ff4ea4477941444f1e83313beb414838535
+    query: generated projects multiple hook types at the same time shell and python
+    query_source_kind: fixed_commit_subject
+    query_source_url: https://github.com/cookiecutter/cookiecutter/commit/90434ff4ea4477941444f1e83313beb414838535
+
+  - case_id: httpie-2-max-redirects
+    project: httpie
+    repository_url: https://github.com/httpie/cli
+    buggy_commit: 356e0436510fee70b4071fac58be81c0a0a7db59
+    fixed_commit: e18b609ef7d867d6efa0efe42c832be5e0d09338
+    query: max redirects option is not enforced
+    query_source_kind: fixed_commit_subject
+    query_source_url: https://github.com/httpie/cli/commit/e18b609ef7d867d6efa0efe42c832be5e0d09338
+
+  - case_id: thefuck-1-pip-unknown-command
+    project: thefuck
+    repository_url: https://github.com/nvbn/thefuck
+    buggy_commit: 2ced7a7f33ae0bec3ffc7a43ce95330bdf6cfcb9
+    fixed_commit: 444908ce1c17767ef4aaf9e0b4950497914f7f63
+    query: crash when trying to correct pip un+install thefuck unknown command
+    query_source_kind: upstream_issue_title
+    query_source_url: https://github.com/nvbn/thefuck/issues/1047
