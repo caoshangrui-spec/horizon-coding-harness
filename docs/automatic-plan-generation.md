@@ -91,12 +91,14 @@ Schema 要求 Plan version 1、1～8 个 WorkItem，以及每项的 ID、标题�
 4. 每项工具必须是 execution mode 的允许子集；
 5. Plan version 必须为 1，WorkItem 不超过 8 个；
 6. inventory 完整时，标题、目标和 expected artifacts 中出现的路径必须逐字存在于该清单；
+   唯一例外是同一 WorkItem 显式授权 `create_file`，且新路径仍落在 TaskSpec allow/deny 范围内；
 7. 计划事件必须引用已结算且 `purpose=planning` 的模型调用。
 
 第 6 项只在 `repository_paths_truncated=false` 时作否定判断：完整清单可以证明路径不存在；
-截断清单则不能。当前写工具只修改既有文件，因此这条准入没有收窄现有写入能力；项目目前
-本就不支持文件新增。非法路径响应仍只结算原规划调用并进入人工计划 fallback，不会
-自动重试模型。
+截断清单则不能。对于 `create_file`，缺失路径本身是预期状态，因此控制器改为同时要求该
+WorkItem 拥有创建权限，且路径通过 TaskSpec 范围检查；父目录存在、目标仍不存在和 UTF-8 字节
+上限在实际派发时再次检查。其他缺失或越权路径仍只结算原规划调用并进入人工计划 fallback，
+不会自动重试模型。
 
 这条规则只证明“路径存在”，不证明“实现位于该路径”。Planner prompt 仍要求：除非不可变任务
 明确写出路径，否则 Plan 应使用通用的 evidence-discovered artifact 描述。执行阶段必须以
@@ -104,9 +106,10 @@ revision-bound retrieval/read 回执为准，不能把 Plan 中的路径假设�
 真实模型负例证明了这个区别：`tqdm/contrib/itertools.py` 确实存在，但 `tenumerate` 实际位于
 `tqdm/contrib/__init__.py`；后续 `retrieve_code("tenumerate")` 正确返回了后者 rank 1。
 
-写任务可分配 `search_repo`、`read_file`、`retrieve_code`、`replace_text`、`apply_patch` 和
-`run_check`。只读/仅计划任务只允许前三个读取工具。`submit` 由执行循环统一提供，不需要写入
-WorkItem 权限；Shell、任意 diff、文件新增/删除和网络工具不会因模型提案而出现。
+写任务可分配 `search_repo`、`read_file`、`retrieve_code`、`replace_text`、`apply_patch`、
+`create_file` 和 `run_check`。只读/仅计划任务只允许前三个读取工具。`submit` 由执行循环统一
+提供，不需要写入 WorkItem 权限；Shell、任意 diff、多文件新增、删除/重命名和网络工具不会
+因模型提案而出现。
 
 ## 5. 预算与费用
 

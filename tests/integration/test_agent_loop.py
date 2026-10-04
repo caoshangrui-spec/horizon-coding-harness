@@ -37,7 +37,7 @@ from horizon.domain.plan import Plan, WorkItem
 from horizon.domain.run import projection_hash
 from horizon.domain.states import RunStatus
 from horizon.domain.task import TaskSpec
-from horizon.domain.tools import AcceptanceResult
+from horizon.domain.tools import AcceptanceResult, ToolCallReservation
 from horizon.tools.gateway import WorkspaceToolGateway
 
 
@@ -123,6 +123,22 @@ class MultiFileCheck:
         formatter = (workspace / "src/formatter.py").read_text(encoding="utf-8")
         passed = "return [] if value == '' else [value]" in parser and "str(value)" in formatter
         output = "2 files verified" if passed else "multi-file patch is incomplete"
+        return AcceptanceResult(
+            check_id=check.id,
+            passed=passed,
+            exit_code=0 if passed else 1,
+            timed_out=False,
+            output=output,
+            output_hash=hashlib.sha256(output.encode()).hexdigest(),
+        )
+
+
+class CreateFileCheck:
+    def execute(self, workspace, check):
+        target = workspace / "src/generated.py"
+        expected = "def generated():\n    return '你好'\n"
+        passed = target.is_file() and target.read_text(encoding="utf-8") == expected
+        output = "created file verified" if passed else "created file is absent or changed"
         return AcceptanceResult(
             check_id=check.id,
             passed=passed,
@@ -616,6 +632,79 @@ def test_agent_loop_edits_runs_protected_validation_and_succeeds(tmp_path, task_
         "Controller-owned mandatory facts" in (request.messages[0].content or "")
         for request in model.requests
     )
+
+
+def test_agent_loop_create_file_is_bound_to_intent_receipt_memory_and_trace(
+    tmp_path,
+    task_dict,
+):
+    content = "def generated():\n    return '你好'\n"
+    arguments = {"path": "src/generated.py", "content": content}
+    create_plan = Plan(
+        items=(
+            WorkItem(
+                work_item_id="create",
+                title="Create generated module",
+                objective="Add one bounded generated module",
+                expected_artifacts=("src/generated.py",),
+                acceptance_ids=("unit",),
+                allowed_tools=("create_file", "run_check"),
+            ),
+        )
+    )
+    runner, store, run_id, token, workspace, _ = setup_loop(
+        tmp_path,
+        task_dict,
+        [
+            ("create_file", arguments),
+            ("run_check", {"check_id": "unit"}),
+            ("submit", {"summary": "Created and verified the generated module."}),
+        ],
+        plan=create_plan,
+        checker=CreateFileCheck(),
+    )
+
+    result = runner.run(run_id, token)
+
+    assert result.status == RunStatus.SUCCEEDED
+    assert (workspace / "src/generated.py").read_bytes() == content.encode("utf-8")
+    create_record = result.tool_calls[0]
+    assert create_record.name == "create_file"
+    assert create_record.arguments_hash == digest(arguments)
+    assert create_record.workspace_revision_before != create_record.workspace_revision_after
+    assert create_record.workspace_manifest_ref is not None
+    manifest = runner.tools.verify_manifest(create_record.workspace_manifest_ref)
+    assert any(entry.path == "src/generated.py" for entry in manifest.files)
+
+    reservations = [
+        ToolCallReservation.model_validate(event.payload["reservation"])
+        for event in store.events(run_id)
+        if event.event_type == "TOOL_CALL_RESERVED"
+    ]
+    assert reservations[0].name == "create_file"
+    assert reservations[0].arguments_hash == digest(arguments)
+    assert reservations[0].workspace_manifest_ref is not None
+    first_response_ref = result.model_calls[0].response_artifact_ref
+    assert first_response_ref is not None
+    recorded = ModelResponse.model_validate_json(runner.session_store.read(first_response_ref))
+    assert recorded.message.tool_calls[0].function.arguments == arguments
+
+    second_model_reservation = next(
+        ModelCallReservation.model_validate(event.payload["reservation"])
+        for event in store.events(run_id)
+        if event.event_type == "MODEL_CALL_RESERVED"
+        and event.payload["reservation"]["call_id"] == result.model_calls[1].call_id
+    )
+    assert second_model_reservation.run_memory_ref is not None
+    memory = RunMemorySnapshot.model_validate_json(
+        runner.session_store.read(second_model_reservation.run_memory_ref)
+    )
+    assert memory.entries[-1].tool_name == "create_file"
+    assert memory.entries[-1].kind == "workspace_change"
+
+    trace = store.export_jsonl(run_id)
+    replayed = SQLiteEventStore.replay_jsonl(trace)
+    assert replayed.as_dict() == result.as_dict()
 
 
 def test_agent_response_artifact_failure_is_quarantined_without_replay(tmp_path, task_dict):

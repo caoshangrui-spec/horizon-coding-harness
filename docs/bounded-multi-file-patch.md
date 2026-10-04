@@ -98,7 +98,7 @@ expected effect 的 accept/rollback、部分 effect 拒绝、AgentSession 不重
 子进程在完整多文件 effect 后 `os._exit` 再由新 Worker 接纳。完整测试命令与最新总数见
 [开发进度](development-progress.md)。
 
-仍未覆盖：OS/文件系统提供的真正多文件原子提交、文件新增/删除/重命名、任意 diff、同文件
+仍未覆盖：OS/文件系统提供的真正多文件原子提交、多文件新增、删除/重命名、任意 diff、同文件
 多段编辑、冲突合并、恶意并发写入的生产级隔离，以及对真实 Issue 成功率的提升。source
 promotion 已可显式提升最多 8 个既有 UTF-8 文件，并能从每个目标仍处于 before/after 的部分
 effect 继续；它仍不创建 commit，也不会接纳出现第三种内容或额外漂移的源目录。

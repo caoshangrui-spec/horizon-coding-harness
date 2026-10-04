@@ -15,7 +15,14 @@ from horizon.domain.tools import ToolCallRecord
 NoProgressPattern = Literal["identical_action", "alternating_two_action_cycle"]
 
 NO_PROGRESS_GUARDED_TOOLS = frozenset(
-    {"search_repo", "read_file", "retrieve_code", "replace_text", "apply_patch"}
+    {
+        "search_repo",
+        "read_file",
+        "retrieve_code",
+        "replace_text",
+        "apply_patch",
+        "create_file",
+    }
 )
 ALTERNATING_SOFT_BLOCK_LENGTH = 5
 ALTERNATING_HARD_STOP_LENGTH = 6

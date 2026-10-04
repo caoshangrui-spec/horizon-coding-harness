@@ -30,7 +30,12 @@ class WriteModel:
         self.tool_name = tool_name
 
     def generate(self, request, trace_id):
-        if self.tool_name == "apply_patch":
+        if self.tool_name == "create_file":
+            arguments = {
+                "path": "src/generated.py",
+                "content": "def generated():\n    return '你好'\n",
+            }
+        elif self.tool_name == "apply_patch":
             arguments = {
                 "edits": [
                     {

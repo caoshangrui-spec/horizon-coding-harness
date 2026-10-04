@@ -67,6 +67,7 @@ def make_gateway(tmp_path: Path, task, *, checks=None):
             "read_file",
             "replace_text",
             "apply_patch",
+            "create_file",
             "run_check",
         ),
     )
@@ -237,6 +238,117 @@ def test_apply_patch_validation_failure_has_no_effect(tmp_path, task):
 
     assert (workspace / "src/parser.py").read_bytes() == parser_before
     assert (workspace / "src/formatter.py").read_bytes() == formatter_before
+
+
+def test_create_file_writes_exact_utf8_content_and_snapshots_it(tmp_path, task):
+    gateway, workspace, _ = make_gateway(tmp_path, task)
+    content = "def greet():\n    return '你好'\n"
+
+    outcome = gateway.dispatch(
+        "create_file",
+        {"path": "src/greeting.py", "content": content},
+    )
+
+    encoded = content.encode("utf-8")
+    assert (workspace / "src/greeting.py").read_bytes() == encoded
+    assert outcome.status == "success"
+    assert outcome.workspace_revision_before != outcome.workspace_revision_after
+    assert outcome.workspace_manifest_ref is not None
+    manifest = gateway.verify_manifest(outcome.workspace_manifest_ref)
+    created = next(entry for entry in manifest.files if entry.path == "src/greeting.py")
+    assert created.size_bytes == len(encoded)
+    assert created.sha256 in outcome.content
+    assert f"{len(encoded)} UTF-8 bytes" in outcome.content
+
+
+def test_create_file_rejects_existing_denied_missing_parent_and_oversized_content(
+    tmp_path,
+    task,
+):
+    gateway, workspace, _ = make_gateway(tmp_path, task)
+    original = (workspace / "src/parser.py").read_bytes()
+
+    existing = gateway.dispatch_safe(
+        "create_file",
+        {"path": "src/parser.py", "content": "overwritten"},
+    )
+    denied = gateway.dispatch_safe(
+        "create_file",
+        {"path": ".env", "content": "replacement secret"},
+    )
+    missing_parent = gateway.dispatch_safe(
+        "create_file",
+        {"path": "src/generated/module.py", "content": "value = 1\n"},
+    )
+    oversized = gateway.dispatch_safe(
+        "create_file",
+        {"path": "src/oversized.py", "content": "界" * 21_846},
+    )
+    non_portable = gateway.dispatch_safe(
+        "create_file",
+        {"path": "src/CON.py", "content": "value = 1\n"},
+    )
+
+    assert existing.status == "error"
+    assert "must not already exist" in existing.content
+    assert denied.status == "error"
+    assert "authority scope" in denied.content
+    assert missing_parent.status == "error"
+    assert "parent must be an existing" in missing_parent.content
+    assert oversized.status == "error"
+    assert "UTF-8 byte limit" in oversized.content
+    assert non_portable.status == "error"
+    assert "not portable to Windows" in non_portable.content
+    assert (workspace / "src/parser.py").read_bytes() == original
+    assert not (workspace / "src/generated").exists()
+    assert not (workspace / "src/oversized.py").exists()
+    assert "con.py" not in {child.name.casefold() for child in (workspace / "src").iterdir()}
+
+
+def test_create_file_rolls_back_an_ordinary_post_write_failure(tmp_path, task, monkeypatch):
+    gateway, workspace, _ = make_gateway(tmp_path, task)
+    snapshot = gateway._snapshot
+    calls = 0
+
+    def fail_second_snapshot():
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("simulated post-write snapshot failure")
+        return snapshot()
+
+    monkeypatch.setattr(gateway, "_snapshot", fail_second_snapshot)
+
+    with pytest.raises(RuntimeError, match="post-write snapshot"):
+        gateway.dispatch(
+            "create_file",
+            {"path": "src/transient.py", "content": "value = 1\n"},
+        )
+
+    assert not (workspace / "src/transient.py").exists()
+
+
+def test_create_file_schema_is_exposed_only_when_work_item_allows_it(tmp_path, task):
+    gateway, _, _ = make_gateway(tmp_path, task)
+    assert "create_file" in {definition.name for definition in gateway.definitions}
+
+    gateway.activate_work_item(
+        WorkItem(
+            work_item_id="read",
+            title="Inspect parser",
+            objective="Read without changing files",
+            expected_artifacts=("observation",),
+            acceptance_ids=("unit",),
+            allowed_tools=("read_file",),
+        )
+    )
+
+    assert "create_file" not in {definition.name for definition in gateway.definitions}
+    with pytest.raises(PolicyDenied, match="not allowed"):
+        gateway.dispatch(
+            "create_file",
+            {"path": "src/not-created.py", "content": "value = 1\n"},
+        )
 
 
 def test_apply_patch_runtime_failure_rolls_back_written_files(tmp_path, task, monkeypatch):

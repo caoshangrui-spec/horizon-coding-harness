@@ -13,6 +13,7 @@ fallback、语义级停滞判断或自动 replan。
 - `retrieve_code`
 - `replace_text`
 - `apply_patch`
+- `create_file`
 
 一个精确动作签名是：
 

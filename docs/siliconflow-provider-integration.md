@@ -220,6 +220,8 @@ Horizon 的可配置请求策略，不冒充模型官方窗口或 tokenizer 精�
   revision 未漂移后才允许 `discard_check`；原检查输出不进入会话，不推断 pass/fail，也不重放；
 - 单一 `replace_text` 或最多 8 个不同既有文件的结构化 `apply_patch`，可在 live workspace 精确
   等于派发前 manifest 或唯一预期后态时显式 accept/rollback；部分写入或额外 drift 拒绝；
+- 单一 `create_file` 可在允许路径和已存在父目录中排他创建最多 64 KiB 的 UTF-8 文件；成功
+  receipt 绑定 content 参数 hash、前后 revision 和 manifest，硬退出后保持 unknown 且不重放；
 - 成功候选的只读 diff 和最多 8 个既有文件的显式 promotion 绑定源/候选 revision 与可选 Git
   HEAD；完整 effect 后、receipt 前可只补 receipt，部分 effect 可在每个目标仍为 before/after
   时继续；
@@ -227,7 +229,7 @@ Horizon 的可配置请求策略，不冒充模型官方窗口或 tokenizer 精�
   压缩 pending response 能跨 Worker 恢复而不重复计费；
 - MandatoryFactLedger 和证据驱动的 Run Memory 均按内容寻址绑定到每次模型请求；Memory 只从
   工具事件/输出派生，区分 active/stale/unresolved，并按原事件边界恢复；
-- 同一 revision 下，相同精确 read/search/retrieve/replace/patch 的第 3 次或精确 A/B 循环的
+- 同一 revision 下，相同精确 read/search/retrieve/replace/patch/create 的第 3 次或精确 A/B 循环的
   第 5 步会被 NoProgressPolicy 拒绝实际执行；若模型收到反馈后仍延续模式，则进入有证据的
   可恢复人工等待；该策略尚无真实模型误拦截/收益证据；
 - `retrieve_code` 从当前 immutable manifest 生成 path/range/hash 证据，每个 FTS 命中回查源
@@ -238,11 +240,13 @@ Horizon 的可配置请求策略，不冒充模型官方窗口或 tokenizer 精�
 尚未实现或尚未验证：
 
 - 任意崩溃点的可继续恢复；`run_check` 已覆盖真实 running 窗口，仍缺容器创建前、命令退出后
-  清理前以及 missing attempt 启动证明；另缺新增/删除/重命名或任意 diff 的写工具副作用处置；
+  清理前以及 missing attempt 启动证明；`create_file` 的未知效果也尚无 accept/rollback，另缺
+  多文件新增、删除/重命名或任意 diff 的写工具副作用处置；
 - retry/backoff、Circuit Breaker、迟到回执主动对账；
 - 生产级消息/Trace 脱敏，以及完整多调用崩溃/取消配对矩阵；
 - 自然语言 TaskSpec intake、自动触发/多次执行期 replan、并行 WorkItem、任意 diff/edit、
-  新增/删除/重命名 promotion 和自动 commit；当前 one-shot 自动计划、顺序 WorkItem DAG 与
+  新增/删除/重命名 promotion 和自动 commit；当前单文件创建不会由 promotion 提升到源目录，
+  one-shot 自动计划、顺序 WorkItem DAG 与
   一次显式受限 revision 仅由 Scripted Model 离线 E2E 验证；
 - tokenizer-aware/语义 Context、跨 Run Project Memory、symbol/vector RAG、通用 HITL 与
   预授权 fallback；当前已实现 MandatoryFactLedger、run-scope 证据投影和 revision-aware

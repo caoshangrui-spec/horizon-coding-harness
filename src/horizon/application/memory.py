@@ -17,6 +17,7 @@ SUPPORTED_MEMORY_TOOLS = frozenset(
         "retrieve_code",
         "replace_text",
         "apply_patch",
+        "create_file",
         "run_check",
     }
 )
@@ -24,7 +25,7 @@ MAX_MEMORY_EVIDENCE_BYTES = 512 * 1024
 
 
 def _kind(tool_name: str) -> str:
-    if tool_name in {"replace_text", "apply_patch"}:
+    if tool_name in {"replace_text", "apply_patch", "create_file"}:
         return "workspace_change"
     if tool_name == "run_check":
         return "validation"

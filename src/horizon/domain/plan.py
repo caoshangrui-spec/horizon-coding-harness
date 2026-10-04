@@ -17,6 +17,7 @@ WORKSPACE_WRITE_PLAN_TOOLS = (
     "retrieve_code",
     "replace_text",
     "apply_patch",
+    "create_file",
     "run_check",
 )
 Sha256 = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]

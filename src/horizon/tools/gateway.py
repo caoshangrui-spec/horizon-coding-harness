@@ -24,6 +24,7 @@ from horizon.domain.tools import (
 )
 
 MAX_FILE_BYTES = 256 * 1024
+MAX_CREATE_FILE_BYTES = 64 * 1024
 MAX_READ_OUTPUT_CHARS = 32 * 1024
 MAX_READ_LINES = 400
 MAX_SEARCH_BYTES = 2 * 1024 * 1024
@@ -89,6 +90,11 @@ class ApplyPatchArgs(Contract):
         if len(paths) != len(set(paths)):
             raise ValueError("Patch edits must target distinct files")
         return self
+
+
+class CreateFileArgs(Contract):
+    path: str
+    content: str = Field(max_length=MAX_CREATE_FILE_BYTES)
 
 
 class RunCheckArgs(Contract):
@@ -217,6 +223,25 @@ def tool_definitions() -> tuple[ToolDefinition, ...]:
             },
         ),
         ToolDefinition(
+            name="create_file",
+            description=(
+                "Create exactly one new allowed UTF-8 file of at most 64 KiB. The parent "
+                "directory must already exist, and an existing target is never overwritten."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "content": {
+                        "type": "string",
+                        "maxLength": MAX_CREATE_FILE_BYTES,
+                    },
+                },
+                "required": ["path", "content"],
+                "additionalProperties": False,
+            },
+        ),
+        ToolDefinition(
             name="run_check",
             description="Run one controller-defined acceptance check by ID.",
             parameters={
@@ -301,6 +326,29 @@ class WorkspaceToolGateway:
         if not resolved.is_relative_to(self.workspace) or not resolved.is_file():
             raise PolicyDenied("Tool path must resolve to an existing workspace file")
         return resolved
+
+    def _new_file_path(self, value: str) -> Path:
+        relative_pattern(value)
+        FileEntry(path=value, sha256="0" * 64, size_bytes=0)
+        if not self._permitted(value):
+            raise PolicyDenied("Path is outside the TaskSpec authority scope")
+        target = self.workspace.joinpath(*value.split("/"))
+        reject_link(target)
+        if target.exists():
+            raise PolicyDenied("create_file target must not already exist")
+        for part in (target.parent.absolute(), *target.parent.absolute().parents):
+            reject_link(part)
+            if part == self.workspace:
+                break
+        try:
+            parent = target.parent.resolve(strict=True)
+        except OSError as exc:
+            raise PolicyDenied(
+                "create_file parent must be an existing workspace directory"
+            ) from exc
+        if not parent.is_relative_to(self.workspace) or not parent.is_dir():
+            raise PolicyDenied("create_file parent must be an existing workspace directory")
+        return parent / target.name
 
     def _snapshot(self) -> tuple[str, str]:
         snapshot, manifest = self.snapshots.capture(
@@ -507,6 +555,45 @@ class WorkspaceToolGateway:
         return self._outcome(
             "success",
             f"Applied {len(args.edits)} exact edit(s) across {len(targets)} file(s).",
+            before,
+            after,
+            manifest,
+        )
+
+    def _create_file(self, arguments: dict) -> ToolOutcome:
+        if self.task.execution_mode != "workspace_write":
+            raise PolicyDenied("Task execution mode does not permit writes")
+        args = CreateFileArgs.model_validate(arguments)
+        encoded = args.content.encode("utf-8")
+        if len(encoded) > MAX_CREATE_FILE_BYTES:
+            raise PolicyDenied("New file exceeds the 64 KiB UTF-8 byte limit")
+        target = self._new_file_path(args.path)
+        before, _ = self._snapshot()
+        created_identity: tuple[int, int] | None = None
+        try:
+            try:
+                with target.open("xb") as stream:
+                    stat = os.fstat(stream.fileno())
+                    created_identity = (stat.st_dev, stat.st_ino)
+                    stream.write(encoded)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            except FileExistsError as exc:
+                raise PolicyDenied("create_file target must not already exist") from exc
+            after, manifest = self._snapshot()
+        except BaseException:
+            if created_identity is not None:
+                try:
+                    stat = target.stat(follow_symlinks=False)
+                    if (stat.st_dev, stat.st_ino) == created_identity:
+                        target.unlink()
+                except FileNotFoundError:
+                    pass
+            raise
+        content_hash = hashlib.sha256(encoded).hexdigest()
+        return self._outcome(
+            "success",
+            (f"Created {args.path} ({len(encoded)} UTF-8 bytes, sha256={content_hash})."),
             before,
             after,
             manifest,
@@ -854,6 +941,7 @@ class WorkspaceToolGateway:
             "retrieve_code": self._retrieve,
             "replace_text": self._replace,
             "apply_patch": self._apply_patch,
+            "create_file": self._create_file,
             "submit": self._submit,
         }
         if name == "run_check":

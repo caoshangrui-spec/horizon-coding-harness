@@ -125,7 +125,9 @@ Provider 派发前和 response receipt 后的两个双库提交窗口，并输�
 同一响应生成新 call。单个 `replace_text` 或结构化 `apply_patch` 的参数、派发前 manifest 和
 当前 workspace 可共同推导 `pre_effect / expected_effect / diverged`；只有前两种能由可信 CLI
 显式 accept/rollback，部分写入和外部漂移继续阻塞。`apply_patch` 限制为最多 8 个不同既有
-文件，全部 edit 在第一处写入前完成精确前像校验。其他悬空事件、reservation 或 staging 漂移
+文件，全部 edit 在第一处写入前完成精确前像校验。`create_file` 只创建一个允许路径内、最多
+64 KiB 的 UTF-8 文件，不覆盖既有目标；它在硬退出后仍保守保持 unknown，当前没有自动或显式
+accept/rollback。其他悬空事件、reservation 或 staging 漂移
 均在调用模型前拒绝。
 若崩溃发生在 Provider 已返回、但 response Artifact/Run receipt 尚未提交的窗口，真实子进程
 故障测试证明重启后会把 Run/Campaign 标为 `unknown`、保留 client Trace ID、成功重放 Trace，
@@ -141,6 +143,7 @@ Provider 派发前和 response receipt 后的两个双库提交窗口，并输�
 | `retrieve_code` | 查询、最多 8 个 chunk | manifest + path scope 绑定的 FTS5/BM25 EvidencePack；命中回查 Artifact，empty/degraded 分离 |
 | `replace_text` | path、old、new、期望出现次数 | 仅已存在 UTF-8 文件；精确计数；字节级临时文件 + 原子替换；失败回滚 |
 | `apply_patch` | 1～8 个不同 path 的精确 old/new edit | 全批预校验后才写；每文件原子替换；普通异常回滚，硬退出部分态保持 unknown |
+| `create_file` | path、完整 UTF-8 content | 仅一个允许路径；最多 64 KiB UTF-8 bytes；父目录须已存在；目标存在即拒绝；普通异常清理本次创建，硬退出保持 unknown |
 | `run_check` | check ID | 实际 command、timeout 来自不可变 TaskSpec，不接受模型命令 |
 | `submit` | 简短摘要 | 只请求最终验证，不能直接把 Run 标记成功 |
 
@@ -157,13 +160,16 @@ Provider 派发前和 response receipt 后的两个双库提交窗口，并输�
 `TOOL_CALL_UNKNOWN`。`search_repo`/`read_file`/`retrieve_code` 可保守取消后重试；
 `replace_text` / `apply_patch` 可在完整 manifest 和 live workspace 唯一证明前态或精确后态时
 显式接纳/回滚，并把 observation 追加到下一 Agent session。多文件工具只写完一部分时属于
-`diverged`，仍保持 unknown。`run_check` 绝不自动重派。Docker 检查把已持久化 tool call ID
+`diverged`，仍保持 unknown。`create_file` 的 content 通过模型响应 Artifact 与 intent 参数 hash
+绑定，成功 receipt 再绑定输出 Artifact、前后 revision 和 post-effect manifest；硬退出留下的
+创建结果不会重放，也尚不能用 `resolve-tool` 接纳或回滚。`run_check` 绝不自动重派。Docker 检查把已持久化 tool call ID
 确定性映射为容器名，并写入 owner/attempt/image 三个标签；恢复端可用同一镜像精确查询。
 已停止 attempt 可由控制器验证并删除；运行中 attempt 只有显式 `--stop-check-sandbox` 才会被
 终止。missing 不能证明“从未运行/已经停止”，因此仍要求操作者确认。只有停止证据成立且 live
 workspace 与派发前 revision 完全一致，才可写入 `cancelled/discard_check`；下一会话只看到
 “未推断 pass/fail”的处置证据。其他无法唯一证明的副作用继续阻塞。详见
 [有界多文件精确 Patch](bounded-multi-file-patch.md)。
+单文件创建的规划、字节限制和故障语义见[受限单文件创建](bounded-create-file.md)。
 
 ### 5.1 上下文投影边界
 
@@ -332,7 +338,7 @@ Trace 文件拒绝覆盖已有文件。重放不会调用模型、工具或 Dock
 
 2026-10-04 当前环境：
 
-- 离线全量回归：307 passed、6 skipped；
+- 离线全量回归：317 passed、6 skipped；
 - 随后指定本机已有 `redis:7-alpine` 单独复跑跳过项：6 passed，均为真实 Docker 合同；
 - Fake Model E2E：精确编辑后成功，以及首次验收失败后一次 repair 成功；
 - 自动计划 Fake E2E：Plan provenance/预算、越权拒绝且不重试、Plan 事件前崩溃复用响应，
@@ -341,7 +347,7 @@ Trace 文件拒绝覆盖已有文件。重放不会调用模型、工具或 Dock
   前项 required check 时必须 repair；
 - 执行期 replan Fake E2E：NoProgress 证据后成功修订、完成项不可变、非法提案回退、单次上限、
   新 session/工具记账原子发布，以及 JSONL Trace 等价重放；
-- 子进程硬退出覆盖双账本提交窗口、response Artifact 续跑、单/多文件精确写副作用，以及完整
+- 子进程硬退出覆盖双账本提交窗口、response Artifact 续跑、单/多文件精确写和单文件创建副作用，以及完整
   和部分 promotion effect 窗口；
 - 确定性上下文测试覆盖预算内恒等、旧完整单元折叠、孤立工具拒绝、近期溢出拒绝、完整
   transcript 保留，以及压缩后的 pending response 跨 Worker 恢复不重复计费；

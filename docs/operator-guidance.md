@@ -17,7 +17,7 @@ NoProgressPolicy 证明 Agent 在同一 workspace revision 上持续重复完全
 
 精确动作由 `tool_name + arguments_hash` 定义；窗口内所有 receipt 都必须具有相同且不变的
 workspace revision。当前仅覆盖 `search_repo`、`read_file`、`retrieve_code`、`replace_text` 和
-`apply_patch`。成功修改 workspace、改变动作、Plan/WorkItem 切换或已消费的人工指导会切断
+`apply_patch`、`create_file`。成功修改 workspace、改变动作、Plan/WorkItem 切换或已消费的人工指导会切断
 窗口。
 
 Harness 总是先记录拒绝 observation 并保存完整 AgentSession，再创建请求。请求创建与 Trace

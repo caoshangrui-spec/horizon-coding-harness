@@ -217,7 +217,10 @@ def build_plan_request(
                     "Unless the immutable task explicitly names a path, do not guess an exact "
                     "implementation path in objectives or expected_artifacts; inventory "
                     "membership alone is not evidence. Describe the evidence-discovered source "
-                    "change instead. The current write tools only modify existing files."
+                    "change instead. Existing-file writes remain exact and bounded. The "
+                    "create_file tool may create one new file inside the supplied "
+                    "path scope, but only in an already-existing parent directory; use it only "
+                    "when the immutable task actually requires a new path."
                 ),
             ),
             ModelMessage(
@@ -342,13 +345,33 @@ class PlanGenerator:
                 raise ValueError("Generated Plan requested a tool outside controller policy")
             if not context.repository_paths_truncated:
                 repository_paths = set(context.repository_paths)
-                mentioned_paths = {
-                    match.group(1)
-                    for item in plan.items
-                    for value in (item.title, item.objective, *item.expected_artifacts)
-                    for match in REPOSITORY_PATH_MENTION.finditer(value)
-                }
-                missing_paths = sorted(mentioned_paths - repository_paths)
+                missing_paths: set[str] = set()
+                for item in plan.items:
+                    for value in (item.title, item.objective, *item.expected_artifacts):
+                        for match in REPOSITORY_PATH_MENTION.finditer(value):
+                            path = match.group(1)
+                            if path in repository_paths:
+                                continue
+                            try:
+                                relative_pattern(path)
+                                valid_relative_path = True
+                            except ValueError:
+                                valid_relative_path = False
+                            allowed_create = (
+                                valid_relative_path
+                                and "create_file" in item.allowed_tools
+                                and any(
+                                    fnmatch.fnmatchcase(path, pattern)
+                                    for pattern in task.constraints.allowed_paths
+                                )
+                                and not any(
+                                    fnmatch.fnmatchcase(path, pattern)
+                                    for pattern in task.constraints.denied_paths
+                                )
+                            )
+                            if not allowed_create:
+                                missing_paths.add(path)
+                missing_paths = sorted(missing_paths)
                 if missing_paths:
                     raise ValueError(
                         "Generated Plan names path(s) absent from the complete repository "

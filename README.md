@@ -67,7 +67,7 @@ workspace revision 绑定并从 Trace 复算。模型动作由冻结脚本提供
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | Python 3.12/3.13 的测试、静态检查、演示和构建已通过 | CI 不读取 API Key、不运行付费模型 |
-| 离线回归 | `307 passed, 6 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `317 passed, 6 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | Docker 契约 | `redis:7-alpine` 上单独复跑 `6 passed` | 有限隔离合同，不是恶意代码安全认证 |
 | 完整 checkout A/B | tqdm 82 files、youtube-dl 872 files；初始失败门、恢复、replan、最终验收和 Trace replay 通过 | 使用 Scripted Model，不是模型能力成绩 |
 | 真实模型 Pilot | 六轮均可重放、费用可核对、source 未变 | 六轮均未编辑或验证成功，保留为负结果 |
@@ -138,6 +138,9 @@ degraded；未提供模块语境时不会假装已经解决同名符号歧义。
 无法证明是否执行过的模型/工具调用仍保守标为 `unknown`；当前可显式处理单个只读调用，或
 在工作区精确等于预期前态/后态时接纳、回滚一个 `replace_text` 或 `apply_patch`。后者一次
 预校验并修改最多 8 个不同的既有 UTF-8 文件；部分写入保持 unknown，不会被误判为成功。
+Agent 也可用 `create_file` 在允许路径内创建一个最多 64 KiB 的 UTF-8 文件；父目录必须已存在，
+目标存在时拒绝覆盖。创建后的普通异常会删除本次新文件，而进程在副作用后、receipt 前硬退出
+时保留文件并把调用标为 `unknown`，不会自动重放或伪装为已结算成功。
 每个 Docker `run_check` 现用已持久化 tool call ID 派生唯一容器名和 owner/attempt/image 标签。
 悬空检查可用原镜像精确查询；已停止容器由控制器验证并删除，仍在运行时只有显式
 `--stop-check-sandbox` 才会终止。查不到标签容器不算停止证明，仍需操作者确认。处置只丢弃
@@ -287,9 +290,10 @@ uv run --locked --cache-dir .uv-cache horizon agent promote `
 accept/rollback；部分写入或外部漂移继续阻塞。`run_check` 初始也返回
 `manual_reconciliation`；其中单一调用可经上述显式确认取消未知结果并恢复到下一轮，
 但绝不自动重试或把它记为验证事实。Agent 入口支持有界的顺序多 WorkItem DAG、一次性自动计划、一次
-执行期受限 Plan revision、精确字符串替换、受控多文件 patch 和控制器定义的检查；它不支持
+执行期受限 Plan revision、精确字符串替换、受控多文件 patch、单个受限新文件和控制器定义的检查；它不支持
 自动触发或多次 replan，也不并行执行，
-也不支持任意 diff、文件新增/删除或模糊 patch。自动计划的 context、预算、拒绝和恢复合同见
+也不支持任意 diff、多文件新增、删除/重命名或模糊 patch。`create_file` 的精确边界见
+[受限单文件创建](docs/bounded-create-file.md)。自动计划的 context、预算、拒绝和恢复合同见
 [一次性自动计划生成](docs/automatic-plan-generation.md)。完整 Provider 数据流、
 预算公式、真实联调证据和剩余边界见
 [SiliconFlow Provider 接入](docs/siliconflow-provider-integration.md)。
@@ -307,7 +311,7 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **307 passed，6 skipped**；6 个跳过项指定本机已有
+当前离线全量回归为 **317 passed，6 skipped**；6 个跳过项指定本机已有
 `redis:7-alpine` 单独复跑，得到 **6 passed** 的真实 Docker 契约结果。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实
 Issue 效果。新增真实模型 Pilot 单元测试覆盖私有答案拒绝、初始失败证据、内容寻址报告和

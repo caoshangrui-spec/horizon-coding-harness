@@ -16,7 +16,7 @@
 |---|---|---|
 | TaskSpec、权限模式、严格预算字段、不可变合同 | [task.py](../src/horizon/domain/task.py) | Schema/授权上限/序列化；未验证真实仓库来源 |
 | 工作项 DAG、required 验收覆盖、候选调度 | [plan.py](../src/horizon/domain/plan.py) | 人工、one-shot 模型计划和单次执行期 revision 都经过领域层验收/工具权限复核；新计划还要求每个 acceptance ID 只有一个 owning WorkItem，历史 Trace 投影保留旧合同兼容；无自动触发或多次 replan |
-| 一次性自动计划与恢复 | [planning.py](../src/horizon/application/planning.py)、[planning.py](../src/horizon/domain/planning.py) | 内容寻址 PlanningContext、1～8 项 DAG、权限/验收唯一归属校验、费用记账、settled response 复用；完整 inventory 下还拒绝模型猜测的不存在路径，截断 inventory 保持未知；仍无计划成功率评测 |
+| 一次性自动计划与恢复 | [planning.py](../src/horizon/application/planning.py)、[planning.py](../src/horizon/domain/planning.py) | 内容寻址 PlanningContext、1～8 项 DAG、权限/验收唯一归属校验、费用记账、settled response 复用；完整 inventory 下拒绝模型猜测的不存在路径，只对同项已授权 `create_file` 且仍在 TaskSpec 范围内的新路径放行，截断 inventory 保持未知；仍无计划成功率评测 |
 | 计划阶段持久人工 fallback | [human.py](../src/horizon/domain/human.py)、[services.py](../src/horizon/application/services.py) | 非法模型 Plan 绑定原 response/Task/version 后进入 WAITING 并释放 Lease；本机人工计划原子记录决定并回到 READY；仅此窄场景，不是通用 HITL |
 | NoProgress 人工指导恢复 | [human.py](../src/horizon/application/human.py)、[human.py](../src/horizon/domain/human.py) | 相同行为第 4 次或精确 A/B 循环第 6 步，将 pattern、工具证据、Task/Plan/WorkItem/workspace/session 绑定后进入 WAITING；本机指导写入新 session，新 Worker 续跑；不是通用审批或自动 replan |
 | Run 状态投影、终态和成功前置检查 | [run.py](../src/horizon/domain/run.py) | 状态规则；顺序 WorkItem DAG、单次 vN→vN+1 revision 和最终 required checks 全量回归已接入；无并行或多次 replan |
@@ -25,7 +25,7 @@
 | 不可变内容寻址文件产物与新目录恢复 | [artifacts.py](../src/horizon/adapters/persistence/artifacts.py)、[snapshot.py](../src/horizon/adapters/workspace/snapshot.py) | 文本/二进制文件；同进程已完整验证且元数据未变化的 CAS 去重命中不重复读 blob，变化或重启后重新验 hash；不恢复 Git 对象、进程或网络状态 |
 | 检查点产物引用与事件原子提交 | [checkpoints.py](../src/horizon/application/checkpoints.py) | 产物校验、游标 CAS、拒绝未结算动作；调度静止由未来 supervisor 保证 |
 | 临时副本 Docker 执行与受保护验收 | [docker.py](../src/horizon/adapters/sandbox/docker.py)、[validation.py](../src/horizon/adapters/sandbox/validation.py) | 非 root、禁网、只读根、超时、输出有界；模型只能选择控制器冻结的 check ID |
-| Typed Tool Gateway | [gateway.py](../src/horizon/tools/gateway.py) | 搜索、读取、单文件精确替换、最多 8 文件的结构化精确 patch、受保护检查和 submit；路径/链接/大小受限，每次 intent/receipt 持久化；exact search 饱和时显式标记截断并引导 ranked retrieval；`retrieve_code` 默认只返回 rank 1，需要时才显式扩大；大文件整读拒绝并要求最多 400 行、32 Ki 字符的范围读取 |
+| Typed Tool Gateway | [gateway.py](../src/horizon/tools/gateway.py) | 搜索、读取、单文件精确替换、最多 8 文件的结构化精确 patch、单个最多 64 KiB 的 UTF-8 新文件、受保护检查和 submit；路径/链接/大小受限，每次 intent/receipt 持久化；existing target 不覆盖、父目录不自动创建；exact search 饱和时显式标记截断并引导 ranked retrieval；`retrieve_code` 默认只返回 rank 1，需要时才显式扩大；大文件整读拒绝并要求最多 400 行、32 Ki 字符的范围读取 |
 | 顺序多 WorkItem Agent Loop | [agent_loop.py](../src/horizon/application/agent_loop.py) | dependency-ready 调度、逐项会话/权限/验收、原子交接、最终全量回归、有限 repair 与单次受限 replan；不支持并行或自动/多次 replan |
 | 执行证据驱动的受限 Replan | [plan.py](../src/horizon/domain/plan.py)、[services.py](../src/horizon/application/services.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 模型显式 `revise_plan`，最多 1 次成功；完成项逐字段不可变，工具 receipt、Plan vN+1、新 session 同事务；NoProgress 后成功、跨项保留、非法提案回退和 Trace 重放已测；未做真实模型效果评测 |
 | 确定性 ContextProjection + MandatoryFactLedger | [context.py](../src/horizon/application/context.py)、[context.py](../src/horizon/domain/context.py) | 完整 transcript 留存；候选投影同时满足字符上限与覆盖工具 Schema 的完整请求保守 token 上界，近期完整单元在任一硬上限需要时只折叠最少数量，incomplete 单元绝不折叠；新 Projection/Reservation 使用 Adapter 实际 OpenAI-compatible body 字节，绑定版本化 estimator、payload hash/字段分量、上界与配置 cap，并按 estimator ID 恢复 v1；Task/Plan/权限/验收/预算/策略/工具 Schema/workspace 另做内容寻址绑定；不是精确 tokenizer、语义压缩或 Project Memory |
@@ -38,7 +38,7 @@
 | 真实模型 Pilot | [pilot.py](../src/horizon/domain/pilot.py)、[pilot.py](../src/horizon/application/pilot.py)、[real-model-pilot.md](real-model-pilot.md) | 离线预检绑定完整干净 checkout、初始失败、source snapshot、Docker image、Provider policy、Harness 源码指纹、费用 cap 和首次规划保守预留。六个付费 Run 均无编辑/验证、Trace 可重放且 source 未变；第六轮的 Plan 错把已有 `itertools.py` 当实现位置，但 execution 先检索并把真实 `__init__.py` 排为 rank 1，下一模型请求再因 Campaign 预留不足停止。当前累计 `CNY 0.1954812`；没有自动复跑或真实 Issue 成功 |
 | 模型预留压力诊断 | [reservation_analysis.py](../src/horizon/application/reservation_analysis.py)、[reservation-diagnostics.md](reservation-diagnostics.md) | `trace reservation-report` 在 replay/hash-chain 校验后关联 reservation、settlement 和新 BudgetStop 请求尺寸；六轮 20 次调用的聚合预留/结算比为 6.861621。候选 `request_bytes + 1024` 仅可回放 3 次，0 次观测低估、中位比 4.137869；生产 estimator、费用门禁和付费预算均未改变 |
 | 安全轮次续跑 | [agent.py](../src/horizon/domain/agent.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 消息 Artifact + event/revision 绑定；新 Worker 续跑；PLANNING/READY 也可恢复，任意崩溃窗口对账未完成 |
-| 悬空调用恢复与对账 | [recovery.py](../src/horizon/application/recovery.py)、[model_recovery.py](../src/horizon/application/model_recovery.py)、[tool_recovery.py](../src/horizon/application/tool_recovery.py) | Campaign-only 预留释放；response Artifact 跨 Worker 续跑；模型派发前持久化 client Trace ID，返回后普通落盘失败立即隔离，Artifact 前硬退出重启后保守 `unknown`；只读重试；精确 `replace_text` / `apply_patch` accept/rollback；Docker `run_check` 用 call ID 标签 attempt，可查询/显式停止/删除后丢弃未知结果，missing 仍需人工确认；部分 patch 与无停止证明的验证副作用仍阻塞 |
+| 悬空调用恢复与对账 | [recovery.py](../src/horizon/application/recovery.py)、[model_recovery.py](../src/horizon/application/model_recovery.py)、[tool_recovery.py](../src/horizon/application/tool_recovery.py) | Campaign-only 预留释放；response Artifact 跨 Worker 续跑；模型派发前持久化 client Trace ID，返回后普通落盘失败立即隔离，Artifact 前硬退出重启后保守 `unknown`；只读重试；精确 `replace_text` / `apply_patch` accept/rollback；`create_file` 硬退出保留 unknown 且不重放；Docker `run_check` 用 call ID 标签 attempt，可查询/显式停止/删除后丢弃未知结果，missing 仍需人工确认；部分 patch、未知创建和无停止证明的验证副作用仍阻塞 |
 | 受控候选提升 | [promotion.py](../src/horizon/application/promotion.py)、[promotion.py](../src/horizon/adapters/workspace/promotion.py)、[git.py](../src/horizon/adapters/vcs/git.py) | 只读 diff、源/候选 revision 与可选 Git HEAD 绑定、显式 1～8 个既有文件修改、完整/部分 effect 崩溃恢复；不创建 commit |
 | 任务准备、计划、状态、取消、执行、导出与重放 CLI | [app.py](../src/horizon/interfaces/cli/app.py) | `run` 保持 prepare-only；`agent run` 接受 PLAN_PATH 或 `--auto-plan` 且只操作 staging；`agent resume` 支持 PLANNING/READY/RUNNING；执行前 HorizonError 仅在无非 unknown 在途 reservation 时释放租约；promotion 需显式确认 |
 | SiliconFlow 严格配置与 OpenAI-compatible adapter | [config.py](../src/horizon/adapters/model/config.py)、[openai_compatible.py](../src/horizon/adapters/model/openai_compatible.py) | Adapter 与预算器共用 canonical wire encoder，实际 HTTP body 的 bytes/hash 可复算；真实 Tool Calling 探针和历史 fixture Agent Run 通过；完整 checkout Pilot 已真实调用并以受控终态失败，无隐式 retry/fallback |
@@ -76,6 +76,18 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 仍是后续适配约束；不能以该文档代替本项目的实际联调。
 
 ## 验证结果
+
+### 2026-10-04 受限单文件创建
+
+- `create_file` 已贯通 Tool Schema、WorkItem 权限、自动 Plan、Gateway、intent/receipt、Run
+  Memory、NoProgress 和 Trace replay；一次只创建一个已存在父目录内、允许路径下、最多
+  64 KiB 的 UTF-8 文件，既有目标拒绝覆盖。
+- Gateway 覆盖精确多字节内容、post-effect manifest、越权/缺失父目录/字节超限无副作用，
+  以及普通 post-write 异常按文件身份清理本次创建。
+- 真实子进程在创建成功、receipt 前退出后，重启将调用保守标为 `unknown`，不重放且不允许
+  复用现有 replace/patch 恢复入口；这证明安全阻断，不是 create 副作用可恢复。
+- 本批无网络、Docker 或模型费用；离线全量回归 **317 passed，6 skipped**，跳过项仍是需显式
+  提供本机镜像的既有 Docker 合同。
 
 ### 2026-10-04 第二批独立外部定位 holdout
 
@@ -261,7 +273,7 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
   进入 `WAITING_FOR_USER`、释放规划 Worker Lease；不会自动重试或追加费用。本机 `plan set`
   同一事务写入 `HUMAN_DECISION_RECORDED`、人工 Plan 与 READY 状态。重启重放、非法替换不消费
   请求、reconcile 明确返回 `provide_replacement_plan`，以及 CLI WAITING 输出均有离线测试。
-- 扩展确定性 NoProgressPolicy：对单 tool-call 响应中的 read/search/retrieve/replace/patch，以
+- 扩展确定性 NoProgressPolicy：对单 tool-call 响应中的 read/search/retrieve/replace/patch/create，以
   `tool_name + arguments_hash + same revision` 识别完全相同行为及精确 `A,B,A,B` 循环。相同行为
   第 3 次、A/B 循环第 5 步产生有 Artifact/receipt 的 error observation；模型收到反馈后仍继续
   模式，则分别在第 4/6 步保存完整会话，持久化带 pattern 的 `HumanGuidanceRequest`，并原子进入
@@ -500,8 +512,9 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
    `apply_patch` 支持基于 manifest 的 accept/rollback；`run_check` 有可查询的 Docker attempt，
    可核验/显式停止后丢弃未知结果，missing 时仍需人工确认。Provider 返回到 response Artifact
    提交之间已有 client Trace、普通异常即时隔离和硬退出保守恢复证据，但没有 Provider receipt
-   查询时仍只能人工对账，不能恢复丢失响应。仍需容器创建前持久启动证明/结果恢复、任意 diff、新增/删除写入、旧
-   容器隔离和 Execution Fork。
+   查询时仍只能人工对账，不能恢复丢失响应。仍需容器创建前持久启动证明/结果恢复、任意 diff、多文件新增/删除写入、旧
+   容器隔离和 Execution Fork。`create_file` 已覆盖一个新文件的正常路径、普通异常清理与硬退出
+   unknown/no-replay，但尚无 create 专用 accept/rollback，也不代表多文件新增或删除已实现。
 3. **安全边界**：首个 Gateway 已阻止任意 shell，并把模型工具 intent/receipt 与 Run 预算
    事件化；但模型派发、文件写入和容器副作用还不是跨 SQLite/文件系统的单一原子事务，
    也没有独立安全复核或通用审批系统；当前 promotion 仅覆盖最多 8 个既有文件修改。

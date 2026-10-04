@@ -71,7 +71,7 @@ Memory 不覆盖 EventLog，不复制成第二套事实数据库。当前没有�
 | `statement/excerpt` | 控制器生成的说明和有界原始输出片段 |
 
 支持投影的工具仅为 `search_repo`、`read_file`、`retrieve_code`、`replace_text`、
-`apply_patch` 和 `run_check`。两个写工具都投影为 `workspace_change`；`submit` 被明确排除，
+`apply_patch`、`create_file` 和 `run_check`。三个写工具都投影为 `workspace_change`；`submit` 被明确排除，
 因为它是模型提出的完成声明，不是外部验证事实。
 
 已结算条目必须满足：输出 ref 等于输出 hash、Artifact 存在、大小不超过 512 KiB 且可按

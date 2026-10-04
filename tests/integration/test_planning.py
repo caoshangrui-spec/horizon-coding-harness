@@ -406,6 +406,40 @@ def test_planner_rejects_path_absent_from_complete_inventory_without_retry(tmp_p
     assert summary.unknown_cost == Decimal("0")
 
 
+def test_planner_allows_scoped_new_path_only_for_create_file_work_item(tmp_path):
+    proposal = valid_proposal()
+    proposal["items"][0]["expected_artifacts"] = ["src/generated.py"]
+    proposal["items"][0]["allowed_tools"].append("create_file")
+    generator, _, _, _, run_id, token, context, model, _ = setup_planner(
+        tmp_path,
+        [proposal],
+    )
+
+    result = generator.generate_and_set(run_id, token, context)
+
+    assert result.run.status == RunStatus.READY
+    assert result.plan.items[0].expected_artifacts == ("src/generated.py",)
+    assert "create_file" in result.plan.items[0].allowed_tools
+    assert len(model.requests) == 1
+
+
+@pytest.mark.parametrize("missing_path", ["secrets/generated.py", "src/../outside.py"])
+def test_planner_rejects_out_of_scope_new_path_even_with_create_file(
+    tmp_path,
+    missing_path,
+):
+    proposal = valid_proposal()
+    proposal["items"][0]["expected_artifacts"] = [missing_path]
+    proposal["items"][0]["allowed_tools"].append("create_file")
+    generator, _, _, _, run_id, token, context, _, _ = setup_planner(
+        tmp_path,
+        [proposal],
+    )
+
+    with pytest.raises(PlanProposalError, match="absent from the complete repository inventory"):
+        generator.generate_and_set(run_id, token, context)
+
+
 def test_planner_does_not_reject_unknown_path_from_truncated_inventory(tmp_path):
     generator, _, _, _, run_id, token, context, model, _ = setup_planner(
         tmp_path,

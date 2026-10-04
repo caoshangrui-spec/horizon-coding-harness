@@ -17,6 +17,8 @@ from horizon.application.recovery import RecoveryService
 from horizon.application.services import HarnessService, LeaseToken
 from horizon.application.tool_recovery import ToolRecoveryService
 from horizon.domain.budget import Usage
+from horizon.domain.common import digest
+from horizon.domain.errors import Conflict
 from horizon.domain.model import (
     CampaignBudget,
     FunctionCall,
@@ -150,6 +152,7 @@ def _prepare_hard_exit_agent(tmp_path: Path, task_dict):
                     "read_file",
                     "replace_text",
                     "apply_patch",
+                    "create_file",
                     "run_check",
                 ),
             ),
@@ -807,3 +810,99 @@ def test_hard_exit_after_write_effect_can_be_exactly_accepted_and_resumed(
         message.role == "tool" and disposition in (message.content or "")
         for message in resumed_model.requests[0].messages
     )
+
+
+def test_hard_exit_after_create_file_stays_unknown_without_automatic_replay(
+    tmp_path: Path,
+    task_dict,
+):
+    (
+        workspace,
+        plan,
+        store_path,
+        ledger_path,
+        artifact_path,
+        old_now,
+        run_id,
+        token,
+    ) = _prepare_hard_exit_agent(tmp_path, task_dict)
+    worker = Path(__file__).with_name("_crash_agent_worker.py")
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(worker),
+            str(store_path),
+            run_id,
+            token.lease_id,
+            token.worker_id,
+            str(token.epoch),
+            str(artifact_path),
+            old_now.isoformat(),
+            str(workspace),
+            str(ledger_path),
+            "create_file",
+        ],
+        capture_output=True,
+        timeout=20,
+    )
+    assert result.returncode == 26, result.stderr.decode(errors="replace")
+
+    expected_arguments = {
+        "path": "src/generated.py",
+        "content": "def generated():\n    return '你好'\n",
+    }
+    expected_bytes = expected_arguments["content"].encode("utf-8")
+    interrupted_store = SQLiteEventStore(store_path)
+    interrupted = interrupted_store.get(run_id)
+    assert (workspace / "src/generated.py").read_bytes() == expected_bytes
+    assert len(interrupted.model_calls) == 1
+    assert len(interrupted.tool_calls) == 0
+    assert len(interrupted.tool_reservations) == 1
+    call_id, reservation = next(iter(interrupted.tool_reservations.items()))
+    assert reservation.name == "create_file"
+    assert reservation.arguments_hash == digest(expected_arguments)
+    assert reservation.workspace_manifest_ref is not None
+    pre_manifest = ArtifactStore(artifact_path).read(reservation.workspace_manifest_ref)
+    assert b"src/generated.py" not in pre_manifest
+
+    artifacts = ArtifactStore(artifact_path)
+    ledger = CampaignBudgetLedger(ledger_path)
+    recovery_service = HarnessService(interrupted_store)
+    recovery_run = recovery_service.acquire_lease(
+        run_id,
+        "recovery-worker",
+        "takeover-create-hard-exit",
+        prior_worker_stopped=True,
+    )
+    recovery_token = LeaseToken.from_run(recovery_run)
+    report = RecoveryService(recovery_service, ledger, artifacts).reconcile(
+        run_id,
+        recovery_token,
+    )
+
+    assert report.safe_to_resume is False
+    assert report.findings[-1].classification == "tool_effect_unknown"
+    blocked = interrupted_store.get(run_id)
+    assert blocked.unknown_tool_calls == {call_id}
+    assert len(blocked.tool_calls) == 0
+    assert (workspace / "src/generated.py").read_bytes() == expected_bytes
+
+    tools = WorkspaceToolGateway(
+        workspace,
+        recovery_run.task,
+        plan.items[0],
+        SnapshotManager(artifacts),
+        _ParserCheck(),
+    )
+    with pytest.raises(Conflict, match="supported write call"):
+        ToolRecoveryService(recovery_service, artifacts, tools).resolve_write(
+            run_id,
+            call_id,
+            decision="accept",
+            token=recovery_token,
+        )
+    assert (workspace / "src/generated.py").read_bytes() == expected_bytes
+
+    trace = interrupted_store.export_jsonl(run_id)
+    replayed = SQLiteEventStore.replay_jsonl(trace)
+    assert replayed.as_dict() == interrupted_store.get(run_id).as_dict()

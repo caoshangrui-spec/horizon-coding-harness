@@ -5,6 +5,11 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Added a deliberately narrow `create_file` tool: one allowed UTF-8 file, a 64 KiB byte cap,
+  an existing-parent requirement, and exclusive no-overwrite creation. Exact arguments are bound
+  through the recorded model response and intent hash; successful receipts bind revisions and the
+  post-effect manifest. Ordinary failures clean up the file, while a real subprocess hard exit
+  remains blocking `unknown` without replay or unsupported automatic recovery.
 - Persisted a controller-generated client Trace ID in every new planning/execution model intent
   before provider dispatch. Canonical response publication is now shared and verified; ordinary
   post-response persistence/receipt failures immediately quarantine both ledgers, while a real

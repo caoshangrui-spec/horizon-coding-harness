@@ -24,7 +24,8 @@ Plan DAG 和 Run EventLog 顺序执行多个工作项，目标是让长任务具
 - 并行 WorkItem、多个 Worker 同时修改同一 staging workspace；
 - 控制器自动触发、第二次或无界动态 replan；当前只有一次模型显式、控制器验证的 revision；
 - 每个 WorkItem 独立费用子预算、独立 checkpoint 分支或 Execution Fork；
-- 任意 diff、多文件新增/删除/重命名或 merge；结构化 `apply_patch` 仅支持最多 8 个既有文件；
+- 任意 diff、多文件新增、删除/重命名或 merge；`create_file` 每次只允许一个新文件，结构化
+  `apply_patch` 仅支持最多 8 个既有文件；
 - 把通过一个小型 fixture 推断为真实长程任务成功率。
 
 ## 2. 确定性调度
