@@ -488,9 +488,10 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 四轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断和外部定位盲测后，当前主干已完成 295 项离线回归；
 该 preflight 证明首次规划保守预留 `CNY 0.031572` 可由 `CNY 0.06` Run cap 覆盖，但没有启动
 第五个真实模型 Run。同一 CNY 0.18 retry Campaign 尚余 `CNY 0.0681666`，系列累计实际费用为
-`CNY 0.1770732`。第四轮旧 preflight 已因 Harness
-源码修复失效，剩余 Campaign 或用户总额度都不能自动扩权；任何新付费 Run 仍须重新预检并取得
-明确授权。当前优先继续零费用可靠性验证，现有证据不支持立即引入 symbol/vector
+`CNY 0.1770732`。第四轮 youtube-dl preflight 已因 Harness 源码修复失效；当前 tqdm 候选已在
+最新 Python 源码上重新完成零费用 preflight（report ref `07453273206fa1e7af4f84531345f0b7bf763846ddb2729837178de40c193cbb`，
+Harness digest `36ff2b9ea368a85eb26ea7866322ace1fc2f4ee7f03c18313df013c355986c5e`）。剩余 Campaign 或用户总额度
+都不能自动扩权，任何新付费 Run 仍须取得明确授权。当前优先继续零费用可靠性验证，现有证据不支持立即引入 symbol/vector
 索引、模型摘要或自动 replan。Run Memory 已形成最小垂直切片，
 精确 NoProgress/replan 的冻结策略 Trace 已建立 12 案例基线；内部 A/B、三个来源绑定的依赖裁剪
 案例和两个不同项目的完整 checkout 均已保存初始负例、Trace、验收、调用数和合成费用。完整

@@ -375,7 +375,7 @@ preflight 同时补上了一个此前缺失的门：根据冻结 TaskSpec、允�
 和当前 Campaign 余额。该门只证明首个确定性请求可派发；后续动态上下文仍在每次派发前重新计算，
 不会预先承诺整条 Run 一定能在预算内完成。
 
-2026-10-03 的本地禁网 Docker preflight 结果：
+2026-10-04 在 Evidence→Write lineage 提交后的本地禁网 Docker preflight 结果：
 
 - `ready=true`；初始保护性验收按预期 exit code 1，source 再快照不变；
 - 首次规划 input ceiling 8,220 tokens、output ceiling 768 tokens，保守预留
@@ -383,9 +383,9 @@ preflight 同时补上了一个此前缺失的门：根据冻结 TaskSpec、允�
 - prepared TaskSpec ref：
   `a5ab50188c4ddf0941dfe1ef247218fbc8c38156722b7671a96934b6c2f5dc72`；
 - preflight report ref：
-  `1b029f1008f1f8438a793d0ef14864165e45d92d34e4bb75d1381ffa59b20db1`；
+  `07453273206fa1e7af4f84531345f0b7bf763846ddb2729837178de40c193cbb`；
 - Harness source digest：
-  `787a7f0f7b9c2ee3ffa711a48886630c767cf68dc9b0a8b35c89eeeb99a5a595`；
+  `36ff2b9ea368a85eb26ea7866322ace1fc2f4ee7f03c18313df013c355986c5e`；
 - Docker image digest：
   `sha256:0687a6bc9716edc2a6ee0fbfb0f87e7ee358b262b67c9215de91bc9b2d38ba71`；
 - `credential_loaded=false`、`paid_model_called=false`、`network_called=false`。
