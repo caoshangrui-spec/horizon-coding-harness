@@ -67,12 +67,13 @@ workspace revision 绑定并从 Trace 复算。模型动作由冻结脚本提供
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | Python 3.12/3.13 的测试、静态检查、演示和构建已通过 | CI 不读取 API Key、不运行付费模型 |
-| 离线回归 | `304 passed, 6 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `307 passed, 6 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | Docker 契约 | `redis:7-alpine` 上单独复跑 `6 passed` | 有限隔离合同，不是恶意代码安全认证 |
 | 完整 checkout A/B | tqdm 82 files、youtube-dl 872 files；初始失败门、恢复、replan、最终验收和 Trace replay 通过 | 使用 Scripted Model，不是模型能力成绩 |
 | 真实模型 Pilot | 六轮均可重放、费用可核对、source 未变 | 六轮均未编辑或验证成功，保留为负结果 |
 | 预算预留诊断 | 6 Trace、20 个已结算调用；聚合预留/结算比 6.861621；候选公式仅有 3 个可回放样本 | 新 BudgetStop 保存请求尺寸；样本不足，不自动降低费用安全门槛 |
 | 出站请求尺寸 | 5 类离线边界请求均复用 Adapter 的精确 wire encoder；167～9,061 bytes | 无 Provider usage，不证明候选公式安全或模型效果 |
+| 模型响应提交窗 | 普通落盘/receipt 失败立即双账 `unknown`；真实子进程在模型返回后、Artifact 前硬退出，重启后 Trace 可重放且不重派 | 无 Provider 查询接口时不能恢复丢失响应，仍需人工对账 |
 
 更完整的数字、失败记录与未完成项见
 [开发进度与验证记录](docs/development-progress.md)和
@@ -306,7 +307,7 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **304 passed，6 skipped**；6 个跳过项指定本机已有
+当前离线全量回归为 **307 passed，6 skipped**；6 个跳过项指定本机已有
 `redis:7-alpine` 单独复跑，得到 **6 passed** 的真实 Docker 契约结果。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实
 Issue 效果。新增真实模型 Pilot 单元测试覆盖私有答案拒绝、初始失败证据、内容寻址报告和
@@ -323,8 +324,9 @@ execution 与一次 rank-1 检索，但下一请求需 `CNY 0.05832`，被 Campa
 标识、purpose、估算器、请求字节、input cap/ceiling 和 output ceiling，便于零费用回放；unknown
 用量仍保守进入对账路径。历史 Trace 不被追溯改写。
 详情见下方文档。故障测试实际强制退出
-子进程，覆盖 Run receipt、response Artifact、精确写入副作用和 promotion receipt 附近的提交
-窗口；它们仍不等于设计里的全部故障矩阵。新增顺序双 WorkItem E2E 覆盖原子阶段交接、跨
+子进程，覆盖 Provider 返回后但 response Artifact 尚未发布、Run receipt、已发布 response
+Artifact、精确写入副作用和 promotion receipt 附近的提交窗口；派发前持久化的 client Trace
+ID 会进入恢复报告。它们仍不等于设计里的全部故障矩阵。新增顺序双 WorkItem E2E 覆盖原子阶段交接、跨
 Worker 续跑和最终 required checks 回归修复。自动计划、上下文、Run Memory、多 WorkItem
 与词法检索测试使用 Fake Model 或纯本地
 SQLite，不产生网络费用。

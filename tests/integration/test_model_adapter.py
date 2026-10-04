@@ -84,6 +84,7 @@ def test_adapter_sends_bounded_nonstreaming_tool_request_and_parses_usage():
     evidence = request.openai_compatible_payload_evidence()
     assert captured["url"] == "https://api.siliconflow.cn/v1/chat/completions"
     assert captured["headers"]["Authorization"] == "Bearer test-secret"
+    assert captured["headers"]["X-Trace-Id"] == "client-trace"
     assert b"test-secret" not in captured["body"]
     assert captured["body"] == request.openai_compatible_body()
     assert evidence.payload_bytes == len(captured["body"])

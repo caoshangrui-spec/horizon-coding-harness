@@ -49,9 +49,11 @@ class ScriptedPlanner:
     def __init__(self, proposals):
         self.proposals = list(proposals)
         self.requests = []
+        self.trace_ids = []
 
     def generate(self, request, trace_id):
         self.requests.append(request)
+        self.trace_ids.append(trace_id)
         arguments = self.proposals.pop(0)
         index = len(self.requests)
         return ModelResponse(
@@ -70,6 +72,19 @@ class ScriptedPlanner:
             usage=ModelUsage(input_tokens=180, output_tokens=90),
             provider_trace_id=f"planner-trace-{index}",
         )
+
+
+class RejectResponseArtifact:
+    def __init__(self, delegate):
+        self.delegate = delegate
+
+    def __getattr__(self, name):
+        return getattr(self.delegate, name)
+
+    def put(self, content):
+        if b'"response_id":' in content:
+            raise OSError("simulated planning response artifact publication failure")
+        return self.delegate.put(content)
 
 
 def valid_proposal():
@@ -236,6 +251,7 @@ def test_generated_plan_is_budgeted_validated_and_trace_linked(tmp_path):
         event for event in store.events(run_id) if event.event_type == "MODEL_CALL_RESERVED"
     )
     reservation = ModelCallReservation.model_validate(reservation_event.payload["reservation"])
+    assert reservation.client_trace_id == model.trace_ids[0]
     assert reservation.input_token_budget is not None
     assert reservation.input_token_budget.max_input_tokens == generator.config.max_input_tokens
     assert reservation.input_token_budget.estimate == conservative_input_estimate(model.requests[0])
@@ -251,6 +267,36 @@ def test_generated_plan_is_budgeted_validated_and_trace_linked(tmp_path):
     replayed = SQLiteEventStore(store.path).get(run_id)
     assert replayed.plan == result.plan
     assert replayed.plan_source_model_call_id == result.model_call_id
+
+
+def test_planning_response_artifact_failure_is_quarantined(tmp_path):
+    generator, service, store, ledger, run_id, token, context, model, artifacts = setup_planner(
+        tmp_path,
+        [valid_proposal()],
+    )
+    generator.artifact_store = RejectResponseArtifact(artifacts)
+
+    with pytest.raises(OSError, match="planning response artifact publication"):
+        generator.generate_and_set(run_id, token, context)
+
+    interrupted = store.get(run_id)
+    assert interrupted.plan is None
+    assert not interrupted.model_calls
+    assert len(interrupted.model_reservations) == 1
+    call_id, reservation = next(iter(interrupted.model_reservations.items()))
+    assert reservation.purpose == "planning"
+    assert reservation.client_trace_id == model.trace_ids[0]
+    assert interrupted.unknown_model_calls == {call_id}
+    assert interrupted.unknown_reservations == {call_id}
+    attempt = ledger.attempt("planning-tests", call_id)
+    assert attempt.status == "unknown"
+    assert attempt.error_type == "PostResponseReceiptUnavailable"
+
+    report = RecoveryService(service, ledger, artifacts).reconcile(run_id, token)
+    assert report.safe_to_resume is False
+    assert report.next_action == "manual_reconciliation"
+    assert report.findings[0].classification == "model_effect_unknown"
+    assert report.findings[0].client_trace_id == reservation.client_trace_id
 
 
 def test_planning_input_token_budget_stops_before_dispatch(tmp_path):

@@ -1,12 +1,14 @@
 from typing import Literal
 
 from horizon.domain.common import Contract
+from horizon.domain.model import ClientTraceId
 from horizon.domain.task import Text
 
 
 class RecoveryFinding(Contract):
     operation_id: Text
     operation_kind: Literal["model", "tool", "budget", "agent_session"]
+    client_trace_id: ClientTraceId | None = None
     classification: Literal[
         "campaign_settlement_repaired",
         "campaign_only_reservation_released",

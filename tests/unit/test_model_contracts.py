@@ -88,6 +88,7 @@ def test_model_reservation_omits_absent_budget_for_historical_wire_compatibility
     historical = ModelCallReservation(**shared)
     current = ModelCallReservation(
         **shared,
+        client_trace_id=f"horizon-{'c' * 32}",
         input_token_budget=InputTokenBudget(
             max_input_tokens=4_000,
             estimate=InputTokenEstimate(request_bytes=1_000, token_ceiling=3_024),
@@ -95,7 +96,11 @@ def test_model_reservation_omits_absent_budget_for_historical_wire_compatibility
     )
 
     assert "input_token_budget" not in historical.as_dict()
+    assert "client_trace_id" not in historical.as_dict()
+    assert current.as_dict()["client_trace_id"] == f"horizon-{'c' * 32}"
     assert current.as_dict()["input_token_budget"]["estimate"]["token_ceiling"] == 3_024
+    with pytest.raises(ValidationError, match="client_trace_id"):
+        ModelCallReservation(**shared, client_trace_id="unsafe\r\ntrace")
 
 
 def test_model_reservation_builds_pre_dispatch_budget_evidence():

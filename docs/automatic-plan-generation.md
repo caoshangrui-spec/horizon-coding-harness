@@ -113,7 +113,7 @@ WorkItem 权限；Shell、任意 diff、文件新增/删除和网络工具不会
 规划调用与执行调用共享同一 Run 和 Campaign 上限。派发前仍使用：
 
 ```text
-reserved_input = 2 * utf8_bytes(canonical_request) + 1024
+reserved_input = 2 * utf8_bytes(canonical_openai_payload) + 1024
 reserved_cost  = price(reserved_input, max_output_tokens)
 ```
 
@@ -121,8 +121,9 @@ reserved_cost  = price(reserved_input, max_output_tokens)
 至少需要 2 次模型调用额度：1 次规划，加至少 1 次执行。规划已消费的调用会从执行循环的
 最大 iteration 数中扣除；Run 的 token/call 上限和 CNY policy 仍在每次派发前检查。
 
-规划无隐藏重试。Provider 派发结果不确定时，Run 与 Campaign 都保持 `unknown` 占用；在明确
-对账前不得再发第二次规划请求。
+规划无隐藏重试。Run intent 在派发前持久化 client Trace ID。Provider 派发结果不确定，或
+Provider 已返回但 response Artifact/Run receipt 未能可信提交时，Run 与 Campaign 都保持
+`unknown` 占用；在明确对账前不得再发第二次规划请求。
 
 ## 6. 崩溃恢复
 
@@ -132,7 +133,7 @@ reserved_cost  = price(reserved_input, max_output_tokens)
 | 已提交状态 | 处理 |
 |---|---|
 | 只有 Campaign reservation、没有 Run intent | `agent reconcile` 按派发门之前的证据结算 0 |
-| Run intent 无可信响应 | 标记 unknown，不自动重试 |
+| Run intent 无可信响应 | 保留 client Trace ID，标记 unknown，不自动重试 |
 | Run response receipt 已有、Campaign 未结算 | 从 Run receipt 补齐 Campaign |
 | Run/Campaign 已结算、Plan 事件未写 | `agent resume` 重建相同请求并复用 response Artifact |
 | response 已结算但 Plan 非法 | 持久化人工替换请求并进入等待态，不产生第二次费用 |
@@ -141,7 +142,7 @@ reserved_cost  = price(reserved_input, max_output_tokens)
 | Plan 已写、尚未进入 RUNNING | `agent resume` 从 READY 进入执行 |
 
 复用前会核对 request hash、planning context ref/hash、Provider、模型、预留金额、实际估算费用、
-Provider trace ID 和 response Artifact。配置或上下文漂移会阻止复用，不会静默发起新请求。
+Provider trace ID 和 response Artifact；client Trace ID 保留在历史 intent 供对账。配置或上下文漂移会阻止复用，不会静默发起新请求。
 
 ## 7. CLI
 

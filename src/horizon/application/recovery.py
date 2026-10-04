@@ -242,6 +242,7 @@ class RecoveryService:
                     RecoveryFinding(
                         operation_id=call_id,
                         operation_kind="model",
+                        client_trace_id=reservation.client_trace_id,
                         classification="model_effect_unknown",
                         action=action,
                         blocking=True,
@@ -258,6 +259,7 @@ class RecoveryService:
                     RecoveryFinding(
                         operation_id=call_id,
                         operation_kind="model",
+                        client_trace_id=reservation.client_trace_id,
                         classification="model_effect_unknown",
                         action="run_marked_unknown" if not run_unknown else "none",
                         blocking=True,
@@ -271,6 +273,7 @@ class RecoveryService:
                     RecoveryFinding(
                         operation_id=call_id,
                         operation_kind="model",
+                        client_trace_id=reservation.client_trace_id,
                         classification="model_response_unavailable",
                         action="run_marked_unknown" if not run_unknown else "none",
                         blocking=True,
@@ -295,6 +298,7 @@ class RecoveryService:
                     RecoveryFinding(
                         operation_id=record.call_id,
                         operation_kind="model",
+                        client_trace_id=reservation.client_trace_id,
                         classification="campaign_settlement_repaired",
                         action="campaign_settled_from_run_receipt",
                         blocking=False,

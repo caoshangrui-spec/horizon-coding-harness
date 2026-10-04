@@ -93,16 +93,19 @@ CLI 先对源目录做内容寻址快照，再恢复到 `.horizon/staging/agent-
 3. 将最终投影、字符使用和 `InputTokenBudget` 写入内容寻址 Artifact，并校验回读；
 4. 复用同一个 token 上界和冻结 PriceCard 估算 reservation；
 5. 在 Campaign ledger 预留 CNY；
-6. 在 Run event stream 绑定 request hash、投影 Artifact、源/投影消息数并预留调用；
-7. 调用 Provider；
+6. 在 Run event stream 绑定 request hash、client Trace ID、投影 Artifact、源/投影消息数并预留调用；
+7. 用同一个 client Trace ID 调用 Provider；
 8. 把结构化 `ModelResponse` 写入内容寻址 Artifact并校验回读；
 9. 根据 Provider usage 在 Run 与 Campaign 中结算实际 token 和估算费用；
 10. 把 assistant tool calls 加入完整 canonical message sequence。
 
 Provider 在“可能已经计费但没有可信回执”的错误上会触发 Run 和 Campaign `unknown`，
 保留完整 reservation，并停止当前 Run。当前没有自动 retry，也不自动切换模型。
+Provider 已返回后，canonical response Artifact 写入或 Run receipt 提交发生普通异常时也立即走
+同一隔离路径；若进程直接硬退出，则由新 Worker 的 reconciliation 完成隔离。
 
-Run Trace 保存 request hash、provider/model、usage、费用、response ID、provider trace ID 和
+Run Trace 在派发前先保存 client Trace ID；成功后再保存 request hash、provider/model、usage、
+费用、response ID、provider trace ID 和
 finish reason。每个完整且无悬空操作的模型—工具轮次结束后，完整消息序列另存为内容寻址
 Artifact，Run 事件只保存 Artifact hash、下一 iteration、工作区 revision 和覆盖的事件序号。
 新 Worker 只有在 Artifact、TaskSpec、Plan、工作区 revision 和事件尾部全部一致时才继续。
@@ -124,9 +127,10 @@ Provider 派发前和 response receipt 后的两个双库提交窗口，并输�
 显式 accept/rollback，部分写入和外部漂移继续阻塞。`apply_patch` 限制为最多 8 个不同既有
 文件，全部 edit 在第一处写入前完成精确前像校验。其他悬空事件、reservation 或 staging 漂移
 均在调用模型前拒绝。
-若崩溃
-发生在 Provider 已可能执行、但 response Artifact/Run receipt 尚未提交的窗口，调用仍只能记为
-unknown；工具写入是否完整也不能自动判定，因此仍不是任意崩溃点续跑。
+若崩溃发生在 Provider 已返回、但 response Artifact/Run receipt 尚未提交的窗口，真实子进程
+故障测试证明重启后会把 Run/Campaign 标为 `unknown`、保留 client Trace ID、成功重放 Trace，
+且不会自动再次调用模型。这个 ID 只提供人工/供应商对账线索；没有可查询的 Provider receipt
+接口时，丢失的响应仍不能安全重建。工具写入是否完整也不能自动判定，因此仍不是任意崩溃点续跑。
 
 ## 5. 工具面
 
@@ -328,7 +332,7 @@ Trace 文件拒绝覆盖已有文件。重放不会调用模型、工具或 Dock
 
 2026-10-04 当前环境：
 
-- 离线全量回归：304 passed、6 skipped；
+- 离线全量回归：307 passed、6 skipped；
 - 随后指定本机已有 `redis:7-alpine` 单独复跑跳过项：6 passed，均为真实 Docker 合同；
 - Fake Model E2E：精确编辑后成功，以及首次验收失败后一次 repair 成功；
 - 自动计划 Fake E2E：Plan provenance/预算、越权拒绝且不重试、Plan 事件前崩溃复用响应，

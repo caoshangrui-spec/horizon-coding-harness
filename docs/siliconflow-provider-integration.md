@@ -208,6 +208,9 @@ Horizon 的可配置请求策略，不冒充模型官方窗口或 tokenizer 精�
 - 离线 reconciliation 校验 Run/Campaign identity，可由可信 Run receipt 补齐 Campaign；
   response Artifact 允许新 Worker 不重复计费地继续；Provider 派发前的 Campaign-only hold
   可按 0 释放，无 receipt 的模型/工具 intent 进入 unknown 且不自动重派；
+- 新模型 intent 在派发前保存实际传给 Provider 的 client Trace ID；Provider 返回后的 response
+  Artifact/Run receipt 普通写入失败会立即把 Run/Campaign 隔离为 unknown，进程硬退出则由重启
+  reconciliation 执行相同保守分类。该 ID 是对账线索，不等于可查询的 Provider receipt；
 - 单一 `search_repo`/`read_file`/`retrieve_code` 悬空 intent 可由离线 CLI 显式选择 retry；
   实现会校验原响应、
   参数 hash、事件尾部和 workspace revision，旧尝试以 `cancelled` 保守计数；其他写/验证工具

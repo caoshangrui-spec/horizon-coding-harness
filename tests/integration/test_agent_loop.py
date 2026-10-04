@@ -45,9 +45,11 @@ class ScriptedModel:
     def __init__(self, actions):
         self.actions = list(actions)
         self.requests = []
+        self.trace_ids = []
 
     def generate(self, request, trace_id):
         self.requests.append(request)
+        self.trace_ids.append(trace_id)
         name, arguments = self.actions.pop(0)
         index = len(self.requests)
         return ModelResponse(
@@ -81,6 +83,19 @@ class ParserCheck:
             output=output,
             output_hash=hashlib.sha256(output.encode()).hexdigest(),
         )
+
+
+class RejectResponseArtifact:
+    def __init__(self, delegate):
+        self.delegate = delegate
+
+    def __getattr__(self, name):
+        return getattr(self.delegate, name)
+
+    def put(self, content):
+        if b'"response_id":' in content:
+            raise OSError("simulated response artifact publication failure")
+        return self.delegate.put(content)
 
 
 class MultiStepCheck:
@@ -524,6 +539,12 @@ def test_agent_loop_edits_runs_protected_validation_and_succeeds(tmp_path, task_
     assert result.last_checkpoint is not None
     assert "return [] if" in (workspace / "src/parser.py").read_text()
     assert len(result.model_calls) == 4
+    reservations = [
+        ModelCallReservation.model_validate(event.payload["reservation"])
+        for event in store.events(run_id)
+        if event.event_type == "MODEL_CALL_RESERVED"
+    ]
+    assert [reservation.client_trace_id for reservation in reservations] == model.trace_ids
     for call in result.model_calls:
         assert call.response_artifact_ref is not None
         restored = ModelResponse.model_validate_json(
@@ -595,6 +616,42 @@ def test_agent_loop_edits_runs_protected_validation_and_succeeds(tmp_path, task_
         "Controller-owned mandatory facts" in (request.messages[0].content or "")
         for request in model.requests
     )
+
+
+def test_agent_response_artifact_failure_is_quarantined_without_replay(tmp_path, task_dict):
+    runner, store, run_id, token, workspace, model = setup_loop(
+        tmp_path,
+        task_dict,
+        [("read_file", {"path": "src/parser.py"})],
+    )
+    runner.session_store = RejectResponseArtifact(runner.session_store)
+
+    with pytest.raises(OSError, match="response artifact publication"):
+        runner.run(run_id, token)
+
+    interrupted = store.get(run_id)
+    assert not interrupted.model_calls
+    assert len(interrupted.model_reservations) == 1
+    call_id, reservation = next(iter(interrupted.model_reservations.items()))
+    assert reservation.client_trace_id == model.trace_ids[0]
+    assert interrupted.unknown_model_calls == {call_id}
+    assert interrupted.unknown_reservations == {call_id}
+    attempt = runner.campaign_ledger.attempt(runner.campaign.campaign_id, call_id)
+    assert attempt.status == "unknown"
+    assert attempt.error_type == "PostResponseReceiptUnavailable"
+    assert len(model.requests) == 1
+    assert "return [value]" in (workspace / "src/parser.py").read_text(encoding="utf-8")
+
+    report = RecoveryService(
+        runner.service, runner.campaign_ledger, runner.session_store
+    ).reconcile(
+        run_id,
+        token,
+    )
+    assert report.safe_to_resume is False
+    assert report.next_action == "manual_reconciliation"
+    assert report.findings[0].classification == "model_effect_unknown"
+    assert report.findings[0].client_trace_id == reservation.client_trace_id
 
 
 def test_agent_loop_recovers_from_one_sided_read_range_and_replays(tmp_path, task_dict):

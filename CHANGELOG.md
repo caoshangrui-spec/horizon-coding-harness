@@ -5,6 +5,11 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Persisted a controller-generated client Trace ID in every new planning/execution model intent
+  before provider dispatch. Canonical response publication is now shared and verified; ordinary
+  post-response persistence/receipt failures immediately quarantine both ledgers, while a real
+  subprocess hard exit after model return but before Artifact publication replays as blocking
+  `unknown` without an automatic model retry.
 - Unified input sizing with the exact canonical OpenAI-compatible body sent by the adapter. New
   reservations persist the payload hash, total UTF-8 bytes, per-top-level-field value bytes, and
   JSON structural bytes under estimator `openai_payload_utf8_bytes_x2_plus_1024_v2`; historical

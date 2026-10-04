@@ -329,6 +329,96 @@ def test_hard_exit_after_tool_side_effect_is_classified_without_replay(
     assert released.lease_id is None
 
 
+def test_hard_exit_after_model_return_before_response_artifact_is_quarantined(
+    tmp_path: Path,
+    task_dict,
+):
+    (
+        workspace,
+        _,
+        store_path,
+        ledger_path,
+        artifact_path,
+        old_now,
+        run_id,
+        token,
+    ) = _prepare_hard_exit_agent(tmp_path, task_dict)
+    marker = tmp_path / "provider-returned.txt"
+    worker = Path(__file__).with_name("_crash_model_response_worker.py")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(worker),
+            str(store_path),
+            run_id,
+            token.lease_id,
+            token.worker_id,
+            str(token.epoch),
+            str(artifact_path),
+            old_now.isoformat(),
+            str(workspace),
+            str(ledger_path),
+            str(marker),
+        ],
+        capture_output=True,
+        timeout=20,
+    )
+
+    assert result.returncode == 27, result.stderr.decode(errors="replace")
+    client_trace_id = marker.read_text(encoding="utf-8")
+    interrupted_store = SQLiteEventStore(store_path)
+    interrupted = interrupted_store.get(run_id)
+    assert not interrupted.model_calls
+    assert len(interrupted.model_reservations) == 1
+    call_id, reservation = next(iter(interrupted.model_reservations.items()))
+    assert reservation.client_trace_id == client_trace_id
+    assert not interrupted.unknown_model_calls
+    assert CampaignBudgetLedger(ledger_path).attempt("hard-exit-agent", call_id).status == (
+        "reserved"
+    )
+    assert all(
+        b"hard-exit-preartifact-response" not in path.read_bytes()
+        for path in artifact_path.glob("*/*")
+        if path.is_file()
+    )
+    assert "return [value]" in (workspace / "src/parser.py").read_text(encoding="utf-8")
+
+    recovery_service = HarnessService(interrupted_store)
+    recovery_run = recovery_service.acquire_lease(
+        run_id,
+        "recovery-worker",
+        "takeover-preartifact-hard-exit",
+        prior_worker_stopped=True,
+    )
+    recovery_token = LeaseToken.from_run(recovery_run)
+    ledger = CampaignBudgetLedger(ledger_path)
+    report = RecoveryService(
+        recovery_service,
+        ledger,
+        ArtifactStore(artifact_path),
+    ).reconcile(run_id, recovery_token)
+
+    restored = interrupted_store.get(run_id)
+    assert report.safe_to_resume is False
+    assert report.next_action == "manual_reconciliation"
+    assert report.findings[0].classification == "model_effect_unknown"
+    assert report.findings[0].client_trace_id == client_trace_id
+    assert restored.unknown_model_calls == {call_id}
+    assert restored.unknown_reservations == {call_id}
+    assert not restored.model_calls
+    attempt = ledger.attempt("hard-exit-agent", call_id)
+    assert attempt.status == "unknown"
+    assert attempt.error_type == "RecoveryUncertainDispatch"
+
+    trace = interrupted_store.export_jsonl(run_id)
+    replayed = SQLiteEventStore.replay_jsonl(trace)
+    assert replayed.as_dict() == restored.as_dict()
+    assert client_trace_id in trace
+    assert trace.count('"event_type":"MODEL_CALL_RESERVED"') == 1
+    assert trace.count('"event_type":"MODEL_CALL_UNKNOWN"') == 1
+
+
 def test_hard_exit_after_response_artifact_recovers_without_model_replay(
     tmp_path: Path,
     task_dict,

@@ -12,6 +12,7 @@ Currency = Literal["CNY", "USD"]
 NonNegativeInt = Annotated[StrictInt, Field(ge=0)]
 NonNegativeMoney = Annotated[Decimal, Field(ge=0, allow_inf_nan=False)]
 PositiveMoney = Annotated[Decimal, Field(gt=0, allow_inf_nan=False)]
+ClientTraceId = Annotated[str, Field(pattern=r"^horizon-[a-f0-9]{32}$")]
 CONSERVATIVE_INPUT_TOKEN_ESTIMATOR = "request_utf8_bytes_x2_plus_1024_v1"
 OPENAI_PAYLOAD_INPUT_TOKEN_ESTIMATOR = "openai_payload_utf8_bytes_x2_plus_1024_v2"
 OPENAI_COMPATIBLE_PAYLOAD_ENCODING = "openai_compatible_canonical_json_v1"
@@ -353,6 +354,7 @@ class ModelPolicyBinding(Contract):
 class ModelCallReservation(Contract):
     call_id: Identifier
     purpose: Literal["execution", "planning"] = "execution"
+    client_trace_id: ClientTraceId | None = None
     request_hash: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
     provider_id: Identifier
     model: Text
@@ -425,9 +427,11 @@ class ModelCallReservation(Contract):
         return self
 
     def as_dict(self) -> dict[str, Any]:
-        """Preserve the pre-token-budget wire shape for historical reservations."""
+        """Preserve the historical wire shape when additive evidence is absent."""
 
         result = self.model_dump(mode="json")
+        if self.client_trace_id is None:
+            result.pop("client_trace_id")
         if self.input_token_budget is None:
             result.pop("input_token_budget")
         if self.request_payload is None:

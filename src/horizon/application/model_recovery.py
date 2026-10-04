@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from horizon.domain.common import digest
+from horizon.application.services import HarnessService, LeaseToken
+from horizon.domain.common import canonical_json, digest
 from horizon.domain.errors import Conflict
 from horizon.domain.events import Event
 from horizon.domain.model import (
@@ -10,7 +11,7 @@ from horizon.domain.model import (
     ModelCallReservation,
     ModelResponse,
 )
-from horizon.domain.ports import ArtifactStorePort
+from horizon.domain.ports import ArtifactStorePort, CampaignBudgetPort
 from horizon.domain.run import Run
 from horizon.domain.tools import ToolCallRecord, ToolCallReservation
 
@@ -45,6 +46,54 @@ class RecoverableToolTurn:
     model: RecoverableModelTurn
     reservation: ToolCallReservation
     record: ToolCallRecord | None = None
+
+
+def persist_model_response(
+    response: ModelResponse,
+    artifact_store: ArtifactStorePort,
+) -> str:
+    """Publish and verify the canonical response before any Run receipt references it."""
+
+    payload = canonical_json(response).encode("utf-8")
+    expected_ref = digest(response)
+    artifact_ref = artifact_store.put(payload)
+    if artifact_ref != expected_ref or artifact_store.read(artifact_ref) != payload:
+        raise Conflict("Model response artifact verification failed")
+    return artifact_ref
+
+
+def quarantine_unsettled_model_call(
+    service: HarnessService,
+    campaign_ledger: CampaignBudgetPort,
+    *,
+    campaign_id: str,
+    run_id: str,
+    call_id: str,
+    token: LeaseToken,
+    error_type: str,
+) -> bool:
+    """Quarantine a dispatched call when no trusted Run response receipt exists."""
+
+    run = service.store.get(run_id)
+    if call_id not in run.model_reservations:
+        return False
+    reservation = run.model_reservations[call_id]
+    attempt = campaign_ledger.attempt(campaign_id, call_id)
+    if (
+        attempt.campaign_id != campaign_id
+        or attempt.request_hash != reservation.request_hash
+        or attempt.reserved_cost != reservation.reserved_cost
+    ):
+        raise Conflict("Campaign attempt does not match the quarantined model reservation")
+    service.mark_model_call_unknown(
+        run_id,
+        call_id,
+        token,
+        f"quarantine_{call_id}",
+    )
+    if attempt.status == "reserved":
+        campaign_ledger.mark_unknown(campaign_id, call_id, error_type)
+    return True
 
 
 def events_after_agent_session(run: Run, events: list[Event]) -> list[Event] | None:

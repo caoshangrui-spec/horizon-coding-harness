@@ -10,7 +10,12 @@ from uuid import uuid4
 from pydantic import Field, ValidationError
 
 from horizon.application.model_probe import conservative_input_sizing
-from horizon.application.model_recovery import RecoverableModelTurn, load_recorded_model_response
+from horizon.application.model_recovery import (
+    RecoverableModelTurn,
+    load_recorded_model_response,
+    persist_model_response,
+    quarantine_unsettled_model_call,
+)
 from horizon.application.services import HarnessService, LeaseToken
 from horizon.domain.budget import Usage
 from horizon.domain.common import Contract, canonical_json, digest
@@ -467,6 +472,7 @@ class PlanGenerator:
             reservation = ModelCallReservation(
                 call_id=call_id,
                 purpose="planning",
+                client_trace_id=trace_id,
                 request_hash=request.sha256,
                 provider_id=self.provider_id,
                 model=self.model_id,
@@ -537,36 +543,45 @@ class PlanGenerator:
                     type(exc).__name__,
                 )
                 raise
-            estimated_cost = self.pricing.cost_for(response.usage)
-            response_payload = canonical_json(response.model_dump(mode="json")).encode("utf-8")
-            response_ref = self.artifact_store.put(response_payload)
-            if self.artifact_store.read(response_ref) != response_payload:
-                raise Conflict("Planning response artifact verification failed")
-            record = ModelCallRecord(
-                call_id=call_id,
-                purpose="planning",
-                request_hash=request.sha256,
-                provider_id=self.provider_id,
-                model=response.model,
-                currency=self.pricing.currency,
-                estimated_cost=estimated_cost,
-                response_id=response.response_id,
-                response_artifact_ref=response_ref,
-                provider_trace_id=response.provider_trace_id,
-                finish_reason=response.finish_reason,
-                usage=response.usage,
-            )
-            run = self.service.settle_model_call(
-                run_id,
-                record,
-                Usage(
-                    model_calls=1,
-                    input_tokens=response.usage.input_tokens,
-                    output_tokens=response.usage.output_tokens,
-                ),
-                token,
-                f"settle_{call_id}",
-            )
+            try:
+                estimated_cost = self.pricing.cost_for(response.usage)
+                response_ref = persist_model_response(response, self.artifact_store)
+                record = ModelCallRecord(
+                    call_id=call_id,
+                    purpose="planning",
+                    request_hash=request.sha256,
+                    provider_id=self.provider_id,
+                    model=response.model,
+                    currency=self.pricing.currency,
+                    estimated_cost=estimated_cost,
+                    response_id=response.response_id,
+                    response_artifact_ref=response_ref,
+                    provider_trace_id=response.provider_trace_id,
+                    finish_reason=response.finish_reason,
+                    usage=response.usage,
+                )
+                run = self.service.settle_model_call(
+                    run_id,
+                    record,
+                    Usage(
+                        model_calls=1,
+                        input_tokens=response.usage.input_tokens,
+                        output_tokens=response.usage.output_tokens,
+                    ),
+                    token,
+                    f"settle_{call_id}",
+                )
+            except Exception:
+                quarantine_unsettled_model_call(
+                    self.service,
+                    self.campaign_ledger,
+                    campaign_id=self.campaign.campaign_id,
+                    run_id=run_id,
+                    call_id=call_id,
+                    token=token,
+                    error_type="PostResponseReceiptUnavailable",
+                )
+                raise
             self.campaign_ledger.settle(
                 self.campaign.campaign_id,
                 call_id,
