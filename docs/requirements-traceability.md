@@ -5,7 +5,7 @@
 本表是完整开发与验收导航。2026-09-30 已开始基础内核实现，实际证据列记录当前子范围与剩余缺口。目标路径相对 `src/horizon/`；计划测试路径相对 `tests/`；实际证据列的 `tests/` 路径相对仓库根。同一测试文件可验证多个 ID，但不能把子范围通过等同于整项通过。
 
 当前结果：2026-09-30 可靠性内核为 **92 项测试通过**；2026-10-04 的最新离线回归为
-**297 passed，6 skipped**，并在上一批边界单独补跑 **6 项真实 Docker 合同且全部通过**；另已完成一次 Tool Calling 探针和一次受预算
+**299 passed，6 skipped**，并在上一批边界单独补跑 **6 项真实 Docker 合同且全部通过**；另已完成一次 Tool Calling 探针和一次受预算
 保护的真实单 WorkItem Agent fixture Run。完整长程 Agent 未实现，未做独立安全复核。命令、环境、证据与限制见
 [开发进度](development-progress.md)。仍为“待填”的条目没有实现证据；“部分/初步”不代表
 完整需求通过。普通工作直接自检，关键风险及用户指定验收按需独立复核，
@@ -35,7 +35,7 @@
 | FR-301 | M3 | `domain/budget.py` | `unit/test_budget.py`：逐项验证 token/费用/调用/步骤/时间/返修上限 | 部分：Run 已同时约束模型/工具/step/token/repair，并用绑定 CNY policy 记录模型费用；Campaign 跨 Run 限额；`test_budget.py`、`test_campaign_budget.py`、`test_model_run_accounting.py`；TaskSpec 多币种迁移未完成 |
 | FR-302 | M3 | `domain/budget.py` | `unit/test_budget.py`：软阈与硬上限具有不同动作 | 待填 / 未审核 |
 | FR-303 | M3 | `orchestration/policies.py` | `integration/test_budget_gate.py`：软阈动作可见，硬上限后新调用为 0 | 部分：模型/工具派发前执行 Run 与 Campaign 硬门禁，unknown 阻止后续调用；软阈动作未实现 |
-| FR-304 | M3 | `trace/projector.py` | `integration/test_budget_replay.py`：重建账本与摘要完全一致 | 部分：`domain/run.py` 可重建通用、模型 CNY、工具和 unknown 账本；真实 Run JSONL 重放 projection hash 与 SQLite 一致；完整跨组件恢复仍待实现 |
+| FR-304 | M3 | `trace/projector.py` | `integration/test_budget_replay.py`：重建账本与摘要完全一致 | 部分：`domain/run.py` 可重建通用、模型 CNY、工具和 unknown 账本；真实 Run JSONL 重放 projection hash 与 SQLite 一致；`trace reservation-report` 在 replay 校验后关联模型预留/结算并按币种量化压力，六轮 20 调用的聚合预留/结算比为 6.861621，但不自动修改 estimator；完整跨组件恢复仍待实现 |
 | FR-305 | M3 | `domain/budget.py` | `fault_injection/test_unknown_cost.py`：未知费用不结算为 0 | 部分：Run 与 Campaign 均保留 unknown 占用；reconciliation 可补齐已存在的可信 Run receipt，但供应商主动查询/迟到回执尚未接入 |
 | FR-401 | M4 | `tools/gateway.py`, `application/agent_loop.py` | `integration/test_agent_loop.py`：逐项验收与最终 required 全量回归，缺结构化结果拒绝 | 部分：中间项运行自身 acceptance，最后项重跑全部 required checks；控制器可执行注册检查而模型仍受当前项 ID 限制；多类型检查/环境分类未实现 |
 | FR-402 | M4 | `validation/engine.py` | `e2e/test_completion_gate.py`：submit 只触发验收，失败不能成功 | 已在首个闭环实现：自然语言完成不被接受，`submit` 只触发 protected validation；`test_agent_loop.py` 与真实 fixture Run |

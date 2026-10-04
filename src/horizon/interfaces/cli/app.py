@@ -45,6 +45,7 @@ from horizon.application.portfolio_demo import PortfolioDemoRunner
 from horizon.application.promotion import PromotionService
 from horizon.application.recovery import RecoveryService
 from horizon.application.reliability_eval import ReliabilityEvaluator
+from horizon.application.reservation_analysis import analyze_reservation_traces
 from horizon.application.retrieval_eval import RetrievalEvaluator
 from horizon.application.run_ab_eval import (
     RunABEvaluator,
@@ -558,6 +559,19 @@ def trace_export(ctx: typer.Context, run_id: str, output: Path | None = None):
 def trace_replay(path: Path):
     run = SQLiteEventStore.replay_jsonl(path.read_text(encoding="utf-8"))
     typer.echo(canonical_json({"state": run.as_dict(), "projection_hash": projection_hash(run)}))
+
+
+@traces.command("reservation-report")
+@guarded
+def trace_reservation_report(
+    paths: Annotated[
+        list[Path],
+        typer.Argument(help="One or more replayable Trace JSONL files."),
+    ],
+):
+    """Compare conservative model reservations with settled provider-reported usage."""
+
+    typer.echo(canonical_json(analyze_reservation_traces(paths)))
 
 
 @demos.command("run")

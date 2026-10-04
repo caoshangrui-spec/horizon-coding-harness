@@ -480,6 +480,12 @@ occupied/settled 为 `CNY 0.1302414`、remaining 为 `CNY 0.0497586`，reserved/
 新 Campaign，也不自动复跑；应先离线分析完整请求固定开销与历史 reserved/actual 比率，再决定
 是否有足够证据修改预算估计或上下文合同。
 
+上述离线分析现已落地为 `horizon trace reservation-report`。六轮 20 个已结算调用经 Trace replay
+后得到：派发时预留费用累计 `CNY 1.341318`、本地 PriceCard 结算累计 `CNY 0.1954812`，聚合比
+`6.861621`；input 上界/Provider input 的单调用中位数为 `7.100207`。这确认了系统性预留压力，
+但 17 个较早调用没有 request-byte estimator 元数据，因此仍不授权直接替换硬门禁公式。口径和
+限制见[模型预算预留诊断](reservation-diagnostics.md)。
+
 ## 13. 后续付费 Pilot 的完成条件
 
 正式运行时只接受 preflight 输出的 TaskSpec/report、同一镜像和专用 Provider policy。结果无论

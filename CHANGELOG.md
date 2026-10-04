@@ -5,6 +5,12 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Added an offline `trace reservation-report` command that replay-verifies one or more traces,
+  correlates model reservations with settlements, quantifies token/cost pressure, rejects duplicate
+  Runs, and preserves the distinction between PriceCard estimates and provider invoices.
+- Measured all six real-model traces without another provider call: 20 settled calls had a 6.861621
+  aggregate reserved-to-settled cost ratio; the evidence diagnoses over-reservation but does not
+  automatically weaken the estimator or budget gates.
 - Recorded a sixth replayable real-model negative result: revision-bound retrieval corrected an
   unsupported Plan location to the actual `tenumerate` implementation at rank 1, but the next
   model dispatch stopped at the Campaign gate before any edit or validation.
