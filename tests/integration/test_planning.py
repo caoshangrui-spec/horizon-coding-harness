@@ -222,7 +222,9 @@ def test_generated_plan_is_budgeted_validated_and_trace_linked(tmp_path):
     assert "exactly one WorkItem" in model.requests[0].messages[0].content
     assert "never create standalone locate" in model.requests[0].messages[0].content
     assert "inventory proves only that a path exists" in model.requests[0].messages[0].content
-    assert "do not guess an exact implementation path" in model.requests[0].messages[0].content
+    assert "unless it appears verbatim in repository_paths" in (
+        model.requests[0].messages[0].content
+    )
     assert context.repository_paths == ("src/parser.py", "tests/test_parser.py")
     assert "pytest unit" not in model.requests[0].messages[1].content
     assert (
@@ -310,6 +312,52 @@ def test_invalid_planner_proposal_is_not_retried(tmp_path):
     summary = ledger.summary("planning-tests")
     assert summary.reserved_cost == Decimal("0")
     assert summary.unknown_cost == Decimal("0")
+
+
+def test_planner_rejects_path_absent_from_complete_inventory_without_retry(tmp_path):
+    proposal = valid_proposal()
+    proposal["items"][0]["expected_artifacts"] = [
+        "Evidence-discovered change in src/missing.py (or the file where parse is defined)"
+    ]
+    generator, _, store, ledger, run_id, token, context, model, _ = setup_planner(
+        tmp_path,
+        [proposal],
+    )
+
+    with pytest.raises(PlanProposalError, match="absent from the complete repository inventory"):
+        generator.generate_and_set(run_id, token, context)
+    with pytest.raises(PlanProposalError, match="absent from the complete repository inventory"):
+        generator.generate_and_set(run_id, token, context)
+
+    run = store.get(run_id)
+    assert run.status == RunStatus.PLANNING
+    assert run.plan is None
+    assert run.usage.model_calls == 1
+    assert len(model.requests) == 1
+    summary = ledger.summary("planning-tests")
+    assert summary.settled_cost == run.model_occupied_cost
+    assert summary.reserved_cost == Decimal("0")
+    assert summary.unknown_cost == Decimal("0")
+
+
+def test_planner_does_not_reject_unknown_path_from_truncated_inventory(tmp_path):
+    generator, _, _, _, run_id, token, context, model, _ = setup_planner(
+        tmp_path,
+        [valid_proposal()],
+    )
+    truncated = context.model_copy(
+        update={
+            "repository_paths": ("src/parser.py",),
+            "repository_path_count": 2,
+            "repository_paths_truncated": True,
+        }
+    )
+
+    result = generator.generate_and_set(run_id, token, truncated)
+
+    assert result.run.status == RunStatus.READY
+    assert result.plan == Plan.model_validate(valid_proposal())
+    assert len(model.requests) == 1
 
 
 def test_planner_rejects_duplicate_acceptance_ownership_without_retry(tmp_path):

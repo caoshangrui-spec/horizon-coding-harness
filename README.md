@@ -13,7 +13,7 @@ Horizon 是一个面向长程软件工程任务的**可恢复执行控制层**�
 包装成完成。
 
 > **当前状态：** v0.1.0 工程核心可运行。离线 Harness 主链路和来源绑定的完整 checkout
-> A/B 已有可重放证据；四次真实模型 Pilot 均为负结果，因此目前**不宣称真实 Issue 成功率或
+> A/B 已有可重放证据；五次真实模型 Pilot 均为负结果，因此目前**不宣称真实 Issue 成功率或
 > 官方 benchmark 成绩**。
 
 ## 为什么值得看
@@ -67,10 +67,10 @@ workspace revision 绑定并从 Trace 复算。模型动作由冻结脚本提供
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | Python 3.12/3.13 的测试、静态检查、演示和构建已通过 | CI 不读取 API Key、不运行付费模型 |
-| 离线回归 | `295 passed, 6 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `297 passed, 6 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | Docker 契约 | `redis:7-alpine` 上单独复跑 `6 passed` | 有限隔离合同，不是恶意代码安全认证 |
 | 完整 checkout A/B | tqdm 82 files、youtube-dl 872 files；初始失败门、恢复、replan、最终验收和 Trace replay 通过 | 使用 Scripted Model，不是模型能力成绩 |
-| 真实模型 Pilot | 四轮均可重放、费用可核对、source 未变 | 四轮均未编辑或验证成功，保留为负结果 |
+| 真实模型 Pilot | 五轮均可重放、费用可核对、source 未变 | 五轮均未编辑或验证成功，保留为负结果 |
 
 更完整的数字、失败记录与未完成项见
 [开发进度与验证记录](docs/development-progress.md)。
@@ -193,10 +193,10 @@ uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
 # 当前 tqdm 候选的零费用预检；不读取 API Key、不调用模型，并绑定当前源码指纹。
 # 它只生成启动条件，不授予或触发付费运行。
 uv run --locked --cache-dir .uv-cache horizon eval pilot-preflight `
-  benchmarks/run_ab/full/tqdm-1-tenumerate-start/real-model-pilot.yaml `
+  benchmarks/run_ab/full/tqdm-1-tenumerate-start/real-model-pilot-v2.yaml `
   --image python:3.12-alpine `
-  --config config/providers/siliconflow-tqdm-pilot.yaml `
-  --state-dir .horizon/real-model-pilot-tqdm-v1
+  --config config/providers/siliconflow-tqdm-pilot-v2.yaml `
+  --state-dir .horizon/real-model-pilot-tqdm-v3
 ```
 
 示例 TaskSpec 的仓库路径和 SHA 是占位值，仅验证控制面，不会执行示例测试命令。
@@ -235,7 +235,7 @@ uv run --locked --cache-dir .uv-cache horizon agent run `
   examples/agent-task.yaml --auto-plan `
   --image redis:7-alpine --confirm-paid
 
-# 当前 tqdm 候选使用 CNY 0.06 Run cap；retry Campaign 余额为 CNY 0.0681666。
+# 当前 tqdm v2 候选使用 CNY 0.062 Run cap；retry Campaign 余额为 CNY 0.0625926。
 # preflight 不构成付费授权。任何真实运行仍须取得新的明确外发和费用授权。
 
 # 长任务可在完整模型—工具轮次后安全让出，再由新进程继续。
@@ -301,15 +301,16 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **295 passed，6 skipped**；6 个跳过项指定本机已有
+当前离线全量回归为 **297 passed，6 skipped**；6 个跳过项指定本机已有
 `redis:7-alpine` 单独复跑，得到 **6 passed** 的真实 Docker 契约结果。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实
 Issue 效果。新增真实模型 Pilot 单元测试覆盖私有答案拒绝、初始失败证据、内容寻址报告和
 启动时任务/源码/镜像/Provider/Harness 源码漂移拒绝；真实 checkout 的离线 Docker preflight
-已通过，新的 tqdm 候选还把首次规划保守预留纳入 `ready` 门。四轮真实模型负结果均已导出并可重放，分别驱动 Plan/搜索反馈、有界行读取/
+已通过，新的 tqdm 候选还把首次规划保守预留纳入 `ready` 门。五轮真实模型负结果均已导出并可重放，分别驱动 Plan/搜索反馈、有界行读取/
 近期完整单元应急压缩/异常租约释放、“不猜路径、优先 revision-bound 证据、默认 rank 1”，
-以及范围参数成对约束/规划输入收窄。retry Campaign 当前仍剩 `CNY 0.0681666`，本系列实际
-累计付费 `CNY 0.1770732`；第四轮源码修复已使旧 preflight 失效，没有自动重试或 fallback。
+范围参数成对约束/规划输入收窄，以及完整 inventory 下的计划路径准入。第五轮只完成规划，
+第一条执行请求在派发前因 Run 余额短缺 `CNY 0.000096` 被硬门禁终止。retry Campaign 当前仍剩
+`CNY 0.0625926`，本系列实际累计付费 `CNY 0.1826472`；没有自动重试或 fallback。
 未来确定性费用拒绝不再留下无 Lease 的 `RUNNING`：控制器会持久化类型化 `BudgetStop`、进入
 `FAILED` 并在 CLI/status 中报告所需与可用金额；unknown 用量仍保守进入对账路径。
 详情见下方文档。故障测试实际强制退出

@@ -1,9 +1,9 @@
-# 真实模型 Pilot：离线预检、四轮负结果与付费边界
+# 真实模型 Pilot：离线预检、五轮负结果与付费边界
 
-更新：2026-10-03。本 Pilot 的目标不是立即追求 benchmark 分数，而是在**完整真实仓库、
-模型自主计划、模型自主检索和编辑**的条件下观察 Harness 的真实失败分布。已执行四个
+更新：2026-10-04。本 Pilot 的目标不是立即追求 benchmark 分数，而是在**完整真实仓库、
+模型自主计划、模型自主检索和编辑**的条件下观察 Harness 的真实失败分布。已执行五个
 付费 Agent Run：分别暴露计划结构/检索反馈、无界读取/上下文投影、Plan 路径假设/请求预留
-过大，以及单边范围读取/单 Run 预留边界问题。四轮均没有修改代码或进入验收；结果可重放且
+过大、单边范围读取/单 Run 预留，以及完整 inventory 路径准入问题。五轮均没有修改代码或进入验收；结果可重放且
 费用可对账，但不是 Issue 成功证据，也不足以推出模型或 Harness 的总体能力结论。
 
 ## 1. 为什么复用现有主循环
@@ -390,10 +390,61 @@ preflight 同时补上了一个此前缺失的门：根据冻结 TaskSpec、允�
   `sha256:0687a6bc9716edc2a6ee0fbfb0f87e7ee358b262b67c9215de91bc9b2d38ba71`；
 - `credential_loaded=false`、`paid_model_called=false`、`network_called=false`。
 
-这不是第五个真实模型 Run，也不是成功证据。生成的 launch command 被刻意停在
+在该 preflight 生成时，这还不是第五个真实模型 Run，也不是成功证据。生成的 launch command 被刻意停在
 `--confirm-paid` 之前；现有旧授权均已用完，只有新的明确外发与费用授权才能启动。
 
-## 11. 后续付费 Pilot 的完成条件
+## 11. tqdm 第五轮：规划成功、执行派发前预算停止
+
+用户明确授权只执行一次 tqdm-1 运行：Run 上限 `CNY 0.06`，历史系列累计上限仍为
+`CNY 0.25`，最多 6 次模型调用，每次请求不重试、不 fallback。Run
+`run_fec07b6bf28d45d5bc428cda120959a3` 的实际结果为类型化失败，而不是 Issue 修复成功：
+
+- 状态 `FAILED`，`failure_reason=run_model_cost_limit`；
+- 唯一规划调用成功结算：1,117 input / 247 output tokens，实际费用 `CNY 0.005574`；
+  response Artifact 为
+  `250b49c66ac60dfe1a799f079d1731fac2d864176529517259a8f3531378e806`，Provider trace ID 为
+  `ti_jdbd1xd8wvvro97i3p`；
+- 第一条 execution 请求需保守预留 `CNY 0.054522`，但 Run 只余 `CNY 0.054426`，短缺
+  `CNY 0.000096`。控制器在 Provider 派发前写入 `BudgetStop` 并清除 Lease；
+- execution 模型调用、工具调用、步骤、编辑、checkpoint 和 protected validation 均为 0；
+  source 与 staging workspace revision 都保持
+  `0facaee0ad34b048338c656cdbfc61dfc443229991d7b6573ccf0bcc8e9effc2`；
+- Campaign 没有 reservation/unknown，occupied/settled 为 `CNY 0.1174074`，remaining 为
+  `CNY 0.0625926`。连同首轮独立 Campaign，本系列实际累计为 `CNY 0.1826472`。
+
+Trace 位于
+`.horizon/real-model-pilot-tqdm-v2/run_fec07b6bf28d45d5bc428cda120959a3.trace.jsonl`，共 14 个
+事件，文件 SHA-256 为
+`4f542b0cc5106b506430b866f7e34274b20351171b71e933b7a5d447950179d8`；离线 replay 得到投影 hash
+`1cfa80c84ffb476767a39afbc6b02af135b86826d7e531d01929253ec3d4143c`，与终态一致。
+
+该轮还保留了第二个独立负结果：虽然 prompt 已要求“不猜实现路径”，模型仍在
+expected artifacts 中写入不存在的 `tqdm/contrib/itertools.py`。离线修复没有增加规划器、向量库
+或第二模型，而是在已有 one-shot Planner 的控制器验收中加入一个窄规则：仅当 inventory 完整时，
+拒绝标题、目标或 expected artifacts 中不在清单内的路径；inventory 截断时保持未知，不作误判。
+非法响应继续进入现有人工计划 fallback，且复用已结算 response 时不重复计费。
+
+第五轮授权已经消耗完，没有复跑。为下一次可能的运行只准备了新的零费用合同：
+
+- manifest：
+  [`real-model-pilot-v2.yaml`](../benchmarks/run_ab/full/tqdm-1-tenumerate-start/real-model-pilot-v2.yaml)；
+- policy：
+  [`siliconflow-tqdm-pilot-v2.yaml`](../config/providers/siliconflow-tqdm-pilot-v2.yaml)；
+- 新 Run cap 为 `CNY 0.062`。这是根据实际短缺和固定的 execution 512-token 输出上界设置的
+  新独立 policy；最坏情况下 Campaign 为 `0.1174074 + 0.062 = CNY 0.1794074`，系列为
+  `0.1826472 + 0.062 = CNY 0.2446472`，仍分别低于 `CNY 0.18` 和 `CNY 0.25`；
+- 禁网 Docker preflight 为 `ready=true`，首次规划 input/output ceiling 为 8,622/768 tokens，
+  预留 `CNY 0.032778`；prepared Task ref 为
+  `ceb471da1e0af85e7567f6bae14ed84332b27495a9ec786ad38e2344c9dd5ce6`，report ref 为
+  `72715671ce28cfe92f7ffb5ed6beb466cec628f9218fc5fc9d58b6a7a969f176`，Harness digest 为
+  `8335b5419ca0ce80b3605d5374b11b1bbeb509ea11f9de92646c5f665d8ff8f7`；
+- `credential_loaded=false`、`paid_model_called=false`、`network_called=false`，初始负例按预期
+  失败且 source unchanged。
+
+该 preflight 只是可启动证据，不是新的付费授权，也不保证动态后续请求都能放进预算。任何新的
+真实运行仍需用户再次明确同意外发范围、单 Run 上限和累计上限。
+
+## 12. 后续付费 Pilot 的完成条件
 
 正式运行时只接受 preflight 输出的 TaskSpec/report、同一镜像和专用 Provider policy。结果无论
 成功还是失败，都必须记录：
@@ -406,6 +457,6 @@ preflight 同时补上了一个此前缺失的门：根据冻结 TaskSpec、允�
 - 失败分类，而不是人工补丁替模型完成任务。
 
 一次通过只能称为“真实模型 Pilot 个案”，不能称为 BugsInPy 分数、泛化能力或长程任务
-成功率。第四轮仍是失败个案，旧报告已因源码变化失效。任何下一次付费 continuation 都需要
+成功率。第五轮仍是失败个案。任何下一次付费 continuation 都需要
 新的零费用 preflight、与剩余额度一致的新 Run cap，以及新的明确授权；仍不增加向量库、多
 Agent、Project Memory、自动 fallback 或第二次 replan。

@@ -1,6 +1,6 @@
 # 一次性自动计划生成与恢复合同
 
-更新：2026-10-02。本文描述已经实现的自动计划入口；它把结构化 `TaskSpec` 转成受控的
+更新：2026-10-04。本文描述已经实现的自动计划入口；它把结构化 `TaskSpec` 转成受控的
 WorkItem DAG，不把自然语言意图识别、通用动态重规划或真实长程任务效果冒充为已完成。执行期
 另有一次受限 revision，见[执行证据驱动的单次受限 Replan](execution-replanning.md)。
 
@@ -90,7 +90,13 @@ Schema 要求 Plan version 1、1～8 个 WorkItem，以及每项的 ID、标题�
 3. 不得虚构验收 ID，所有 required acceptance 必须被覆盖；
 4. 每项工具必须是 execution mode 的允许子集；
 5. Plan version 必须为 1，WorkItem 不超过 8 个；
-6. 计划事件必须引用已结算且 `purpose=planning` 的模型调用。
+6. inventory 完整时，标题、目标和 expected artifacts 中出现的路径必须逐字存在于该清单；
+7. 计划事件必须引用已结算且 `purpose=planning` 的模型调用。
+
+第 6 项只在 `repository_paths_truncated=false` 时作否定判断：完整清单可以证明路径不存在；
+截断清单则不能。当前写工具只修改既有文件，因此这条准入没有收窄现有写入能力；项目目前
+本就不支持文件新增。非法路径响应仍只结算原规划调用并进入人工计划 fallback，不会
+自动重试模型。
 
 写任务可分配 `search_repo`、`read_file`、`retrieve_code`、`replace_text`、`apply_patch` 和
 `run_check`。只读/仅计划任务只允许前三个读取工具。`submit` 由执行循环统一提供，不需要写入

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fnmatch
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from decimal import Decimal
@@ -42,6 +43,11 @@ from horizon.domain.task import TaskSpec, relative_pattern
 
 PLAN_TOOL_NAME = "propose_plan"
 DEFAULT_MAX_INVENTORY_PATHS = 50
+REPOSITORY_PATH_MENTION = re.compile(
+    r"(?<![A-Za-z0-9_.-])"
+    r"((?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+\.[A-Za-z0-9]{1,12})"
+    r"(?![A-Za-z0-9_.-])"
+)
 
 
 class PlanGeneratorConfig(Contract):
@@ -141,7 +147,14 @@ def _plan_tool(context: PlanningContext) -> ToolDefinition:
                                 "type": "array",
                                 "minItems": 1,
                                 "maxItems": 16,
-                                "items": {"type": "string"},
+                                "items": {
+                                    "type": "string",
+                                    "description": (
+                                        "Name an exact repository path only when it appears "
+                                        "verbatim in repository_paths; otherwise describe the "
+                                        "evidence or behavior generically."
+                                    ),
+                                },
                             },
                             "acceptance_ids": {
                                 "type": "array",
@@ -195,9 +208,10 @@ def build_plan_request(
                     "or verify items that reuse the same final check. For a simple task with one "
                     "acceptance check, prefer one end-to-end WorkItem. Repository inventory "
                     "proves only that a path exists, not that it contains the implementation. "
-                    "Unless the immutable task explicitly names a path, do not guess an exact "
-                    "implementation path in objectives or expected_artifacts; describe the "
-                    "evidence-discovered source change instead."
+                    "Do not name an exact implementation path unless it appears verbatim in "
+                    "repository_paths; the current write tools only modify existing files. "
+                    "Describe an evidence-discovered source change instead when the location is "
+                    "not established."
                 ),
             ),
             ModelMessage(
@@ -299,7 +313,12 @@ class PlanGenerator:
         )
         return record, response
 
-    def _parse_plan(self, response: ModelResponse, task: TaskSpec) -> Plan:
+    def _parse_plan(
+        self,
+        response: ModelResponse,
+        task: TaskSpec,
+        context: PlanningContext,
+    ) -> Plan:
         calls = response.message.tool_calls
         if len(calls) != 1 or calls[0].function.name != PLAN_TOOL_NAME:
             raise PlanProposalError("Planner must call propose_plan exactly once")
@@ -310,6 +329,20 @@ class PlanGenerator:
             permitted = set(permitted_plan_tools(task))
             if any(not set(item.allowed_tools) <= permitted for item in plan.items):
                 raise ValueError("Generated Plan requested a tool outside controller policy")
+            if not context.repository_paths_truncated:
+                repository_paths = set(context.repository_paths)
+                mentioned_paths = {
+                    match.group(1)
+                    for item in plan.items
+                    for value in (item.title, item.objective, *item.expected_artifacts)
+                    for match in REPOSITORY_PATH_MENTION.finditer(value)
+                }
+                missing_paths = sorted(mentioned_paths - repository_paths)
+                if missing_paths:
+                    raise ValueError(
+                        "Generated Plan names path(s) absent from the complete repository "
+                        f"inventory: {', '.join(missing_paths)}"
+                    )
             plan.check_task(task)
         except (PolicyDenied, ValidationError, ValueError) as exc:
             raise PlanProposalError(f"Planner proposal failed validation: {exc}") from exc
@@ -528,7 +561,7 @@ class PlanGenerator:
                 raise Conflict("Planning usage exceeded the Run budget")
             reused_response = False
 
-        plan = self._parse_plan(response, run.task)
+        plan = self._parse_plan(response, run.task, context)
         completed = self.service.set_plan(
             run_id,
             plan,

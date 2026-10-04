@@ -5,6 +5,12 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Rejected model-generated paths that are absent from a complete planning inventory while
+  preserving abstention when that inventory is truncated; the real-model response is still
+  settled once and falls back to the existing human-plan path without an implicit retry.
+- Recorded a fifth replayable real-model negative result: planning cost CNY 0.005574, then the
+  first execution dispatch stopped before the provider because its reservation exceeded the Run
+  remainder by CNY 0.000096; no tool, edit, or validation occurred.
 - Added a Trace-verifiable retrieval-to-write lineage to the offline portfolio demo: report schema
   v2 binds the retrieval Artifact, write-time context projection, exact preimage hash, target path,
   and workspace revision while retaining read compatibility for schema v1 reports.
