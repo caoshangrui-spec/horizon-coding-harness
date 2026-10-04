@@ -1,0 +1,14 @@
+schema_version: 1
+benchmark_id: luigi-1-holdout-localization-v2
+allowed_paths:
+  - luigi/**
+denied_paths:
+  - .git/**
+  - .env
+  - .env.*
+cases:
+  - case_id: luigi-1-metrics-handler
+    query: metrics handler get calling method on wrong object
+    expected_paths:
+      - luigi/server.py
+    max_chunks: 5

@@ -1,0 +1,85 @@
+schema_version: 1
+benchmark_id: external-holdout-localization-v2
+selection_commit: 83ca2c1f0098720ada888fbfb7186f269fd3172f
+retrieval_code_commit: 5c6fe2d0c7fbe295fd5be866799d2eb4f99e4cc7
+evaluated_at: "2026-10-04"
+
+gold_reveal:
+  rule: Production paths changed between each frozen buggy and fixed commit.
+  command_output_kind: name_status_only
+  patch_content_read: false
+
+execution:
+  independent_of_v7_treatment: true
+  model_called: false
+  network_called_by_evaluator: false
+  repository_code_executed: false
+
+aggregate:
+  case_count: 3
+  hit_at_1: 3
+  hit_at_5: 3
+  expected_path_count: 3
+  relevant_path_count: 3
+  micro_path_recall_at_5: 1.0
+  mean_reciprocal_rank: 1.0
+  degraded_case_count: 2
+  scoped_file_count: 291
+  indexed_file_count: 252
+  skipped_file_count: 39
+
+cases:
+  - case_id: luigi-1-metrics-handler
+    source_head: 1164eb6b85b8a70f596dbb99452bec513e72c12e
+    expected_paths: [luigi/server.py]
+    returned_paths:
+      - luigi/server.py
+      - luigi/metrics.py
+      - luigi/scheduler.py
+      - luigi/target.py
+      - luigi/parameter.py
+    first_relevant_rank: 1
+    path_recall_at_5: 1.0
+    indexed_file_count: 131
+    skipped_file_count: 36
+    retrieval_status: degraded
+    degradation_reasons: [non_utf8_file_skipped, oversized_line_skipped]
+    report_ref: 63b4165ae636df6ebcb924cae2b82cf6ea005d0f0ef927864dab1040abc74ebb
+
+  - case_id: sanic-1-blueprint-middleware-order
+    source_head: e7001b00747b659f7042b0534802b936ee8a53e0
+    expected_paths: [sanic/app.py]
+    returned_paths:
+      - sanic/app.py
+      - sanic/blueprints.py
+      - sanic/blueprint_group.py
+      - sanic/response.py
+      - sanic/request.py
+    first_relevant_rank: 1
+    path_recall_at_5: 1.0
+    indexed_file_count: 27
+    skipped_file_count: 0
+    retrieval_status: ok
+    degradation_reasons: []
+    report_ref: af6555f844195cd9b26bf1782c4731b6050299bcd223cdcd56c258c820a8c047
+
+  - case_id: tornado-1-websocket-nodelay
+    source_head: 6a5a0bfa370b6c0d3dbbf9589a560a98202d2baa
+    expected_paths: [tornado/websocket.py]
+    returned_paths:
+      - tornado/websocket.py
+      - tornado/iostream.py
+      - tornado/log.py
+      - tornado/autoreload.py
+      - tornado/test/asyncio_test.py
+    first_relevant_rank: 1
+    path_recall_at_5: 1.0
+    indexed_file_count: 94
+    skipped_file_count: 3
+    retrieval_status: degraded
+    degradation_reasons: [non_utf8_file_skipped]
+    report_ref: 9cad85edcef5780267e2aa7707c591e1fa1e38678ca4791eaf2c170adf260fb5
+
+evidence_boundary:
+  statement: This small author-selected holdout supports current lexical localization on three externally sourced bugs; it is not an official BugsInPy score or evidence that an Agent can plan, edit, and validate the fixes.
+  degradation_note: Luigi skips bundled fonts, images, and minified assets; Tornado skips three binary test fixtures. All three expected production paths were indexed and integrity-checked.

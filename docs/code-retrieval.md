@@ -175,7 +175,8 @@ camelCase 定义和 `registerSocksProtocols` 的 snake_case 定义都排在 rank
 跳过 9/2，两个目标生产文件均 rank 1，但查询由作者冻结、Agent 动作由脚本给定，也没有无 RAG
 对照。另有三个未参与规则开发的外部任务形成顺序冻结盲测：v6 为 Hit@1 0/3、top-5 production
 path recall 3/4；不同文件优先的 v7 为 Hit@1 0/3、recall 4/4。v7 已使用基线结果，不是独立
-holdout。因此仍没有真实模型生成查询、Agent 成功率或跨任务相对增益证据。
+holdout。随后独立冻结的 Luigi/Sanic/Tornado 三案例在 v7 上均为 rank 1；其中两个因跳过
+二进制/压缩资源保持 degraded。它仍不代表模型会生成同样查询或完成修改验证。
 
 ## 9. 已知限制与下一步
 
@@ -187,6 +188,6 @@ holdout。因此仍没有真实模型生成查询、Agent 成功率或跨任务�
 - BM25 rank 依赖 SQLite/分词配置，不作为跨环境科学比较指标。
 - Evidence snippet 进入 Agent transcript/Trace Artifact；生产级敏感信息分类与脱敏仍未完成，
   因此 TaskSpec path scope 必须继续最小化。
-- 下一步应冻结新的外部 holdout，而不是继续针对现有三个任务调参；只有新样本仍显示稳定的
-  语义排序缺口，才评估真正的 symbol-aware/embedding 索引。内部 5+2+2、dirty revision、
-  两个完整 checkout 和本轮 3 个外部案例都不能单独支持“RAG 效果完成”的结论。
+- 第二批独立 holdout 没有复现 rank-1 缺口，当前不引入 symbol-aware/embedding/vector 索引。
+  下一步验证 Agent 是否能消费已有 EvidencePack 并产生有效修改；只有更多新样本再次稳定暴露
+  语义排序失败，才重开检索架构。现有结果不能单独支持“RAG 效果完成”的结论。

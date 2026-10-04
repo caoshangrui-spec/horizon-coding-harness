@@ -76,6 +76,20 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 ## 验证结果
 
+### 2026-10-04 第二批独立外部定位 holdout
+
+- v7 完成后，Luigi 1、Sanic 1、Tornado 1 的错误/修复 commit、公开 failing-test 名和查询先冻结
+  在 commit `83ca2c1f0098720ada888fbfb7186f269fd3172f`，之后才以 name-status-only 方式揭示
+  production gold path；没有读取补丁正文、执行仓库代码或调用模型。
+- 三个真实修复文件均为 **rank 1**，因此 Hit@1/Hit@5/Micro Recall/MRR 都是 1.0。内容寻址
+  report ref、完整 top 5 与 source HEAD 见
+  [`result-v7.yaml`](../benchmarks/retrieval/external-holdout-v2/result-v7.yaml)。
+- 291 个 scoped 文件中索引 252、跳过 39；Luigi 的二进制/单行压缩静态资源使其 degraded，
+  Tornado 的 3 个二进制测试 fixture 也使其 degraded，Sanic 为 ok。目标 production 文件均未
+  被跳过。该结果是 3 个作者选择案例的定位证据，不是官方 BugsInPy 分数或端到端修复成功率。
+- 新 holdout 没有复现首批 0/3 Hit@1 缺口，因此当前不增加 symbol、embedding 或 vector
+  组件；下一阶段转向 Agent 的“检索证据是否被正确消费并产生有效修改”。
+
 ### 2026-10-04 外部定位盲测与路径多样化
 
 - 在未查看补丁和 gold path 前，把 Cookiecutter 2、HTTPie 2、The Fuck 1 的上游标题查询冻结在

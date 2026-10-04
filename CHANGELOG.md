@@ -5,6 +5,9 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Added a second, independently frozen external localization holdout across Luigi, Sanic, and
+  Tornado; current v7 retrieval ranked all three changed production files first while preserving
+  two degraded cases caused by explicitly skipped binary/minified assets.
 - Added a three-project external localization blind baseline and a bounded path-diversity
   treatment; the treatment recovers all four changed production paths in top 5 while the
   unchanged 0/3 Hit@1 result remains an explicit limitation.

@@ -153,10 +153,39 @@ rank 2。完整 returned path 和内容寻址 report ref 保存在
 为 0.444444；但 **Hit@1 仍为 0/3**。完整结果见
 [`treatment-v7.yaml`](../benchmarks/retrieval/external-blind-v1/treatment-v7.yaml)。因为 v7 使用了该
 基线的失败信息，它是自适应 treatment，不是新的独立 holdout；不能据此声称跨任务泛化或真实
-Agent 成功率提升。后续只有在新冻结 holdout 上仍出现可解释的语义排序缺口，才评估 symbol 或
-embedding，而不是继续针对这三个案例调参。
+Agent 成功率提升。
 
-## 8. 其他外部执行证据
+## 8. 第二批独立冻结 holdout
+
+v7 完成后、读取任何新修复文件名之前，Luigi 1、Sanic 1、Tornado 1 的错误/修复 commit、
+BugsInPy failing-test 名和自然语言查询被单独冻结在 commit
+`83ca2c1f0098720ada888fbfb7186f269fd3172f`。选择协议见
+[`external-holdout-v2/selection.yaml`](../benchmarks/retrieval/external-holdout-v2/selection.yaml)。
+随后仍只用 `git diff --name-status` 揭示 production gold path，未读取补丁正文、调用模型或执行
+外部代码。
+
+当前 v7 结果为：
+
+| 指标 | 新 holdout |
+|---|---:|
+| Hit@1 | 3/3 |
+| Hit@5 | 3/3 |
+| Micro path recall@5 | 3/3 = 1.0 |
+| MRR | 1.0 |
+| degraded cases | 2/3 |
+
+三个目标分别为 `luigi/server.py`、`sanic/app.py`、`tornado/websocket.py`，均为 rank 1。291 个
+scoped 文件中实际索引 252 个、跳过 39 个：Luigi 的 36 个是字体、图片和单行压缩前端资源；
+Tornado 的 3 个是二进制测试 fixture。目标 production 文件均已索引并在返回前通过 immutable
+Artifact 复核，因此命中保留，同时两个案例继续标记 `degraded`。完整路径、计数和 report ref
+见 [`result-v7.yaml`](../benchmarks/retrieval/external-holdout-v2/result-v7.yaml)。
+
+这批任务没有参与 v7 规则设计，可以作为当前实现的独立顺序 holdout；但只有 3 个作者选择的
+案例，查询含有 `metrics handler`、`blueprint middleware`、`websocket nodelay` 等明确词项，
+不是随机样本或官方 BugsInPy 成绩。它降低了立即引入 symbol/vector 的必要性，却不能证明
+Agent 会生成同样的查询，更不能证明能够完成计划、修改和验证。
+
+## 9. 其他外部执行证据
 
 补充证据不并入上述固定 5 案例分数：[双项目完整 checkout suite](full-checkout-pilot.md)用作者
 冻结的查询在 82/872 文件上游仓库中都返回目标生产文件 rank 1；分别有 73/870 个文件可索引、
