@@ -5,6 +5,9 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Added a Trace-verifiable retrieval-to-write lineage to the offline portfolio demo: report schema
+  v2 binds the retrieval Artifact, write-time context projection, exact preimage hash, target path,
+  and workspace revision while retaining read compatibility for schema v1 reports.
 - Added a second, independently frozen external localization holdout across Luigi, Sanic, and
   Tornado; current v7 retrieval ranked all three changed production files first while preserving
   two degraded cases caused by explicitly skipped binary/minified assets.

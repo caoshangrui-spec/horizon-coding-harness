@@ -58,7 +58,8 @@ uv run --locked --cache-dir .uv-cache horizon demo run
 
 这条命令无需 API Key、Docker 或网络。它会故意触发一次结构化工具错误，释放第一任 Worker，
 由 `lease_epoch=2` 的新 Worker 从持久化会话继续，完成精确编辑、保护性验证、Trace 重放和
-EvidencePack 自检。模型动作由冻结脚本提供，外部费用为 0。输出合同见
+EvidencePack 自检。v2 报告还会把检索 Artifact、写入时上下文、目标路径、旧文本哈希与同一
+workspace revision 绑定并从 Trace 复算。模型动作由冻结脚本提供，外部费用为 0。输出合同见
 [作品集演示文档](docs/portfolio-demo.md)。
 
 ## 已验证证据
@@ -66,7 +67,7 @@ EvidencePack 自检。模型动作由冻结脚本提供，外部费用为 0。�
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | Python 3.12/3.13 的测试、静态检查、演示和构建已通过 | CI 不读取 API Key、不运行付费模型 |
-| 离线回归 | `293 passed, 6 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `295 passed, 6 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | Docker 契约 | `redis:7-alpine` 上单独复跑 `6 passed` | 有限隔离合同，不是恶意代码安全认证 |
 | 完整 checkout A/B | tqdm 82 files、youtube-dl 872 files；初始失败门、恢复、replan、最终验收和 Trace replay 通过 | 使用 Scripted Model，不是模型能力成绩 |
 | 真实模型 Pilot | 四轮均可重放、费用可核对、source 未变 | 四轮均未编辑或验证成功，保留为负结果 |
@@ -300,7 +301,7 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **293 passed，6 skipped**；6 个跳过项指定本机已有
+当前离线全量回归为 **295 passed，6 skipped**；6 个跳过项指定本机已有
 `redis:7-alpine` 单独复跑，得到 **6 passed** 的真实 Docker 契约结果。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实
 Issue 效果。新增真实模型 Pilot 单元测试覆盖私有答案拒绝、初始失败证据、内容寻址报告和

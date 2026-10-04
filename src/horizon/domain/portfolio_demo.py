@@ -26,6 +26,8 @@ class PortfolioDemoVerification(Contract):
     initial_failure_confirmed: bool
     structured_tool_error_observed: bool
     resumed_context_contains_error: bool
+    retrieval_evidence_in_model_context: bool | None = None
+    evidence_backed_write: bool | None = None
     final_validation_passed: bool
     trace_replay_verified: bool
     source_workspace_unchanged: bool
@@ -37,7 +39,7 @@ class PortfolioDemoVerification(Contract):
 
     @model_validator(mode="after")
     def validate_aggregate(self) -> Self:
-        checks = (
+        checks: tuple[bool, ...] = (
             self.initial_failure_confirmed,
             self.structured_tool_error_observed,
             self.resumed_context_contains_error,
@@ -49,13 +51,61 @@ class PortfolioDemoVerification(Contract):
             self.no_unknown_calls,
             self.no_open_reservations,
         )
+        lineage_checks = (
+            self.retrieval_evidence_in_model_context,
+            self.evidence_backed_write,
+        )
+        if any(check is not None for check in lineage_checks):
+            if any(check is None for check in lineage_checks):
+                raise ValueError("Portfolio demo lineage checks must be supplied together")
+            checks += tuple(bool(check) for check in lineage_checks)
         if self.all_checks_passed != all(checks):
             raise ValueError("Portfolio demo aggregate verdict does not match its checks")
         return self
 
 
-class PortfolioDemoReport(Contract):
+class PortfolioEvidenceLineage(Contract):
+    """Trace-auditable binding from one retrieval result to one exact write."""
+
     schema_version: Literal[1] = 1
+    retrieval_call_id: Identifier
+    retrieval_artifact_ref: Sha256
+    evidence_index_key: Sha256
+    evidence_workspace_revision: Sha256
+    write_model_call_id: Identifier
+    write_context_projection_ref: Sha256
+    write_call_id: Identifier
+    write_path: Text
+    write_preimage_sha256: Sha256
+    matched_chunk_content_hash: Sha256 | None = None
+    model_context_contains_retrieval: bool
+    target_path_in_evidence: bool
+    preimage_in_evidence: bool
+    revision_match: bool
+    verified: bool
+
+    @model_validator(mode="after")
+    def validate_lineage(self) -> Self:
+        relative_pattern(self.write_path)
+        if any(character in self.write_path for character in "*?[]"):
+            raise ValueError("Evidence-backed write path must be literal")
+        if self.preimage_in_evidence and not self.target_path_in_evidence:
+            raise ValueError("A matched write preimage requires a matched evidence path")
+        if self.target_path_in_evidence != (self.matched_chunk_content_hash is not None):
+            raise ValueError("Matched evidence paths require a chunk content hash")
+        checks = (
+            self.model_context_contains_retrieval,
+            self.target_path_in_evidence,
+            self.preimage_in_evidence,
+            self.revision_match,
+        )
+        if self.verified != all(checks):
+            raise ValueError("Evidence-write lineage verdict does not match its checks")
+        return self
+
+
+class PortfolioDemoReport(Contract):
+    schema_version: Literal[1, 2] = 2
     demo_id: Identifier
     run_id: Identifier
     status: RunStatus
@@ -85,6 +135,7 @@ class PortfolioDemoReport(Contract):
     workspace_revision: Sha256
     workspace_manifest_ref: Sha256
     structured_error_artifact_ref: Sha256
+    evidence_lineage: PortfolioEvidenceLineage | None = None
     verification: PortfolioDemoVerification
     excluded_claims: tuple[Text, ...] = PORTFOLIO_DEMO_EXCLUDED_CLAIMS
 
@@ -96,6 +147,18 @@ class PortfolioDemoReport(Contract):
             raise ValueError("A successful portfolio demo requires final validation evidence")
         if self.external_cost_cny != 0 or self.paid_model_called or self.network_called:
             raise ValueError("The portfolio demo must remain offline and externally free")
+        if self.schema_version == 2 and (
+            self.evidence_lineage is None
+            or self.verification.retrieval_evidence_in_model_context is None
+            or self.verification.evidence_backed_write is None
+        ):
+            raise ValueError("Portfolio demo schema v2 requires evidence-write lineage")
+        if self.evidence_lineage is not None and (
+            self.verification.retrieval_evidence_in_model_context
+            != self.evidence_lineage.model_context_contains_retrieval
+            or self.verification.evidence_backed_write != self.evidence_lineage.verified
+        ):
+            raise ValueError("Portfolio demo lineage does not match verification checks")
         if tuple(self.excluded_claims) != PORTFOLIO_DEMO_EXCLUDED_CLAIMS:
             raise ValueError("Portfolio demo evidence boundaries must remain explicit")
         return self

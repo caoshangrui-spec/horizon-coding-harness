@@ -5,7 +5,7 @@
 本表是完整开发与验收导航。2026-09-30 已开始基础内核实现，实际证据列记录当前子范围与剩余缺口。目标路径相对 `src/horizon/`；计划测试路径相对 `tests/`；实际证据列的 `tests/` 路径相对仓库根。同一测试文件可验证多个 ID，但不能把子范围通过等同于整项通过。
 
 当前结果：2026-09-30 可靠性内核为 **92 项测试通过**；2026-10-04 的最新离线回归为
-**293 passed，6 skipped**，并在上一批边界单独补跑 **6 项真实 Docker 合同且全部通过**；另已完成一次 Tool Calling 探针和一次受预算
+**295 passed，6 skipped**，并在上一批边界单独补跑 **6 项真实 Docker 合同且全部通过**；另已完成一次 Tool Calling 探针和一次受预算
 保护的真实单 WorkItem Agent fixture Run。完整长程 Agent 未实现，未做独立安全复核。命令、环境、证据与限制见
 [开发进度](development-progress.md)。仍为“待填”的条目没有实现证据；“部分/初步”不代表
 完整需求通过。普通工作直接自检，关键风险及用户指定验收按需独立复核，
@@ -84,7 +84,7 @@
 | FR-804 | M3/M5 | `domain/memory.py`, `application/agent_loop.py` | `integration/test_run_memory.py`：scope ID 必须等于 source Run，快照绑定 Task/WorkItem；恢复按历史事件边界重建 | 部分：当前只能同 Run 注入，结构上阻止跨 Run 泄漏；尚无 repo identity、benchmark instance/variant namespace 或跨 Run 隔离实验 |
 | FR-901 | M3 | `retrieval/retriever.py` | `integration/test_retrieval.py`：三路召回融合，片段数/token 有界且带来源 | 部分：`adapters/retrieval/sqlite_fts.py` 实现 path+文本 FTS5/BM25，最多 8 个带 path/range/hash 的 chunk；camelCase/snake_case 双向词项、token 内符号候选、最多 256 候选的同名 `def/class` 优先、定义候选间路径语境消歧及不同文件优先已测；固定 5 案例、youtube-dl 2 案例、同名 Hit@1 2 案例、首批 3 个外部盲测及第二批 3 个独立 holdout 均记录成功/失败证据；尚无 AST/symbol/memory 三路融合或真实模型检索效果 |
 | FR-902 | M3 | `retrieval/indexer.py` | `integration/test_dirty_index.py`：HEAD 不变的编辑、删除、恢复均切换正确 revision | 部分：index key 绑定 immutable manifest、workspace revision、path scope 和算法版本；dirty revision 中同名目标移动会生成新索引并排到新路径，旧 manifest 仍重放原 EvidencePack；派生缓存有界并可重建，删除/恢复完整矩阵未测 |
-| FR-903 | M3 | `retrieval/evidence.py` | `integration/test_evidence_freshness.py`：错误权限/hash 拒绝，使用证据可追溯 | 部分：EvidencePack 记录 revision/manifest/scope/index，Gateway 应用 allow/deny；每个 FTS 命中回查 immutable file Artifact，篡改、越权路径、行号/hash/content 不一致拒绝；生产脱敏未完成 |
+| FR-903 | M3 | `retrieval/evidence.py` | `integration/test_evidence_freshness.py`：错误权限/hash 拒绝，使用证据可追溯 | 部分：EvidencePack 记录 revision/manifest/scope/index，Gateway 应用 allow/deny；每个 FTS 命中回查 immutable file Artifact，篡改、越权路径、行号/hash/content 不一致拒绝；作品集报告 v2 还对一个固定闭环保存并复算 retrieval Artifact → write ContextProjection → target/preimage/revision lineage；尚未把该绑定提升为所有生产写工具的强制策略，生产脱敏也未完成 |
 | FR-904 | M3 | `retrieval/retriever.py` | `fault_injection/test_retrieval_fallback.py`：empty/degraded 分开、无虚构/混版本证据 | 部分：ok/empty/degraded 分离，非 UTF-8/大小预算显式降级；无 FTS 时 bounded lexical scan 并标 `fts5_unavailable`；尚未测存储中断与真实任务降级质量 |
 | FR-1001 | M0/M4 | `tools/registry.py`, `tools/gateway.py` | `contract/test_tool_adapter.py`：只提议未执行；网关禁止后无副作用 | 部分：模型只返回 typed tool proposal；未知/未授权工具由 Gateway 拒绝；Fake 与真实模型闭环均验证；`retrieve_code` 也只能经 Gateway 返回 EvidencePack |
 | FR-1002 | M1/M4 | `tools/schemas.py`, `gateway.py` | `unit/test_tool_validation.py`：未知工具/非法参数/越界/旧版本/超预算拒绝 | 部分：Pydantic 参数、path allow/deny、symlink、大小、工具 allowlist、Run 预算门禁已实现；`read_file` Schema/错误回执强制行号上下界成对；expected file hash/旧 revision CAS 未实现 |

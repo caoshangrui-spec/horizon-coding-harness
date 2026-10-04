@@ -8,6 +8,7 @@ from horizon.application.portfolio_demo import (
     PortfolioDemoRunner,
     verify_portfolio_evidence_pack,
 )
+from horizon.domain.errors import IntegrityError
 from horizon.domain.portfolio_demo import PortfolioDemoReport, PortfolioEvidencePack
 from horizon.domain.run import projection_hash
 from horizon.domain.states import RunStatus
@@ -20,11 +21,18 @@ def test_portfolio_demo_exports_replayable_recovery_evidence(tmp_path):
     result = PortfolioDemoRunner().run(output)
 
     assert result.report.status == RunStatus.SUCCEEDED
+    assert result.report.schema_version == 2
     assert result.report.recovery_mode == "durable_worker_handoff"
     assert result.report.final_lease_epoch == 2
     assert result.report.verification.all_checks_passed
     assert result.report.verification.structured_tool_error_observed
     assert result.report.verification.resumed_context_contains_error
+    assert result.report.verification.retrieval_evidence_in_model_context
+    assert result.report.verification.evidence_backed_write
+    assert result.report.evidence_lineage is not None
+    assert result.report.evidence_lineage.verified
+    assert result.report.evidence_lineage.write_path == "src/parser.py"
+    assert result.report.evidence_lineage.matched_chunk_content_hash is not None
     assert result.report.paid_model_called is False
     assert result.report.network_called is False
     assert result.report.repository_code_executed is False
@@ -77,11 +85,37 @@ def test_portfolio_demo_exports_replayable_recovery_evidence(tmp_path):
     )
 
 
+def test_portfolio_report_still_reads_schema_v1_without_lineage(tmp_path):
+    result = PortfolioDemoRunner().run(tmp_path / "portfolio-evidence")
+    legacy = result.report.model_dump(mode="json")
+    legacy["schema_version"] = 1
+    legacy.pop("evidence_lineage")
+    legacy["verification"].pop("retrieval_evidence_in_model_context")
+    legacy["verification"].pop("evidence_backed_write")
+
+    restored = PortfolioDemoReport.model_validate(legacy)
+
+    assert restored.schema_version == 1
+    assert restored.evidence_lineage is None
+    assert restored.verification.all_checks_passed
+
+
 def test_portfolio_evidence_pack_detects_file_tampering(tmp_path):
     result = PortfolioDemoRunner().run(tmp_path / "portfolio-evidence")
     result.summary_path.write_text("tampered\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="integrity verification"):
+        verify_portfolio_evidence_pack(result.evidence_pack_path)
+
+
+def test_portfolio_lineage_detects_retrieval_artifact_tampering(tmp_path):
+    result = PortfolioDemoRunner().run(tmp_path / "portfolio-evidence")
+    assert result.report.evidence_lineage is not None
+    reference = result.report.evidence_lineage.retrieval_artifact_ref
+    artifact = result.output_dir / "artifacts" / reference[:2] / reference
+    artifact.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(IntegrityError, match="digest mismatch"):
         verify_portfolio_evidence_pack(result.evidence_pack_path)
 
 

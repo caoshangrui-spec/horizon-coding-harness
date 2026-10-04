@@ -15,17 +15,21 @@ from horizon.adapters.workspace.promotion import workspace_path_hash
 from horizon.adapters.workspace.snapshot import SnapshotManager
 from horizon.application.agent_loop import AgentLoopConfig, CodingAgentRunner
 from horizon.application.services import HarnessService, LeaseToken
-from horizon.domain.common import canonical_json
-from horizon.domain.model import CampaignBudget, PriceCard
+from horizon.domain.common import canonical_json, digest
+from horizon.domain.context import ContextProjection
+from horizon.domain.events import Event
+from horizon.domain.model import CampaignBudget, ModelCallReservation, ModelResponse, PriceCard
 from horizon.domain.plan import Plan, WorkItem
 from horizon.domain.portfolio_demo import (
     PORTFOLIO_DEMO_EXCLUDED_CLAIMS,
     PortfolioDemoReport,
     PortfolioDemoVerification,
     PortfolioEvidenceFile,
+    PortfolioEvidenceLineage,
     PortfolioEvidencePack,
 )
 from horizon.domain.promotion import WorkspaceOrigin
+from horizon.domain.retrieval import EvidencePack
 from horizon.domain.run import projection_hash
 from horizon.domain.run_evaluation import ScriptedModelAction
 from horizon.domain.states import RunStatus
@@ -42,6 +46,8 @@ from horizon.tools.gateway import WorkspaceToolGateway
 _FIXTURE_CONTENT = "def parse(value):\n    return [value]\n"
 _FIXED_CONTENT = "def parse(value):\n    return [] if value == '' else [value]\n"
 _STRUCTURED_RANGE_ERROR = "start_line and end_line must be supplied together"
+_WRITE_PATH = "src/parser.py"
+_WRITE_PREIMAGE = "return [value]"
 _OFFLINE_PRICE = PriceCard(
     currency="CNY",
     input_per_million="3.00",
@@ -103,6 +109,127 @@ def _file_record(root: Path, role: str, path: Path) -> PortfolioEvidenceFile:
     )
 
 
+def _model_tool_for_record(run, artifacts: ArtifactStore, record):
+    matches = []
+    for model_call in run.model_calls:
+        if model_call.response_artifact_ref is None:
+            continue
+        response = ModelResponse.model_validate_json(
+            artifacts.read(model_call.response_artifact_ref)
+        )
+        for tool_call in response.message.tool_calls:
+            if (
+                tool_call.function.name == record.name
+                and digest(tool_call.function.arguments) == record.arguments_hash
+            ):
+                matches.append((model_call, tool_call))
+    if len(matches) != 1:
+        raise ValueError(
+            f"Portfolio demo expected one model response for {record.name}, found {len(matches)}"
+        )
+    return matches[0]
+
+
+def _evidence_write_lineage(
+    run,
+    events: tuple[Event, ...],
+    artifacts: ArtifactStore,
+) -> PortfolioEvidenceLineage:
+    retrieval_records = [
+        record
+        for record in run.tool_calls
+        if record.name == "retrieve_code" and record.status == "success"
+    ]
+    write_records = [
+        record
+        for record in run.tool_calls
+        if record.name == "replace_text" and record.status == "success"
+    ]
+    if len(retrieval_records) != 1 or len(write_records) != 1:
+        raise ValueError("Portfolio demo requires one successful retrieval and exact write")
+    retrieval_record = retrieval_records[0]
+    write_record = write_records[0]
+    if retrieval_record.artifact_ref is None:
+        raise ValueError("Portfolio retrieval record has no evidence artifact")
+
+    evidence_payload = artifacts.read(retrieval_record.artifact_ref)
+    evidence = EvidencePack.model_validate_json(evidence_payload)
+    _, retrieval_tool_call = _model_tool_for_record(
+        run,
+        artifacts,
+        retrieval_record,
+    )
+    write_model_call, write_tool_call = _model_tool_for_record(run, artifacts, write_record)
+    write_arguments = write_tool_call.function.arguments
+    write_path = write_arguments.get("path")
+    write_preimage = write_arguments.get("old")
+    if not isinstance(write_path, str) or not isinstance(write_preimage, str):
+        raise ValueError("Portfolio exact write response is missing path or old text")
+
+    reservations = [
+        ModelCallReservation.model_validate(event.payload["reservation"])
+        for event in events
+        if event.event_type == "MODEL_CALL_RESERVED"
+    ]
+    write_reservations = [
+        reservation
+        for reservation in reservations
+        if reservation.call_id == write_model_call.call_id
+    ]
+    if len(write_reservations) != 1:
+        raise ValueError("Portfolio write model call has no unique context reservation")
+    write_reservation = write_reservations[0]
+    if write_reservation.context_projection_ref is None:
+        raise ValueError("Portfolio write model call has no context projection")
+    projection = ContextProjection.model_validate_json(
+        artifacts.read(write_reservation.context_projection_ref)
+    )
+    evidence_text = evidence_payload.decode("utf-8")
+    context_contains_retrieval = any(
+        message.role == "tool"
+        and message.tool_call_id == retrieval_tool_call.id
+        and message.content == evidence_text
+        for message in projection.messages
+    )
+
+    path_chunks = [chunk for chunk in evidence.chunks if chunk.path == write_path]
+    preimage_chunks = [chunk for chunk in path_chunks if write_preimage in chunk.snippet]
+    matched_chunk = (
+        preimage_chunks[0] if preimage_chunks else (path_chunks[0] if path_chunks else None)
+    )
+    revision_match = (
+        retrieval_record.workspace_revision_before
+        == retrieval_record.workspace_revision_after
+        == evidence.workspace_revision
+        == write_record.workspace_revision_before
+    )
+    checks = (
+        context_contains_retrieval,
+        bool(path_chunks),
+        bool(preimage_chunks),
+        revision_match,
+    )
+    return PortfolioEvidenceLineage(
+        retrieval_call_id=retrieval_record.call_id,
+        retrieval_artifact_ref=retrieval_record.artifact_ref,
+        evidence_index_key=evidence.index_key,
+        evidence_workspace_revision=evidence.workspace_revision,
+        write_model_call_id=write_model_call.call_id,
+        write_context_projection_ref=write_reservation.context_projection_ref,
+        write_call_id=write_record.call_id,
+        write_path=write_path,
+        write_preimage_sha256=_sha256(write_preimage.encode("utf-8")),
+        matched_chunk_content_hash=(
+            matched_chunk.content_hash if matched_chunk is not None else None
+        ),
+        model_context_contains_retrieval=context_contains_retrieval,
+        target_path_in_evidence=bool(path_chunks),
+        preimage_in_evidence=bool(preimage_chunks),
+        revision_match=revision_match,
+        verified=all(checks),
+    )
+
+
 def verify_portfolio_evidence_pack(path: Path) -> PortfolioEvidencePack:
     """Verify exported files and replay the Trace without trusting the summary JSON."""
 
@@ -133,9 +260,19 @@ def verify_portfolio_evidence_pack(path: Path) -> PortfolioEvidencePack:
     if report.final_run_sha256 != by_role["final_state"].sha256:
         raise ValueError("Portfolio report final-state hash does not match its EvidencePack")
 
-    replayed = SQLiteEventStore.replay_jsonl(contents["trace"].decode("utf-8"))
+    trace_text = contents["trace"].decode("utf-8")
+    replayed = SQLiteEventStore.replay_jsonl(trace_text)
     if projection_hash(replayed) != report.projection_hash:
         raise ValueError("Portfolio Trace replay projection does not match its report")
+    if report.schema_version == 2:
+        events = tuple(Event.model_validate_json(line) for line in trace_text.splitlines() if line)
+        lineage = _evidence_write_lineage(
+            replayed,
+            events,
+            ArtifactStore(root / "artifacts"),
+        )
+        if lineage != report.evidence_lineage:
+            raise ValueError("Portfolio evidence-write lineage does not match its Trace")
     expected_final = (canonical_json(replayed.as_dict()) + "\n").encode("utf-8")
     if contents["final_state"] != expected_final:
         raise ValueError("Portfolio final-state export does not match Trace replay")
@@ -242,8 +379,8 @@ class PortfolioDemoRunner:
             ScriptedModelAction(
                 tool="replace_text",
                 arguments={
-                    "path": "src/parser.py",
-                    "old": "return [value]",
+                    "path": _WRITE_PATH,
+                    "old": _WRITE_PREIMAGE,
                     "new": "return [] if value == '' else [value]",
                 },
             ),
@@ -353,6 +490,11 @@ class PortfolioDemoRunner:
             denied_paths=task.constraints.denied_paths,
         )
         final_validation = tuple(checker.execute(workspace, item) for item in task.acceptance)
+        lineage = _evidence_write_lineage(
+            result,
+            tuple(store.events(run.run_id)),
+            artifacts,
+        )
 
         error_records = [
             record
@@ -374,6 +516,8 @@ class PortfolioDemoRunner:
             "initial_failure_confirmed": all(not item.passed for item in initial_validation),
             "structured_tool_error_observed": _STRUCTURED_RANGE_ERROR in error_content,
             "resumed_context_contains_error": resumed_context_contains_error,
+            "retrieval_evidence_in_model_context": (lineage.model_context_contains_retrieval),
+            "evidence_backed_write": lineage.verified,
             "final_validation_passed": (
                 run_validation_passed and all(item.passed for item in final_validation)
             ),
@@ -426,6 +570,7 @@ class PortfolioDemoRunner:
             workspace_revision=workspace_after.workspace_revision,
             workspace_manifest_ref=workspace_manifest_ref,
             structured_error_artifact_ref=error_records[0].artifact_ref,
+            evidence_lineage=lineage,
             verification=verification,
         )
         _write_new(report_path, (canonical_json(report) + "\n").encode("utf-8"))
@@ -477,6 +622,10 @@ class PortfolioDemoRunner:
             f"- Structured tool error observed: `{checks.structured_tool_error_observed}`\n"
             f"- Second worker received the persisted error: "
             f"`{checks.resumed_context_contains_error}`\n"
+            f"- Retrieval evidence reached the write context: "
+            f"`{checks.retrieval_evidence_in_model_context}`\n"
+            f"- Exact write was backed by same-revision evidence: "
+            f"`{checks.evidence_backed_write}`\n"
             f"- Protected final validation passed: `{checks.final_validation_passed}`\n"
             f"- Trace replay matched final state: `{checks.trace_replay_verified}`\n"
             f"- Original source stayed unchanged: `{checks.source_workspace_unchanged}`\n"
