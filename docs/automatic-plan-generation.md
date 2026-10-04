@@ -98,6 +98,12 @@ Schema 要求 Plan version 1、1～8 个 WorkItem，以及每项的 ID、标题�
 本就不支持文件新增。非法路径响应仍只结算原规划调用并进入人工计划 fallback，不会
 自动重试模型。
 
+这条规则只证明“路径存在”，不证明“实现位于该路径”。Planner prompt 仍要求：除非不可变任务
+明确写出路径，否则 Plan 应使用通用的 evidence-discovered artifact 描述。执行阶段必须以
+revision-bound retrieval/read 回执为准，不能把 Plan 中的路径假设当作代码证据。第六轮 tqdm
+真实模型负例证明了这个区别：`tqdm/contrib/itertools.py` 确实存在，但 `tenumerate` 实际位于
+`tqdm/contrib/__init__.py`；后续 `retrieve_code("tenumerate")` 正确返回了后者 rank 1。
+
 写任务可分配 `search_repo`、`read_file`、`retrieve_code`、`replace_text`、`apply_patch` 和
 `run_check`。只读/仅计划任务只允许前三个读取工具。`submit` 由执行循环统一提供，不需要写入
 WorkItem 权限；Shell、任意 diff、文件新增/删除和网络工具不会因模型提案而出现。

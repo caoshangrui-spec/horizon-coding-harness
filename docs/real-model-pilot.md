@@ -1,9 +1,9 @@
-# 真实模型 Pilot：离线预检、五轮负结果与付费边界
+# 真实模型 Pilot：离线预检、六轮负结果与付费边界
 
 更新：2026-10-04。本 Pilot 的目标不是立即追求 benchmark 分数，而是在**完整真实仓库、
-模型自主计划、模型自主检索和编辑**的条件下观察 Harness 的真实失败分布。已执行五个
+模型自主计划、模型自主检索和编辑**的条件下观察 Harness 的真实失败分布。已执行六个
 付费 Agent Run：分别暴露计划结构/检索反馈、无界读取/上下文投影、Plan 路径假设/请求预留
-过大、单边范围读取/单 Run 预留，以及完整 inventory 路径准入问题。五轮均没有修改代码或进入验收；结果可重放且
+过大、单边范围读取/单 Run 预留、路径存在与语义定位的区别，以及 Campaign 预留压力。六轮均没有修改代码或进入验收；结果可重放且
 费用可对账，但不是 Issue 成功证据，也不足以推出模型或 Harness 的总体能力结论。
 
 ## 1. 为什么复用现有主循环
@@ -418,13 +418,12 @@ Trace 位于
 `4f542b0cc5106b506430b866f7e34274b20351171b71e933b7a5d447950179d8`；离线 replay 得到投影 hash
 `1cfa80c84ffb476767a39afbc6b02af135b86826d7e531d01929253ec3d4143c`，与终态一致。
 
-该轮还保留了第二个独立负结果：虽然 prompt 已要求“不猜实现路径”，模型仍在
-expected artifacts 中写入不存在的 `tqdm/contrib/itertools.py`。离线修复没有增加规划器、向量库
-或第二模型，而是在已有 one-shot Planner 的控制器验收中加入一个窄规则：仅当 inventory 完整时，
-拒绝标题、目标或 expected artifacts 中不在清单内的路径；inventory 截断时保持未知，不作误判。
-非法响应继续进入现有人工计划 fallback，且复用已结算 response 时不重复计费。
+该轮当时被误记为“模型写入不存在的 `tqdm/contrib/itertools.py`”；后续直接核对冻结 checkout
+确认该文件实际存在，只是 `tenumerate` 不在其中。这个更正保留在文档中，不能把“路径存在”
+偷换成“实现位置正确”。离线增量加入的窄规则只会在 inventory 完整时拒绝真正不存在的路径；
+inventory 截断时保持未知。它没有、也不应声称解决已有文件上的语义定位问题。
 
-第五轮授权已经消耗完，没有复跑。为下一次可能的运行只准备了新的零费用合同：
+第五轮授权消耗完后没有复跑；随后为第六轮准备了新的零费用合同：
 
 - manifest：
   [`real-model-pilot-v2.yaml`](../benchmarks/run_ab/full/tqdm-1-tenumerate-start/real-model-pilot-v2.yaml)；
@@ -441,10 +440,47 @@ expected artifacts 中写入不存在的 `tqdm/contrib/itertools.py`。离线修
 - `credential_loaded=false`、`paid_model_called=false`、`network_called=false`，初始负例按预期
   失败且 source unchanged。
 
-该 preflight 只是可启动证据，不是新的付费授权，也不保证动态后续请求都能放进预算。任何新的
-真实运行仍需用户再次明确同意外发范围、单 Run 上限和累计上限。
+该 preflight 当时只是可启动证据，不保证动态后续请求都能放进预算。用户随后另行明确授权了
+第六轮；旧授权与该 report 均不能再次用于新的付费运行。
 
-## 12. 后续付费 Pilot 的完成条件
+## 12. tqdm 第六轮：RAG 纠正 Plan 假设，Campaign 派发前停止
+
+用户明确授权只执行一次 v2 Run：允许向 SiliconFlow 发送公开 tqdm-1 上下文、允许路径内代码
+片段、候选修改和工具回执；模型仍为 `deepseek-ai/DeepSeek-V4-Flash`，单 Run 上限
+`CNY 0.062`、历史累计上限 `CNY 0.25`、最多 6 次调用、不重试、不 fallback。Run
+`run_7fab106a71174c77bb0a82a8a054d3ed` 的实际结果仍为受控失败：
+
+- 终态 `FAILED`，`failure_reason=campaign_cost_limit`，无开放 reservation 或 unknown；
+- planning 调用 1,148 input / 247 output tokens，费用 `CNY 0.005667`；execution 调用
+  2,254 input / 45 output tokens，费用 `CNY 0.007167`；本 Run 合计 `CNY 0.012834`；
+- Planner 再次把 `tqdm/contrib/itertools.py` 写成实现位置。该文件确实存在，因此不存在路径
+  准入不会拒绝它；但文件内容不包含 `tenumerate`，Plan 的语义定位仍没有证据；
+- execution 没有直接读取或编辑该假设路径，而是调用
+  `retrieve_code({"query":"tenumerate"})`。SQLite FTS5 在 3 个允许文件中把真实实现
+  `tqdm/contrib/__init__.py` 1～40 行排为 rank 1，0 skipped、无 degraded reason；EvidencePack
+  Artifact 为 `d6d9f8bea59c99c2b56c1df5de67b0b26bd14d921d6aa9086331ec8595503288`；
+- 消费 retrieval 回执后的下一次模型请求需保守预留 `CNY 0.05832`，当时 Campaign 只余
+  `CNY 0.0497586`。控制器在 Provider 派发前写入 scope=`campaign` 的 `BudgetStop`；
+- 共 2 次模型调用、1 次只读工具、1 step；编辑、checkpoint、protected validation 和 passed
+  WorkItem 均为 0。source 与 staging workspace revision 都保持
+  `0facaee0ad34b048338c656cdbfc61dfc443229991d7b6573ccf0bcc8e9effc2`。
+
+Trace 位于
+`.horizon/real-model-pilot-tqdm-v3/run_7fab106a71174c77bb0a82a8a054d3ed.trace.jsonl`，共 23 个
+事件，SHA-256 为
+`804bd8644d8d02d1ea3e43421c010c31b5ae35b75a7ecbf9772a84f06bc6e921`；离线 replay 投影 hash 为
+`a3a9ff4b0067a6b323c14cc5f954ca1197d20b13099a63c96d5be97f1d66c4bc`。Campaign 目前
+occupied/settled 为 `CNY 0.1302414`、remaining 为 `CNY 0.0497586`，reserved/unknown 为 0；
+连同首轮独立 Campaign，本系列实际累计为 `CNY 0.1954812`，距用户累计上限还剩
+`CNY 0.0545188`。
+
+该轮提供了两个不应混淆的结论：revision-bound RAG 在真实模型路径假设错误时给出了正确 rank-1
+证据；但 Agent 尚未得到消费该证据并编辑的下一次模型调用，因此不能声称“模型已正确使用 RAG”
+或“接近修复成功”。高额保守 reservation 再次成为实际停止原因。当前不降低费用安全系数、不建
+新 Campaign，也不自动复跑；应先离线分析完整请求固定开销与历史 reserved/actual 比率，再决定
+是否有足够证据修改预算估计或上下文合同。
+
+## 13. 后续付费 Pilot 的完成条件
 
 正式运行时只接受 preflight 输出的 TaskSpec/report、同一镜像和专用 Provider policy。结果无论
 成功还是失败，都必须记录：
@@ -457,6 +493,6 @@ expected artifacts 中写入不存在的 `tqdm/contrib/itertools.py`。离线修
 - 失败分类，而不是人工补丁替模型完成任务。
 
 一次通过只能称为“真实模型 Pilot 个案”，不能称为 BugsInPy 分数、泛化能力或长程任务
-成功率。第五轮仍是失败个案。任何下一次付费 continuation 都需要
+成功率。第六轮仍是失败个案。任何下一次付费 continuation 都需要
 新的零费用 preflight、与剩余额度一致的新 Run cap，以及新的明确授权；仍不增加向量库、多
 Agent、Project Memory、自动 fallback 或第二次 replan。

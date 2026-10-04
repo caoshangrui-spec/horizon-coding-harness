@@ -222,9 +222,10 @@ def test_generated_plan_is_budgeted_validated_and_trace_linked(tmp_path):
     assert "exactly one WorkItem" in model.requests[0].messages[0].content
     assert "never create standalone locate" in model.requests[0].messages[0].content
     assert "inventory proves only that a path exists" in model.requests[0].messages[0].content
-    assert "unless it appears verbatim in repository_paths" in (
+    assert "Unless the immutable task explicitly names a path" in (
         model.requests[0].messages[0].content
     )
+    assert "inventory membership alone is not evidence" in (model.requests[0].messages[0].content)
     assert context.repository_paths == ("src/parser.py", "tests/test_parser.py")
     assert "pytest unit" not in model.requests[0].messages[1].content
     assert (

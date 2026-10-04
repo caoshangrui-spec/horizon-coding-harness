@@ -5,6 +5,11 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Recorded a sixth replayable real-model negative result: revision-bound retrieval corrected an
+  unsupported Plan location to the actual `tenumerate` implementation at rank 1, but the next
+  model dispatch stopped at the Campaign gate before any edit or validation.
+- Clarified that complete-inventory validation proves only path existence, not semantic location,
+  and restored the planning instruction that exact paths require immutable-task grounding.
 - Rejected model-generated paths that are absent from a complete planning inventory while
   preserving abstention when that inventory is truncated; the real-model response is still
   settled once and falls back to the existing human-plan path without an implicit retry.

@@ -35,7 +35,7 @@
 | 冻结控制器策略评测 | [reliability.py](../src/horizon/domain/reliability.py)、[reliability_eval.py](../src/horizon/application/reliability_eval.py) | 12 案例/41 判断覆盖精确 NoProgress 与单次 replan 接受/拒绝；生产路径共享判定函数、报告内容寻址、零外部调用；不是模型或真实 Issue 效果评测 |
 | 完整 Run A/B 与来源绑定 Suite | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[scripted.py](../src/horizon/adapters/model/scripted.py) | 同一 Task/Plan/workspace 的 baseline 与单次 replan arm；先真实确认初始失败，再检查 EventLog/预算/Gateway/Trace；1 个内部、3 个 BugsInPy 依赖裁剪案例，以及 tqdm 82 files、youtube-dl 872 files 两个完整 checkout 经禁网 Docker 通过；完整案例还验证干净 Git HEAD 与 Code RAG，仍是脚本模型 |
 | 完整 checkout 多阶段/重启 A/B | [multi-stage.yaml](../benchmarks/run_ab/full/youtube-dl-3-unescape-html/multi-stage.yaml) | youtube-dl 872 files 上 production → regression-test 两个依赖 WorkItem；两 arm 均在安全边界换为 epoch 2 Worker，跨 revision RAG、active/stale Run Memory、完成项保留 replan、最终两项 required checks 与 Trace replay 通过；CRLF 精确替换失败和 60 秒重启 Lease 到期均作为负结果保留 |
-| 真实模型 Pilot | [pilot.py](../src/horizon/domain/pilot.py)、[pilot.py](../src/horizon/application/pilot.py)、[real-model-pilot.md](real-model-pilot.md) | 离线预检绑定完整干净 checkout、初始失败、source snapshot、Docker image、Provider policy、Harness 源码指纹、费用 cap 和首次规划保守预留。五个付费 Run 均无编辑/验证、Trace 可重放且 source 未变；第五轮只结算规划 `CNY 0.005574`，第一条执行请求因差 `CNY 0.000096` 在派发前停止，同时暴露 Planner 仍猜不存在路径。对应控制器准入和新零费用 preflight 已落地，当前主干 297 项回归通过；没有自动复跑 |
+| 真实模型 Pilot | [pilot.py](../src/horizon/domain/pilot.py)、[pilot.py](../src/horizon/application/pilot.py)、[real-model-pilot.md](real-model-pilot.md) | 离线预检绑定完整干净 checkout、初始失败、source snapshot、Docker image、Provider policy、Harness 源码指纹、费用 cap 和首次规划保守预留。六个付费 Run 均无编辑/验证、Trace 可重放且 source 未变；第六轮的 Plan 错把已有 `itertools.py` 当实现位置，但 execution 先检索并把真实 `__init__.py` 排为 rank 1，下一模型请求再因 Campaign 预留不足停止。当前累计 `CNY 0.1954812`；没有自动复跑或真实 Issue 成功 |
 | 安全轮次续跑 | [agent.py](../src/horizon/domain/agent.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 消息 Artifact + event/revision 绑定；新 Worker 续跑；PLANNING/READY 也可恢复，任意崩溃窗口对账未完成 |
 | 悬空调用恢复与对账 | [recovery.py](../src/horizon/application/recovery.py)、[model_recovery.py](../src/horizon/application/model_recovery.py)、[tool_recovery.py](../src/horizon/application/tool_recovery.py) | Campaign-only 预留释放；response Artifact 跨 Worker 续跑；只读重试；精确 `replace_text` / `apply_patch` accept/rollback；Docker `run_check` 用 call ID 标签 attempt，可查询/显式停止/删除后丢弃未知结果，missing 仍需人工确认；部分 patch 与无停止证明的验证副作用仍阻塞 |
 | 受控候选提升 | [promotion.py](../src/horizon/application/promotion.py)、[promotion.py](../src/horizon/adapters/workspace/promotion.py)、[git.py](../src/horizon/adapters/vcs/git.py) | 只读 diff、源/候选 revision 与可选 Git HEAD 绑定、显式 1～8 个既有文件修改、完整/部分 effect 崩溃恢复；不创建 commit |
@@ -67,8 +67,8 @@ pilot preflight 的 `ready` 也包含同一门槛。费用 reservation 与上下
 - mini-SWE-agent/SWE-ReX 尚未安装、固定或接入；本轮没有宣称底座 Spike 通过。
 - 已按用户授权固定 SiliconFlow、`deepseek-ai/DeepSeek-V4-Flash`、Campaign CNY 3 元；历史
   fixture 使用单 Run CNY 1 元，首个完整 checkout Pilot 使用 CNY 0.25 cap，后续复跑共用
-  CNY 0.18 不可变 Campaign。已执行 Tool Calling 探针、受控 fixture Agent Run 和五个真实任务
-  Pilot Run；五个 Pilot 都未修好 Issue，不构成 benchmark 成绩。
+  CNY 0.18 不可变 Campaign。已执行 Tool Calling 探针、受控 fixture Agent Run 和六个真实任务
+  Pilot Run；六个 Pilot 都未修好 Issue，不构成 benchmark 成绩。
 
 Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli/docker/container/run/)
 核对。mini-SWE-agent 的[原生工具与消息边界](https://mini-swe-agent.com/latest/advanced/v2_migration/)
@@ -479,20 +479,21 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 5. **预算与隐私补全**：CNY Campaign 与 Run 模型账本现已同时工作，但 TaskSpec 的旧
    `max_cost_usd` 尚未做版本化多币种迁移；也没有取消/截止后的迟到回执主动对账和生产级
    全链路脱敏。当前 Trace 包含 TaskSpec；不应在其中嵌入凭据。
-6. **真实效果与验收**：五个真实模型 Pilot Run 分别因迭代上限、上下文硬门限、Campaign
+6. **真实效果与验收**：六个真实模型 Pilot Run 分别因迭代上限、上下文硬门限、两次 Campaign
    费用硬门限和两次单 Run 费用硬门限停止；它们证明了费用/Trace/source isolation 路径，也分别暴露
    并修复了 Plan/搜索反馈、大文件读取/上下文/租约、Plan 假设路径/请求膨胀，以及范围参数协议
    缺口和完整 inventory 路径准入，但仍没有完成目标修复或 protected validation。仍缺固定 20～30 个真实任务、长程/检索/记忆诊断、
    A/B/C/D 与消融、关键安全独立复核。单个负样本不能替代这些证据。
 
-五轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断和外部定位盲测后，当前主干已完成 297 项离线回归。
+六轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断和外部定位盲测后，当前主干已完成 297 项离线回归。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
 `run_model_cost_limit` 进入 `FAILED`。没有工具、编辑、checkpoint 或验证，Trace 14 事件可重放，
-source 未变。同一 CNY 0.18 retry Campaign 尚余 `CNY 0.0625926`，系列累计实际费用为
-`CNY 0.1826472`。当前 tqdm v2 候选已在最新 Python 源码上重新完成零费用 preflight（report ref
-`72715671ce28cfe92f7ffb5ed6beb466cec628f9218fc5fc9d58b6a7a969f176`，Harness digest
-`8335b5419ca0ce80b3605d5374b11b1bbeb509ea11f9de92646c5f665d8ff8f7`，Run cap `CNY 0.062`）。剩余 Campaign 或用户总额度
+source 未变。第六轮 Run `run_7fab106a71174c77bb0a82a8a054d3ed` 使用该 v2 preflight，结算
+2 次模型调用和 1 次 `retrieve_code`，费用 `CNY 0.012834`；Plan 的 `itertools.py` 是存在但错误
+的实现假设，RAG 把真实 `tqdm/contrib/__init__.py` 排为 rank 1。消费证据的下一请求需
+`CNY 0.05832`，Campaign 只余 `CNY 0.0497586`，因此派发前停止。无编辑或验证，23-event Trace
+重放一致。当前系列累计实际费用为 `CNY 0.1954812`，旧 v2 授权已消费且源码已变化。剩余 Campaign 或用户总额度
 都不能自动扩权，任何新付费 Run 仍须取得明确授权。当前优先继续零费用可靠性验证，现有证据不支持立即引入 symbol/vector
 索引、模型摘要或自动 replan。Run Memory 已形成最小垂直切片，
 精确 NoProgress/replan 的冻结策略 Trace 已建立 12 案例基线；内部 A/B、三个来源绑定的依赖裁剪

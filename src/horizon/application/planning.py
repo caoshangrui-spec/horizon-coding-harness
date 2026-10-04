@@ -150,9 +150,10 @@ def _plan_tool(context: PlanningContext) -> ToolDefinition:
                                 "items": {
                                     "type": "string",
                                     "description": (
-                                        "Name an exact repository path only when it appears "
-                                        "verbatim in repository_paths; otherwise describe the "
-                                        "evidence or behavior generically."
+                                        "Unless the immutable task explicitly names an exact "
+                                        "repository path, describe the evidence or behavior "
+                                        "generically; inventory membership alone does not prove "
+                                        "an implementation location."
                                     ),
                                 },
                             },
@@ -208,10 +209,10 @@ def build_plan_request(
                     "or verify items that reuse the same final check. For a simple task with one "
                     "acceptance check, prefer one end-to-end WorkItem. Repository inventory "
                     "proves only that a path exists, not that it contains the implementation. "
-                    "Do not name an exact implementation path unless it appears verbatim in "
-                    "repository_paths; the current write tools only modify existing files. "
-                    "Describe an evidence-discovered source change instead when the location is "
-                    "not established."
+                    "Unless the immutable task explicitly names a path, do not guess an exact "
+                    "implementation path in objectives or expected_artifacts; inventory "
+                    "membership alone is not evidence. Describe the evidence-discovered source "
+                    "change instead. The current write tools only modify existing files."
                 ),
             ),
             ModelMessage(
