@@ -1,6 +1,6 @@
 # 受限单文件创建
 
-更新：2026-10-04。本能力补齐 Coding Agent 在真实任务中“需要新增一个小型源码或测试文件”的
+更新：2026-10-05。本能力补齐 Coding Agent 在真实任务中“需要新增一个小型源码或测试文件”的
 最小垂直路径，同时保留 Harness 的核心原则：权限先于执行、intent 先于副作用、成功必须有
 receipt、未知效果不自动重放。
 
@@ -60,16 +60,27 @@ Artifact、前后 workspace revision 与包含新文件的 post-effect manifest�
 receipt 之前，并返回有界 error observation。
 
 进程硬退出不同：文件系统副作用可能已经完整发生，也可能只写入部分字节，但 SQLite 中只有
-持久化 intent。重启 reconciliation 会把该调用标为 `unknown`，阻止 Agent 继续或再次创建同一
-路径。当前刻意不为 `create_file` 提供自动重放、`accept-write` 或 rollback：
+持久化 intent。重启 reconciliation 仍先把该调用标为 `unknown`，阻止 Agent 自动继续、再次创建
+同一路径或把“目标存在”直接当成成功；系统绝不自动重放未知创建。
 
-- 自动重放可能遇到已存在目标，也可能重复用户期望之外的副作用；
-- 仅看到目标存在不能证明字节完整，也不能排除其他并发 workspace 漂移；
-- 在没有 create 专用 expected-effect assessment 前，把它接纳为 success 会夸大恢复能力。
+操作者随后可以使用 `agent resolve-tool --accept-write` 或 `--rollback-write`。恢复端从已落盘的
+ModelResponse 重新取得 path/content，复核参数 hash、当前 WorkItem 权限、派发前 revision 和
+pre-manifest，再确定性构造唯一 expected manifest：原文件清单加上一个 path、UTF-8 字节数、
+content SHA-256 和 `executable=false` 均精确匹配的新文件。只接受三种分类：
 
-因此当前恢复结论是“可检测并安全阻断”，不是“任意崩溃点可继续”。操作者可以保留现场做
-审计或取消 Run；后续若实现显式接纳/回滚，必须同时验证 pre-manifest、精确 content hash、唯一
-post-effect revision 和无额外漂移。
+| live workspace | 分类 | 允许决定 |
+|---|---|---|
+| 精确等于 pre-manifest，目标不存在 | `pre_effect` | 仅 rollback；以 cancelled 结算，不创建文件 |
+| 精确等于唯一 expected manifest | `expected_effect` | accept 为 success；或 rollback 删除精确新文件 |
+| 部分/错误内容、额外文件漂移或其他 revision | `diverged` | 两种决定都拒绝，继续保持 unknown |
+
+rollback 会在删除前再次核对目标是普通文件、内容和文件元数据未变；删除后必须恢复到完整
+pre-revision。若期间发现并发漂移，会尽力重建精确 expected 文件并保持原调用 unknown，不会把
+冲突现场结算成功。成功处置把原 tool receipt 与包含 recovery observation 的下一 AgentSession
+原子提交，因此续跑不会重放已结算的模型响应。
+
+这证明的是“完整前态/唯一完整后态可由人工显式处置”，不是任意崩溃点自动恢复。恶意并发、
+同内容对象替换、目录元数据事务和跨 SQLite/文件系统的单一原子提交仍不在保证范围内。
 
 ## 4. 自动计划、上下文与停滞保护
 
@@ -110,14 +121,17 @@ TaskSpec 路径权限、UTF-8 和 64 KiB 上限约束，且父目录必须已经
 ## 6. 已验证场景
 
 - Gateway：精确 UTF-8/多字节写入、字节数和 SHA-256、post-effect manifest；
-- Gateway：已存在目标、越权路径、缺失父目录、多字节超限均无副作用；
+- Gateway：已存在目标、越权/快照不可见路径、缺失父目录、多字节超限均无副作用；
 - Gateway：后置 snapshot 普通失败时仅清理本次创建；
 - Tool Schema：只有 WorkItem 显式授权时才向模型暴露；
 - Planner：完整 inventory 接受范围内的新路径，拒绝 denied/traversal 路径；
 - Agent E2E：`create -> run_check -> submit -> protected validation` 成功，intent/receipt、Run
   Memory 和 Trace replay 一致；
-- 真实子进程故障注入：文件创建后、receipt 前 `os._exit`，重启保持 `unknown`、不重放，且
-  Trace 可离线重建同一 Run。
+- 真实子进程故障注入：文件创建后、receipt 前 `os._exit`，重启先保持 `unknown`、不重放；
+  精确后态可显式 accept 或 rollback，处置后 Trace 可离线重建同一 Run；
+- Create recovery：前态 rollback、精确后态 accept/rollback、错误/部分内容和额外漂移拒绝、CLI
+  离线处置及下一 AgentSession 恢复均已覆盖；
+- Create rollback：删除后检测到并发 workspace 漂移时重建 expected 文件并继续阻断；
 - Promotion：新增文件 dry-run 审阅、显式应用、重复调用幂等，以及 Trace replay 一致；
 - Promotion：空文件、权限/编码/大小边界、多个新增或删除均按约束处理；
 - Promotion 故障注入：普通失败按对象身份回滚，硬退出后的精确已发生效果可恢复，错误同名文件
@@ -128,9 +142,10 @@ TaskSpec 路径权限、UTF-8 和 64 KiB 上限约束，且父目录必须已经
 ## 7. 明确不做
 
 - 不创建父目录；
-- 不覆盖、append、delete、rename、chmod 或生成 symlink；
+- 模型工具不提供覆盖、append、delete、rename、chmod 或生成 symlink；恢复 rollback 只删除
+  与未知 intent 唯一后态完全一致的那个新文件；
 - 不一次创建多个文件；
 - 不支持二进制内容或任意 patch/diff；
 - 不在一次 promotion 中新增多个文件，也不删除、重命名或自动提交 Git；
-- 不把硬退出后的目标存在推断为成功；
+- 不把硬退出后的“目标存在”单独推断为成功，必须匹配完整 expected manifest；
 - 不因此宣称完整 CRUD、通用写工具或任意副作用恢复已经完成。

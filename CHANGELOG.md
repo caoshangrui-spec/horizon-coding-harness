@@ -5,6 +5,13 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Added explicit recovery for an uncertain single-file `create_file`: the recorded response,
+  argument hash, WorkItem authority, pre-dispatch manifest, and exact content-derived manifest
+  classify the live workspace as pre-effect, expected-effect, or diverged. Trusted offline
+  `--accept-write` / `--rollback-write` decisions settle only the first two states, persist the
+  recovery observation and next Agent session atomically, never replay the unknown creation, and
+  keep partial or externally drifted states blocked. Real subprocess exit, CLI, rollback conflict
+  restoration, Trace replay, and snapshot-hidden path rejection are covered.
 - Extended explicit staging promotion to carry at most one validated new UTF-8 file within the
   existing eight-change cap. The plan records `kind=created`, an absent before hash, the candidate
   hash, path authority, source/candidate revisions, optional Git HEAD, and a `/dev/null` audit diff.

@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -288,6 +289,11 @@ def test_create_file_rejects_existing_denied_missing_parent_and_oversized_conten
         "create_file",
         {"path": "src/CON.py", "content": "value = 1\n"},
     )
+    (workspace / "src/__pycache__").mkdir()
+    snapshot_hidden = gateway.dispatch_safe(
+        "create_file",
+        {"path": "src/__PYCACHE__/generated.py", "content": "value = 1\n"},
+    )
 
     assert existing.status == "error"
     assert "must not already exist" in existing.content
@@ -299,6 +305,8 @@ def test_create_file_rejects_existing_denied_missing_parent_and_oversized_conten
     assert "UTF-8 byte limit" in oversized.content
     assert non_portable.status == "error"
     assert "not portable to Windows" in non_portable.content
+    assert snapshot_hidden.status == "error"
+    assert "visible to workspace snapshots" in snapshot_hidden.content
     assert (workspace / "src/parser.py").read_bytes() == original
     assert not (workspace / "src/generated").exists()
     assert not (workspace / "src/oversized.py").exists()
@@ -349,6 +357,126 @@ def test_create_file_schema_is_exposed_only_when_work_item_allows_it(tmp_path, t
             "create_file",
             {"path": "src/not-created.py", "content": "value = 1\n"},
         )
+
+
+def test_create_file_recovery_accepts_exact_effect_and_rolls_back(tmp_path, task):
+    gateway, workspace, _ = make_gateway(tmp_path, task)
+    arguments = {
+        "path": "src/generated.py",
+        "content": "def generated():\n    return '你好'\n",
+    }
+    pre_revision, pre_manifest = gateway.checkpoint()
+    outcome = gateway.dispatch("create_file", arguments)
+
+    assessment = gateway.assess_create_recovery(arguments, pre_manifest)
+    assert assessment.state == "expected_effect"
+    assert assessment.path == arguments["path"]
+    assert (
+        assessment.content_sha256
+        == hashlib.sha256(arguments["content"].encode("utf-8")).hexdigest()
+    )
+    assert assessment.pre_revision == pre_revision
+    assert assessment.current_revision == outcome.workspace_revision_after
+
+    restored_revision, restored_manifest = gateway.rollback_create_recovery(
+        arguments,
+        pre_manifest,
+        assessment.current_revision,
+    )
+
+    assert restored_revision == pre_revision
+    assert gateway.verify_manifest(restored_manifest).workspace_revision == pre_revision
+    assert not (workspace / "src/generated.py").exists()
+    pre_effect = gateway.assess_create_recovery(arguments, pre_manifest)
+    assert pre_effect.state == "pre_effect"
+    repeated_revision, _ = gateway.rollback_create_recovery(
+        arguments,
+        pre_manifest,
+        pre_effect.current_revision,
+    )
+    assert repeated_revision == pre_revision
+
+
+@pytest.mark.parametrize(
+    "drift_kind",
+    ["partial_create", "extra_file_change", "excluded_path_change"],
+)
+def test_create_file_recovery_preserves_diverged_workspace(tmp_path, task, drift_kind):
+    gateway, workspace, _ = make_gateway(tmp_path, task)
+    arguments = {
+        "path": "src/generated.py",
+        "content": "def generated():\n    return 'expected'\n",
+    }
+    _, pre_manifest = gateway.checkpoint()
+    target = workspace / "src/generated.py"
+    if drift_kind == "partial_create":
+        target.write_text("partial", encoding="utf-8")
+    elif drift_kind == "extra_file_change":
+        gateway.dispatch("create_file", arguments)
+        (workspace / "tests/test_parser.py").write_text(
+            "# external drift\n",
+            encoding="utf-8",
+        )
+    else:
+        gateway.dispatch("create_file", arguments)
+        (workspace / "src/__pycache__").mkdir()
+        (workspace / "src/__pycache__/ignored.py").write_text(
+            "ignored = True\n",
+            encoding="utf-8",
+        )
+    before = target.read_bytes()
+
+    assessment = gateway.assess_create_recovery(arguments, pre_manifest)
+
+    assert assessment.state == "diverged"
+    with pytest.raises(Conflict, match="Diverged create"):
+        gateway.rollback_create_recovery(
+            arguments,
+            pre_manifest,
+            assessment.current_revision,
+        )
+    assert target.read_bytes() == before
+
+
+def test_create_file_recovery_restores_effect_when_rollback_detects_concurrent_drift(
+    tmp_path,
+    task,
+    monkeypatch,
+):
+    gateway, workspace, _ = make_gateway(tmp_path, task)
+    arguments = {
+        "path": "src/generated.py",
+        "content": "def generated():\n    return 'expected'\n",
+    }
+    _, pre_manifest = gateway.checkpoint()
+    outcome = gateway.dispatch("create_file", arguments)
+    expected = arguments["content"].encode("utf-8")
+    capture = gateway.snapshots.capture
+    capture_calls = 0
+
+    def drift_during_rollback(root, **kwargs):
+        nonlocal capture_calls
+        capture_calls += 1
+        if capture_calls == 2:
+            (workspace / "tests/test_parser.py").write_text(
+                "# concurrent external drift\n",
+                encoding="utf-8",
+            )
+        return capture(root, **kwargs)
+
+    monkeypatch.setattr(gateway.snapshots, "capture", drift_during_rollback)
+
+    with pytest.raises(Conflict, match="concurrently during create rollback"):
+        gateway.rollback_create_recovery(
+            arguments,
+            pre_manifest,
+            outcome.workspace_revision_after,
+        )
+
+    assert (workspace / "src/generated.py").read_bytes() == expected
+    assert "concurrent external drift" in (workspace / "tests/test_parser.py").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_apply_patch_runtime_failure_rolls_back_written_files(tmp_path, task, monkeypatch):

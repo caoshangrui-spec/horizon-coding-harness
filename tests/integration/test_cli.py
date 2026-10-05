@@ -1310,11 +1310,58 @@ def test_agent_resolve_tool_cli_applies_explicit_offline_recovery_decision(
     assert restored.tool_calls[-1].recovery_disposition == expected_disposition
 
 
-def test_agent_resolve_tool_cli_accepts_exact_replace_effect_offline(
+@pytest.mark.parametrize(
+    (
+        "tool_name",
+        "arguments",
+        "decision_args",
+        "expected_disposition",
+        "expected_status",
+    ),
+    [
+        (
+            "replace_text",
+            {
+                "path": "src/parser.py",
+                "old": "return [value]",
+                "new": "return [] if value == '' else [value]",
+            },
+            ["--accept-replace"],
+            "accept_replace",
+            "success",
+        ),
+        (
+            "create_file",
+            {
+                "path": "src/generated.py",
+                "content": "def generated():\n    return '你好'\n",
+            },
+            ["--accept-write"],
+            "accept_create",
+            "success",
+        ),
+        (
+            "create_file",
+            {
+                "path": "src/generated.py",
+                "content": "def generated():\n    return '你好'\n",
+            },
+            ["--rollback-write"],
+            "rollback_create",
+            "cancelled",
+        ),
+    ],
+)
+def test_agent_resolve_tool_cli_resolves_exact_write_effect_offline(
     tmp_path,
     monkeypatch,
     task_dict,
     plan,
+    tool_name,
+    arguments,
+    decision_args,
+    expected_disposition,
+    expected_status,
 ):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("SILICONFLOW_API_KEY", raising=False)
@@ -1343,11 +1390,11 @@ def test_agent_resolve_tool_cli_accepts_exact_replace_effect_offline(
             "items": (
                 plan.items[0].model_copy(
                     update={
-                        "expected_artifacts": ("src/parser.py",),
+                        "expected_artifacts": (arguments["path"],),
                         "allowed_tools": (
                             "search_repo",
                             "read_file",
-                            "replace_text",
+                            tool_name,
                             "run_check",
                         ),
                     }
@@ -1372,15 +1419,10 @@ def test_agent_resolve_tool_cli_accepts_exact_replace_effect_offline(
         snapshots,
         None,
     )
-    arguments = {
-        "path": "src/parser.py",
-        "old": "return [value]",
-        "new": "return [] if value == '' else [value]",
-    }
     ledger = CampaignBudgetLedger(Path(provider.ledger_path))
     agent = CodingAgentRunner(
         service,
-        OneToolModel("replace_text", arguments),
+        OneToolModel(tool_name, arguments),
         ledger,
         CrashAfterToolEffect(real_tools),
         artifacts,
@@ -1411,7 +1453,7 @@ def test_agent_resolve_tool_cli_accepts_exact_replace_effect_offline(
             "resolve-tool",
             run.run_id,
             call_id,
-            "--accept-replace",
+            *decision_args,
             "--config",
             str(PROVIDER),
         ],
@@ -1419,7 +1461,7 @@ def test_agent_resolve_tool_cli_accepts_exact_replace_effect_offline(
 
     assert result.exit_code == 0, result.output
     data = json.loads(result.stdout)
-    assert data["decision"] == "accept_replace"
+    assert data["decision"] == expected_disposition
     assert data["safe_to_resume"] is True
     assert data["network_called"] is False
     assert data["paid_model_called"] is False
@@ -1427,5 +1469,11 @@ def test_agent_resolve_tool_cli_accepts_exact_replace_effect_offline(
     assert restored.lease_id is None
     assert restored.agent_session is not None
     assert restored.agent_session.next_iteration == 2
-    assert restored.tool_calls[-1].recovery_disposition == "accept_replace"
-    assert "return [] if" in (workspace / "src/parser.py").read_text(encoding="utf-8")
+    assert restored.tool_calls[-1].status == expected_status
+    assert restored.tool_calls[-1].recovery_disposition == expected_disposition
+    if tool_name == "replace_text":
+        assert "return [] if" in (workspace / "src/parser.py").read_text(encoding="utf-8")
+    elif expected_status == "success":
+        assert (workspace / "src/generated.py").read_text(encoding="utf-8") == arguments["content"]
+    else:
+        assert not (workspace / "src/generated.py").exists()

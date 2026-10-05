@@ -18,6 +18,7 @@ from horizon.domain.ports import AcceptanceExecutorPort, CodeRetrievalPort
 from horizon.domain.task import TaskSpec, relative_pattern
 from horizon.domain.tools import (
     AcceptanceResult,
+    CreateRecoveryAssessment,
     PatchRecoveryAssessment,
     ReplaceRecoveryAssessment,
     ToolOutcome,
@@ -327,11 +328,17 @@ class WorkspaceToolGateway:
             raise PolicyDenied("Tool path must resolve to an existing workspace file")
         return resolved
 
-    def _new_file_path(self, value: str) -> Path:
+    def _validate_create_path(self, value: str) -> None:
         relative_pattern(value)
         FileEntry(path=value, sha256="0" * 64, size_bytes=0)
+        snapshot_hidden = {".git", ".horizon", ".venv", "__pycache__", ".pytest_cache"}
+        if any(part.casefold() in snapshot_hidden for part in value.split("/")):
+            raise PolicyDenied("create_file target must remain visible to workspace snapshots")
         if not self._permitted(value):
             raise PolicyDenied("Path is outside the TaskSpec authority scope")
+
+    def _new_file_path(self, value: str) -> Path:
+        self._validate_create_path(value)
         target = self.workspace.joinpath(*value.split("/"))
         reject_link(target)
         if target.exists():
@@ -572,12 +579,7 @@ class WorkspaceToolGateway:
         created_identity: tuple[int, int] | None = None
         try:
             try:
-                with target.open("xb") as stream:
-                    stat = os.fstat(stream.fileno())
-                    created_identity = (stat.st_dev, stat.st_ino)
-                    stream.write(encoded)
-                    stream.flush()
-                    os.fsync(stream.fileno())
+                created_identity = self._exclusive_create(target, encoded)
             except FileExistsError as exc:
                 raise PolicyDenied("create_file target must not already exist") from exc
             after, manifest = self._snapshot()
@@ -626,6 +628,28 @@ class WorkspaceToolGateway:
             os.replace(temporary, target)
         finally:
             temporary.unlink(missing_ok=True)
+
+    @staticmethod
+    def _exclusive_create(target: Path, content: bytes) -> tuple[int, int]:
+        created_identity: tuple[int, int] | None = None
+        try:
+            with target.open("xb") as stream:
+                stat = os.fstat(stream.fileno())
+                created_identity = (stat.st_dev, stat.st_ino)
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
+        except BaseException:
+            if created_identity is not None:
+                try:
+                    stat = target.stat(follow_symlinks=False)
+                    if (stat.st_dev, stat.st_ino) == created_identity:
+                        target.unlink()
+                except FileNotFoundError:
+                    pass
+            raise
+        assert created_identity is not None
+        return created_identity
 
     def _expected_replace_snapshot(
         self,
@@ -705,6 +729,41 @@ class WorkspaceToolGateway:
             workspace_revision=digest([entry.model_dump(mode="json") for entry in entries]),
         )
         return args, pre, expected, originals, updates
+
+    def _expected_create_snapshot(
+        self,
+        arguments: dict,
+        pre_manifest_ref: str,
+    ) -> tuple[CreateFileArgs, FileSnapshot, FileSnapshot, bytes]:
+        if self.task.execution_mode != "workspace_write":
+            raise PolicyDenied("Task execution mode does not permit writes")
+        args = CreateFileArgs.model_validate(arguments)
+        encoded = args.content.encode("utf-8")
+        if len(encoded) > MAX_CREATE_FILE_BYTES:
+            raise PolicyDenied("New file exceeds the 64 KiB UTF-8 byte limit")
+        # Reuse the same portable path, authority and snapshot-visibility checks without
+        # requiring the live target to be absent during recovery.
+        self._validate_create_path(args.path)
+
+        pre = self.snapshots.verify(pre_manifest_ref)
+        if any(entry.path.casefold() == args.path.casefold() for entry in pre.files):
+            raise Conflict("Create target already exists in the pre-dispatch manifest")
+        entries = [
+            *pre.files,
+            FileEntry(
+                path=args.path,
+                sha256=hashlib.sha256(encoded).hexdigest(),
+                size_bytes=len(encoded),
+                executable=False,
+            ),
+        ]
+        entries.sort(key=lambda entry: entry.path)
+        expected = FileSnapshot(
+            files=tuple(entries),
+            excluded_paths=pre.excluded_paths,
+            workspace_revision=digest([entry.model_dump(mode="json") for entry in entries]),
+        )
+        return args, pre, expected, encoded
 
     @classmethod
     def _restore_patch_files(
@@ -858,6 +917,100 @@ class WorkspaceToolGateway:
             raise
         if expected.workspace_revision != expected_current_revision:
             raise Conflict("Patch recovery expectation changed during rollback")
+        return restored.workspace_revision, manifest
+
+    def assess_create_recovery(
+        self,
+        arguments: dict,
+        pre_manifest_ref: str,
+    ) -> CreateRecoveryAssessment:
+        args, pre, expected, encoded = self._expected_create_snapshot(
+            arguments,
+            pre_manifest_ref,
+        )
+        current, current_manifest = self.snapshots.capture(
+            self.workspace,
+            denied_paths=self.task.constraints.denied_paths,
+        )
+        if current.excluded_paths != pre.excluded_paths:
+            state = "diverged"
+        elif current.workspace_revision == pre.workspace_revision:
+            state = "pre_effect"
+        elif current.workspace_revision == expected.workspace_revision:
+            state = "expected_effect"
+        else:
+            state = "diverged"
+        return CreateRecoveryAssessment(
+            state=state,
+            path=args.path,
+            content_sha256=hashlib.sha256(encoded).hexdigest(),
+            pre_revision=pre.workspace_revision,
+            expected_revision=expected.workspace_revision,
+            current_revision=current.workspace_revision,
+            current_manifest_ref=current_manifest,
+        )
+
+    def rollback_create_recovery(
+        self,
+        arguments: dict,
+        pre_manifest_ref: str,
+        expected_current_revision: str,
+    ) -> tuple[str, str]:
+        args, pre, expected, encoded = self._expected_create_snapshot(
+            arguments,
+            pre_manifest_ref,
+        )
+        assessment = self.assess_create_recovery(arguments, pre_manifest_ref)
+        if assessment.current_revision != expected_current_revision:
+            raise Conflict("Workspace changed after create recovery assessment")
+        if assessment.state == "diverged":
+            raise Conflict("Diverged create effect cannot be rolled back automatically")
+        if assessment.state == "pre_effect":
+            return assessment.current_revision, assessment.current_manifest_ref
+        if expected.workspace_revision != expected_current_revision:
+            raise Conflict("Create recovery expectation changed before rollback")
+
+        try:
+            target = self._path(args.path)
+        except PolicyDenied as exc:
+            raise Conflict("Create target changed after recovery assessment") from exc
+        with target.open("rb") as stream:
+            opened = os.fstat(stream.fileno())
+            current_content = stream.read(MAX_CREATE_FILE_BYTES + 1)
+            after_read = os.fstat(stream.fileno())
+
+        def signature(details):
+            return (
+                details.st_dev,
+                details.st_ino,
+                details.st_size,
+                details.st_mtime_ns,
+            )
+
+        if signature(opened) != signature(after_read) or current_content != encoded:
+            raise Conflict("Create target changed after recovery assessment")
+        before_unlink = target.stat(follow_symlinks=False)
+        if signature(before_unlink) != signature(after_read):
+            raise Conflict("Create target changed after recovery assessment")
+
+        target.unlink()
+        try:
+            restored, manifest = self.snapshots.capture(
+                self.workspace,
+                denied_paths=self.task.constraints.denied_paths,
+            )
+            if (
+                restored.workspace_revision != pre.workspace_revision
+                or restored.excluded_paths != pre.excluded_paths
+            ):
+                raise Conflict("Workspace changed concurrently during create rollback")
+        except BaseException:
+            if not target.exists():
+                try:
+                    self._exclusive_create(target, encoded)
+                except FileExistsError:
+                    pass
+            raise
         return restored.workspace_revision, manifest
 
     def _execute_check(

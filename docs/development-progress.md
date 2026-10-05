@@ -1,6 +1,6 @@
 # 开发进度与验证记录
 
-更新：2026-10-04。已发布版本为 0.1.0，主干继续积累 Unreleased 改动；技术设计基线继续为
+更新：2026-10-05。已发布版本为 0.1.0，主干继续积累 Unreleased 改动；技术设计基线继续为
 0.2.0。2026-09-30 的
 可靠性内核证据保留，本次在其上增加 Provider 垂直切片和首个受控 Coding Agent 闭环。
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
@@ -38,7 +38,7 @@
 | 真实模型 Pilot | [pilot.py](../src/horizon/domain/pilot.py)、[pilot.py](../src/horizon/application/pilot.py)、[real-model-pilot.md](real-model-pilot.md) | 离线预检绑定完整干净 checkout、初始失败、source snapshot、Docker image、Provider policy、Harness 源码指纹、费用 cap 和首次规划保守预留。六个付费 Run 均无编辑/验证、Trace 可重放且 source 未变；第六轮的 Plan 错把已有 `itertools.py` 当实现位置，但 execution 先检索并把真实 `__init__.py` 排为 rank 1，下一模型请求再因 Campaign 预留不足停止。当前累计 `CNY 0.1954812`；没有自动复跑或真实 Issue 成功 |
 | 模型预留压力诊断 | [reservation_analysis.py](../src/horizon/application/reservation_analysis.py)、[reservation-diagnostics.md](reservation-diagnostics.md) | `trace reservation-report` 在 replay/hash-chain 校验后关联 reservation、settlement 和新 BudgetStop 请求尺寸；六轮 20 次调用的聚合预留/结算比为 6.861621。候选 `request_bytes + 1024` 仅可回放 3 次，0 次观测低估、中位比 4.137869；生产 estimator、费用门禁和付费预算均未改变 |
 | 安全轮次续跑 | [agent.py](../src/horizon/domain/agent.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 消息 Artifact + event/revision 绑定；新 Worker 续跑；PLANNING/READY 也可恢复，任意崩溃窗口对账未完成 |
-| 悬空调用恢复与对账 | [recovery.py](../src/horizon/application/recovery.py)、[model_recovery.py](../src/horizon/application/model_recovery.py)、[tool_recovery.py](../src/horizon/application/tool_recovery.py) | Campaign-only 预留释放；response Artifact 跨 Worker 续跑；模型派发前持久化 client Trace ID，返回后普通落盘失败立即隔离，Artifact 前硬退出重启后保守 `unknown`；只读重试；精确 `replace_text` / `apply_patch` accept/rollback；`create_file` 硬退出保留 unknown 且不重放；Docker `run_check` 用 call ID 标签 attempt，可查询/显式停止/删除后丢弃未知结果，missing 仍需人工确认；部分 patch、未知创建和无停止证明的验证副作用仍阻塞 |
+| 悬空调用恢复与对账 | [recovery.py](../src/horizon/application/recovery.py)、[model_recovery.py](../src/horizon/application/model_recovery.py)、[tool_recovery.py](../src/horizon/application/tool_recovery.py) | Campaign-only 预留释放；response Artifact 跨 Worker 续跑；模型派发前持久化 client Trace ID，返回后普通落盘失败立即隔离，Artifact 前硬退出重启后保守 `unknown`；只读重试；精确 `replace_text` / `apply_patch` / 单文件 `create_file` accept/rollback；Docker `run_check` 用 call ID 标签 attempt，可查询/显式停止/删除后丢弃未知结果，missing 仍需人工确认；部分/漂移写入和无停止证明的验证副作用仍阻塞 |
 | 受控候选提升 | [promotion.py](../src/horizon/application/promotion.py)、[promotion.py](../src/horizon/adapters/workspace/promotion.py)、[git.py](../src/horizon/adapters/vcs/git.py) | 只读 diff、源/候选 revision 与可选 Git HEAD 绑定、显式 1～8 个总变更且至多 1 个 64 KiB UTF-8 新文件、完整/部分 effect 崩溃恢复；不删除/重命名或创建 commit |
 | 任务准备、计划、状态、取消、执行、导出与重放 CLI | [app.py](../src/horizon/interfaces/cli/app.py) | `run` 保持 prepare-only；`agent run` 接受 PLAN_PATH 或 `--auto-plan` 且只操作 staging；`agent resume` 支持 PLANNING/READY/RUNNING；执行前 HorizonError 仅在无非 unknown 在途 reservation 时释放租约；promotion 需显式确认 |
 | SiliconFlow 严格配置与 OpenAI-compatible adapter | [config.py](../src/horizon/adapters/model/config.py)、[openai_compatible.py](../src/horizon/adapters/model/openai_compatible.py) | Adapter 与预算器共用 canonical wire encoder，实际 HTTP body 的 bytes/hash 可复算；真实 Tool Calling 探针和历史 fixture Agent Run 通过；完整 checkout Pilot 已真实调用并以受控终态失败，无隐式 retry/fallback |
@@ -76,6 +76,21 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 仍是后续适配约束；不能以该文档代替本项目的实际联调。
 
 ## 验证结果
+
+### 2026-10-05 单文件创建的显式崩溃恢复
+
+- `create_file` 硬退出后仍先进入 `unknown` 且绝不自动重放；恢复端复核已记录 ModelResponse、
+  参数 hash、WorkItem 权限、派发前 revision/manifest，再推导“原 manifest 加一个精确新文件”
+  的唯一 expected revision。
+- `pre_effect` 只允许 rollback，`expected_effect` 允许显式 accept 或 rollback；部分/错误内容、
+  任意额外文件漂移均为 `diverged` 并继续阻断。成功处置会结算原 tool call 并原子保存包含恢复
+  observation 的下一 AgentSession，不重放已经结算的模型响应。
+- rollback 删除前复核普通文件、精确字节和稳定元数据，删除后必须回到完整 pre-revision；若
+  期间发现并发漂移，会重建 expected 文件并保留 unknown。另拒绝创建到 `.venv`、
+  `__pycache__`、`.pytest_cache` 等快照不可见位置。
+- 真实子进程 `os._exit` 后的 accept/rollback、前态幂等 rollback、错误/部分后态、并发漂移、
+  CLI 离线处置、AgentSession 续接和 Trace replay 已覆盖；没有网络或付费模型调用。当前离线
+  全量回归为 **338 passed，6 skipped**，跳过项仍是需显式提供本机镜像的 Docker 合同。
 
 ### 2026-10-04 单个新增文件的显式 promotion
 
@@ -523,12 +538,12 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
    revision，但不能扩展宣称为通用自治规划或无进展检测。
 2. **完整恢复**：安全轮次和已持久化 response receipt 边界现可续跑，模型/工具悬空 intent
    和 Run/Campaign 提交窗口可分类；单一只读工具支持显式重试，精确 `replace_text` 与有界
-   `apply_patch` 支持基于 manifest 的 accept/rollback；`run_check` 有可查询的 Docker attempt，
+   `apply_patch` 和单文件 `create_file` 支持基于 manifest 的 accept/rollback；`run_check` 有可查询的 Docker attempt，
    可核验/显式停止后丢弃未知结果，missing 时仍需人工确认。Provider 返回到 response Artifact
    提交之间已有 client Trace、普通异常即时隔离和硬退出保守恢复证据，但没有 Provider receipt
    查询时仍只能人工对账，不能恢复丢失响应。仍需容器创建前持久启动证明/结果恢复、任意 diff、多文件新增/删除写入、旧
-   容器隔离和 Execution Fork。`create_file` 已覆盖一个新文件的正常路径、普通异常清理与硬退出
-   unknown/no-replay，但尚无 create 专用 accept/rollback，也不代表多文件新增或删除已实现。
+   容器隔离和 Execution Fork。`create_file` 已覆盖一个新文件的正常路径、普通异常清理、硬退出
+   unknown/no-replay 及精确前/后态显式处置，但不代表部分创建、恶意并发、多文件新增或删除已实现。
 3. **安全边界**：首个 Gateway 已阻止任意 shell，并把模型工具 intent/receipt 与 Run 预算
    事件化；但模型派发、文件写入和容器副作用还不是跨 SQLite/文件系统的单一原子事务，
    也没有独立安全复核或通用审批系统；当前 promotion 仅覆盖最多 8 个总变更且至多 1 个新文件。

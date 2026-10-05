@@ -19,6 +19,7 @@ from horizon.domain.run import Run
 from horizon.domain.task import AcceptanceCheck, TaskSpec
 from horizon.domain.tools import (
     AcceptanceResult,
+    CreateRecoveryAssessment,
     PatchRecoveryAssessment,
     ReplaceRecoveryAssessment,
     ToolOutcome,
@@ -134,6 +135,19 @@ class WriteRecoveryPort(Protocol):
     ) -> PatchRecoveryAssessment: ...
 
     def rollback_patch_recovery(
+        self,
+        arguments: dict[str, Any],
+        pre_manifest_ref: str,
+        expected_current_revision: str,
+    ) -> tuple[str, str]: ...
+
+    def assess_create_recovery(
+        self,
+        arguments: dict[str, Any],
+        pre_manifest_ref: str,
+    ) -> CreateRecoveryAssessment: ...
+
+    def rollback_create_recovery(
         self,
         arguments: dict[str, Any],
         pre_manifest_ref: str,

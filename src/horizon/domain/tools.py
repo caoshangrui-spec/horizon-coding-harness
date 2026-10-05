@@ -35,6 +35,8 @@ class ToolCallRecord(Contract):
             "rollback_replace",
             "accept_patch",
             "rollback_patch",
+            "accept_create",
+            "rollback_create",
             "discard_check",
         ]
         | None
@@ -73,6 +75,16 @@ class ReplaceRecoveryAssessment(Contract):
 class PatchRecoveryAssessment(Contract):
     state: Literal["pre_effect", "expected_effect", "diverged"]
     paths: tuple[str, ...]
+    pre_revision: Digest
+    expected_revision: Digest
+    current_revision: Digest
+    current_manifest_ref: Digest
+
+
+class CreateRecoveryAssessment(Contract):
+    state: Literal["pre_effect", "expected_effect", "diverged"]
+    path: str
+    content_sha256: Digest
     pre_revision: Digest
     expected_revision: Digest
     current_revision: Digest

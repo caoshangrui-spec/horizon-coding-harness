@@ -36,7 +36,7 @@
 本文件是开发合同和设计基线，不是完成证明。
 
 - 已完成：需求定义、架构划分、核心数据模型、状态机、恢复协议、接口草案、测试策略、里程碑和验收标准设计。
-- 已进入实现：可靠性内核、SiliconFlow adapter、Run/Campaign 双层模型预算、Typed Tool Gateway、Docker 受保护验证、顺序 WorkItem DAG 循环、一次显式且原子提交的受限执行期 replan、相同动作与精确 period-2 无进展保护、单/多文件精确写入恢复、受限单文件创建、最多 8 个总变更且至多 1 个新文件的 promotion 与确定性 ContextProjection；逐项边界见[开发记录](development-progress.md)。
+- 已进入实现：可靠性内核、SiliconFlow adapter、Run/Campaign 双层模型预算、Typed Tool Gateway、Docker 受保护验证、顺序 WorkItem DAG 循环、一次显式且原子提交的受限执行期 replan、相同动作与精确 period-2 无进展保护、单/多文件精确写入恢复、含精确显式崩溃处置的受限单文件创建、最多 8 个总变更且至多 1 个新文件的 promotion 与确定性 ContextProjection；逐项边界见[开发记录](development-progress.md)。
 - 已验证子范围：Fake Model 的成功/返修闭环、6 项真实 Docker 契约，以及一次真实 SiliconFlow + Docker fixture Run；这不是长程或 benchmark 结果。
 - 未完成：完整底座 Spike、自然语言任务分解、自动触发或多次 replan、并行 WorkItem、任意副作用恢复、多文件新增、删除/重命名及其 promotion、Project Memory、symbol/vector RAG、精确 tokenizer/语义 Context、通用 HITL、retry/breaker/fallback、SWE-bench 实验和整体验收；当前已有 deterministic dependency-ready 顺序调度、一次显式受限 replan、版本化保守 input-token 上界、revision-aware 词法 RAG 与证据驱动的 run-scope Memory 子范围，均未形成真实任务效果结论。
 - 文中的阈值属于计划验收标准，不代表已经达到。

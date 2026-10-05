@@ -218,10 +218,12 @@ Horizon 的可配置请求策略，不冒充模型官方窗口或 tokenizer 精�
 - Docker `run_check` 用已持久化 tool call ID 派生唯一名称和 owner/attempt/image 标签；悬空 intent
   可查询停止状态，显式停止仍运行的精确 attempt，或在 missing 时由操作者确认。workspace
   revision 未漂移后才允许 `discard_check`；原检查输出不进入会话，不推断 pass/fail，也不重放；
-- 单一 `replace_text` 或最多 8 个不同既有文件的结构化 `apply_patch`，可在 live workspace 精确
-  等于派发前 manifest 或唯一预期后态时显式 accept/rollback；部分写入或额外 drift 拒绝；
+- 单一 `replace_text`、最多 8 个不同既有文件的结构化 `apply_patch` 或单文件 `create_file`，可在
+  live workspace 精确等于派发前 manifest 或唯一预期后态时显式 accept/rollback；部分写入或
+  额外 drift 拒绝；
 - 单一 `create_file` 可在允许路径和已存在父目录中排他创建最多 64 KiB 的 UTF-8 文件；成功
-  receipt 绑定 content 参数 hash、前后 revision 和 manifest，硬退出后保持 unknown 且不重放；
+  receipt 绑定 content 参数 hash、前后 revision 和 manifest；硬退出后先保持 unknown 且不重放，
+  之后仅允许上述精确离线处置；
 - 成功候选的只读 diff 和最多 8 个总变更、至多 1 个新文件的显式 promotion 绑定源/候选
   revision 与可选 Git HEAD；完整 effect 后、receipt 前可只补 receipt，部分 effect 可在既有
   目标仍为 before/after、新目标仍为 absent/after 时继续；
@@ -240,8 +242,8 @@ Horizon 的可配置请求策略，不冒充模型官方窗口或 tokenizer 精�
 尚未实现或尚未验证：
 
 - 任意崩溃点的可继续恢复；`run_check` 已覆盖真实 running 窗口，仍缺容器创建前、命令退出后
-  清理前以及 missing attempt 启动证明；`create_file` 的未知效果也尚无 accept/rollback，另缺
-  多文件新增、删除/重命名或任意 diff 的写工具副作用处置；
+  清理前以及 missing attempt 启动证明；`create_file` 仍不接纳部分/漂移后态，另缺多文件新增、
+  删除/重命名或任意 diff 的写工具副作用处置；
 - retry/backoff、Circuit Breaker、迟到回执主动对账；
 - 生产级消息/Trace 脱敏，以及完整多调用崩溃/取消配对矩阵；
 - 自然语言 TaskSpec intake、自动触发/多次执行期 replan、并行 WorkItem、任意 diff/edit、

@@ -18,7 +18,6 @@ from horizon.application.services import HarnessService, LeaseToken
 from horizon.application.tool_recovery import ToolRecoveryService
 from horizon.domain.budget import Usage
 from horizon.domain.common import digest
-from horizon.domain.errors import Conflict
 from horizon.domain.model import (
     CampaignBudget,
     FunctionCall,
@@ -812,9 +811,20 @@ def test_hard_exit_after_write_effect_can_be_exactly_accepted_and_resumed(
     )
 
 
-def test_hard_exit_after_create_file_stays_unknown_without_automatic_replay(
+@pytest.mark.parametrize(
+    ("decision", "disposition", "status", "file_exists"),
+    [
+        ("accept", "accept_create", "success", True),
+        ("rollback", "rollback_create", "cancelled", False),
+    ],
+)
+def test_hard_exit_after_create_file_requires_explicit_exact_resolution(
     tmp_path: Path,
     task_dict,
+    decision,
+    disposition,
+    status,
+    file_exists,
 ):
     (
         workspace,
@@ -894,14 +904,28 @@ def test_hard_exit_after_create_file_stays_unknown_without_automatic_replay(
         SnapshotManager(artifacts),
         _ParserCheck(),
     )
-    with pytest.raises(Conflict, match="supported write call"):
-        ToolRecoveryService(recovery_service, artifacts, tools).resolve_write(
-            run_id,
-            call_id,
-            decision="accept",
-            token=recovery_token,
-        )
-    assert (workspace / "src/generated.py").read_bytes() == expected_bytes
+    resolved = ToolRecoveryService(recovery_service, artifacts, tools).resolve_write(
+        run_id,
+        call_id,
+        decision=decision,
+        token=recovery_token,
+    )
+
+    record = resolved.tool_calls[-1]
+    assert record.status == status
+    assert record.recovery_disposition == disposition
+    assert not resolved.reservations
+    assert not resolved.unknown_tool_calls
+    assert resolved.agent_session is not None
+    assert resolved.agent_session.next_iteration == 2
+    assert (workspace / "src/generated.py").exists() is file_exists
+    if file_exists:
+        assert (workspace / "src/generated.py").read_bytes() == expected_bytes
+    safe = RecoveryService(recovery_service, ledger, artifacts).reconcile(
+        run_id,
+        recovery_token,
+    )
+    assert safe.safe_to_resume is True
 
     trace = interrupted_store.export_jsonl(run_id)
     replayed = SQLiteEventStore.replay_jsonl(trace)

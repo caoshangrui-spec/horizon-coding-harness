@@ -1652,7 +1652,8 @@ def agent_resolve_tool(
             "--accept-write",
             "--accept-replace",
             help=(
-                "Accept one uncertain replace_text/apply_patch only when the live workspace "
+                "Accept one uncertain replace_text/apply_patch/create_file only when the live "
+                "workspace "
                 "exactly matches the deterministic effect derived from its pre-dispatch "
                 "manifest."
             ),
@@ -1664,9 +1665,10 @@ def agent_resolve_tool(
             "--rollback-write",
             "--rollback-replace",
             help=(
-                "Restore one uncertain replace_text/apply_patch to its pre-dispatch manifest "
-                "when the live workspace is either unchanged or exactly matches the "
-                "deterministic effect."
+                "Restore one uncertain replace_text/apply_patch/create_file to its pre-dispatch "
+                "manifest when the live workspace is either unchanged or exactly matches the "
+                "deterministic effect. For create_file this removes only the exact expected "
+                "new file."
             ),
         ),
     ] = False,

@@ -123,13 +123,13 @@ Provider 派发前和 response receipt 后的两个双库提交窗口，并输�
 `manual_reconciliation`。会话后的单个 `search_repo`/`read_file`/`retrieve_code` 悬空 intent
 只有在原响应、
 参数 hash、事件尾部和 workspace revision 全部一致，且用户显式授权后，才能取消旧尝试并从
-同一响应生成新 call。单个 `replace_text` 或结构化 `apply_patch` 的参数、派发前 manifest 和
+同一响应生成新 call。单个 `replace_text`、结构化 `apply_patch` 或 `create_file` 的参数、派发前 manifest 和
 当前 workspace 可共同推导 `pre_effect / expected_effect / diverged`；只有前两种能由可信 CLI
 显式 accept/rollback，部分写入和外部漂移继续阻塞。`apply_patch` 限制为最多 8 个不同既有
 文件，全部 edit 在第一处写入前完成精确前像校验。`create_file` 只创建一个允许路径内、最多
-64 KiB 的 UTF-8 文件，不覆盖既有目标；它在硬退出后仍保守保持 unknown，当前没有自动或显式
-accept/rollback。其他悬空事件、reservation 或 staging 漂移
-均在调用模型前拒绝。
+64 KiB 的 UTF-8 文件，不覆盖既有目标；它在硬退出后先保守保持 unknown，绝不自动重放，只有
+完整前态或“前态加精确新文件”的唯一后态才能显式处置。其他悬空事件、reservation 或 staging
+漂移均在调用模型前拒绝。
 若崩溃发生在 Provider 已返回、但 response Artifact/Run receipt 尚未提交的窗口，真实子进程
 故障测试证明重启后会把 Run/Campaign 标为 `unknown`、保留 client Trace ID、成功重放 Trace，
 且不会自动再次调用模型。这个 ID 只提供人工/供应商对账线索；没有可查询的 Provider receipt
@@ -144,7 +144,7 @@ accept/rollback。其他悬空事件、reservation 或 staging 漂移
 | `retrieve_code` | 查询、最多 8 个 chunk | manifest + path scope 绑定的 FTS5/BM25 EvidencePack；命中回查 Artifact，empty/degraded 分离 |
 | `replace_text` | path、old、new、期望出现次数 | 仅已存在 UTF-8 文件；精确计数；字节级临时文件 + 原子替换；失败回滚 |
 | `apply_patch` | 1～8 个不同 path 的精确 old/new edit | 全批预校验后才写；每文件原子替换；普通异常回滚，硬退出部分态保持 unknown |
-| `create_file` | path、完整 UTF-8 content | 仅一个允许路径；最多 64 KiB UTF-8 bytes；父目录须已存在；目标存在即拒绝；普通异常清理本次创建，硬退出保持 unknown |
+| `create_file` | path、完整 UTF-8 content | 仅一个允许且快照可见的路径；最多 64 KiB UTF-8 bytes；父目录须已存在；目标存在即拒绝；普通异常清理，硬退出先保持 unknown，再按精确 manifest 显式 accept/rollback |
 | `run_check` | check ID | 实际 command、timeout 来自不可变 TaskSpec，不接受模型命令 |
 | `submit` | 简短摘要 | 只请求最终验证，不能直接把 Run 标记成功 |
 
@@ -163,7 +163,8 @@ accept/rollback。其他悬空事件、reservation 或 staging 漂移
 显式接纳/回滚，并把 observation 追加到下一 Agent session。多文件工具只写完一部分时属于
 `diverged`，仍保持 unknown。`create_file` 的 content 通过模型响应 Artifact 与 intent 参数 hash
 绑定，成功 receipt 再绑定输出 Artifact、前后 revision 和 post-effect manifest；硬退出留下的
-创建结果不会重放，也尚不能用 `resolve-tool` 接纳或回滚。`run_check` 绝不自动重派。Docker 检查把已持久化 tool call ID
+创建结果不会重放，只能在 live workspace 精确等于完整前态或唯一预期后态时用 `resolve-tool`
+接纳/回滚。`run_check` 绝不自动重派。Docker 检查把已持久化 tool call ID
 确定性映射为容器名，并写入 owner/attempt/image 三个标签；恢复端可用同一镜像精确查询。
 已停止 attempt 可由控制器验证并删除；运行中 attempt 只有显式 `--stop-check-sandbox` 才会被
 终止。missing 不能证明“从未运行/已经停止”，因此仍要求操作者确认。只有停止证据成立且 live
@@ -297,12 +298,12 @@ attempt 和 image 全部匹配的容器。若容器 missing，缺失本身不是
 当前 WorkItem acceptance scope、事件尾部和 workspace revision，并在提交处置时再次复核；任一
 不符继续保持 unknown。成功处置会原子写入 cancelled receipt 与下一 AgentSession。
 
-精确写入可选择一种处置：
+精确写入（`replace_text` / `apply_patch` / `create_file`）可选择一种处置：
 
 ```powershell
 uv run --locked --cache-dir .uv-cache horizon agent resolve-tool `
-  <run-id> <tool-call-id> --accept-replace
-# 或 --rollback-replace
+  <run-id> <tool-call-id> --accept-write
+# 或 --rollback-write；旧 --accept-replace / --rollback-replace 是兼容别名
 ```
 
 成功 Run 的候选提升分成只读计划和显式执行：
@@ -339,9 +340,9 @@ Trace 文件拒绝覆盖已有文件。重放不会调用模型、工具或 Dock
 
 ## 9. 当前验证证据
 
-2026-10-04 当前环境：
+2026-10-05 当前环境：
 
-- 离线全量回归：330 passed、6 skipped；
+- 离线全量回归：338 passed、6 skipped；
 - 随后指定本机已有 `redis:7-alpine` 单独复跑跳过项：6 passed，均为真实 Docker 合同；
 - Fake Model E2E：精确编辑后成功，以及首次验收失败后一次 repair 成功；
 - 自动计划 Fake E2E：Plan provenance/预算、越权拒绝且不重试、Plan 事件前崩溃复用响应，

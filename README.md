@@ -67,7 +67,7 @@ workspace revision 绑定并从 Trace 复算。模型动作由冻结脚本提供
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | Python 3.12/3.13 的测试、静态检查、演示和构建已通过 | CI 不读取 API Key、不运行付费模型 |
-| 离线回归 | `330 passed, 6 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `338 passed, 6 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | Docker 契约 | `redis:7-alpine` 上单独复跑 `6 passed` | 有限隔离合同，不是恶意代码安全认证 |
 | 完整 checkout A/B | tqdm 82 files、youtube-dl 872 files；初始失败门、恢复、replan、最终验收和 Trace replay 通过 | 使用 Scripted Model，不是模型能力成绩 |
 | 真实模型 Pilot | 六轮均可重放、费用可核对、source 未变 | 六轮均未编辑或验证成功，保留为负结果 |
@@ -136,11 +136,14 @@ FTS5/BM25 索引，返回带 path/range/hash 的 EvidencePack；自然语言与 
 候选以优先同名定义，并只在确实命中同名定义时用模块路径词消歧。无 FTS 或跳过文件时显式标
 degraded；未提供模块语境时不会假装已经解决同名符号歧义。
 无法证明是否执行过的模型/工具调用仍保守标为 `unknown`；当前可显式处理单个只读调用，或
-在工作区精确等于预期前态/后态时接纳、回滚一个 `replace_text` 或 `apply_patch`。后者一次
-预校验并修改最多 8 个不同的既有 UTF-8 文件；部分写入保持 unknown，不会被误判为成功。
+在工作区精确等于预期前态/后态时接纳、回滚一个 `replace_text`、`apply_patch` 或
+`create_file`。`apply_patch` 一次预校验并修改最多 8 个不同的既有 UTF-8 文件；部分写入或
+任何额外漂移保持 unknown，不会被误判为成功。
 Agent 也可用 `create_file` 在允许路径内创建一个最多 64 KiB 的 UTF-8 文件；父目录必须已存在，
 目标存在时拒绝覆盖。创建后的普通异常会删除本次新文件，而进程在副作用后、receipt 前硬退出
-时保留文件并把调用标为 `unknown`，不会自动重放或伪装为已结算成功。
+时先保留文件并把调用标为 `unknown`，不会自动重放。之后只有 live workspace 精确等于派发前
+manifest 或“该 manifest 加上精确新文件”的唯一后态时，可信 CLI 才能显式 rollback 或
+accept；错误/部分内容继续阻塞。
 每个 Docker `run_check` 现用已持久化 tool call ID 派生唯一容器名和 owner/attempt/image 标签。
 悬空检查可用原镜像精确查询；已停止容器由控制器验证并删除，仍在运行时只有显式
 `--stop-check-sandbox` 才会终止。查不到标签容器不算停止证明，仍需操作者确认。处置只丢弃
@@ -263,7 +266,7 @@ uv run --locked --cache-dir .uv-cache horizon agent reconcile $partial.run_id `
 uv run --locked --cache-dir .uv-cache horizon agent resolve-tool `
   $partial.run_id <tool-call-id> --retry-readonly
 
-# 写工具的结果必须与派发前 manifest 推导出的唯一前态/后态完全一致。
+# 写工具（含单文件 create_file）的结果必须与派发前 manifest 推导出的唯一前态/后态完全一致。
 uv run --locked --cache-dir .uv-cache horizon agent resolve-tool `
   $partial.run_id <tool-call-id> --accept-write
 # 或：--rollback-write；旧 --accept-replace/--rollback-replace 是兼容别名。
@@ -285,9 +288,9 @@ uv run --locked --cache-dir .uv-cache horizon agent promote `
 `agent reconcile` 只自动修复能由已提交证据唯一确定的状态：Provider 派发前的 Campaign-only
 预留按 0 释放；完整响应 Artifact + Run receipt 可补齐 Campaign 并继续。单一只读工具只有在
 原模型响应/参数 hash/事件尾部一致、工作区未漂移且用户提供 `--retry-readonly` 时才会把旧尝试
-以 `cancelled` 结算并保守计数一次，然后生成新的 tool call。单一 `replace_text` 或最多 8 文件
-的结构化 `apply_patch` 可在 live workspace 与预期 effect 或原 manifest 完全一致时显式
-accept/rollback；部分写入或外部漂移继续阻塞。`run_check` 初始也返回
+以 `cancelled` 结算并保守计数一次，然后生成新的 tool call。单一 `replace_text`、最多 8 文件
+的结构化 `apply_patch` 或单一 `create_file` 可在 live workspace 与预期 effect 或原 manifest
+完全一致时显式 accept/rollback；部分写入或外部漂移继续阻塞。`run_check` 初始也返回
 `manual_reconciliation`；其中单一调用可经上述显式确认取消未知结果并恢复到下一轮，
 但绝不自动重试或把它记为验证事实。Agent 入口支持有界的顺序多 WorkItem DAG、一次性自动计划、一次
 执行期受限 Plan revision、精确字符串替换、受控多文件 patch、单个受限新文件和控制器定义的检查；它不支持
@@ -311,7 +314,7 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **330 passed，6 skipped**；6 个跳过项指定本机已有
+当前离线全量回归为 **338 passed，6 skipped**；6 个跳过项指定本机已有
 `redis:7-alpine` 单独复跑，得到 **6 passed** 的真实 Docker 契约结果。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实
 Issue 效果。新增真实模型 Pilot 单元测试覆盖私有答案拒绝、初始失败证据、内容寻址报告和

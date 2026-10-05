@@ -384,7 +384,7 @@ class ToolRecoveryService:
         if (
             pending is None
             or pending.reservation.call_id != call_id
-            or pending.reservation.name not in {"replace_text", "apply_patch"}
+            or pending.reservation.name not in {"replace_text", "apply_patch", "create_file"}
             or (expected_tool is not None and pending.reservation.name != expected_tool)
             or active_item is None
             or pending.reservation.name not in active_item.allowed_tools
@@ -408,7 +408,7 @@ class ToolRecoveryService:
             accept_disposition = "accept_replace"
             rollback_disposition = "rollback_replace"
             noun = "Replace"
-        else:
+        elif reservation.name == "apply_patch":
             assessment = self.write_recovery.assess_patch_recovery(
                 arguments,
                 reservation.workspace_manifest_ref,
@@ -416,6 +416,14 @@ class ToolRecoveryService:
             accept_disposition = "accept_patch"
             rollback_disposition = "rollback_patch"
             noun = "Patch"
+        else:
+            assessment = self.write_recovery.assess_create_recovery(
+                arguments,
+                reservation.workspace_manifest_ref,
+            )
+            accept_disposition = "accept_create"
+            rollback_disposition = "rollback_create"
+            noun = "File creation"
         if assessment.pre_revision != reservation.workspace_revision:
             raise Conflict("Pre-dispatch manifest does not match the tool reservation")
 
@@ -438,8 +446,14 @@ class ToolRecoveryService:
                     reservation.workspace_manifest_ref,
                     assessment.current_revision,
                 )
-            else:
+            elif reservation.name == "apply_patch":
                 final_revision, final_manifest = self.write_recovery.rollback_patch_recovery(
+                    arguments,
+                    reservation.workspace_manifest_ref,
+                    assessment.current_revision,
+                )
+            else:
+                final_revision, final_manifest = self.write_recovery.rollback_create_recovery(
                     arguments,
                     reservation.workspace_manifest_ref,
                     assessment.current_revision,
