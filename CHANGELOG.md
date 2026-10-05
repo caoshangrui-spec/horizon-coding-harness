@@ -5,14 +5,15 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
-- Added `horizon eval recovery` and a frozen 19-case bounded recovery matrix. One case reuses the
-  real child-process exit-after-effect Portfolio path and verifies its EvidencePack/Trace; the
-  other 18 cover `replace_text`, `apply_patch`, and `create_file` across pre-effect,
-  expected-effect, and diverged states for both accept and rollback decisions. Reports separate
-  `auto_recovered` from `safely_blocked`, count unrecoverable/incorrect resumes and redispatches,
-  persist per-case content-addressed manifests, reject post-run workspace tampering, and remain
-  offline with zero external cost. The matrix explicitly does not claim arbitrary crash recovery
-  or the complete designed fault-injection suite.
+- Added `horizon eval recovery` with frozen, backward-readable recovery matrices. v1 contains one
+  real child-process exit-after-write-effect case plus 18 exact write state/decision cases. v2
+  preserves the v1 digest and adds a second real process crash after a model response returns but
+  before its Response Artifact is published; recovery must bind the client Trace ID, mark both
+  ledgers unknown, remain blocked, replay its Trace, and perform zero model redispatches. Reports
+  separate `auto_recovered` from `safely_blocked`, count unrecoverable/incorrect resumes and
+  duplicate effects, persist per-case content-addressed evidence, detect post-run tampering, and
+  remain offline with zero external cost. The matrix explicitly does not claim arbitrary crash
+  recovery or the complete designed fault-injection suite.
 - Upgraded `horizon demo run` from a graceful handoff-only story to a bounded real-process crash
   recovery demonstration. A child Worker now exits with `os._exit(86)` after `replace_text` changes
   the staging file but before its tool receipt. The supervisor observes the durable intent without

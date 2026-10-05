@@ -1,4 +1,4 @@
-"""Crash after a model response returns but before its Artifact is published."""
+"""Exit after a model response returns but before its Artifact is published."""
 
 from __future__ import annotations
 
@@ -22,6 +22,10 @@ from horizon.domain.model import (
     PriceCard,
     ToolCall,
 )
+from horizon.domain.recovery_evaluation import (
+    MODEL_RESPONSE_CRASH_EXIT_CODE,
+    MODEL_RESPONSE_CRASH_RESPONSE_ID,
+)
 from horizon.tools.gateway import WorkspaceToolGateway
 
 
@@ -30,9 +34,12 @@ class ReturnedResponseModel:
         self.marker = marker
 
     def generate(self, request, trace_id):
-        self.marker.write_text(trace_id, encoding="utf-8")
+        with self.marker.open("x", encoding="utf-8") as stream:
+            stream.write(trace_id)
+            stream.flush()
+            os.fsync(stream.fileno())
         return ModelResponse(
-            response_id="hard-exit-preartifact-response",
+            response_id=MODEL_RESPONSE_CRASH_RESPONSE_ID,
             model=request.model,
             message=ModelMessage(
                 role="assistant",
@@ -60,8 +67,8 @@ class ExitBeforeResponseArtifact:
         return getattr(self.delegate, name)
 
     def put(self, content):
-        if b'"response_id":"hard-exit-preartifact-response"' in content:
-            os._exit(27)
+        if f'"response_id":"{MODEL_RESPONSE_CRASH_RESPONSE_ID}"'.encode() in content:
+            os._exit(MODEL_RESPONSE_CRASH_EXIT_CODE)
         return self.delegate.put(content)
 
 

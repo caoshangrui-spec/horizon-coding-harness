@@ -60,7 +60,7 @@
 
 | ID | 里程碑 | 目标模块 | 计划检查与测试文件 | 实际证据 / Reviewer |
 |---|---|---|---|---|
-| NFR-001 | M2～M5 | `orchestration/recovery.py` | `fault_injection/`：原 8 类故障全覆盖，可恢复样本真实恢复，阻塞单列 | 部分：确定性集成覆盖多种悬空/冲突；真实进程硬退出覆盖 Provider 返回后但 response Artifact 前、数据库提交、已发布 response Artifact、单/多文件精确写 effect 和 promotion receipt 等窗口。一键作品集把 replace effect→无 receipt→unknown→精确 accept→继续验证做成自校验链路；`horizon eval recovery` 再冻结 1 个真实硬退出与 18 个三工具状态/决策组合，19/19，分别报告自动恢复 10/10 与安全阻塞 9/9，并保存逐例 CAS 证据和 Trace replay。其余设计故障点尚未全部纳入同一报告，仍不能记为完整矩阵通过 |
+| NFR-001 | M2～M5 | `orchestration/recovery.py` | `fault_injection/`：原 8 类故障全覆盖，可恢复样本真实恢复，阻塞单列 | 部分：确定性集成覆盖多种悬空/冲突；真实进程硬退出覆盖 Provider 返回后但 response Artifact 前、数据库提交、已发布 response Artifact、单/多文件精确写 effect 和 promotion receipt 等窗口。一键作品集把 replace effect→无 receipt→unknown→精确 accept→继续验证做成自校验链路；`horizon eval recovery` v2 冻结 2 个真实硬退出与 18 个三工具状态/决策组合，20/20，分别报告自动恢复 10/10 与安全阻塞 10/10，且模型返回→Artifact 前案例无自动重派。逐例 CAS 证据和两条 Trace 均复核。其余设计故障点尚未全部纳入同一报告，仍不能记为完整矩阵通过 |
 | NFR-002 | M1 | `adapters/persistence/sqlite.py` | `integration/test_event_store.py`：重启/并发追加无重复或丢失已提交 seq | 当前事件存储已自检：`tests/integration/test_event_store.py`、`tests/fault_injection/test_database_crash.py` |
 | NFR-003 | M2 | `tools/gateway.py` | `fault_injection/test_idempotency.py`：重复同键仅一个已提交结果 | 部分：管理命令幂等且回执固定历史 seq；工具已有唯一 call ID 和 intent/receipt，但副作用重派 idempotency 与崩溃对账未实现 |
 | NFR-004 | M1/M5 | `trace/projector.py` | `contract/test_state_causation.py`：每个状态迁移有源事件 | 控制面及当前模型/工具/验证/Agent 状态均由事件重放；真实 JSONL 与 SQLite projection hash 一致 |

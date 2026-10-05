@@ -33,7 +33,7 @@
 | 精确模式无进展保护 | [agent_loop.py](../src/horizon/application/agent_loop.py) | 同一 revision 下，相同精确动作第 3 次、A/B 精确循环第 5 步软阻断；继续模式分别在第 4/6 步进入可恢复人工等待；不是语义或任意周期检测 |
 | Revision-aware 词法 Code RAG | [retrieval.py](../src/horizon/domain/retrieval.py)、[sqlite_fts.py](../src/horizon/adapters/retrieval/sqlite_fts.py)、[retrieval_eval.py](../src/horizon/application/retrieval_eval.py) | SQLite FTS5/BM25、有界 EvidencePack、权限/revision/hash 回查、显式 scan fallback；camelCase/snake_case、同名定义路径语境和不同文件优先已测，内部 5+2+2 与外部 3 案例的成功/负结果均记录；dirty revision 可重建新排名并重放旧证据；外部盲测仍为 Hit@1 0/3，且无 AST/向量/symbol 图或真实模型收益结论 |
 | 冻结控制器策略评测 | [reliability.py](../src/horizon/domain/reliability.py)、[reliability_eval.py](../src/horizon/application/reliability_eval.py) | 12 案例/41 判断覆盖精确 NoProgress 与单次 replan 接受/拒绝；生产路径共享判定函数、报告内容寻址、零外部调用；不是模型或真实 Issue 效果评测 |
-| 有界恢复矩阵 v1 | [recovery_evaluation.py](../src/horizon/domain/recovery_evaluation.py)、[recovery_eval.py](../src/horizon/application/recovery_eval.py)、[horizon-write-recovery-v1.yaml](../benchmarks/recovery/horizon-write-recovery-v1.yaml)、[recovery-matrix-evaluation.md](recovery-matrix-evaluation.md) | 1 个真实 effect→无 receipt 子进程硬退出 + `replace_text/apply_patch/create_file` 的 18 个状态/决策组合；19/19，自动恢复 10/10、安全阻塞 9/9、incorrect resume/redispatch/重复副作用均 0；逐例 CAS 证据、最终 workspace 防篡改及硬崩溃 Trace replay。仍非完整设计故障矩阵、主机故障或 exactly-once 验收 |
+| 有界恢复矩阵 v2 | [recovery_evaluation.py](../src/horizon/domain/recovery_evaluation.py)、[recovery_eval.py](../src/horizon/application/recovery_eval.py)、[horizon-recovery-matrix-v2.yaml](../benchmarks/recovery/horizon-recovery-matrix-v2.yaml)、[recovery-matrix-evaluation.md](recovery-matrix-evaluation.md) | 保留 v1 digest；新增模型返回→Response Artifact 前真实硬退出，与既有 write effect→receipt 前硬退出及 18 个三工具状态/决策组合合计 20/20。自动恢复 10/10、安全阻塞 10/10、incorrect resume/redispatch/重复副作用均 0；两条 Trace replay。仍非完整设计故障矩阵、主机故障或 exactly-once 验收 |
 | 完整 Run A/B 与来源绑定 Suite | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[scripted.py](../src/horizon/adapters/model/scripted.py) | 同一 Task/Plan/workspace 的 baseline 与单次 replan arm；先真实确认初始失败，再检查 EventLog/预算/Gateway/Trace；1 个内部、3 个 BugsInPy 依赖裁剪案例，以及 tqdm 82 files、youtube-dl 872 files 两个完整 checkout 经禁网 Docker 通过；完整案例还验证干净 Git HEAD 与 Code RAG，仍是脚本模型 |
 | 完整 checkout 多阶段/重启 A/B | [multi-stage.yaml](../benchmarks/run_ab/full/youtube-dl-3-unescape-html/multi-stage.yaml) | youtube-dl 872 files 上 production → regression-test 两个依赖 WorkItem；两 arm 均在安全边界换为 epoch 2 Worker，跨 revision RAG、active/stale Run Memory、完成项保留 replan、最终两项 required checks 与 Trace replay 通过；CRLF 精确替换失败和 60 秒重启 Lease 到期均作为负结果保留 |
 | 真实模型 Pilot | [pilot.py](../src/horizon/domain/pilot.py)、[pilot.py](../src/horizon/application/pilot.py)、[real-model-pilot.md](real-model-pilot.md) | 离线预检绑定完整干净 checkout、初始失败、source snapshot、Docker image、Provider policy、Harness 源码指纹、费用 cap 和首次规划保守预留。六个付费 Run 均无编辑/验证、Trace 可重放且 source 未变；第六轮的 Plan 错把已有 `itertools.py` 当实现位置，但 execution 先检索并把真实 `__init__.py` 排为 rank 1，下一模型请求再因 Campaign 预留不足停止。当前累计 `CNY 0.1954812`；没有自动复跑或真实 Issue 成功 |
@@ -78,7 +78,7 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 ## 验证结果
 
-### 2026-10-06 有界恢复矩阵 v1
+### 2026-10-06 有界恢复矩阵 v1 → v2
 
 - 新增冻结 manifest `horizon-write-recovery-v1`，digest 为
   `efacbe3f55bcf3efee78ee3397fffb44a3a855d1924be2f9307aa55aa45f77a4`。唯一 hard-crash
@@ -87,8 +87,13 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 - 其余 18 例覆盖 3 类确定性写工具在 `pre_effect / expected_effect / diverged` 下的 accept 与
   rollback 全组合。生产 `ToolRecoveryService` 与评测共用同一纯决策函数；精确 effect 接纳不
   重派，安全 rollback 回到完整前态，缺失 effect 的 accept 和所有 diverged 决策均保持现场阻塞。
-- 实际报告为 19/19；期望自动恢复 10/10，期望安全阻塞 9/9，`unrecoverable=0`、
-  `incorrect_resume=0`、恢复重派 0、重复副作用 0；真实崩溃/Trace replay 各 1。
+- v2 没有改写 v1：新 manifest `horizon-recovery-matrix-v2` 的 digest 为
+  `5f11e000760192c5f2ebb827e97745202e77ad162ad0a1166feae426bb5d9eda`。新增第二个真实
+  子进程：本地 Fake Model 已返回并 fsync client Trace marker，但 Response Artifact 发布前以
+  退出码 27 停止。恢复只留下原 reservation，将 Run/Campaign 双账标为 unknown，释放新 Lease，
+  `safe_to_resume=false`，且 reservation 事件仍只有 1 个，证明没有自动重派。
+- v2 实际报告为 20/20；期望自动恢复 10/10，期望安全阻塞 10/10，`unrecoverable=0`、
+  `incorrect_resume=0`、恢复重派 0、重复副作用 0；真实崩溃/Trace replay 各 2。
 - 每例保存 pre/observed/expected/final revision 与内容寻址 manifest；顶层 verifier 会重放硬崩溃
   Trace，并检测普通案例 workspace 的事后篡改。该批无网络、Docker、被测仓库代码或付费模型。
   18 个状态案例不是 18 次真实进程崩溃，完整 8 故障点统一报告仍未完成。
@@ -107,7 +112,7 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
   验证器还会从最终 Trace 复核同一 call 只出现一次成功恢复记录。v1/v2 报告继续可读。
 - 该演示仍是固定 Scripted Model、固定 `replace_text` 提交窗和只读文本验收；它证明本演示的真实
   子进程硬退出恢复，不代表 OS reboot、主机宕机、磁盘损坏、任意工具或任意 crash window。
-- 最新离线全量回归为 **361 passed，7 skipped**；7 个 skip 均为需要显式本机镜像的 Docker
+- 最新离线全量回归为 **363 passed，7 skipped**；7 个 skip 均为需要显式本机镜像的 Docker
   合同。Docker daemon 本批仍未运行，因此新增停止结果恢复合同继续保持“未实跑”而非通过。
 
 ### 2026-10-05 Docker 检查停止结果恢复
@@ -615,7 +620,7 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 六轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新离线全量回归为 361 passed、7 个显式 Docker skip。
+当前主干继续补齐尚未统一覆盖的故障点；最新离线全量回归为 363 passed、7 个显式 Docker skip。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
 `run_model_cost_limit` 进入 `FAILED`。没有工具、编辑、checkpoint 或验证，Trace 14 事件可重放，

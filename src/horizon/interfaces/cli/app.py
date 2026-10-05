@@ -2121,9 +2121,9 @@ def doctor():
                 "portfolio_hard_crash_demo_profile": ("replace_effect_before_receipt_exact_accept"),
                 "recovery_matrix_evaluation": True,
                 "recovery_matrix_evaluation_profile": (
-                    "one_real_crash_plus_exact_write_state_decisions"
+                    "two_real_crashes_plus_exact_write_state_decisions"
                 ),
-                "recovery_matrix_case_count": 19,
+                "recovery_matrix_case_count": 20,
                 "complete_fault_injection_matrix": False,
                 "arbitrary_crash_recovery": False,
                 "promotion_enabled": True,

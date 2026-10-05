@@ -15,7 +15,7 @@ MANIFEST_PATH = (
     Path(__file__).resolve().parents[2]
     / "benchmarks"
     / "recovery"
-    / "horizon-write-recovery-v1.yaml"
+    / "horizon-recovery-matrix-v2.yaml"
 )
 
 
@@ -35,16 +35,16 @@ def test_recovery_eval_runs_real_crash_and_full_write_state_matrix(tmp_path):
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.stdout)
-    assert payload["case_count"] == 19
-    assert payload["passed_case_count"] == 19
+    assert payload["case_count"] == 20
+    assert payload["passed_case_count"] == 20
     assert payload["recovery_success_rate"] == 1.0
     assert payload["safe_block_rate"] == 1.0
     assert payload["unrecoverable_count"] == 0
     assert payload["incorrect_resume_count"] == 0
     assert payload["recovery_redispatch_count"] == 0
     assert payload["duplicate_side_effect_count"] == 0
-    assert payload["actual_process_crash_case_count"] == 1
-    assert payload["trace_replay_verified_count"] == 1
+    assert payload["actual_process_crash_case_count"] == 2
+    assert payload["trace_replay_verified_count"] == 2
     assert payload["paid_model_called"] is False
     assert payload["network_called"] is False
     assert payload["repository_code_executed"] is False
@@ -59,6 +59,12 @@ def test_recovery_eval_runs_real_crash_and_full_write_state_matrix(tmp_path):
     assert hard_crash.actual_process_crash_observed is True
     assert hard_crash.trace_replay_verified is True
     assert hard_crash.observed_outcome == "auto_recovered"
+    model_crash = report.cases[1]
+    assert model_crash.kind == "model_response_hard_crash"
+    assert model_crash.actual_process_crash_observed is True
+    assert model_crash.trace_replay_verified is True
+    assert model_crash.observed_outcome == "safely_blocked"
+    assert model_crash.recovery_redispatch_count == 0
     assert all(
         case.observed_outcome == "safely_blocked"
         for case in report.cases
@@ -70,7 +76,14 @@ def test_recovery_eval_runs_real_crash_and_full_write_state_matrix(tmp_path):
     )
     assert verify_recovery_matrix_report(report_path, manifest) == report
 
-    tampered = output / "cases" / "01" / "workspace" / "src" / "alpha.py"
+    marker = output / "cases" / "01" / "provider-returned.txt"
+    original_marker = marker.read_text(encoding="utf-8")
+    marker.write_text("tampered-client-trace", encoding="utf-8")
+    with pytest.raises(ValueError, match="evidence file hash mismatch"):
+        verify_recovery_matrix_report(report_path, manifest)
+    marker.write_text(original_marker, encoding="utf-8")
+
+    tampered = output / "cases" / "02" / "workspace" / "src" / "alpha.py"
     tampered.write_text("alpha = 'tampered'\n", encoding="utf-8")
     with pytest.raises(ValueError, match="workspace no longer matches evidence"):
         verify_recovery_matrix_report(report_path, manifest)

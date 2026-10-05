@@ -68,23 +68,24 @@ v3 报告同时保存硬退出证据以及检索 Artifact → 写入上下文 �
 
 ```powershell
 uv run --locked --cache-dir .uv-cache horizon eval recovery `
-  benchmarks/recovery/horizon-write-recovery-v1.yaml
+  benchmarks/recovery/horizon-recovery-matrix-v2.yaml
 ```
 
-冻结 v1 包含 1 个上述真实子进程硬崩溃案例，以及 3 类写工具 × 3 种现场状态 × 2 种
-accept/rollback 决策的 18 个文件系统案例。报告及逐例 manifest 均内容寻址，硬崩溃 Trace 会
-再次重放。当前结果为 19/19、自动恢复 10/10、安全阻塞 9/9、恢复重派与重复副作用均为 0；
-这仍不是完整故障矩阵。合同见[有界恢复矩阵评测](docs/recovery-matrix-evaluation.md)。
+冻结 v2 保留 v1 的 1 个真实写入硬崩溃和 18 个写工具状态/决策案例，并新增“模型已返回、
+Response Artifact 尚未发布”的真实子进程硬崩溃。后者必须保守阻塞，双账标 unknown，且模型
+调用不得重派。当前结果为 20/20、自动恢复 10/10、安全阻塞 10/10、恢复重派与重复副作用均为
+0；两条硬崩溃 Trace 均会再次重放。这仍不是完整故障矩阵。合同见
+[有界恢复矩阵评测](docs/recovery-matrix-evaluation.md)。
 
 ## 已验证证据
 
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | Python 3.12/3.13 的测试、静态检查、演示和构建已通过 | CI 不读取 API Key、不运行付费模型 |
-| 离线回归 | `361 passed, 7 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `363 passed, 7 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | Docker 契约 | 既有 6 项曾在 `redis:7-alpine` 上通过；新增停止结果恢复项待 daemon 可用后补跑 | 有限隔离合同，不是恶意代码安全认证 |
 | 一键崩溃恢复演示 | 子进程在 `replace_text` 生效后、receipt 前以退出码 86 硬退出；悬空调用先标 unknown，再按精确 manifest 接纳一次并恢复到 epoch 3 | 固定离线脚本与单一写入窗口，不代表任意进程/主机故障恢复 |
-| 有界恢复矩阵 v1 | 19/19；自动恢复 10/10、安全阻塞 9/9、incorrect resume 0、恢复重派/重复副作用 0；含 1 个真实硬退出和 Trace replay | 其余 18 例是生成 fixture 的状态/决策矩阵，不是完整 8 故障点或主机故障验收 |
+| 有界恢复矩阵 v2 | 20/20；自动恢复 10/10、安全阻塞 10/10、incorrect resume 0、恢复重派/重复副作用 0；含 2 个真实硬退出和 Trace replay | 其余 18 例是生成 fixture 的状态/决策矩阵，不是完整 8 故障点或主机故障验收 |
 | 完整 checkout A/B | tqdm 82 files、youtube-dl 872 files；初始失败门、恢复、replan、最终验收和 Trace replay 通过 | 使用 Scripted Model，不是模型能力成绩 |
 | 真实模型 Pilot | 六轮均可重放、费用可核对、source 未变 | 六轮均未编辑或验证成功，保留为负结果 |
 | 预算预留诊断 | 6 Trace、20 个已结算调用；聚合预留/结算比 6.861621；候选公式仅有 3 个可回放样本 | 新 BudgetStop 保存请求尺寸；样本不足，不自动降低费用安全门槛 |
@@ -337,7 +338,7 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **361 passed，7 skipped**。既有 6 项跳过项曾指定本机已有
+当前离线全量回归为 **363 passed，7 skipped**。既有 6 项跳过项曾指定本机已有
 `redis:7-alpine` 单独复跑并通过；新增的第 7 项“自然退出、清理前恢复结果”合同因本批
 Docker daemon 未运行尚未实跑。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实

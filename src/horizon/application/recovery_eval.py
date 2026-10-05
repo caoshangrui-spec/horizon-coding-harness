@@ -2,27 +2,39 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+import sys
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from horizon.adapters.persistence.artifacts import ArtifactStore
+from horizon.adapters.persistence.campaign_budget import CampaignBudgetLedger
+from horizon.adapters.persistence.sqlite import SQLiteEventStore
 from horizon.adapters.workspace.snapshot import SnapshotManager
 from horizon.application.portfolio_demo import (
     PortfolioDemoRunner,
     verify_portfolio_evidence_pack,
 )
+from horizon.application.recovery import RecoveryService
+from horizon.application.services import HarnessService, LeaseToken
 from horizon.domain.common import canonical_json
 from horizon.domain.errors import HorizonError
-from horizon.domain.plan import WorkItem
+from horizon.domain.events import Event
+from horizon.domain.plan import Plan, WorkItem
 from horizon.domain.recovery import write_recovery_verdict
 from horizon.domain.recovery_evaluation import (
+    MODEL_RESPONSE_CRASH_EXIT_CODE,
+    MODEL_RESPONSE_CRASH_RESPONSE_ID,
     HardCrashRecoveryEvalCase,
+    ModelResponseHardCrashEvalCase,
     RecoveryMatrixCaseResult,
     RecoveryMatrixManifest,
     RecoveryMatrixReport,
     WriteRecoveryEvalCase,
 )
+from horizon.domain.states import RunStatus
 from horizon.domain.task import AcceptanceCheck, BudgetSpec, Constraints, Repository, TaskSpec
 from horizon.tools.gateway import WorkspaceToolGateway
 
@@ -67,6 +79,15 @@ def _write_new(path: Path, content: bytes) -> None:
         stream.write(content)
 
 
+def _evidence_path(root: Path, value: object, label: str) -> Path:
+    if not isinstance(value, str):
+        raise ValueError(f"Recovery-matrix evidence has no {label} path")
+    candidate = (root / value).resolve(strict=True)
+    if not candidate.is_relative_to(root):
+        raise ValueError(f"Recovery-matrix {label} path escapes its evidence directory")
+    return candidate
+
+
 def _fixture_task(workspace: Path) -> tuple[TaskSpec, WorkItem]:
     check = AcceptanceCheck(
         id="fixture",
@@ -94,12 +115,13 @@ def _fixture_task(workspace: Path) -> tuple[TaskSpec, WorkItem]:
             max_steps=4,
             max_model_calls=1,
             max_tool_calls=2,
-            max_wall_time_seconds=60,
+            max_wall_time_seconds=3600,
             max_cost_usd="0.01",
         ),
         task_kind="tests",
         execution_mode="workspace_write",
         authority_scope="workspace_write",
+        model_policy_id="offline-scripted-recovery-matrix",
     )
     work_item = WorkItem(
         work_item_id="recover-write",
@@ -107,7 +129,7 @@ def _fixture_task(workspace: Path) -> tuple[TaskSpec, WorkItem]:
         objective="Use exact pre/current/expected revisions to choose a safe disposition.",
         expected_artifacts=("content-addressed recovery evidence",),
         acceptance_ids=("fixture",),
-        allowed_tools=("replace_text", "apply_patch", "create_file"),
+        allowed_tools=("read_file", "replace_text", "apply_patch", "create_file"),
     )
     return task, work_item
 
@@ -192,6 +214,15 @@ class RecoveryMatrixEvaluator:
             case_root = cases_root / f"{index:02d}"
             if isinstance(case, HardCrashRecoveryEvalCase):
                 results.append(self._hard_crash_case(case, case_root, output_dir, artifacts))
+            elif isinstance(case, ModelResponseHardCrashEvalCase):
+                results.append(
+                    self._model_response_hard_crash_case(
+                        case,
+                        case_root,
+                        output_dir,
+                        artifacts,
+                    )
+                )
             else:
                 results.append(self._write_state_case(case, case_root, output_dir, artifacts))
 
@@ -199,6 +230,7 @@ class RecoveryMatrixEvaluator:
         expected_block = [case for case in results if case.expected_outcome == "safely_blocked"]
         passed_count = sum(case.passed for case in results)
         report = RecoveryMatrixReport(
+            schema_version=manifest.schema_version,
             benchmark_id=manifest.benchmark_id,
             manifest_digest=manifest.sha256,
             case_count=len(results),
@@ -300,6 +332,236 @@ class RecoveryMatrixEvaluator:
             detail=(
                 "A child exited after the exact replace effect and before its receipt; the "
                 "Trace proves unknown classification, one accepted receipt, and resumed validation."
+            ),
+        )
+
+    @staticmethod
+    def _model_response_hard_crash_case(
+        case: ModelResponseHardCrashEvalCase,
+        case_root: Path,
+        output_dir: Path,
+        artifacts: ArtifactStore,
+    ) -> RecoveryMatrixCaseResult:
+        started = time.perf_counter_ns()
+        workspace = case_root / "workspace"
+        (workspace / "src").mkdir(parents=True)
+        (workspace / "src" / "parser.py").write_text(
+            "def parse(value):\n    return [value]\n",
+            encoding="utf-8",
+        )
+        task, work_item = _fixture_task(workspace)
+        plan = Plan(items=(work_item,))
+        plan.check_task(task)
+
+        store_path = case_root / "control.sqlite3"
+        ledger_path = case_root / "campaign.sqlite3"
+        artifact_path = case_root / "model-artifacts"
+        marker_path = case_root / "provider-returned.txt"
+        old_now = datetime.now(UTC) - timedelta(minutes=5)
+        store = SQLiteEventStore(store_path, clock=lambda: old_now)
+        service = HarnessService(store)
+        run = store.create(task, "create-model-response-crash-eval")
+        service.set_plan(run.run_id, plan, "plan-model-response-crash-eval")
+        leased = service.acquire_lease(
+            run.run_id,
+            "model-response-crash-worker",
+            "lease-model-response-crash-eval",
+            ttl_seconds=30,
+        )
+        crashed_token = LeaseToken.from_run(leased)
+        service.transition(
+            run.run_id,
+            RunStatus.RUNNING,
+            crashed_token,
+            "start-model-response-crash-eval",
+        )
+
+        crashed_process = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "horizon.application._model_response_crash_worker",
+                str(store_path),
+                run.run_id,
+                crashed_token.lease_id,
+                crashed_token.worker_id,
+                str(crashed_token.epoch),
+                str(artifact_path),
+                old_now.isoformat(),
+                str(workspace),
+                str(ledger_path),
+                str(marker_path),
+            ],
+            capture_output=True,
+            timeout=30,
+        )
+        if crashed_process.returncode != MODEL_RESPONSE_CRASH_EXIT_CODE:
+            stderr = crashed_process.stderr.decode(errors="replace")[-2_000:]
+            raise ValueError(
+                "Model-response child did not stop at the expected pre-Artifact boundary: "
+                f"exit={crashed_process.returncode}, stderr={stderr!r}"
+            )
+
+        client_trace_id = marker_path.read_text(encoding="utf-8")
+        interrupted_store = SQLiteEventStore(store_path)
+        interrupted = interrupted_store.get(run.run_id)
+        if len(interrupted.model_reservations) != 1:
+            raise ValueError("Model-response crash did not leave exactly one durable intent")
+        call_id, reservation = next(iter(interrupted.model_reservations.items()))
+        ledger = CampaignBudgetLedger(ledger_path)
+        attempt_before = ledger.attempt("hard-exit-agent", call_id)
+        response_artifact_absent = all(
+            MODEL_RESPONSE_CRASH_RESPONSE_ID.encode() not in path.read_bytes()
+            for path in artifact_path.glob("*/*")
+            if path.is_file()
+        )
+
+        recovery_service = HarnessService(interrupted_store)
+        recovery_run = recovery_service.acquire_lease(
+            run.run_id,
+            "model-response-recovery-worker",
+            "takeover-model-response-crash-eval",
+            prior_worker_stopped=True,
+        )
+        recovery_token = LeaseToken.from_run(recovery_run)
+        recovery = RecoveryService(
+            recovery_service,
+            ledger,
+            ArtifactStore(artifact_path),
+        ).reconcile(run.run_id, recovery_token)
+        recovery_service.release_lease(
+            run.run_id,
+            recovery_token,
+            "release-blocked-model-response-crash-eval",
+        )
+        restored = interrupted_store.get(run.run_id)
+        attempt_after = ledger.attempt("hard-exit-agent", call_id)
+        matching_findings = [
+            finding
+            for finding in recovery.findings
+            if finding.operation_id == call_id
+            and finding.classification == "model_effect_unknown"
+            and finding.client_trace_id == client_trace_id
+        ]
+
+        trace_content = interrupted_store.export_jsonl(run.run_id).encode("utf-8")
+        replayed = SQLiteEventStore.replay_jsonl(trace_content.decode("utf-8"))
+        trace_replay_verified = replayed.as_dict() == restored.as_dict()
+        events = tuple(
+            Event.model_validate_json(line)
+            for line in trace_content.decode("utf-8").splitlines()
+            if line
+        )
+        reserved_events = [
+            event
+            for event in events
+            if event.event_type == "MODEL_CALL_RESERVED"
+            and event.payload.get("reservation", {}).get("call_id") == call_id
+        ]
+        unknown_events = [
+            event
+            for event in events
+            if event.event_type == "MODEL_CALL_UNKNOWN" and event.payload.get("call_id") == call_id
+        ]
+        recovery_redispatch_count = max(0, len(reserved_events) - 1)
+        parser_path = workspace / "src" / "parser.py"
+        parser_sha256 = _sha256(parser_path.read_bytes())
+        checks = (
+            reservation.client_trace_id == client_trace_id,
+            not interrupted.model_calls,
+            not interrupted.unknown_model_calls,
+            attempt_before.status == "reserved",
+            response_artifact_absent,
+            not recovery.safe_to_resume,
+            recovery.next_action == "manual_reconciliation",
+            len(matching_findings) == 1,
+            restored.unknown_model_calls == {call_id},
+            restored.unknown_reservations == {call_id},
+            not restored.model_calls,
+            attempt_after.status == "unknown",
+            attempt_after.error_type == "RecoveryUncertainDispatch",
+            len(reserved_events) == 1,
+            len(unknown_events) == 1,
+            reserved_events[0].seq < unknown_events[0].seq,
+            recovery_redispatch_count == 0,
+            trace_replay_verified,
+            restored.lease_id is None,
+        )
+        unsafe_resume = (
+            recovery.safe_to_resume or bool(restored.model_calls) or recovery_redispatch_count > 0
+        )
+        observed_outcome = (
+            "safely_blocked"
+            if all(checks)
+            else "incorrect_resume"
+            if unsafe_resume
+            else "unrecoverable"
+        )
+
+        trace_path = case_root / "trace.jsonl"
+        final_state_path = case_root / "final-run.json"
+        final_state_content = (canonical_json(restored.as_dict()) + "\n").encode("utf-8")
+        _write_new(trace_path, trace_content)
+        _write_new(final_state_path, final_state_content)
+        relative_trace = trace_path.relative_to(output_dir).as_posix()
+        evidence = {
+            "schema_version": 2,
+            "case_id": case.case_id,
+            "kind": case.kind,
+            "observed_outcome": observed_outcome,
+            "observed_exit_code": crashed_process.returncode,
+            "expected_exit_code": MODEL_RESPONSE_CRASH_EXIT_CODE,
+            "model_call_id": call_id,
+            "client_trace_id": client_trace_id,
+            "response_artifact_absent": response_artifact_absent,
+            "model_receipt_absent": not restored.model_calls,
+            "recovery_classification": (
+                matching_findings[0].classification if len(matching_findings) == 1 else None
+            ),
+            "safe_to_resume": recovery.safe_to_resume,
+            "next_action": recovery.next_action,
+            "campaign_status": attempt_after.status,
+            "campaign_error_type": attempt_after.error_type,
+            "crashed_worker_epoch": crashed_token.epoch,
+            "recovery_worker_epoch": recovery_token.epoch,
+            "lease_released": restored.lease_id is None,
+            "reserved_event_count": len(reserved_events),
+            "unknown_event_count": len(unknown_events),
+            "trace_replay_verified": trace_replay_verified,
+            "trace_path": relative_trace,
+            "trace_sha256": _sha256(trace_content),
+            "final_state_path": final_state_path.relative_to(output_dir).as_posix(),
+            "final_state_sha256": _sha256(final_state_content),
+            "marker_path": marker_path.relative_to(output_dir).as_posix(),
+            "marker_sha256": _sha256(marker_path.read_bytes()),
+            "campaign_ledger_path": ledger_path.relative_to(output_dir).as_posix(),
+            "model_artifact_root_path": artifact_path.relative_to(output_dir).as_posix(),
+            "workspace_file_path": parser_path.relative_to(output_dir).as_posix(),
+            "workspace_file_sha256": parser_sha256,
+            "recovery_redispatch_count": recovery_redispatch_count,
+            "duplicate_side_effect_count": 0,
+        }
+        evidence_ref = artifacts.put(canonical_json(evidence).encode("utf-8"))
+        duration_ms = (time.perf_counter_ns() - started) // 1_000_000
+        return RecoveryMatrixCaseResult(
+            case_id=case.case_id,
+            kind=case.kind,
+            expected_outcome=case.expected_outcome,
+            observed_outcome=observed_outcome,
+            passed=observed_outcome == case.expected_outcome,
+            duration_ms=duration_ms,
+            recovery_redispatch_count=recovery_redispatch_count,
+            duplicate_side_effect_count=0,
+            evidence_ref=evidence_ref,
+            evidence_path=relative_trace,
+            actual_process_crash_observed=(
+                crashed_process.returncode == MODEL_RESPONSE_CRASH_EXIT_CODE
+            ),
+            trace_replay_verified=trace_replay_verified,
+            detail=(
+                "A child returned a model response and exited before publishing its Artifact; "
+                "recovery preserved the client Trace ID, marked both ledgers unknown, and did "
+                "not redispatch the model call."
             ),
         )
 
@@ -436,7 +698,11 @@ def verify_recovery_matrix_report(
     report_path = report_path.resolve(strict=True)
     root = report_path.parent
     report = RecoveryMatrixReport.model_validate_json(report_path.read_text(encoding="utf-8"))
-    if report.benchmark_id != manifest.benchmark_id or report.manifest_digest != manifest.sha256:
+    if (
+        report.schema_version != manifest.schema_version
+        or report.benchmark_id != manifest.benchmark_id
+        or report.manifest_digest != manifest.sha256
+    ):
         raise ValueError("Recovery-matrix report does not match its frozen manifest")
     if [case.case_id for case in report.cases] != [case.case_id for case in manifest.cases]:
         raise ValueError("Recovery-matrix report case order does not match its manifest")
@@ -459,15 +725,98 @@ def verify_recovery_matrix_report(
             relative = evidence.get("evidence_pack_path")
             if not isinstance(relative, str) or relative != result.evidence_path:
                 raise ValueError("Hard-crash evidence path does not match its case result")
-            pack_path = (root / relative).resolve(strict=True)
-            if not pack_path.is_relative_to(root):
-                raise ValueError("Hard-crash EvidencePack escapes the matrix directory")
+            pack_path = _evidence_path(root, relative, "hard-crash EvidencePack")
             pack_content = pack_path.read_bytes()
             if _sha256(pack_content) != evidence.get("evidence_pack_sha256"):
                 raise ValueError("Hard-crash EvidencePack hash does not match matrix evidence")
             pack = verify_portfolio_evidence_pack(pack_path)
             if not pack.all_checks_passed or result.trace_replay_verified is not True:
                 raise ValueError("Hard-crash EvidencePack does not prove a replayable recovery")
+            continue
+
+        if isinstance(case, ModelResponseHardCrashEvalCase):
+            if evidence.get("trace_path") != result.evidence_path:
+                raise ValueError("Model-response crash Trace path does not match its case result")
+            trace_path = _evidence_path(root, evidence.get("trace_path"), "Trace")
+            final_state_path = _evidence_path(
+                root,
+                evidence.get("final_state_path"),
+                "final state",
+            )
+            marker_path = _evidence_path(root, evidence.get("marker_path"), "provider marker")
+            ledger_path = _evidence_path(
+                root,
+                evidence.get("campaign_ledger_path"),
+                "campaign ledger",
+            )
+            artifact_root = _evidence_path(
+                root,
+                evidence.get("model_artifact_root_path"),
+                "model Artifact root",
+            )
+            workspace_file = _evidence_path(
+                root,
+                evidence.get("workspace_file_path"),
+                "workspace file",
+            )
+            trace_content = trace_path.read_bytes()
+            final_state_content = final_state_path.read_bytes()
+            if (
+                _sha256(trace_content) != evidence.get("trace_sha256")
+                or _sha256(final_state_content) != evidence.get("final_state_sha256")
+                or _sha256(marker_path.read_bytes()) != evidence.get("marker_sha256")
+                or _sha256(workspace_file.read_bytes()) != evidence.get("workspace_file_sha256")
+            ):
+                raise ValueError("Model-response crash evidence file hash mismatch")
+            replayed = SQLiteEventStore.replay_jsonl(trace_content.decode("utf-8"))
+            expected_final = (canonical_json(replayed.as_dict()) + "\n").encode("utf-8")
+            if final_state_content != expected_final:
+                raise ValueError("Model-response crash final state does not match Trace replay")
+            call_id = evidence.get("model_call_id")
+            client_trace_id = evidence.get("client_trace_id")
+            events = tuple(
+                Event.model_validate_json(line)
+                for line in trace_content.decode("utf-8").splitlines()
+                if line
+            )
+            reserved_events = [
+                event
+                for event in events
+                if event.event_type == "MODEL_CALL_RESERVED"
+                and event.payload.get("reservation", {}).get("call_id") == call_id
+            ]
+            unknown_events = [
+                event
+                for event in events
+                if event.event_type == "MODEL_CALL_UNKNOWN"
+                and event.payload.get("call_id") == call_id
+            ]
+            attempt = CampaignBudgetLedger(ledger_path).attempt("hard-exit-agent", call_id)
+            response_artifact_absent = all(
+                MODEL_RESPONSE_CRASH_RESPONSE_ID.encode() not in path.read_bytes()
+                for path in artifact_root.glob("*/*")
+                if path.is_file()
+            )
+            if (
+                evidence.get("observed_exit_code") != MODEL_RESPONSE_CRASH_EXIT_CODE
+                or marker_path.read_text(encoding="utf-8") != client_trace_id
+                or replayed.unknown_model_calls != {call_id}
+                or replayed.unknown_reservations != {call_id}
+                or replayed.model_calls
+                or replayed.lease_id is not None
+                or attempt.status != "unknown"
+                or attempt.error_type != "RecoveryUncertainDispatch"
+                or not response_artifact_absent
+                or evidence.get("response_artifact_absent") is not True
+                or len(reserved_events) != 1
+                or len(unknown_events) != 1
+                or not reserved_events[0].seq < unknown_events[0].seq
+                or result.actual_process_crash_observed is not True
+                or result.trace_replay_verified is not True
+            ):
+                raise ValueError(
+                    "Model-response crash evidence does not prove conservative no-replay blocking"
+                )
             continue
 
         if (

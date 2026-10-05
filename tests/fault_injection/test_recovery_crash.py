@@ -30,6 +30,7 @@ from horizon.domain.model import (
     ToolCall,
 )
 from horizon.domain.plan import Plan, WorkItem
+from horizon.domain.recovery_evaluation import MODEL_RESPONSE_CRASH_EXIT_CODE
 from horizon.domain.states import RunStatus
 from horizon.domain.task import TaskSpec
 from horizon.domain.tools import AcceptanceResult, ToolCallReservation
@@ -346,12 +347,11 @@ def test_hard_exit_after_model_return_before_response_artifact_is_quarantined(
         token,
     ) = _prepare_hard_exit_agent(tmp_path, task_dict)
     marker = tmp_path / "provider-returned.txt"
-    worker = Path(__file__).with_name("_crash_model_response_worker.py")
-
     result = subprocess.run(
         [
             sys.executable,
-            str(worker),
+            "-m",
+            "horizon.application._model_response_crash_worker",
             str(store_path),
             run_id,
             token.lease_id,
@@ -367,7 +367,9 @@ def test_hard_exit_after_model_return_before_response_artifact_is_quarantined(
         timeout=20,
     )
 
-    assert result.returncode == 27, result.stderr.decode(errors="replace")
+    assert result.returncode == MODEL_RESPONSE_CRASH_EXIT_CODE, result.stderr.decode(
+        errors="replace"
+    )
     client_trace_id = marker.read_text(encoding="utf-8")
     interrupted_store = SQLiteEventStore(store_path)
     interrupted = interrupted_store.get(run_id)

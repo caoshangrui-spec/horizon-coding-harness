@@ -8,16 +8,13 @@ from pydantic import ValidationError
 from horizon.domain.recovery import write_recovery_verdict
 from horizon.domain.recovery_evaluation import RecoveryMatrixManifest
 
-MANIFEST_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "benchmarks"
-    / "recovery"
-    / "horizon-write-recovery-v1.yaml"
-)
+MANIFEST_ROOT = Path(__file__).resolve().parents[2] / "benchmarks" / "recovery"
+V1_MANIFEST_PATH = MANIFEST_ROOT / "horizon-write-recovery-v1.yaml"
+V2_MANIFEST_PATH = MANIFEST_ROOT / "horizon-recovery-matrix-v2.yaml"
 
 
-def load_manifest_dict():
-    return yaml.safe_load(MANIFEST_PATH.read_text(encoding="utf-8"))
+def load_manifest_dict(path=V2_MANIFEST_PATH):
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
 @pytest.mark.parametrize(
@@ -35,13 +32,31 @@ def test_write_recovery_policy_is_conservative(state, decision, verdict):
     assert write_recovery_verdict(state, decision) == verdict
 
 
-def test_frozen_recovery_matrix_covers_all_write_state_decisions_and_one_hard_crash():
-    manifest = RecoveryMatrixManifest.model_validate(load_manifest_dict())
+def test_frozen_v1_recovery_matrix_remains_readable_with_the_same_digest():
+    manifest = RecoveryMatrixManifest.model_validate(load_manifest_dict(V1_MANIFEST_PATH))
 
     assert manifest.sha256 == "efacbe3f55bcf3efee78ee3397fffb44a3a855d1924be2f9307aa55aa45f77a4"
+    assert manifest.schema_version == 1
     hard_crashes = [case for case in manifest.cases if case.kind == "hard_crash"]
+    model_crashes = [case for case in manifest.cases if case.kind == "model_response_hard_crash"]
     write_cases = [case for case in manifest.cases if case.kind == "write_state"]
     assert len(hard_crashes) == 1
+    assert not model_crashes
+    assert len(write_cases) == 18
+
+
+def test_frozen_v2_adds_one_model_response_crash_and_preserves_write_cross_product():
+    manifest = RecoveryMatrixManifest.model_validate(load_manifest_dict())
+    v1 = RecoveryMatrixManifest.model_validate(load_manifest_dict(V1_MANIFEST_PATH))
+
+    assert manifest.schema_version == 2
+    assert manifest.sha256 == "5f11e000760192c5f2ebb827e97745202e77ad162ad0a1166feae426bb5d9eda"
+    assert [case for case in manifest.cases if case.kind != "model_response_hard_crash"] == list(
+        v1.cases
+    )
+    assert len([case for case in manifest.cases if case.kind == "hard_crash"]) == 1
+    assert len([case for case in manifest.cases if case.kind == "model_response_hard_crash"]) == 1
+    write_cases = [case for case in manifest.cases if case.kind == "write_state"]
     assert len(write_cases) == 18
     assert {(case.tool, case.injected_state, case.decision) for case in write_cases} == {
         (tool, state, decision)
@@ -53,9 +68,24 @@ def test_frozen_recovery_matrix_covers_all_write_state_decisions_and_one_hard_cr
 
 def test_recovery_matrix_rejects_duplicate_state_decision_case():
     raw = deepcopy(load_manifest_dict())
-    duplicate = deepcopy(raw["cases"][1])
+    duplicate = deepcopy(next(case for case in raw["cases"] if case["kind"] == "write_state"))
     duplicate["case_id"] = "duplicate-write-case"
     raw["cases"].append(duplicate)
 
     with pytest.raises(ValidationError, match="state/decision combinations must be unique"):
+        RecoveryMatrixManifest.model_validate(raw)
+
+
+def test_schema_v1_rejects_the_v2_model_response_crash_case():
+    raw = deepcopy(load_manifest_dict(V1_MANIFEST_PATH))
+    model_case = deepcopy(
+        next(
+            case
+            for case in load_manifest_dict(V2_MANIFEST_PATH)["cases"]
+            if case["kind"] == "model_response_hard_crash"
+        )
+    )
+    raw["cases"].insert(1, model_case)
+
+    with pytest.raises(ValidationError, match="schema v1 requires 0 model-response"):
         RecoveryMatrixManifest.model_validate(raw)
