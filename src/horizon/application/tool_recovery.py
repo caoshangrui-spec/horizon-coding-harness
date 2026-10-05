@@ -17,7 +17,7 @@ from horizon.domain.errors import Conflict
 from horizon.domain.model import ModelMessage
 from horizon.domain.ports import ArtifactStorePort, WriteRecoveryPort
 from horizon.domain.run import Run
-from horizon.domain.tools import ToolCallRecord, ToolCallReservation
+from horizon.domain.tools import AcceptanceResult, ToolCallRecord, ToolCallReservation
 
 
 class ToolRecoveryService:
@@ -183,7 +183,7 @@ class ToolRecoveryService:
             f"resolve_readonly_retry_{call_id}_{uuid4().hex}",
         )
 
-    def _discard_check_context(
+    def _check_recovery_context(
         self,
         run_id: str,
         call_id: str,
@@ -191,7 +191,7 @@ class ToolRecoveryService:
         current_workspace_revision: str,
         current_workspace_manifest_ref: str,
         token: LeaseToken,
-    ) -> tuple[Run, RecoverableToolTurn, ToolCallReservation]:
+    ) -> tuple[Run, RecoverableToolTurn, ToolCallReservation, str]:
         run = self.service.store.get(run_id)
         self.service.check_worker(run, token)
         pending = pending_unknown_tool_turn(
@@ -217,7 +217,7 @@ class ToolRecoveryService:
             or "run_check" not in active_item.allowed_tools
         ):
             raise Conflict(
-                "Only the single uncertain run_check at the current Agent turn can be discarded"
+                "Only the single uncertain run_check at the current Agent turn can be resolved"
             )
         response = load_recorded_model_response(pending.model, self.artifact_store)
         if len(response.message.tool_calls) != 1:
@@ -235,7 +235,7 @@ class ToolRecoveryService:
             current_workspace_manifest_ref,
             current_workspace_revision,
         )
-        return run, pending, reservation
+        return run, pending, reservation, arguments["check_id"]
 
     def validate_check_discard(
         self,
@@ -246,7 +246,7 @@ class ToolRecoveryService:
         current_workspace_manifest_ref: str,
         token: LeaseToken,
     ) -> ToolCallReservation:
-        _, _, reservation = self._discard_check_context(
+        _, _, reservation, _ = self._check_recovery_context(
             run_id,
             call_id,
             current_workspace_revision=current_workspace_revision,
@@ -254,6 +254,86 @@ class ToolRecoveryService:
             token=token,
         )
         return reservation
+
+    def validate_check_result_recovery(
+        self,
+        run_id: str,
+        call_id: str,
+        *,
+        current_workspace_revision: str,
+        current_workspace_manifest_ref: str,
+        token: LeaseToken,
+    ) -> str:
+        _, _, _, check_id = self._check_recovery_context(
+            run_id,
+            call_id,
+            current_workspace_revision=current_workspace_revision,
+            current_workspace_manifest_ref=current_workspace_manifest_ref,
+            token=token,
+        )
+        return check_id
+
+    def accept_check_result(
+        self,
+        run_id: str,
+        call_id: str,
+        result: AcceptanceResult,
+        *,
+        current_workspace_revision: str,
+        current_workspace_manifest_ref: str,
+        token: LeaseToken,
+    ) -> Run:
+        run, pending, reservation, check_id = self._check_recovery_context(
+            run_id,
+            call_id,
+            current_workspace_revision=current_workspace_revision,
+            current_workspace_manifest_ref=current_workspace_manifest_ref,
+            token=token,
+        )
+        if (
+            result.check_id != check_id
+            or result.output_truncated
+            or result.timed_out
+            or not 0 <= result.exit_code < 128
+            or result.passed != (result.exit_code == 0)
+        ):
+            raise Conflict("Recovered check result is incomplete or inconsistent")
+        content = (
+            "recovery=controller_verified_stopped_attempt\n"
+            f"check_id={result.check_id}\npassed={str(result.passed).lower()}\n"
+            f"exit_code={result.exit_code}\ntimed_out=false\n"
+            "output_truncated=false\n"
+            f"check_output_sha256={result.output_hash}\n{result.output}"
+        )
+        payload = content.encode("utf-8")
+        artifact_ref = self.artifact_store.put(payload)
+        if self.artifact_store.read(artifact_ref) != payload:
+            raise Conflict("Recovered check result artifact verification failed")
+        record = ToolCallRecord(
+            call_id=call_id,
+            name=reservation.name,
+            arguments_hash=reservation.arguments_hash,
+            status="success" if result.passed else "error",
+            output_hash=artifact_ref,
+            workspace_revision_before=current_workspace_revision,
+            workspace_revision_after=current_workspace_revision,
+            artifact_ref=artifact_ref,
+            workspace_manifest_ref=current_workspace_manifest_ref,
+            recovery_disposition="accept_check_result",
+        )
+        session = self._completed_turn_session(
+            run,
+            pending,
+            content,
+            current_workspace_revision,
+        )
+        return self.service.settle_tool_call_and_save_session(
+            run_id,
+            record,
+            session,
+            token,
+            f"resolve_accept_check_result_{call_id}_{uuid4().hex}",
+        )
 
     def discard_check_result(
         self,
@@ -272,7 +352,7 @@ class ToolRecoveryService:
             raise Conflict(
                 "Discarding an uncertain check requires confirmation that its sandbox stopped"
             )
-        run, pending, reservation = self._discard_check_context(
+        run, pending, reservation, _ = self._check_recovery_context(
             run_id,
             call_id,
             current_workspace_revision=current_workspace_revision,

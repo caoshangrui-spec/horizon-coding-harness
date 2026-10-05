@@ -38,6 +38,7 @@ class ToolCallRecord(Contract):
             "accept_create",
             "rollback_create",
             "discard_check",
+            "accept_check_result",
         ]
         | None
     ) = None

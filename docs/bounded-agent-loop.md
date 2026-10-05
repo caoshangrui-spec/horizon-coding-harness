@@ -165,11 +165,15 @@ Provider 派发前和 response receipt 后的两个双库提交窗口，并输�
 绑定，成功 receipt 再绑定输出 Artifact、前后 revision 和 post-effect manifest；硬退出留下的
 创建结果不会重放，只能在 live workspace 精确等于完整前态或唯一预期后态时用 `resolve-tool`
 接纳/回滚。`run_check` 绝不自动重派。Docker 检查把已持久化 tool call ID
-确定性映射为容器名，并写入 owner/attempt/image 三个标签；恢复端可用同一镜像精确查询。
-已停止 attempt 可由控制器验证并删除；运行中 attempt 只有显式 `--stop-check-sandbox` 才会被
-终止。missing 不能证明“从未运行/已经停止”，因此仍要求操作者确认。只有停止证据成立且 live
-workspace 与派发前 revision 完全一致，才可写入 `cancelled/discard_check`；下一会话只看到
-“未推断 pass/fail”的处置证据。其他无法唯一证明的副作用继续阻塞。详见
+确定性映射为容器名，并写入 owner/attempt/image 以及绑定 argv、timeout、输出上限和规范化
+workspace 的 request digest；恢复端可用同一镜像精确查询。新 attempt 使用总量受限的 Docker
+日志，以便控制器在进程崩溃后读取已经自然退出的容器。只有容器仍为同一 ID、镜像/命令/
+workspace/隔离配置完全匹配、非 OOM、exit code 小于 128、日志完整且不超过 64 KiB，同时 live
+workspace 仍等于派发前 revision，才可显式写入 `success|error/accept_check_result`。该 receipt 与
+下一 AgentSession 先持久化，容器随后删除；清理失败只留下可识别的停止容器，不撤销已持久回执。
+运行中或信号退出的 attempt 不可接纳；前者只有显式 `--stop-check-sandbox` 才会终止。停止后可
+写入 `cancelled/discard_check`，下一会话只看到“未推断 pass/fail”的处置证据。missing 不能证明
+“从未运行/已经停止”，仍要求操作者确认。其他无法唯一证明的副作用继续阻塞。详见
 [有界多文件精确 Patch](bounded-multi-file-patch.md)。
 单文件创建的规划、字节限制和故障语义见[受限单文件创建](bounded-create-file.md)。
 
@@ -298,6 +302,17 @@ attempt 和 image 全部匹配的容器。若容器 missing，缺失本身不是
 当前 WorkItem acceptance scope、事件尾部和 workspace revision，并在提交处置时再次复核；任一
 不符继续保持 unknown。成功处置会原子写入 cancelled receipt 与下一 AgentSession。
 
+若查询到的是自然退出而非被停止/超时/OOM 的容器，可选择接纳其精确结果：
+
+```powershell
+uv run --locked --cache-dir .uv-cache horizon agent resolve-tool `
+  <run-id> <tool-call-id> --accept-check-result --image redis:7-alpine
+```
+
+该路径复核 request digest、Docker entrypoint/argv、非 root 用户、禁网/只读根、日志配置和唯一
+workspace bind，再读取 exit code 与完整有界日志。成功与失败都作为真实 observation 进入下一
+session；日志超限、信号退出、容器仍运行或配置漂移时拒绝，必须继续保留 unknown 或显式丢弃。
+
 精确写入（`replace_text` / `apply_patch` / `create_file`）可选择一种处置：
 
 ```powershell
@@ -342,8 +357,9 @@ Trace 文件拒绝覆盖已有文件。重放不会调用模型、工具或 Dock
 
 2026-10-05 当前环境：
 
-- 离线全量回归：338 passed、6 skipped；
-- 随后指定本机已有 `redis:7-alpine` 单独复跑跳过项：6 passed，均为真实 Docker 合同；
+- 离线全量回归：348 passed、7 skipped；
+- 既有 6 项曾指定本机已有 `redis:7-alpine` 单独复跑并通过；新增停止结果恢复合同因本批
+  Docker daemon 未运行尚未实跑，不能把第 7 个 skip 记为通过；
 - Fake Model E2E：精确编辑后成功，以及首次验收失败后一次 repair 成功；
 - 自动计划 Fake E2E：Plan provenance/预算、越权拒绝且不重试、Plan 事件前崩溃复用响应，
   以及 CLI 从 PLANNING 恢复后完成保护验收；

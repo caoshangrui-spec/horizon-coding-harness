@@ -1886,6 +1886,121 @@ def test_uncertain_run_check_can_be_explicitly_discarded_without_replay(
     )
 
 
+def test_uncertain_run_check_can_accept_exact_stopped_attempt_result(
+    tmp_path,
+    task_dict,
+):
+    runner, store, run_id, first_token, workspace, first_model = setup_loop(
+        tmp_path,
+        task_dict,
+        [("run_check", {"check_id": "unit"})],
+    )
+    real_tools = runner.tools
+    runner.tools = InterruptAfterToolDispatch(real_tools)
+
+    with pytest.raises(RuntimeError, match="tool side effect"):
+        runner.run(run_id, first_token)
+
+    blocked = RecoveryService(
+        runner.service,
+        runner.campaign_ledger,
+        runner.session_store,
+    ).reconcile(run_id, first_token)
+    assert blocked.safe_to_resume is False
+    call_id = next(iter(store.get(run_id).unknown_tool_calls))
+    revision, manifest_ref = real_tools.checkpoint()
+    check = next(item for item in store.get(run_id).task.acceptance if item.id == "unit")
+    recovered_result = ParserCheck().execute(workspace, check)
+    assert recovered_result.passed is False
+
+    recovery = ToolRecoveryService(runner.service, runner.session_store)
+    assert (
+        recovery.validate_check_result_recovery(
+            run_id,
+            call_id,
+            current_workspace_revision=revision,
+            current_workspace_manifest_ref=manifest_ref,
+            token=first_token,
+        )
+        == "unit"
+    )
+    resolved = recovery.accept_check_result(
+        run_id,
+        call_id,
+        recovered_result,
+        current_workspace_revision=revision,
+        current_workspace_manifest_ref=manifest_ref,
+        token=first_token,
+    )
+
+    assert not resolved.reservations
+    assert not resolved.unknown_tool_calls
+    assert resolved.tool_calls[-1].status == "error"
+    assert resolved.tool_calls[-1].recovery_disposition == "accept_check_result"
+    assert resolved.agent_session is not None
+    restored_session = AgentSession.model_validate_json(
+        runner.session_store.read(resolved.agent_session.artifact_ref)
+    )
+    recovered_message = restored_session.messages[-1]
+    assert recovered_message.role == "tool"
+    assert "recovery=controller_verified_stopped_attempt" in recovered_message.content
+    assert "passed=false" in recovered_message.content
+    assert "expected [] for empty input" in recovered_message.content
+    assert len(first_model.requests) == 1
+    assert (
+        RecoveryService(
+            runner.service,
+            runner.campaign_ledger,
+            runner.session_store,
+        )
+        .reconcile(run_id, first_token)
+        .safe_to_resume
+        is True
+    )
+
+
+def test_check_result_recovery_rejects_inconsistent_result(
+    tmp_path,
+    task_dict,
+):
+    runner, store, run_id, token, workspace, _ = setup_loop(
+        tmp_path,
+        task_dict,
+        [("run_check", {"check_id": "unit"})],
+    )
+    runner.tools = InterruptAfterToolDispatch(runner.tools)
+    with pytest.raises(RuntimeError, match="tool side effect"):
+        runner.run(run_id, token)
+    blocked = RecoveryService(
+        runner.service,
+        runner.campaign_ledger,
+        runner.session_store,
+    ).reconcile(run_id, token)
+    assert blocked.safe_to_resume is False
+    call_id = next(iter(store.get(run_id).unknown_tool_calls))
+    revision, manifest_ref = runner.tools.checkpoint()
+    inconsistent = AcceptanceResult(
+        check_id="unit",
+        passed=True,
+        exit_code=1,
+        timed_out=False,
+        output="failed",
+        output_hash=hashlib.sha256(b"failed").hexdigest(),
+    )
+
+    with pytest.raises(Conflict, match="incomplete or inconsistent"):
+        ToolRecoveryService(runner.service, runner.session_store).accept_check_result(
+            run_id,
+            call_id,
+            inconsistent,
+            current_workspace_revision=revision,
+            current_workspace_manifest_ref=manifest_ref,
+            token=token,
+        )
+
+    assert store.get(run_id).unknown_tool_calls == {call_id}
+
+
 @pytest.mark.parametrize(
     ("tool_name", "arguments", "drift"),
     [

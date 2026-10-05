@@ -13,7 +13,7 @@ from horizon.adapters.model.config import load_provider_config
 from horizon.adapters.persistence.artifacts import ArtifactStore
 from horizon.adapters.persistence.campaign_budget import CampaignBudgetLedger
 from horizon.adapters.persistence.sqlite import SQLiteEventStore
-from horizon.adapters.sandbox.docker import SandboxAttemptStatus
+from horizon.adapters.sandbox.docker import CommandResult, SandboxAttemptStatus
 from horizon.adapters.workspace.snapshot import SnapshotManager
 from horizon.application.agent_loop import AgentLoopConfig, CodingAgentRunner
 from horizon.application.planning import (
@@ -265,8 +265,13 @@ def test_doctor_checks_fts_without_model():
     assert data["write_tool_recovery"] is True
     assert data["run_check_attempt_identity"] is True
     assert data["run_check_attempt_status_query"] is True
+    assert data["run_check_stopped_result_recovery"] is True
+    assert data["run_check_stopped_result_recovery_profile"] == (
+        "exact_natural_exit_bounded_complete_log"
+    )
     assert data["run_check_running_attempt_stop_requires_explicit"] is True
     assert data["run_check_missing_attempt_proof"] is False
+    assert data["run_check_signal_timeout_result_recovery"] is False
     assert data["arbitrary_crash_recovery"] is False
     assert data["promotion_enabled"] is True
     assert data["promotion_profile"] == "explicit_bounded_existing_files"
@@ -1010,6 +1015,7 @@ def test_agent_reconcile_cli_marks_pending_model_unknown_without_credential(
         "arguments",
         "decision_args",
         "expected_disposition",
+        "expected_status",
         "sandbox_mode",
         "expected_sandbox_resolution",
     ),
@@ -1019,6 +1025,7 @@ def test_agent_reconcile_cli_marks_pending_model_unknown_without_credential(
             {"path": "src/parser.py"},
             ["--retry-readonly"],
             "retry_readonly",
+            "cancelled",
             None,
             None,
         ),
@@ -1027,6 +1034,7 @@ def test_agent_reconcile_cli_marks_pending_model_unknown_without_credential(
             {"check_id": "unit"},
             ["--discard-check", "--confirm-check-sandbox-stopped"],
             "discard_check",
+            "cancelled",
             None,
             "operator_confirmed",
         ),
@@ -1035,6 +1043,7 @@ def test_agent_reconcile_cli_marks_pending_model_unknown_without_credential(
             {"check_id": "unit"},
             ["--discard-check", "--image", "local:test"],
             "discard_check",
+            "cancelled",
             "stopped",
             "controller_verified_and_removed",
         ),
@@ -1048,8 +1057,27 @@ def test_agent_reconcile_cli_marks_pending_model_unknown_without_credential(
                 "--stop-check-sandbox",
             ],
             "discard_check",
+            "cancelled",
             "running",
             "controller_verified_and_removed",
+        ),
+        (
+            "run_check",
+            {"check_id": "unit"},
+            ["--accept-check-result", "--image", "local:test"],
+            "accept_check_result",
+            "success",
+            "stopped",
+            "result_recorded_and_removed",
+        ),
+        (
+            "run_check",
+            {"check_id": "unit"},
+            ["--accept-check-result", "--image", "local:test"],
+            "accept_check_result",
+            "success",
+            "cleanup_error",
+            "result_recorded_cleanup_required",
         ),
     ],
 )
@@ -1062,6 +1090,7 @@ def test_agent_resolve_tool_cli_applies_explicit_offline_recovery_decision(
     arguments,
     decision_args,
     expected_disposition,
+    expected_status,
     sandbox_mode,
     expected_sandbox_resolution,
 ):
@@ -1081,7 +1110,8 @@ def test_agent_resolve_tool_cli_applies_explicit_offline_recovery_decision(
 
         class FakeRecoverySandbox:
             def __init__(self, *_args, **_kwargs):
-                self.state = sandbox_mode
+                self.cleanup_error = sandbox_mode == "cleanup_error"
+                self.state = "stopped" if self.cleanup_error else sandbox_mode
                 self.image_id = "sha256:" + "a" * 64
 
             def _status(self, attempt_id):
@@ -1102,8 +1132,24 @@ def test_agent_resolve_tool_cli_applies_explicit_offline_recovery_decision(
 
             def remove_attempt(self, attempt_id):
                 assert self.state == "stopped"
+                if self.cleanup_error:
+                    raise Conflict("simulated stopped-container cleanup failure")
                 self.state = "missing"
                 return self._status(attempt_id)
+
+            def recover_stopped_attempt(self, workspace, request, attempt_id):
+                assert self.state == "stopped"
+                output = b"recovered check passed\n"
+                return CommandResult(
+                    exit_code=0,
+                    timed_out=False,
+                    output=output.decode(),
+                    total_output_bytes=len(output),
+                    output_sha256=hashlib.sha256(output).hexdigest(),
+                    output_truncated=False,
+                    image_id=self.image_id,
+                    container_name="horizon-check-test",
+                )
 
         monkeypatch.setattr(cli_app_module, "DockerSandbox", FakeRecoverySandbox)
     provider = load_provider_config(PROVIDER)
@@ -1306,8 +1352,13 @@ def test_agent_resolve_tool_cli_applies_explicit_offline_recovery_decision(
     restored = SQLiteEventStore(db).get(run.run_id)
     assert restored.lease_id is None
     assert not restored.reservations
-    assert restored.tool_calls[-1].status == "cancelled"
+    assert restored.tool_calls[-1].status == expected_status
     assert restored.tool_calls[-1].recovery_disposition == expected_disposition
+    if expected_disposition == "accept_check_result":
+        assert data["recovered_check_result"]["passed"] is True
+        assert data["recovered_check_result"]["output"] == "recovered check passed\n"
+    if expected_sandbox_resolution == "result_recorded_cleanup_required":
+        assert "cleanup failure" in data["check_sandbox_cleanup_error"]
 
 
 @pytest.mark.parametrize(

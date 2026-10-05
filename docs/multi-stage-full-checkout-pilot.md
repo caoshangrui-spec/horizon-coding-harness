@@ -187,8 +187,9 @@ unknown model/tool calls 与开放预留均为 0，`paid_model_called=false`、`
 - 协作式释放/重取 Lease 等同于 OS 在任意指令处崩溃，或证明所有任意副作用都能恢复；
 - 一个作者选择任务足以给出泛化成功率。
 
-后续最小增量已为悬空 `run_check` 加入显式丢弃合同和 tool-call-ID 标签容器：控制器可查询
-停止状态，且只有显式授权才终止仍运行的精确 attempt；missing 仍需人工确认。workspace 漂移
-继续拒绝，处置不推断 pass/fail、也不重派原模型调用。真实子进程已覆盖运行中退出；下一步只
-补容器创建前和命令退出后清理前两个窗口；当前不新增通用队列、向量库、多 Agent 或第二次
-replan。
+后续增量已为悬空 `run_check` 加入 tool-call-ID 标签容器、显式丢弃合同，以及自然退出、清理前
+停止容器的精确 success/error 结果恢复。控制器可查询状态，且只有显式授权才终止仍运行的精确
+attempt；missing 仍需人工确认。workspace 漂移继续拒绝，也不重派原模型调用。真实子进程已
+覆盖运行中退出；自然退出清理前案例已加入合同测试，但本批 Docker daemon 未运行，尚不能记为
+真实通过。剩余窗口是容器创建前启动回执、missing 证明和信号/超时结果；当前不新增通用队列、
+向量库、多 Agent 或第二次 replan。

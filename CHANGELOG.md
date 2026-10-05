@@ -5,6 +5,12 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Added exact recovery for a naturally completed but unreceipted Docker `run_check`. Attempts now
+  bind image, request, workspace, and a bounded readable log configuration; the trusted CLI accepts
+  only a stopped, non-OOM/non-signal result with matching isolation metadata and complete output no
+  larger than 64 KiB. It atomically persists the original success/error observation and next Agent
+  session before removing the container. Running, timed-out, signaled, oversized, drifted, missing,
+  or mismatched attempts remain unknown or use the existing explicit discard path.
 - Added explicit recovery for an uncertain single-file `create_file`: the recorded response,
   argument hash, WorkItem authority, pre-dispatch manifest, and exact content-derived manifest
   classify the live workspace as pre-effect, expected-effect, or diverged. Trusted offline

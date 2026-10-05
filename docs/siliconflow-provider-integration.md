@@ -215,9 +215,10 @@ Horizon 的可配置请求策略，不冒充模型官方窗口或 tokenizer 精�
   实现会校验原响应、
   参数 hash、事件尾部和 workspace revision，旧尝试以 `cancelled` 保守计数；其他写/验证工具
   默认拒绝；
-- Docker `run_check` 用已持久化 tool call ID 派生唯一名称和 owner/attempt/image 标签；悬空 intent
-  可查询停止状态，显式停止仍运行的精确 attempt，或在 missing 时由操作者确认。workspace
-  revision 未漂移后才允许 `discard_check`；原检查输出不进入会话，不推断 pass/fail，也不重放；
+- Docker `run_check` 用已持久化 tool call ID 派生唯一名称，并绑定 owner/attempt/image/request；
+  自然退出、非 OOM/信号、命令/工作区/隔离配置一致且完整日志不超过 64 KiB 时，可显式恢复
+  原 success/error receipt。receipt 先于容器删除持久化；其他停止/缺失路径仍只能显式
+  `discard_check`，不推断 pass/fail，也不重放；
 - 单一 `replace_text`、最多 8 个不同既有文件的结构化 `apply_patch` 或单文件 `create_file`，可在
   live workspace 精确等于派发前 manifest 或唯一预期后态时显式 accept/rollback；部分写入或
   额外 drift 拒绝；
@@ -241,8 +242,9 @@ Horizon 的可配置请求策略，不冒充模型官方窗口或 tokenizer 精�
 
 尚未实现或尚未验证：
 
-- 任意崩溃点的可继续恢复；`run_check` 已覆盖真实 running 窗口，仍缺容器创建前、命令退出后
-  清理前以及 missing attempt 启动证明；`create_file` 仍不接纳部分/漂移后态，另缺多文件新增、
+- 任意崩溃点的可继续恢复；`run_check` 已覆盖 running 窗口及自然退出、清理前的精确结果恢复，
+  仍缺容器创建前的持久启动回执、missing attempt 启动证明，以及超时/信号结果恢复；
+  `create_file` 仍不接纳部分/漂移后态，另缺多文件新增、
   删除/重命名或任意 diff 的写工具副作用处置；
 - retry/backoff、Circuit Breaker、迟到回执主动对账；
 - 生产级消息/Trace 脱敏，以及完整多调用崩溃/取消配对矩阵；

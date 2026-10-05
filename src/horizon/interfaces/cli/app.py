@@ -59,6 +59,7 @@ from horizon.application.tool_recovery import ToolRecoveryService
 from horizon.domain.common import canonical_json, digest
 from horizon.domain.errors import (
     BudgetExceeded,
+    Conflict,
     HorizonError,
     NotFound,
     PlanProposalError,
@@ -1683,6 +1684,17 @@ def agent_resolve_tool(
             ),
         ),
     ] = False,
+    accept_check_result: Annotated[
+        bool,
+        typer.Option(
+            "--accept-check-result",
+            help=(
+                "Recover and record one exact naturally completed run_check result from its "
+                "stopped labeled Docker attempt. Requires --image; the container is removed "
+                "only after the receipt is durable."
+            ),
+        ),
+    ] = False,
     confirm_check_sandbox_stopped: Annotated[
         bool,
         typer.Option(
@@ -1727,18 +1739,22 @@ def agent_resolve_tool(
         ),
     ] = False,
 ):
-    decisions = sum((retry_readonly, accept_write, rollback_write, discard_check))
+    decisions = sum(
+        (retry_readonly, accept_write, rollback_write, discard_check, accept_check_result)
+    )
     if decisions != 1:
         raise ValueError(
             "Choose exactly one explicit decision: --retry-readonly, --accept-write, "
-            "--rollback-write, or --discard-check"
+            "--rollback-write, --discard-check, or --accept-check-result"
         )
-    if (confirm_check_sandbox_stopped or check_image is not None or stop_check_sandbox) and not (
-        discard_check
-    ):
-        raise ValueError("Sandbox recovery options are valid only with --discard-check")
+    if (confirm_check_sandbox_stopped or stop_check_sandbox) and not discard_check:
+        raise ValueError("Stop/confirmation options are valid only with --discard-check")
+    if check_image is not None and not (discard_check or accept_check_result):
+        raise ValueError("--image is valid only with a run_check recovery decision")
     if stop_check_sandbox and check_image is None:
         raise ValueError("--stop-check-sandbox requires --image")
+    if accept_check_result and check_image is None:
+        raise ValueError("--accept-check-result requires --image")
     if discard_check and check_image is None and not confirm_check_sandbox_stopped:
         raise ValueError(
             "Discarding a check requires --image for controller verification or "
@@ -1789,6 +1805,9 @@ def agent_resolve_tool(
     token = LeaseToken.from_run(leased)
     released = False
     check_sandbox_resolution = None
+    check_sandbox_cleanup_error = None
+    check_sandbox_container_name = None
+    recovered_check_result = None
     try:
         RecoveryService(service, ledger, artifacts).reconcile(run_id, token)
         recovery_tools = WorkspaceToolGateway(
@@ -1812,55 +1831,95 @@ def agent_resolve_tool(
                 current_workspace_manifest_ref=manifest_ref,
                 token=token,
             )
-        elif discard_check:
+        elif discard_check or accept_check_result:
             snapshot, manifest_ref = snapshots.capture(
                 workspace,
                 allowed_paths=current.task.constraints.allowed_paths,
                 denied_paths=current.task.constraints.denied_paths,
             )
-            tool_recovery.validate_check_discard(
-                run_id,
-                call_id,
-                current_workspace_revision=snapshot.workspace_revision,
-                current_workspace_manifest_ref=manifest_ref,
-                token=token,
-            )
-            sandbox_stopped = confirm_check_sandbox_stopped
-            sandbox_stop_evidence = "operator_confirmation"
-            if check_image is not None:
+            if accept_check_result:
+                check_id = tool_recovery.validate_check_result_recovery(
+                    run_id,
+                    call_id,
+                    current_workspace_revision=snapshot.workspace_revision,
+                    current_workspace_manifest_ref=manifest_ref,
+                    token=token,
+                )
+                check = next(item for item in current.task.acceptance if item.id == check_id)
+                assert check_image is not None
                 sandbox = DockerSandbox(staging_root, check_image)
-                attempt = sandbox.attempt_status(call_id)
-                if attempt.state == "running":
-                    if not stop_check_sandbox:
-                        raise ValueError(
-                            "The labeled check sandbox is still running; use "
-                            "--stop-check-sandbox to stop this exact attempt"
-                        )
-                    attempt = sandbox.stop_attempt(call_id)
-                if attempt.state == "stopped":
+                check_sandbox_container_name = sandbox.attempt_status(call_id).container_name
+                recovered_check_result = DockerAcceptanceExecutor(sandbox).recover_attempt(
+                    workspace,
+                    check,
+                    call_id,
+                )
+                settled_snapshot, settled_manifest_ref = snapshots.capture(
+                    workspace,
+                    allowed_paths=current.task.constraints.allowed_paths,
+                    denied_paths=current.task.constraints.denied_paths,
+                )
+                if settled_snapshot.workspace_revision != snapshot.workspace_revision:
+                    raise Conflict("Workspace changed while the check result was being recovered")
+                resolved = tool_recovery.accept_check_result(
+                    run_id,
+                    call_id,
+                    recovered_check_result,
+                    current_workspace_revision=settled_snapshot.workspace_revision,
+                    current_workspace_manifest_ref=settled_manifest_ref,
+                    token=token,
+                )
+                try:
                     sandbox.remove_attempt(call_id)
-                    sandbox_stopped = True
-                    sandbox_stop_evidence = "controller_verified"
-                    check_sandbox_resolution = "controller_verified_and_removed"
-                elif not sandbox_stopped:
-                    raise ValueError(
-                        "No labeled check sandbox was found; its absence is not proof that the "
-                        "old process stopped. Add --confirm-check-sandbox-stopped only after "
-                        "operator verification."
-                    )
-                else:
-                    check_sandbox_resolution = "operator_confirmed_missing_attempt"
+                    check_sandbox_resolution = "result_recorded_and_removed"
+                except HorizonError as exc:
+                    check_sandbox_resolution = "result_recorded_cleanup_required"
+                    check_sandbox_cleanup_error = str(exc)
             else:
-                check_sandbox_resolution = "operator_confirmed"
-            resolved = tool_recovery.discard_check_result(
-                run_id,
-                call_id,
-                current_workspace_revision=snapshot.workspace_revision,
-                current_workspace_manifest_ref=manifest_ref,
-                sandbox_stopped=sandbox_stopped,
-                token=token,
-                sandbox_stop_evidence=sandbox_stop_evidence,
-            )
+                tool_recovery.validate_check_discard(
+                    run_id,
+                    call_id,
+                    current_workspace_revision=snapshot.workspace_revision,
+                    current_workspace_manifest_ref=manifest_ref,
+                    token=token,
+                )
+                sandbox_stopped = confirm_check_sandbox_stopped
+                sandbox_stop_evidence = "operator_confirmation"
+                if check_image is not None:
+                    sandbox = DockerSandbox(staging_root, check_image)
+                    attempt = sandbox.attempt_status(call_id)
+                    check_sandbox_container_name = attempt.container_name
+                    if attempt.state == "running":
+                        if not stop_check_sandbox:
+                            raise ValueError(
+                                "The labeled check sandbox is still running; use "
+                                "--stop-check-sandbox to stop this exact attempt"
+                            )
+                        attempt = sandbox.stop_attempt(call_id)
+                    if attempt.state == "stopped":
+                        sandbox.remove_attempt(call_id)
+                        sandbox_stopped = True
+                        sandbox_stop_evidence = "controller_verified"
+                        check_sandbox_resolution = "controller_verified_and_removed"
+                    elif not sandbox_stopped:
+                        raise ValueError(
+                            "No labeled check sandbox was found; its absence is not proof that "
+                            "the old process stopped. Add --confirm-check-sandbox-stopped only "
+                            "after operator verification."
+                        )
+                    else:
+                        check_sandbox_resolution = "operator_confirmed_missing_attempt"
+                else:
+                    check_sandbox_resolution = "operator_confirmed"
+                resolved = tool_recovery.discard_check_result(
+                    run_id,
+                    call_id,
+                    current_workspace_revision=snapshot.workspace_revision,
+                    current_workspace_manifest_ref=manifest_ref,
+                    sandbox_stopped=sandbox_stopped,
+                    token=token,
+                    sandbox_stop_evidence=sandbox_stop_evidence,
+                )
         else:
             resolved = tool_recovery.resolve_write(
                 run_id,
@@ -1894,6 +1953,13 @@ def agent_resolve_tool(
                 "resolved_tool": resolved_record.name,
                 "workspace_revision": resolved_record.workspace_revision_after,
                 "check_sandbox_resolution": check_sandbox_resolution,
+                "check_sandbox_cleanup_error": check_sandbox_cleanup_error,
+                "check_sandbox_container_name": check_sandbox_container_name,
+                "recovered_check_result": (
+                    recovered_check_result.model_dump(mode="json")
+                    if recovered_check_result is not None
+                    else None
+                ),
                 "network_called": False,
                 "paid_model_called": False,
             }
@@ -1977,8 +2043,13 @@ def doctor():
                 "write_tool_recovery": True,
                 "run_check_attempt_identity": True,
                 "run_check_attempt_status_query": True,
+                "run_check_stopped_result_recovery": True,
+                "run_check_stopped_result_recovery_profile": (
+                    "exact_natural_exit_bounded_complete_log"
+                ),
                 "run_check_running_attempt_stop_requires_explicit": True,
                 "run_check_missing_attempt_proof": False,
+                "run_check_signal_timeout_result_recovery": False,
                 "arbitrary_crash_recovery": False,
                 "promotion_enabled": True,
                 "promotion_profile": "explicit_bounded_existing_files",

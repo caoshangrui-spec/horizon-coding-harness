@@ -1,3 +1,4 @@
+import hashlib
 import os
 import subprocess
 import sys
@@ -135,6 +136,62 @@ def test_missing_attempt_cannot_distinguish_pre_create_from_post_cleanup_crash(s
                 capture_output=True,
                 check=False,
             )
+
+
+def test_stopped_attempt_exact_result_is_recoverable_before_cleanup(sandbox):
+    workspace = stage(sandbox)
+    attempt_id = "tool_contract_stopped_result"
+    _, name = sandbox._attempt_identity(attempt_id)
+    helper = Path(__file__).parents[1] / "fault_injection" / "_docker_check_worker.py"
+    request = CommandRequest(
+        argv=("/bin/sh", "-c", "printf 'recoverable failure\\n'; exit 1"),
+        timeout_seconds=120,
+    )
+    worker = subprocess.Popen(
+        [
+            sys.executable,
+            str(helper),
+            str(sandbox.staging_root),
+            str(workspace),
+            os.environ["HORIZON_TEST_DOCKER_IMAGE"],
+            attempt_id,
+            "stopped-before-cleanup",
+        ],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        marker = workspace / "stopped-before-cleanup.txt"
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            if marker.exists() and sandbox.attempt_status(attempt_id).state == "stopped":
+                break
+            if worker.poll() is not None:
+                stdout, stderr = worker.communicate()
+                raise AssertionError(f"check worker exited early: {stdout}\n{stderr}")
+            time.sleep(0.1)
+        else:
+            raise AssertionError("check container did not reach stopped pre-cleanup window")
+
+        worker.kill()
+        worker.wait(timeout=10)
+        recovered = sandbox.recover_stopped_attempt(workspace, request, attempt_id)
+        assert recovered.exit_code == 1
+        assert recovered.timed_out is False
+        assert recovered.output == "recoverable failure\n"
+        assert recovered.output_truncated is False
+        assert recovered.output_sha256 == hashlib.sha256(b"recoverable failure\n").hexdigest()
+        assert sandbox.remove_attempt(attempt_id).state == "missing"
+    finally:
+        if worker.poll() is None:
+            worker.kill()
+            worker.wait(timeout=10)
+        subprocess.run(
+            ["docker", "rm", "--force", "--volumes", name],
+            capture_output=True,
+            check=False,
+        )
 
 
 def test_real_timeout_kills_container_and_child(sandbox):

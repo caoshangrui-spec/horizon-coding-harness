@@ -38,7 +38,7 @@
 | 真实模型 Pilot | [pilot.py](../src/horizon/domain/pilot.py)、[pilot.py](../src/horizon/application/pilot.py)、[real-model-pilot.md](real-model-pilot.md) | 离线预检绑定完整干净 checkout、初始失败、source snapshot、Docker image、Provider policy、Harness 源码指纹、费用 cap 和首次规划保守预留。六个付费 Run 均无编辑/验证、Trace 可重放且 source 未变；第六轮的 Plan 错把已有 `itertools.py` 当实现位置，但 execution 先检索并把真实 `__init__.py` 排为 rank 1，下一模型请求再因 Campaign 预留不足停止。当前累计 `CNY 0.1954812`；没有自动复跑或真实 Issue 成功 |
 | 模型预留压力诊断 | [reservation_analysis.py](../src/horizon/application/reservation_analysis.py)、[reservation-diagnostics.md](reservation-diagnostics.md) | `trace reservation-report` 在 replay/hash-chain 校验后关联 reservation、settlement 和新 BudgetStop 请求尺寸；六轮 20 次调用的聚合预留/结算比为 6.861621。候选 `request_bytes + 1024` 仅可回放 3 次，0 次观测低估、中位比 4.137869；生产 estimator、费用门禁和付费预算均未改变 |
 | 安全轮次续跑 | [agent.py](../src/horizon/domain/agent.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 消息 Artifact + event/revision 绑定；新 Worker 续跑；PLANNING/READY 也可恢复，任意崩溃窗口对账未完成 |
-| 悬空调用恢复与对账 | [recovery.py](../src/horizon/application/recovery.py)、[model_recovery.py](../src/horizon/application/model_recovery.py)、[tool_recovery.py](../src/horizon/application/tool_recovery.py) | Campaign-only 预留释放；response Artifact 跨 Worker 续跑；模型派发前持久化 client Trace ID，返回后普通落盘失败立即隔离，Artifact 前硬退出重启后保守 `unknown`；只读重试；精确 `replace_text` / `apply_patch` / 单文件 `create_file` accept/rollback；Docker `run_check` 用 call ID 标签 attempt，可查询/显式停止/删除后丢弃未知结果，missing 仍需人工确认；部分/漂移写入和无停止证明的验证副作用仍阻塞 |
+| 悬空调用恢复与对账 | [recovery.py](../src/horizon/application/recovery.py)、[model_recovery.py](../src/horizon/application/model_recovery.py)、[tool_recovery.py](../src/horizon/application/tool_recovery.py) | Campaign-only 预留释放；response Artifact 跨 Worker 续跑；模型派发前持久化 client Trace ID，返回后普通落盘失败立即隔离，Artifact 前硬退出重启后保守 `unknown`；只读重试；精确 `replace_text` / `apply_patch` / 单文件 `create_file` accept/rollback；Docker `run_check` 自然退出且 request/workspace/隔离配置/完整小日志精确匹配时可恢复 success/error，其他路径可显式停止/删除后丢弃，missing 仍需人工确认；部分/漂移写入、信号/超时/OOM 验证仍阻塞 |
 | 受控候选提升 | [promotion.py](../src/horizon/application/promotion.py)、[promotion.py](../src/horizon/adapters/workspace/promotion.py)、[git.py](../src/horizon/adapters/vcs/git.py) | 只读 diff、源/候选 revision 与可选 Git HEAD 绑定、显式 1～8 个总变更且至多 1 个 64 KiB UTF-8 新文件、完整/部分 effect 崩溃恢复；不删除/重命名或创建 commit |
 | 任务准备、计划、状态、取消、执行、导出与重放 CLI | [app.py](../src/horizon/interfaces/cli/app.py) | `run` 保持 prepare-only；`agent run` 接受 PLAN_PATH 或 `--auto-plan` 且只操作 staging；`agent resume` 支持 PLANNING/READY/RUNNING；执行前 HorizonError 仅在无非 unknown 在途 reservation 时释放租约；promotion 需显式确认 |
 | SiliconFlow 严格配置与 OpenAI-compatible adapter | [config.py](../src/horizon/adapters/model/config.py)、[openai_compatible.py](../src/horizon/adapters/model/openai_compatible.py) | Adapter 与预算器共用 canonical wire encoder，实际 HTTP body 的 bytes/hash 可复算；真实 Tool Calling 探针和历史 fixture Agent Run 通过；完整 checkout Pilot 已真实调用并以受控终态失败，无隐式 retry/fallback |
@@ -76,6 +76,22 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 仍是后续适配约束；不能以该文档代替本项目的实际联调。
 
 ## 验证结果
+
+### 2026-10-05 Docker 检查停止结果恢复
+
+- `run_check` attempt 新增 request digest 与 recovery schema 标签，并按 Docker 官方
+  [JSON File logging driver](https://docs.docker.com/engine/logging/drivers/json-file/) 选项把日志限制为
+  `json-file max-size=8m,max-file=2`；正常成功路径仍自动删除容器，不保留日志。
+- `resolve-tool --accept-check-result --image ...` 只接纳同一镜像、TaskSpec argv/timeout、规范化
+  staging workspace、非 root/禁网/只读根配置完全匹配，且自然退出、非 OOM、exit code 小于
+  128、完整日志不超过 64 KiB 的停止容器。恢复结果可为 success 或 error，不把失败升级为通过。
+- 工具 receipt 与下一 AgentSession 先原子提交，再删除停止容器；清理失败会显式报告
+  `result_recorded_cleanup_required`，不会因先删除而丢失唯一结果。运行中、信号/超时/OOM、日志
+  超限、身份或 workspace revision 漂移继续保持 unknown；原 `discard_check` 路径保留。
+- 离线单元、Agent session 续接和 CLI 测试已覆盖成功/失败、状态不一致、信号/OOM、request
+  mismatch 与日志超限。真实 Docker 合同已加入“自然退出、清理前杀死控制进程、重启恢复”案例；
+  本机 Docker daemon 当前未运行，因此本批尚未执行该新增真实合同，不能把它记为通过。本批
+  离线全量回归为 **348 passed，7 skipped**；7 个 skip 均为显式 Docker 合同。
 
 ### 2026-10-05 单文件创建的显式崩溃恢复
 
@@ -562,8 +578,8 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
    A/B/C/D 与消融、关键安全独立复核。单个负样本不能替代这些证据。
 
 六轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
-BudgetStop 请求证据回放、精确 wire payload 尺寸和 Provider-return 崩溃窗接入后，当前主干已完成
-307 项离线回归。
+BudgetStop 请求证据回放、精确 wire payload 尺寸和 Provider-return 崩溃窗接入后，当前主干后续
+继续补齐写入与检查结果恢复；最新离线全量回归为 348 passed、7 个显式 Docker skip。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
 `run_model_cost_limit` 进入 `FAILED`。没有工具、编辑、checkpoint 或验证，Trace 14 事件可重放，

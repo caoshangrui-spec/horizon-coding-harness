@@ -67,8 +67,8 @@ workspace revision 绑定并从 Trace 复算。模型动作由冻结脚本提供
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | Python 3.12/3.13 的测试、静态检查、演示和构建已通过 | CI 不读取 API Key、不运行付费模型 |
-| 离线回归 | `338 passed, 6 skipped` | 跳过项是需要本机 Docker 的契约测试 |
-| Docker 契约 | `redis:7-alpine` 上单独复跑 `6 passed` | 有限隔离合同，不是恶意代码安全认证 |
+| 离线回归 | `348 passed, 7 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| Docker 契约 | 既有 6 项曾在 `redis:7-alpine` 上通过；新增停止结果恢复项待 daemon 可用后补跑 | 有限隔离合同，不是恶意代码安全认证 |
 | 完整 checkout A/B | tqdm 82 files、youtube-dl 872 files；初始失败门、恢复、replan、最终验收和 Trace replay 通过 | 使用 Scripted Model，不是模型能力成绩 |
 | 真实模型 Pilot | 六轮均可重放、费用可核对、source 未变 | 六轮均未编辑或验证成功，保留为负结果 |
 | 预算预留诊断 | 6 Trace、20 个已结算调用；聚合预留/结算比 6.861621；候选公式仅有 3 个可回放样本 | 新 BudgetStop 保存请求尺寸；样本不足，不自动降低费用安全门槛 |
@@ -144,10 +144,13 @@ Agent 也可用 `create_file` 在允许路径内创建一个最多 64 KiB 的 UT
 时先保留文件并把调用标为 `unknown`，不会自动重放。之后只有 live workspace 精确等于派发前
 manifest 或“该 manifest 加上精确新文件”的唯一后态时，可信 CLI 才能显式 rollback 或
 accept；错误/部分内容继续阻塞。
-每个 Docker `run_check` 现用已持久化 tool call ID 派生唯一容器名和 owner/attempt/image 标签。
-悬空检查可用原镜像精确查询；已停止容器由控制器验证并删除，仍在运行时只有显式
-`--stop-check-sandbox` 才会终止。查不到标签容器不算停止证明，仍需操作者确认。处置只丢弃
-未知结果，不推断 pass/fail，也不重放原模型调用，并要求工作区仍等于派发前 revision。
+每个 Docker `run_check` 现用已持久化 tool call ID 派生唯一容器名，并绑定
+owner/attempt/image/request/recovery 标签。悬空检查可用原镜像精确查询；若同一 TaskSpec 命令、
+staging 路径、镜像与受限运行配置对应的容器已自然退出，且完整日志未超过 64 KiB，可信 CLI
+可从 Docker exit code 与日志恢复原 success/error receipt。receipt 和下一 AgentSession 先原子
+持久化，之后才删除容器。信号退出、超时/OOM、仍运行、日志超限或任一身份不一致时不采信
+结果；仍可显式停止并丢弃，missing 也仍需操作者确认。所有路径都要求工作区等于派发前
+revision，且不会重放原检查或模型调用。
 若自动 Plan 未通过 Schema、DAG、权限或验收覆盖校验，Run 会保持为
 `WAITING_FOR_USER`；使用输出中的 `horizon plan set <run-id> <plan.yaml>` 提交人工计划后，
 再用 `horizon agent resume` 继续。这个入口只处理计划阶段的人工替换，不代表通用审批系统。
@@ -275,7 +278,11 @@ uv run --locked --cache-dir .uv-cache horizon agent resolve-tool `
 uv run --locked --cache-dir .uv-cache horizon agent resolve-tool `
   $partial.run_id <tool-call-id> --discard-check --image redis:7-alpine
 # 若返回仍在运行，追加 --stop-check-sandbox；若容器不存在，人工核实后改用
-# --confirm-check-sandbox-stopped。任何路径都不采信未知检查结果。
+# --confirm-check-sandbox-stopped。
+
+# 若标签容器已自然退出且命令/工作区/镜像/日志边界均精确匹配，可接纳实际 pass/fail 回执。
+uv run --locked --cache-dir .uv-cache horizon agent resolve-tool `
+  $partial.run_id <tool-call-id> --accept-check-result --image redis:7-alpine
 
 # 成功 Run 可先只读查看候选差异，再显式提升最多 8 个 UTF-8 变更；其中至多 1 个新文件。
 uv run --locked --cache-dir .uv-cache horizon agent diff `
@@ -291,8 +298,8 @@ uv run --locked --cache-dir .uv-cache horizon agent promote `
 以 `cancelled` 结算并保守计数一次，然后生成新的 tool call。单一 `replace_text`、最多 8 文件
 的结构化 `apply_patch` 或单一 `create_file` 可在 live workspace 与预期 effect 或原 manifest
 完全一致时显式 accept/rollback；部分写入或外部漂移继续阻塞。`run_check` 初始也返回
-`manual_reconciliation`；其中单一调用可经上述显式确认取消未知结果并恢复到下一轮，
-但绝不自动重试或把它记为验证事实。Agent 入口支持有界的顺序多 WorkItem DAG、一次性自动计划、一次
+`manual_reconciliation`；其中单一调用可丢弃未知结果，或在停止容器提供精确、完整且自然退出的
+结果证据时接纳真实 success/error receipt 并恢复到下一轮，但绝不自动重试。Agent 入口支持有界的顺序多 WorkItem DAG、一次性自动计划、一次
 执行期受限 Plan revision、精确字符串替换、受控多文件 patch、单个受限新文件和控制器定义的检查；它不支持
 自动触发或多次 replan，也不并行执行，
 也不支持任意 diff、多文件新增、删除/重命名或模糊 patch。`create_file` 的精确边界见
@@ -314,8 +321,9 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **338 passed，6 skipped**；6 个跳过项指定本机已有
-`redis:7-alpine` 单独复跑，得到 **6 passed** 的真实 Docker 契约结果。另有一次真实
+当前离线全量回归为 **348 passed，7 skipped**。既有 6 项跳过项曾指定本机已有
+`redis:7-alpine` 单独复跑并通过；新增的第 7 项“自然退出、清理前恢复结果”合同因本批
+Docker daemon 未运行尚未实跑。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实
 Issue 效果。新增真实模型 Pilot 单元测试覆盖私有答案拒绝、初始失败证据、内容寻址报告和
 启动时任务/源码/镜像/Provider/Harness 源码漂移拒绝；真实 checkout 的离线 Docker preflight

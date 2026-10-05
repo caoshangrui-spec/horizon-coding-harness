@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import subprocess
 import threading
@@ -47,6 +48,12 @@ class SandboxAttemptStatus(Contract):
 class DockerSandbox:
     """Low-level executor for disposable, labeled validation containers."""
 
+    _RECOVERY_SCHEMA = "v1"
+    _RECOVERY_LOG_DRIVER = "json-file"
+    _RECOVERY_LOG_MAX_SIZE = "8m"
+    _RECOVERY_LOG_MAX_FILE = "2"
+    _MAX_EXACT_RECOVERY_OUTPUT_BYTES = 65536
+
     def __init__(self, staging_root: Path, image: str, docker: str = "docker"):
         if re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9:/.@_-]*", image) is None:
             raise PolicyDenied("Invalid Docker image reference")
@@ -78,6 +85,21 @@ class DockerSandbox:
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise SandboxError("Docker control operation failed or timed out") from exc
 
+    def _logs(self, name: str, timeout: int = 15) -> bytes:
+        try:
+            result = subprocess.run(
+                [self.docker, "logs", name],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=timeout,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise SandboxError("Stopped sandbox logs are unavailable") from exc
+        if result.returncode != 0:
+            raise SandboxError("Stopped sandbox logs could not be read")
+        return result.stdout
+
     def _owned(self, name: str, owner: str) -> bool:
         result = self._command(
             [
@@ -104,18 +126,37 @@ class DockerSandbox:
         owner = hashlib.sha256(f"horizon-check-v1:{attempt_id}".encode()).hexdigest()
         return owner, f"horizon-check-{owner[:32]}"
 
-    def attempt_status(self, attempt_id: str) -> SandboxAttemptStatus:
+    @staticmethod
+    def _request_digest(workspace: Path, request: CommandRequest) -> str:
+        payload = {
+            "argv": request.argv,
+            "output_limit_bytes": request.output_limit_bytes,
+            "timeout_seconds": request.timeout_seconds,
+            "workspace": os.path.normcase(str(workspace)),
+        }
+        encoded = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    def _inspect_attempt(self, attempt_id: str) -> tuple[SandboxAttemptStatus, dict | None]:
         owner, name = self._attempt_identity(attempt_id)
         result = self._command(["inspect", name])
         if result.returncode != 0:
             detail = f"{result.stdout}\n{result.stderr}".casefold()
             if "no such object" not in detail and "no such container" not in detail:
                 raise SandboxError("Docker attempt inspection failed; status is unknown")
-            return SandboxAttemptStatus(
-                attempt_id=attempt_id,
-                container_name=name,
-                state="missing",
-                image_id=self.image_id,
+            return (
+                SandboxAttemptStatus(
+                    attempt_id=attempt_id,
+                    container_name=name,
+                    state="missing",
+                    image_id=self.image_id,
+                ),
+                None,
             )
         try:
             documents = json.loads(result.stdout)
@@ -134,11 +175,116 @@ class DockerSandbox:
             or not isinstance(running, bool)
         ):
             raise SandboxError("Docker attempt identity does not match the persisted operation")
-        return SandboxAttemptStatus(
-            attempt_id=attempt_id,
-            container_name=name,
-            state="running" if running else "stopped",
+        return (
+            SandboxAttemptStatus(
+                attempt_id=attempt_id,
+                container_name=name,
+                state="running" if running else "stopped",
+                image_id=self.image_id,
+            ),
+            document,
+        )
+
+    def attempt_status(self, attempt_id: str) -> SandboxAttemptStatus:
+        status, _ = self._inspect_attempt(attempt_id)
+        return status
+
+    def recover_stopped_attempt(
+        self,
+        workspace: Path,
+        request: CommandRequest,
+        attempt_id: str,
+    ) -> CommandResult:
+        """Recover an exact, naturally completed result without removing its container."""
+
+        reject_link(workspace)
+        workspace = workspace.resolve(strict=True)
+        if workspace.parent != self.staging_root or not workspace.is_dir():
+            raise PolicyDenied("Only a direct disposable child of staging_root may be recovered")
+        if request.output_limit_bytes > self._MAX_EXACT_RECOVERY_OUTPUT_BYTES:
+            raise SandboxError(
+                "Requested output limit exceeds exact stopped-attempt recovery scope"
+            )
+
+        status, document = self._inspect_attempt(attempt_id)
+        if status.state != "stopped" or document is None:
+            raise SandboxError("Only a verified stopped sandbox attempt has a recoverable result")
+        try:
+            labels = document["Config"]["Labels"] or {}
+            state = document["State"]
+            config = document["Config"]
+            host = document["HostConfig"]
+            log_config = host["LogConfig"]
+            mounts = document["Mounts"]
+            container_id = document["Id"]
+            exit_code = state["ExitCode"]
+            mount = next(item for item in mounts if item.get("Destination") == "/workspace")
+        except (KeyError, StopIteration, TypeError) as exc:
+            raise SandboxError("Stopped sandbox result metadata is incomplete") from exc
+
+        expected_request = self._request_digest(workspace, request)
+        exact_log_config = {
+            "max-file": self._RECOVERY_LOG_MAX_FILE,
+            "max-size": self._RECOVERY_LOG_MAX_SIZE,
+        }
+        security_options = set(host.get("SecurityOpt") or ())
+        if (
+            labels.get("horizon.recovery") != self._RECOVERY_SCHEMA
+            or labels.get("horizon.request") != expected_request
+            or state.get("Status") != "exited"
+            or state.get("OOMKilled") is not False
+            or state.get("Error") not in {"", None}
+            or not isinstance(exit_code, int)
+            or isinstance(exit_code, bool)
+            or not 0 <= exit_code < 128
+            or config.get("Entrypoint") != [request.argv[0]]
+            or config.get("Cmd") != list(request.argv[1:])
+            or config.get("User") != "65534:65534"
+            or config.get("WorkingDir") != "/workspace"
+            or host.get("NetworkMode") != "none"
+            or host.get("ReadonlyRootfs") is not True
+            or host.get("Privileged") is not False
+            or {str(item).upper() for item in (host.get("CapDrop") or ())} != {"ALL"}
+            or not security_options.intersection({"no-new-privileges", "no-new-privileges:true"})
+            or host.get("PidsLimit") != 64
+            or host.get("Memory") != 128 * 1024 * 1024
+            or host.get("NanoCpus") != 1_000_000_000
+            or host.get("Init") is not True
+            or log_config.get("Type") != self._RECOVERY_LOG_DRIVER
+            or log_config.get("Config") != exact_log_config
+            or len(mounts) != 1
+            or mount.get("Type") != "bind"
+            or mount.get("RW") is not True
+            or not isinstance(mount.get("Source"), str)
+            or not mount["Source"]
+            or not isinstance(container_id, str)
+            or not container_id
+        ):
+            raise SandboxError("Stopped sandbox result is not an exact recoverable attempt")
+
+        logs = self._logs(status.container_name)
+        if len(logs) > request.output_limit_bytes:
+            raise SandboxError(
+                "Stopped sandbox output exceeds the exact recovery limit; discard is required"
+            )
+
+        final_status, final_document = self._inspect_attempt(attempt_id)
+        if (
+            final_status.state != "stopped"
+            or final_document is None
+            or final_document.get("Id") != container_id
+            or final_document.get("State", {}).get("ExitCode") != exit_code
+        ):
+            raise SandboxError("Stopped sandbox changed while its result was being recovered")
+        return CommandResult(
+            exit_code=exit_code,
+            timed_out=False,
+            output=logs.decode("utf-8", errors="replace"),
+            total_output_bytes=len(logs),
+            output_sha256=hashlib.sha256(logs).hexdigest(),
+            output_truncated=False,
             image_id=self.image_id,
+            container_name=status.container_name,
         )
 
     def stop_attempt(self, attempt_id: str) -> SandboxAttemptStatus:
@@ -193,6 +339,10 @@ class DockerSandbox:
                 f"horizon.attempt={attempt_id}",
                 "--label",
                 f"horizon.image={self.image_id}",
+                "--label",
+                f"horizon.recovery={self._RECOVERY_SCHEMA}",
+                "--label",
+                f"horizon.request={self._request_digest(workspace, request)}",
             ]
         args = [
             self.docker,
@@ -208,7 +358,11 @@ class DockerSandbox:
             "none",
             "--read-only",
             "--log-driver",
-            "none",
+            self._RECOVERY_LOG_DRIVER,
+            "--log-opt",
+            f"max-size={self._RECOVERY_LOG_MAX_SIZE}",
+            "--log-opt",
+            f"max-file={self._RECOVERY_LOG_MAX_FILE}",
             "--no-healthcheck",
             "--cap-drop",
             "ALL",

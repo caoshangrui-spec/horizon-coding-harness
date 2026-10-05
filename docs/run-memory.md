@@ -79,7 +79,9 @@ UTF-8 解码。任一条件不成立均以完整性错误停止，不生成“�
 必须没有 evidence/excerpt，并保留为 `unresolved`。悬空 `run_check` 经显式
 `discard_check` 处置后会形成 outcome=`cancelled` 的 validation 条目；停止依据可以是操作者确认，
 也可以是控制器对 tool call ID 标签容器的验证/停止/删除。其证据只说明结果被丢弃，不得投影为
-检查通过或失败。
+检查通过或失败。若控制器从同一自然退出容器恢复了完整有界日志与 exit code，显式
+`accept_check_result` 会保留原 `success` 或 `error` outcome；内容包含 recovery 标记、check ID、
+pass/fail、exit code 和原输出 hash。它仍不等同于后续 protected final validation。
 
 ## 4. 快照、失效与上下文分层
 

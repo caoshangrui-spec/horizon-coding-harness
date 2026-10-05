@@ -5,7 +5,8 @@
 本表是完整开发与验收导航。2026-09-30 已开始基础内核实现，实际证据列记录当前子范围与剩余缺口。目标路径相对 `src/horizon/`；计划测试路径相对 `tests/`；实际证据列的 `tests/` 路径相对仓库根。同一测试文件可验证多个 ID，但不能把子范围通过等同于整项通过。
 
 当前结果：2026-09-30 可靠性内核为 **92 项测试通过**；2026-10-05 的最新离线回归为
-**338 passed，6 skipped**，并在上一批边界单独补跑 **6 项真实 Docker 合同且全部通过**；另已完成一次 Tool Calling 探针和一次受预算
+**348 passed，7 skipped**。既有 **6 项真实 Docker 合同**曾单独补跑并全部通过；新增的停止结果
+恢复合同因本批 Docker daemon 未运行尚未实跑。另已完成一次 Tool Calling 探针和一次受预算
 保护的真实单 WorkItem Agent fixture Run。完整长程 Agent 未实现，未做独立安全复核。命令、环境、证据与限制见
 [开发进度](development-progress.md)。仍为“待填”的条目没有实现证据；“部分/初步”不代表
 完整需求通过。普通工作直接自检，关键风险及用户指定验收按需独立复核，
@@ -24,9 +25,9 @@
 | FR-102 | M2 | `adapters/workspace/promotion.py` | `fault_injection/test_step_boundary.py`：完整 checkpoint 间的写入可从产物链恢复 | 部分：promotion intent 先于源文件副作用提交；1～8 个总变更且至多 1 个新文件可从完整 effect 补 receipt，或从既有目标为 before/after、新目标为 absent/after 的部分 effect 继续；真实子进程退出已覆盖新文件部分效果；通用步骤链未覆盖 |
 | FR-103 | M2 | `domain/checkpoint.py` | `integration/test_checkpoint.py`：显式与每 N 步触发都有有效 manifest | 部分：`application/checkpoints.py` 原子提交文件快照引用；Agent submit 后自动提交 checkpoint；`tests/integration/test_snapshots.py`、`test_agent_loop.py`；每 N 步策略未接入 |
 | FR-104 | M2 | `application/resume_run.py` | `integration/test_rebuild.py`：删除投影后恢复得到相同规范化状态 hash | 部分：PLANNING/READY、安全执行轮次、人工指导后的 session 及已持久化 model response receipt 可由新 Worker继续，且不重复旧模型调用；Provider 返回后、response Artifact 前的真实硬退出会以 client Trace ID 保守阻塞并可重放，不自动重派；任意崩溃窗口仍未完成 |
-| FR-105 | M2 | `orchestration/recovery.py` | `fault_injection/test_pending_operations.py`：模型/工具/验证悬空操作逐项对账 | 部分：Campaign-only 释放、可信 response receipt 补账续跑、只读显式重试；`replace_text`、最多 8 文件的结构化 `apply_patch` 与单文件 `create_file` 可基于派发前 manifest 精确 accept/rollback；真实硬退出先保持 unknown 且不重放，精确处置后恢复 AgentSession；Docker `run_check` 以 tool call ID 绑定标签 attempt，可查询/显式停止/删除后丢弃未知结果，missing 时仍需人工停止确认；不推断 pass/fail。部分/漂移写入、无停止证明的 check 与其他任意写工具仍保持 unknown |
+| FR-105 | M2 | `orchestration/recovery.py` | `fault_injection/test_pending_operations.py`：模型/工具/验证悬空操作逐项对账 | 部分：Campaign-only 释放、可信 response receipt 补账续跑、只读显式重试；`replace_text`、最多 8 文件的结构化 `apply_patch` 与单文件 `create_file` 可基于派发前 manifest 精确 accept/rollback；真实硬退出先保持 unknown 且不重放，精确处置后恢复 AgentSession；Docker `run_check` 以 tool call ID 绑定标签 attempt，自然退出且 request/workspace/隔离配置与完整小日志精确匹配时可恢复原 success/error，否则可显式停止/删除后丢弃；missing 仍需人工停止确认。部分/漂移写入、信号/超时/OOM check 与其他任意写工具仍保持 unknown |
 | FR-106 | M2 | `adapters/vcs/git.py` | `fault_injection/test_workspace_restore.py`：HEAD/diff/untracked 内容损坏不被接受 | 部分：内容寻址快照恢复；promotion 绑定源/候选 revision，且仅当 source 自身为 Git 根时绑定并复核 HEAD；外部 drift 拒绝，未恢复 Git objects/untracked 全状态 |
-| FR-107 | M2 | `orchestration/recovery.py` | `fault_injection/test_unknown_effect.py`：未知副作用不重复派发，查询或人工对账 | 部分：unknown 阻止重派；只读可显式重试；`replace_text` / `apply_patch` / 单文件 `create_file` 仅在 live workspace 精确等于前态/唯一后态时 accept/rollback，部分写入和额外漂移继续阻塞；真实 create 硬退出、accept/rollback、Trace replay 已覆盖；`run_check` 已有确定性 attempt 身份、标签核验与显式停止，尚无容器创建前的持久启动回执或检查结果恢复 |
+| FR-107 | M2 | `orchestration/recovery.py` | `fault_injection/test_unknown_effect.py`：未知副作用不重复派发，查询或人工对账 | 部分：unknown 阻止重派；只读可显式重试；`replace_text` / `apply_patch` / 单文件 `create_file` 仅在 live workspace 精确等于前态/唯一后态时 accept/rollback，部分写入和额外漂移继续阻塞；真实 create 硬退出、accept/rollback、Trace replay 已覆盖；`run_check` 已有确定性 attempt 身份、自然退出结果恢复、标签核验与显式停止，仍无容器创建前的持久启动回执、missing 证明或超时/信号结果恢复 |
 | FR-201 | M3 | `context/builder.py` | `unit/test_context_layers.py`：必保/事实/近期/历史内容正确分层 | 部分：`application/context.py` 固定保留初始合同和所有未完成工具对，优先保留最近 N 个完整单元；若字符或完整请求保守 input-token 硬上限超限，则确定性折叠最少数量的最老近期完整单元。尚非设计中的完整六层 ContextPack |
 | FR-202 | M3 | `domain/context.py`, `application/context.py` | `unit/test_context.py` + `integration/test_agent_loop.py`：必保 ID 与内容 hash 均一致 | 部分：`MandatoryFactLedger` v2 对 Task/Plan/当前 WorkItem/已完成 WorkItems、路径权限、required acceptance、预算、模型策略、工具 Schema 和 workspace revision 做内容寻址绑定，并在压缩/恢复前后机器校验；尚无模型语义摘要的事实等价 QA，也未纳入 HITL 决定 |
 | FR-203 | M3 | `context/compactor.py` | `integration/test_compaction_trace.py`：范围/模型/token/校验记录完整 | 部分：ContextProjection v2 保存字符上限/实际值、近期单元数、完整请求字节、版本化保守 token 上界、配置上限、源/投影消息数和 request hash；新 reservation 还绑定 Adapter 实际 body 的 hash、字段 value/结构字节并精确加总，恢复按 estimator ID 兼容 v1。同一 `InputTokenBudget` 在恢复时重算；尚无精确 tokenizer 或模型摘要元数据 |
