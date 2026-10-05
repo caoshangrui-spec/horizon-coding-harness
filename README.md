@@ -82,10 +82,11 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | Python 3.12/3.13 的测试、静态检查、演示和构建已通过 | CI 不读取 API Key、不运行付费模型 |
-| 离线回归 | `365 passed, 7 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `366 passed, 7 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | Docker 契约 | 既有 6 项曾在 `redis:7-alpine` 上通过；新增停止结果恢复项待 daemon 可用后补跑 | 有限隔离合同，不是恶意代码安全认证 |
 | 一键崩溃恢复演示 | 子进程在 `replace_text` 生效后、receipt 前以退出码 86 硬退出；悬空调用先标 unknown，再按精确 manifest 接纳一次并恢复到 epoch 3 | 固定离线脚本与单一写入窗口，不代表任意进程/主机故障恢复 |
 | 有界恢复矩阵 v3 | 21/21；自动恢复 11/11、安全阻塞 10/10、incorrect resume 0、恢复重派/重复副作用 0；含 3 个真实硬退出和 Trace replay | 其余 18 例是生成 fixture 的状态/决策矩阵，不是完整 8 故障点或主机故障验收 |
+| 外部来源裁剪 A/B v2 | 5 个来源绑定案例的初始失败、Baseline 等待和 Treatment 修复均由本地可信集成测试执行；v1 原 3 例有历史 Docker 证据 | v2 五例尚未在 Docker 中复跑；使用 Scripted Model，不是 BugsInPy 官方成绩 |
 | 完整 checkout A/B | tqdm 82 files、youtube-dl 872 files；初始失败门、恢复、replan、最终验收和 Trace replay 通过 | 使用 Scripted Model，不是模型能力成绩 |
 | 真实模型 Pilot | 六轮均可重放、费用可核对、source 未变 | 六轮均未编辑或验证成功，保留为负结果 |
 | 预算预留诊断 | 6 Trace、20 个已结算调用；聚合预留/结算比 6.861621；候选公式仅有 3 个可回放样本 | 新 BudgetStop 保存请求尺寸；样本不足，不自动降低费用安全门槛 |
@@ -210,9 +211,10 @@ uv run --locked --cache-dir .uv-cache horizon eval reliability `
 uv run --locked --cache-dir .uv-cache horizon eval run-ab `
   benchmarks/run_ab/stalled-reader-replan-v1.yaml --image redis:7-alpine
 
-# 三个来源绑定的 BugsInPy 依赖裁剪案例；统一执行初始失败门和完整 A/B。
+# 五个来源绑定的 BugsInPy 依赖裁剪案例；统一执行初始失败门和完整 A/B。
+# v2 的生产执行仍使用 Docker；当前本机 daemon 不可用，最新五例 Docker 结果待补跑。
 uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
-  benchmarks/run_ab/bugsinpy-reduced-v1.yaml --image python:3.12-alpine
+  benchmarks/run_ab/bugsinpy-reduced-v2.yaml --image python:3.12-alpine
 
 # 两个完整 checkout 需先按 docs/full-checkout-pilot.md 固定源码。
 uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
@@ -338,7 +340,7 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **365 passed，7 skipped**。既有 6 项跳过项曾指定本机已有
+当前离线全量回归为 **366 passed，7 skipped**。既有 6 项跳过项曾指定本机已有
 `redis:7-alpine` 单独复跑并通过；新增的第 7 项“自然退出、清理前恢复结果”合同因本批
 Docker daemon 未运行尚未实跑。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实

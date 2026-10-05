@@ -2,6 +2,8 @@ import hashlib
 import importlib
 import json
 import shutil
+import subprocess
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -21,7 +23,8 @@ from horizon.interfaces.cli.app import app
 runner = CliRunner()
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST_PATH = ROOT / "benchmarks" / "run_ab" / "stalled-reader-replan-v1.yaml"
-SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-reduced-v1.yaml"
+SUITE_V1_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-reduced-v1.yaml"
+SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-reduced-v2.yaml"
 FULL_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v1.yaml"
 MULTI_STAGE_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-pilot-v1.yaml"
 
@@ -43,32 +46,24 @@ class FixtureContentAcceptance:
         )
 
 
-class ExternalSourceAcceptance:
-    """Fast marker checks for the suite CLI test; Docker executes the real Python checks."""
-
-    expected = {
-        "cookiecutter-utf8": (
-            "cookiecutter/generate.py",
-            "open(context_file, encoding='utf-8')",
-        ),
-        "fastapi-nested-clone": (
-            "fastapi/utils.py",
-            "use_type.__fields__[f.name] = create_cloned_field(f)",
-        ),
-        "tqdm-enumerate-start": (
-            "tqdm/contrib/__init__.py",
-            "enumerate(tqdm_class(iterable, **tqdm_kwargs), start)",
-        ),
-    }
+class TrustedFixturePythonAcceptance:
+    """Execute only the frozen dependency-free Python fixture checks in this test process."""
 
     def execute(self, workspace, check):
-        path, marker = self.expected[check.id]
-        passed = marker in (workspace / path).read_text(encoding="utf-8")
-        output = "expected repair present" if passed else "expected repair absent"
+        parts = check.command.split()
+        assert parts[:2] == ["python", "-B"] and len(parts) == 3
+        completed = subprocess.run(
+            [sys.executable, "-B", parts[2]],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            timeout=check.timeout_seconds,
+        )
+        output = completed.stdout + completed.stderr
         return AcceptanceResult(
             check_id=check.id,
-            passed=passed,
-            exit_code=0 if passed else 1,
+            passed=completed.returncode == 0,
+            exit_code=completed.returncode,
             timed_out=False,
             output=output,
             output_hash=hashlib.sha256(output.encode("utf-8")).hexdigest(),
@@ -352,7 +347,7 @@ def test_run_ab_suite_cli_aggregates_source_bound_cases(tmp_path, monkeypatch):
     monkeypatch.setattr(
         cli_module,
         "DockerAcceptanceExecutor",
-        lambda sandbox: ExternalSourceAcceptance(),
+        lambda sandbox: TrustedFixturePythonAcceptance(),
     )
     state = tmp_path / "suite-state"
 
@@ -372,16 +367,16 @@ def test_run_ab_suite_cli_aggregates_source_bound_cases(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     payload = json.loads(result.stdout)
     report = payload["report"]
-    assert report["suite_id"] == "bugsinpy-reduced-v1"
-    assert report["case_count"] == 3
-    assert report["passed_case_count"] == 3
-    assert report["initial_failure_confirmed_count"] == 3
-    assert report["treatment_recovered_count"] == 3
-    assert report["success_delta"] == 3
-    assert report["model_call_delta"] == 6
-    assert report["tool_call_delta"] == 9
-    assert report["step_delta"] == 9
-    assert report["model_cost_delta"] == "0.00288"
+    assert report["suite_id"] == "bugsinpy-reduced-v2"
+    assert report["case_count"] == 5
+    assert report["passed_case_count"] == 5
+    assert report["initial_failure_confirmed_count"] == 5
+    assert report["treatment_recovered_count"] == 5
+    assert report["success_delta"] == 5
+    assert report["model_call_delta"] == 10
+    assert report["tool_call_delta"] == 15
+    assert report["step_delta"] == 15
+    assert report["model_cost_delta"] == "0.00480"
     assert report["all_expectations_met"] is True
     assert report["paid_model_called"] is False
     assert report["network_called"] is False
@@ -389,16 +384,33 @@ def test_run_ab_suite_cli_aggregates_source_bound_cases(tmp_path, monkeypatch):
     assert {case["source"]["project"] for case in report["cases"]} == {
         "cookiecutter",
         "fastapi",
+        "luigi",
         "tqdm",
+        "tornado",
     }
 
     artifacts = ArtifactStore(state / "artifacts")
     suite_ref = payload["report_ref"]
-    assert json.loads(artifacts.read(suite_ref))["suite_id"] == "bugsinpy-reduced-v1"
+    assert json.loads(artifacts.read(suite_ref))["suite_id"] == "bugsinpy-reduced-v2"
     for case in report["cases"]:
         case_report = json.loads(artifacts.read(case["report_ref"]))
         assert case_report["initial_validation_matches_expectation"] is True
         assert case_report["all_expectations_met"] is True
+
+
+def test_reduced_v2_suite_preserves_the_frozen_v1_cases_and_digests():
+    v1 = RunABSuiteManifest.model_validate(
+        yaml.safe_load(SUITE_V1_PATH.read_text(encoding="utf-8"))
+    )
+    v2 = RunABSuiteManifest.model_validate(yaml.safe_load(SUITE_PATH.read_text(encoding="utf-8")))
+
+    assert v1.sha256 == "d41d0b6edbe69f9029235e118d386a8fc77500ef55e36c6e053a656092e13b9b"
+    assert v2.sha256 == "0cd34fadbebec928049f5b43ae505ff375b80b1bd624341ac469686495419d90"
+    assert list(v2.cases[:3]) == list(v1.cases)
+    assert [case.case_id for case in v2.cases[3:]] == [
+        "luigi-1-metrics-handler",
+        "tornado-1-websocket-nodelay",
+    ]
 
 
 def test_run_ab_suite_rejects_manifest_with_mismatched_source_commit():

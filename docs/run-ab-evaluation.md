@@ -98,8 +98,9 @@ Docker 中运行。
 也没有真实模型随机性或盲测。本页 fixture 是本仓自建的小型 shell 项目，不是外部 Issue；它只有
 一个任务和一次正式运行，也没有独立安全复核。
 
-同一 runner/report 合同现已扩展到三个来源与许可证明确的 BugsInPy 依赖裁剪案例，见
-[外部来源 Run A/B Suite](external-run-ab-suite.md)；其中 tqdm-1 与 youtube-dl-3 还完成了
+同一 runner/report 合同现已扩展到五个来源与许可证明确的 BugsInPy 依赖裁剪案例；五例本地
+可信集成通过，原 v1 三例有历史 Docker 证据，v2 Docker 待验证，见
+[外部来源 Run A/B Suite](external-run-ab-suite.md)。其中 tqdm-1 与 youtube-dl-3 还完成了
 [双项目完整 checkout suite](full-checkout-pilot.md)，包含 Git 来源门和真实 Code RAG；872 文件下
 重复 CAS blob 校验的开销也已完成前后对照优化。youtube-dl-3 随后完成
 [完整 checkout 两阶段 A/B](multi-stage-full-checkout-pilot.md)：两条 arm 都在第一项通过后切换到

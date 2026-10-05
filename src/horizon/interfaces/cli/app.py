@@ -2096,6 +2096,8 @@ def doctor():
                 "full_run_ab_initial_failure_preflight": True,
                 "source_bound_run_ab_suite": True,
                 "source_bound_run_ab_suite_profile": ("external_reduced_and_clean_full_checkout"),
+                "source_bound_run_ab_reduced_case_count": 5,
+                "source_bound_run_ab_reduced_docker_verified_count": 3,
                 "source_bound_run_ab_full_checkout_gate": True,
                 "bounded_multi_file_patch": True,
                 "max_patch_files": 8,

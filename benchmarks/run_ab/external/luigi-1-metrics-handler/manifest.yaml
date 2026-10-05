@@ -1,0 +1,127 @@
+schema_version: 1
+benchmark_id: luigi-1-metrics-handler
+fixture_path: fixture
+
+task:
+  task_id: luigi-metrics-handler
+  title: Configure the metrics collector rather than its generated payload
+  objective: Route HTTP handler configuration to the object that owns the metrics backend
+  repository:
+    source: local
+    path: /fixture
+    base_commit: 1164eb6b85b8a70f596dbb99452bec513e72c12e
+  constraints:
+    allowed_paths: [luigi/**, test/**]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+  acceptance:
+    - id: luigi-metrics-handler
+      command: python -B test/test_metrics_handler.py
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 20
+    max_model_calls: 10
+    max_tool_calls: 20
+    max_wall_time_seconds: 600
+    max_cost_usd: "1.00"
+    max_input_tokens: 100000
+    max_output_tokens: 5000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+
+initial_plan:
+  version: 1
+  items:
+    - work_item_id: inspect-metrics-handler
+      title: Inspect metrics handler ownership
+      objective: Establish evidence before changing the HTTP handler target
+      dependencies: []
+      expected_artifacts: [luigi/server.py, luigi-metrics-handler receipt]
+      acceptance_ids: [luigi-metrics-handler]
+      allowed_tools: [read_file]
+
+expected_initial_failed_checks: [luigi-metrics-handler]
+
+arms:
+  - arm_id: no-replan
+    role: baseline
+    description: Continue the stalled source read until deterministic guidance is required.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items: []
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 4
+    expected_tool_calls: 4
+    expected_steps: 4
+    actions:
+      - &read_target
+        tool: read_file
+        arguments: {path: luigi/server.py}
+      - *read_target
+      - *read_target
+      - *read_target
+
+  - arm_id: single-replan
+    role: single_replan
+    description: Replace the stalled investigation with the bounded upstream ownership repair.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items: [repair-metrics-handler]
+    expected_model_calls: 6
+    expected_tool_calls: 7
+    expected_steps: 7
+    actions:
+      - *read_target
+      - *read_target
+      - *read_target
+      - tool: revise_plan
+        arguments:
+          reason: Repeated reads produced no new evidence; configure the owning collector.
+          items:
+            - work_item_id: repair-metrics-handler
+              title: Configure the owning metrics collector
+              objective: Generate the payload and configure HTTP behavior on the collector
+              dependencies: []
+              expected_artifacts: [luigi/server.py, luigi-metrics-handler receipt]
+              acceptance_ids: [luigi-metrics-handler]
+              allowed_tools: [read_file, apply_patch, run_check]
+      - tool: apply_patch
+        arguments:
+          edits:
+            - path: luigi/server.py
+              old: |-
+                class MetricsHandler:
+                    def initialize(self, scheduler):
+                        self._scheduler = scheduler
+
+                    def write(self, metrics):
+                        self.written = metrics
+
+                    def get(self):
+                        metrics = self._scheduler._state._metrics_collector.generate_latest()
+                        if metrics:
+                            metrics.configure_http_handler(self)
+                            self.write(metrics)
+              new: |-
+                class MetricsHandler:
+                    def initialize(self, scheduler):
+                        self._scheduler = scheduler
+
+                    def write(self, metrics):
+                        self.written = metrics
+
+                    def get(self):
+                        metrics_collector = self._scheduler._state._metrics_collector
+                        metrics = metrics_collector.generate_latest()
+                        if metrics:
+                            metrics_collector.configure_http_handler(self)
+                            self.write(metrics)
+      - tool: submit
+        arguments:
+          summary: Configured the owning metrics collector and ran the protected regression check.
