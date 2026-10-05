@@ -4,6 +4,21 @@ from horizon.domain.common import Contract
 from horizon.domain.model import ClientTraceId
 from horizon.domain.task import Text
 
+WriteRecoveryState = Literal["pre_effect", "expected_effect", "diverged"]
+WriteRecoveryDecision = Literal["accept", "rollback"]
+WriteRecoveryVerdict = Literal["accept", "rollback", "block"]
+
+
+def write_recovery_verdict(
+    state: WriteRecoveryState,
+    decision: WriteRecoveryDecision,
+) -> WriteRecoveryVerdict:
+    """Return the only safe action for an observed deterministic write state."""
+
+    if decision == "accept":
+        return "accept" if state == "expected_effect" else "block"
+    return "rollback" if state in {"pre_effect", "expected_effect"} else "block"
+
 
 class RecoveryFinding(Contract):
     operation_id: Text

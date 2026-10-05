@@ -16,6 +16,7 @@ from horizon.domain.common import canonical_json
 from horizon.domain.errors import Conflict
 from horizon.domain.model import ModelMessage
 from horizon.domain.ports import ArtifactStorePort, WriteRecoveryPort
+from horizon.domain.recovery import write_recovery_verdict
 from horizon.domain.run import Run
 from horizon.domain.tools import AcceptanceResult, ToolCallRecord, ToolCallReservation
 
@@ -507,19 +508,18 @@ class ToolRecoveryService:
         if assessment.pre_revision != reservation.workspace_revision:
             raise Conflict("Pre-dispatch manifest does not match the tool reservation")
 
-        if decision == "accept":
-            if assessment.state != "expected_effect":
+        verdict = write_recovery_verdict(assessment.state, decision)
+        if verdict == "block":
+            if decision == "accept":
                 raise Conflict(f"{noun} can be accepted only when its exact expected effect exists")
+            raise Conflict(f"Diverged {noun.lower()} effect cannot be rolled back automatically")
+        if verdict == "accept":
             status = "success"
             disposition = accept_disposition
             final_revision = assessment.current_revision
             final_manifest = assessment.current_manifest_ref
             effect = f"The exact deterministic {noun.lower()} effect was found and accepted."
         else:
-            if assessment.state not in {"pre_effect", "expected_effect"}:
-                raise Conflict(
-                    f"Diverged {noun.lower()} effect cannot be rolled back automatically"
-                )
             if reservation.name == "replace_text":
                 final_revision, final_manifest = self.write_recovery.rollback_replace_recovery(
                     arguments,

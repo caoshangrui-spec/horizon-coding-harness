@@ -274,6 +274,12 @@ def test_doctor_checks_fts_without_model():
     assert data["portfolio_hard_crash_demo_profile"] == (
         "replace_effect_before_receipt_exact_accept"
     )
+    assert data["recovery_matrix_evaluation"] is True
+    assert data["recovery_matrix_evaluation_profile"] == (
+        "one_real_crash_plus_exact_write_state_decisions"
+    )
+    assert data["recovery_matrix_case_count"] == 19
+    assert data["complete_fault_injection_matrix"] is False
     assert data["run_check_running_attempt_stop_requires_explicit"] is True
     assert data["run_check_missing_attempt_proof"] is False
     assert data["run_check_signal_timeout_result_recovery"] is False

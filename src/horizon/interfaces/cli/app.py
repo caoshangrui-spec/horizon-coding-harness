@@ -45,6 +45,7 @@ from horizon.application.planning import (
 from horizon.application.portfolio_demo import PortfolioDemoRunner
 from horizon.application.promotion import PromotionService
 from horizon.application.recovery import RecoveryService
+from horizon.application.recovery_eval import RecoveryMatrixEvaluator
 from horizon.application.reliability_eval import ReliabilityEvaluator
 from horizon.application.reservation_analysis import analyze_reservation_traces
 from horizon.application.retrieval_eval import RetrievalEvaluator
@@ -71,6 +72,7 @@ from horizon.domain.model import ModelPolicyBinding
 from horizon.domain.pilot import RealModelPilotManifest
 from horizon.domain.plan import MAX_EXECUTION_REPLANS, Plan
 from horizon.domain.promotion import WorkspaceOrigin
+from horizon.domain.recovery_evaluation import RecoveryMatrixManifest
 from horizon.domain.reliability import ReliabilityEvalManifest
 from horizon.domain.run import projection_hash
 from horizon.domain.run_evaluation import RunABEvalManifest, RunABSuiteManifest
@@ -289,6 +291,53 @@ def evaluate_reliability(
             }
         )
     )
+
+
+@evaluations.command("recovery")
+@guarded
+def evaluate_recovery_matrix(
+    path: Path,
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            help="New self-contained evidence directory; defaults below .horizon/recovery-eval.",
+        ),
+    ] = None,
+):
+    """Run the bounded offline crash/write-state recovery matrix."""
+    manifest = RecoveryMatrixManifest.model_validate(read_yaml(path))
+    destination = output or Path(".horizon") / "recovery-eval" / f"matrix-{uuid4().hex[:12]}"
+    result = RecoveryMatrixEvaluator().evaluate(manifest, destination)
+    typer.echo(
+        canonical_json(
+            {
+                "benchmark_id": result.report.benchmark_id,
+                "manifest_digest": result.report.manifest_digest,
+                "case_count": result.report.case_count,
+                "passed_case_count": result.report.passed_case_count,
+                "recovery_success_rate": result.report.recovery_success_rate,
+                "safe_block_rate": result.report.safe_block_rate,
+                "unrecoverable_count": result.report.unrecoverable_count,
+                "incorrect_resume_count": result.report.incorrect_resume_count,
+                "recovery_redispatch_count": result.report.recovery_redispatch_count,
+                "duplicate_side_effect_count": result.report.duplicate_side_effect_count,
+                "actual_process_crash_case_count": (result.report.actual_process_crash_case_count),
+                "trace_replay_verified_count": (result.report.trace_replay_verified_count),
+                "paid_model_called": result.report.paid_model_called,
+                "network_called": result.report.network_called,
+                "repository_code_executed": result.report.repository_code_executed,
+                "external_cost_cny": str(result.report.external_cost_cny),
+                "claim_scope": result.report.claim_scope,
+                "excluded_claims": result.report.excluded_claims,
+                "output_dir": str(result.output_dir),
+                "report": str(result.report_path),
+                "report_ref": result.report_ref,
+            }
+        )
+    )
+    if result.report.passed_case_count != result.report.case_count:
+        raise typer.Exit(3)
 
 
 @evaluations.command("pilot-preflight")
@@ -2070,6 +2119,12 @@ def doctor():
                 "run_check_signal_timeout_result_recovery": False,
                 "portfolio_hard_crash_demo": True,
                 "portfolio_hard_crash_demo_profile": ("replace_effect_before_receipt_exact_accept"),
+                "recovery_matrix_evaluation": True,
+                "recovery_matrix_evaluation_profile": (
+                    "one_real_crash_plus_exact_write_state_decisions"
+                ),
+                "recovery_matrix_case_count": 19,
+                "complete_fault_injection_matrix": False,
                 "arbitrary_crash_recovery": False,
                 "promotion_enabled": True,
                 "promotion_profile": "explicit_bounded_existing_files",
