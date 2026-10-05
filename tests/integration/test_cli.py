@@ -269,6 +269,7 @@ def test_doctor_checks_fts_without_model():
     assert data["run_check_stopped_result_recovery_profile"] == (
         "exact_natural_exit_bounded_complete_log"
     )
+    assert data["run_check_receipt_before_cleanup"] is True
     assert data["run_check_running_attempt_stop_requires_explicit"] is True
     assert data["run_check_missing_attempt_proof"] is False
     assert data["run_check_signal_timeout_result_recovery"] is False

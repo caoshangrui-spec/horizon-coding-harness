@@ -67,7 +67,7 @@ workspace revision 绑定并从 Trace 复算。模型动作由冻结脚本提供
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | Python 3.12/3.13 的测试、静态检查、演示和构建已通过 | CI 不读取 API Key、不运行付费模型 |
-| 离线回归 | `348 passed, 7 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `350 passed, 7 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | Docker 契约 | 既有 6 项曾在 `redis:7-alpine` 上通过；新增停止结果恢复项待 daemon 可用后补跑 | 有限隔离合同，不是恶意代码安全认证 |
 | 完整 checkout A/B | tqdm 82 files、youtube-dl 872 files；初始失败门、恢复、replan、最终验收和 Trace replay 通过 | 使用 Scripted Model，不是模型能力成绩 |
 | 真实模型 Pilot | 六轮均可重放、费用可核对、source 未变 | 六轮均未编辑或验证成功，保留为负结果 |
@@ -321,7 +321,7 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **348 passed，7 skipped**。既有 6 项跳过项曾指定本机已有
+当前离线全量回归为 **350 passed，7 skipped**。既有 6 项跳过项曾指定本机已有
 `redis:7-alpine` 单独复跑并通过；新增的第 7 项“自然退出、清理前恢复结果”合同因本批
 Docker daemon 未运行尚未实跑。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实

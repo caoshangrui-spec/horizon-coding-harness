@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import sys
-import time
 from pathlib import Path
 
 from horizon.adapters.sandbox.docker import CommandRequest, DockerSandbox
@@ -18,22 +17,10 @@ def main() -> None:
     if mode == "before-create":
         os._exit(31)
     command = "sleep 60"
-    if mode == "after-cleanup":
-        command = "printf executed > /workspace/after-cleanup.txt"
+    if mode == "after-external-removal":
+        command = "printf executed > /workspace/after-external-removal.txt"
     elif mode == "stopped-before-cleanup":
         command = "printf 'recoverable failure\\n'; exit 1"
-        original_owned = sandbox._owned
-
-        def pause_after_exit(name: str, owner: str) -> bool:
-            owned = original_owned(name, owner)
-            if owned:
-                state = sandbox._command(["inspect", name, "--format", "{{.State.Running}}"])
-                if state.returncode == 0 and state.stdout.strip() == "false":
-                    (workspace / "stopped-before-cleanup.txt").write_text("ready")
-                    time.sleep(60)
-            return owned
-
-        sandbox._owned = pause_after_exit
     sandbox.execute(
         workspace,
         CommandRequest(
@@ -42,8 +29,11 @@ def main() -> None:
         ),
         attempt_id=attempt_id,
     )
-    if mode == "after-cleanup":
+    if mode == "after-external-removal":
+        sandbox.remove_attempt(attempt_id)
         os._exit(32)
+    if mode == "stopped-before-cleanup":
+        os._exit(33)
 
 
 if __name__ == "__main__":

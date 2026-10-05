@@ -357,7 +357,7 @@ Trace 文件拒绝覆盖已有文件。重放不会调用模型、工具或 Dock
 
 2026-10-05 当前环境：
 
-- 离线全量回归：348 passed、7 skipped；
+- 离线全量回归：350 passed、7 skipped；
 - 既有 6 项曾指定本机已有 `redis:7-alpine` 单独复跑并通过；新增停止结果恢复合同因本批
   Docker daemon 未运行尚未实跑，不能把第 7 个 skip 记为通过；
 - Fake Model E2E：精确编辑后成功，以及首次验收失败后一次 repair 成功；
@@ -394,9 +394,10 @@ Trace 文件拒绝覆盖已有文件。重放不会调用模型、工具或 Dock
 
 ## 10. 下一开发顺序
 
-真实子进程现已覆盖 Docker attempt 的 running、容器创建前，以及命令完成并清理后但 receipt
-未提交三个窗口。后两个窗口在重启后都表现为 `missing`，证明 missing 不能区分“从未执行”与
-“已执行并清理”；因此仍保持人工确认，暂不增加持久启动回执。接下来的顺序为：
+真实子进程现已覆盖 Docker attempt 的 running、容器创建前，以及命令完成后被外部删除三个
+窗口。正常主路径不再在 tool receipt 前清理：自然退出容器会保留到 receipt 提交，再做
+best-effort 删除；receipt 前崩溃因此留下可恢复结果。pre-create 与外部删除仍都表现为 missing，
+证明缺失本身不能作为未执行证据。接下来的顺序为：
 
 1. 在现有确定性投影、MandatoryFactLedger 和 Run Memory 上增加 tokenizer-aware 预算；
 2. 现有外部盲测仍为 Hit@1 0/3；先冻结新的 holdout，再按重复出现的负结果决定是否做 symbol/vector 增量；

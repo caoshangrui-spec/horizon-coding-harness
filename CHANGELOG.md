@@ -9,8 +9,10 @@ for public releases; unreleased work must not be presented as a published releas
   bind image, request, workspace, and a bounded readable log configuration; the trusted CLI accepts
   only a stopped, non-OOM/non-signal result with matching isolation metadata and complete output no
   larger than 64 KiB. It atomically persists the original success/error observation and next Agent
-  session before removing the container. Running, timed-out, signaled, oversized, drifted, missing,
-  or mismatched attempts remain unknown or use the existing explicit discard path.
+  session before removing the container. Normal Agent execution now also retains each durable
+  attempt until its tool receipt exists, then performs best-effort cleanup and reports cleanup
+  failures. Running, timed-out, signaled, oversized, drifted, missing, or mismatched attempts remain
+  unknown or use the existing explicit discard path.
 - Added explicit recovery for an uncertain single-file `create_file`: the recorded response,
   argument hash, WorkItem authority, pre-dispatch manifest, and exact content-derived manifest
   classify the live workspace as pre-effect, expected-effect, or diverged. Trusted offline
@@ -80,8 +82,8 @@ for public releases; unreleased work must not be presented as a published releas
 - Added a replayable full-request input-token budget: execution context projection now compacts
   against both character and conservative token ceilings, while planning and probes fail before
   provider dispatch when the same configured ceiling is exceeded.
-- Added real-Docker hard-exit coverage for the indistinguishable pre-create and post-cleanup
-  `run_check` recovery windows.
+- Added real-Docker hard-exit coverage showing that a pre-create attempt and an externally removed
+  completed `run_check` are both missing after restart, so absence alone remains non-evidence.
 
 ## 0.1.0 - 2026-10-03
 

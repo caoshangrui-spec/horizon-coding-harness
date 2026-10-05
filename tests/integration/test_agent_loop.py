@@ -85,6 +85,27 @@ class ParserCheck:
         )
 
 
+class DurableAttemptCheck(ParserCheck):
+    def __init__(self, *, fail_cleanup: bool = False):
+        self.fail_cleanup = fail_cleanup
+        self.events = []
+        self.store = None
+        self.run_id = None
+
+    def execute_attempt(self, workspace, check, attempt_id):
+        self.events.append(("execute", attempt_id))
+        return self.execute(workspace, check)
+
+    def cleanup_attempt(self, attempt_id):
+        assert self.store is not None
+        assert self.run_id is not None
+        settled = self.store.get(self.run_id).tool_calls[-1]
+        assert settled.call_id == attempt_id
+        self.events.append(("cleanup_after_settlement", attempt_id))
+        if self.fail_cleanup:
+            raise Conflict("simulated post-receipt cleanup failure")
+
+
 class RejectResponseArtifact:
     def __init__(self, delegate):
         self.delegate = delegate
@@ -1957,6 +1978,36 @@ def test_uncertain_run_check_can_accept_exact_stopped_attempt_result(
         .safe_to_resume
         is True
     )
+
+
+@pytest.mark.parametrize("fail_cleanup", [False, True])
+def test_durable_check_attempt_cleanup_happens_after_tool_receipt(
+    tmp_path,
+    task_dict,
+    fail_cleanup,
+):
+    checker = DurableAttemptCheck(fail_cleanup=fail_cleanup)
+    runner, store, run_id, token, _, _ = setup_loop(
+        tmp_path,
+        task_dict,
+        [("run_check", {"check_id": "unit"})],
+        checker=checker,
+    )
+    checker.store = store
+    checker.run_id = run_id
+
+    result = runner.run(run_id, token, max_iterations_this_invocation=1)
+
+    assert result.status == RunStatus.RUNNING
+    assert result.tool_calls[-1].status == "error"
+    call_id = result.tool_calls[-1].call_id
+    assert checker.events == [("execute", call_id), ("cleanup_after_settlement", call_id)]
+    if fail_cleanup:
+        assert runner.tools.check_cleanup_failures == {
+            call_id: "simulated post-receipt cleanup failure"
+        }
+    else:
+        assert runner.tools.check_cleanup_failures == {}
 
 
 def test_check_result_recovery_rejects_inconsistent_result(

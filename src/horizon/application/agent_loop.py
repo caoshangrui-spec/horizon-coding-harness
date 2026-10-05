@@ -798,6 +798,11 @@ class CodingAgentRunner:
             token,
             f"settle_{local_id}",
         )
+        if name == "run_check" and no_progress_pattern is None:
+            # A durable Docker attempt is intentionally retained until the authoritative tool
+            # receipt exists. Cleanup is best-effort after settlement; a failure leaves the
+            # labeled stopped attempt available for deterministic operator cleanup.
+            self.tools.cleanup_check_attempt(local_id)
         return outcome, hard_no_progress_pattern
 
     def _record_controller_error(

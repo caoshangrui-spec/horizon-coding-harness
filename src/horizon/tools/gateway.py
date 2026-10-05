@@ -286,6 +286,7 @@ class WorkspaceToolGateway:
         self.checks = checks
         self.retriever = retriever
         self.last_check_results: dict[str, AcceptanceResult] = {}
+        self.check_cleanup_failures: dict[str, str] = {}
 
     def activate_work_item(self, work_item: WorkItem) -> None:
         known_checks = {check.id for check in self.task.acceptance}
@@ -1067,6 +1068,19 @@ class WorkspaceToolGateway:
             require_work_item_scope=False,
             attempt_id=attempt_id,
         )
+
+    def cleanup_check_attempt(self, attempt_id: str) -> bool:
+        if self.checks is None:
+            return True
+        cleanup = getattr(self.checks, "cleanup_attempt", None)
+        if cleanup is None:
+            return True
+        try:
+            cleanup(attempt_id)
+        except HorizonError as exc:
+            self.check_cleanup_failures[attempt_id] = str(exc)
+            return False
+        return True
 
     def _submit(self, arguments: dict) -> ToolOutcome:
         args = SubmitArgs.model_validate(arguments)

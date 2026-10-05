@@ -81,17 +81,19 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 - `run_check` attempt 新增 request digest 与 recovery schema 标签，并按 Docker 官方
   [JSON File logging driver](https://docs.docker.com/engine/logging/drivers/json-file/) 选项把日志限制为
-  `json-file max-size=8m,max-file=2`；正常成功路径仍自动删除容器，不保留日志。
+  `json-file max-size=8m,max-file=2`。带 tool call ID 的 attempt 在结果返回后保持 stopped，只有
+  tool receipt 提交成功才做 best-effort 删除；普通无 attempt 的一次性执行仍在适配器内清理。
 - `resolve-tool --accept-check-result --image ...` 只接纳同一镜像、TaskSpec argv/timeout、规范化
   staging workspace、非 root/禁网/只读根配置完全匹配，且自然退出、非 OOM、exit code 小于
   128、完整日志不超过 64 KiB 的停止容器。恢复结果可为 success 或 error，不把失败升级为通过。
 - 工具 receipt 与下一 AgentSession 先原子提交，再删除停止容器；清理失败会显式报告
-  `result_recorded_cleanup_required`，不会因先删除而丢失唯一结果。运行中、信号/超时/OOM、日志
+  `result_recorded_cleanup_required`，不会因先删除而丢失唯一结果。正常 Agent 路径也遵守
+  “tool receipt 后清理”，并把清理失败暴露在 CLI `check_cleanup_failures`。运行中、信号/超时/OOM、日志
   超限、身份或 workspace revision 漂移继续保持 unknown；原 `discard_check` 路径保留。
 - 离线单元、Agent session 续接和 CLI 测试已覆盖成功/失败、状态不一致、信号/OOM、request
   mismatch 与日志超限。真实 Docker 合同已加入“自然退出、清理前杀死控制进程、重启恢复”案例；
   本机 Docker daemon 当前未运行，因此本批尚未执行该新增真实合同，不能把它记为通过。本批
-  离线全量回归为 **348 passed，7 skipped**；7 个 skip 均为显式 Docker 合同。
+  离线全量回归为 **350 passed，7 skipped**；7 个 skip 均为显式 Docker 合同。
 
 ### 2026-10-05 单文件创建的显式崩溃恢复
 
@@ -261,10 +263,11 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
   操作前先验证原响应、scope、事件尾部与 workspace；停止容器可直接核验并删除，运行中容器
   只有追加 `--stop-check-sandbox` 才会终止，owner/attempt/image 任一不符都拒绝。missing 不被
   当作停止证明，仍需 `--confirm-check-sandbox-stopped`。单元/CLI 测试覆盖 running/stopped/mismatch，
-  真实 Docker 合同覆盖正常自动清理，并在独立 Python 验证 Worker 运行 60 秒检查时强制终止，
+  真实 Docker 合同覆盖已结算后的清理，并在独立 Python 验证 Worker 运行 60 秒检查时强制终止，
   再由新 Sandbox 查询、停止、删除遗留容器。新增真实子进程分别在容器创建前，以及命令完成、
-  容器已清理但 receipt 未提交时硬退出；两者重启后都呈现 `missing`，同时后者保留仓库内 marker
-  证明命令实际执行，因此 missing 继续只允许人工确认，不能被提升为“未执行”证明。
+  容器被外部显式删除后硬退出；两者重启后都呈现 `missing`，同时后者保留仓库内 marker 证明
+  命令实际执行，因此 missing 继续只允许人工确认，不能被提升为“未执行”证明。正常主路径现已
+  改为 tool receipt 提交后才清理，不再主动制造“未结算但已清理”的窗口。
 - `replace_text` reservation 现绑定派发前 workspace revision 与 manifest。若 receipt 前退出，
   恢复服务只接受 live workspace 精确等于前态或由原参数推导出的唯一后态；可信 CLI 可显式
   accept 或 rollback，部分写入/额外文件漂移继续阻塞。真实子进程在写入后 `os._exit(26)` 的
@@ -579,7 +582,7 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 六轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸和 Provider-return 崩溃窗接入后，当前主干后续
-继续补齐写入与检查结果恢复；最新离线全量回归为 348 passed、7 个显式 Docker skip。
+继续补齐写入与检查结果恢复；最新离线全量回归为 350 passed、7 个显式 Docker skip。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
 `run_model_cost_limit` 进入 `FAILED`。没有工具、编辑、checkpoint 或验证，Trace 14 事件可重放，
@@ -594,9 +597,10 @@ source 未变。第六轮 Run `run_7fab106a71174c77bb0a82a8a054d3ed` 使用该 v
 案例和两个不同项目的完整 checkout 均已保存初始负例、Trace、验收、调用数和合成费用。完整
 suite 还给出两个 Code RAG rank 1，以及 9/2 个文件跳过的显式降级证据；重复 CAS blob 校验的
 规模开销已完成前后对照优化。完整 checkout 的两阶段 production → regression-test 任务及其
-WorkItem 边界 epoch 1 → 2 Worker 恢复也已通过。`run_check` 已有不采信结果、不自动重派的窄
-丢弃合同和可查询标签 attempt，真实子进程硬退出已覆盖 running、pre-create 与 post-cleanup
-窗口，并保留 missing 不足以证明未执行的负证据。首轮失败已经提供一个真实样本，但尚无分布
+WorkItem 边界 epoch 1 → 2 Worker 恢复也已通过。`run_check` 已有不自动重派的窄丢弃合同、
+可查询标签 attempt 与自然退出结果恢复；正常主路径把停止容器保留到 tool receipt 提交后再清理。
+真实子进程覆盖 running/pre-create，并保留“外部删除后 missing 不足以证明未执行”的负证据。
+首轮失败已经提供一个真实样本，但尚无分布
 或收益证据；在形成多样本证据前不增加
 自动触发、第二次修订或语义循环检测。
 计划失败和确定性停滞的两条窄持久 HITL 已落地，通用审批暂不扩张。

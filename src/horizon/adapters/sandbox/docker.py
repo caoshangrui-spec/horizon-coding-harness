@@ -441,16 +441,19 @@ class DockerSandbox:
             )
         finally:
             try:
-                # Only our uniquely labeled, confirmed stopped container may be removed.
+                # Durable attempts remain stopped until their tool receipt is committed. This
+                # leaves the container metadata and bounded logs available if the controller
+                # exits after command completion but before settlement.
                 if self._owned(name, owner):
                     state = self._command(["inspect", name, "--format", "{{.State.Running}}"])
                     if state.returncode != 0:
                         raise SandboxError("Container state is unknown; reconciliation required")
                     if state.stdout.strip() == "true":
                         self._stop_owned(name, owner)
-                    removed = self._command(["rm", "--volumes", name])
-                    if removed.returncode != 0:
-                        raise SandboxError(f"Owned test container could not be removed: {name}")
+                    if attempt_id is None:
+                        removed = self._command(["rm", "--volumes", name])
+                        if removed.returncode != 0:
+                            raise SandboxError(f"Owned test container could not be removed: {name}")
             finally:
                 if process.poll() is None:
                     process.kill()

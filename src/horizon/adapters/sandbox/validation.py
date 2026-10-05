@@ -3,7 +3,12 @@ from __future__ import annotations
 import shlex
 from pathlib import Path
 
-from horizon.adapters.sandbox.docker import CommandRequest, CommandResult, DockerSandbox
+from horizon.adapters.sandbox.docker import (
+    CommandRequest,
+    CommandResult,
+    DockerSandbox,
+    SandboxAttemptStatus,
+)
 from horizon.domain.task import AcceptanceCheck
 from horizon.domain.tools import AcceptanceResult
 
@@ -71,3 +76,9 @@ class DockerAcceptanceExecutor:
             attempt_id,
         )
         return self._result(check, result)
+
+    def cleanup_attempt(self, attempt_id: str) -> SandboxAttemptStatus:
+        status = self.sandbox.attempt_status(attempt_id)
+        if status.state == "missing":
+            return status
+        return self.sandbox.remove_attempt(attempt_id)

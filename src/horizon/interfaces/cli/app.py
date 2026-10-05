@@ -1098,6 +1098,7 @@ def agent_run(
                 "model_currency": provider.pricing.currency,
                 "model_call_records": len(result.model_calls),
                 "tool_call_records": len(result.tool_calls),
+                "check_cleanup_failures": tools.check_cleanup_failures,
                 "validation": result.validation,
                 "checkpoint": result.last_checkpoint,
                 "agent_session": (
@@ -1412,6 +1413,7 @@ def agent_resume(
                 "model_currency": provider.pricing.currency,
                 "model_call_records": len(result.model_calls),
                 "tool_call_records": len(result.tool_calls),
+                "check_cleanup_failures": tools.check_cleanup_failures,
                 "validation": result.validation,
                 "checkpoint": result.last_checkpoint,
                 "agent_session": (
@@ -2047,6 +2049,7 @@ def doctor():
                 "run_check_stopped_result_recovery_profile": (
                     "exact_natural_exit_bounded_complete_log"
                 ),
+                "run_check_receipt_before_cleanup": True,
                 "run_check_running_attempt_stop_requires_explicit": True,
                 "run_check_missing_attempt_proof": False,
                 "run_check_signal_timeout_result_recovery": False,
