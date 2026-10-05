@@ -1,6 +1,6 @@
 # 开发进度与验证记录
 
-更新：2026-10-05。已发布版本为 0.1.0，主干继续积累 Unreleased 改动；技术设计基线继续为
+更新：2026-10-06。已发布版本为 0.1.0，主干继续积累 Unreleased 改动；技术设计基线继续为
 0.2.0。2026-09-30 的
 可靠性内核证据保留，本次在其上增加 Provider 垂直切片和首个受控 Coding Agent 闭环。
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
@@ -43,7 +43,7 @@
 | 任务准备、计划、状态、取消、执行、导出与重放 CLI | [app.py](../src/horizon/interfaces/cli/app.py) | `run` 保持 prepare-only；`agent run` 接受 PLAN_PATH 或 `--auto-plan` 且只操作 staging；`agent resume` 支持 PLANNING/READY/RUNNING；执行前 HorizonError 仅在无非 unknown 在途 reservation 时释放租约；promotion 需显式确认 |
 | SiliconFlow 严格配置与 OpenAI-compatible adapter | [config.py](../src/horizon/adapters/model/config.py)、[openai_compatible.py](../src/horizon/adapters/model/openai_compatible.py) | Adapter 与预算器共用 canonical wire encoder，实际 HTTP body 的 bytes/hash 可复算；真实 Tool Calling 探针和历史 fixture Agent Run 通过；完整 checkout Pilot 已真实调用并以受控终态失败，无隐式 retry/fallback |
 | CNY Campaign 与 Run 模型费用账本 | [campaign_budget.py](../src/horizon/adapters/persistence/campaign_budget.py)、[run.py](../src/horizon/domain/run.py)、[budget-stop-semantics.md](budget-stop-semantics.md) | Campaign 跨重启硬上限；Run 绑定 CNY policy 并事件化；确定性派发前费用不足携带 reason/scope/required/available 及未派发请求 sizing evidence 原子进入 `FAILED` 并清除 Lease，unknown 用量仍保守对账；TaskSpec 旧 USD 字段尚未迁移 |
-| 一键离线作品集 EvidencePack | [portfolio_demo.py](../src/horizon/application/portfolio_demo.py)、[portfolio_demo.py](../src/horizon/domain/portfolio_demo.py)、[portfolio-demo.md](portfolio-demo.md) | `horizon demo run` 复用真实事件/Lease/会话/RAG/Gateway/验证主链路，在结构化工具错误后由 epoch 2 Worker 续跑；v2 报告把检索 Artifact、写入时 ContextProjection、目标路径、旧文本哈希和同一 revision 组成可从 Trace 复算的 lineage，Trace/最终投影/报告/摘要再由 SHA-256 清单自检。兼容读取 v1；零网络/零真实模型/零外部费用，且不冒充真实模型因果使用证据 |
+| 一键离线作品集 EvidencePack | [portfolio_demo.py](../src/horizon/application/portfolio_demo.py)、[_portfolio_crash_worker.py](../src/horizon/application/_portfolio_crash_worker.py)、[portfolio_demo.py](../src/horizon/domain/portfolio_demo.py)、[portfolio-demo.md](portfolio-demo.md) | `horizon demo run` 复用真实事件/Lease/会话/RAG/Gateway/验证主链路：epoch 1 完成错误回执交接，epoch 2 子进程在 `replace_text` effect 后、receipt 前 `os._exit(86)`，Supervisor 先标 unknown、围栏旧 Lease，再由 epoch 3 精确接纳既有 effect 且不重放写入。v3 报告锚定崩溃标记、恢复 disposition 和可从 Trace 复算的检索→写入 lineage；兼容读取 v1/v2。零网络/零真实模型/零外部费用，不冒充任意故障窗口或模型能力证据 |
 
 2026-10-04 的零费用增量把原先仅用于费用预留的完整请求保守上界接入实际派发门禁。
 `ContextProjection` 升为 schema v2；`InputTokenEstimate` 固定记录算法 ID、规范请求 UTF-8
@@ -76,6 +76,23 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 仍是后续适配约束；不能以该文档代替本项目的实际联调。
 
 ## 验证结果
+
+### 2026-10-06 一键演示真实进程硬退出恢复
+
+- `horizon demo run` 不再只展示主动 Worker handoff。第二任 Worker 由独立 Python 子进程运行，
+  在 `replace_text` 已精确改变 staging 文件、tool receipt 尚未提交的窗口写入并 fsync 崩溃标记，
+  随即 `os._exit(86)`；父进程同步等待并核对该退出码。
+- 中断状态必须同时存在一个持久 tool intent、缺失对应 receipt、保留派发前 manifest，且 live
+  workspace 只能是预期唯一后态。RecoveryService 先把调用标为阻塞 `tool_effect_unknown`；
+  Supervisor 只在确认子进程结束后围栏其 Lease，epoch 3 再显式 `accept_replace`。原写操作不重放，
+  recovery observation 与下一 AgentSession 原子提交。
+- 报告升为 schema v3，保存 crashed/recovery epoch、悬空 call ID、崩溃 marker hash、unknown
+  classification、`accept_replace` disposition、唯一恢复 receipt 和恢复上下文证据；EvidencePack
+  验证器还会从最终 Trace 复核同一 call 只出现一次成功恢复记录。v1/v2 报告继续可读。
+- 该演示仍是固定 Scripted Model、固定 `replace_text` 提交窗和只读文本验收；它证明本演示的真实
+  子进程硬退出恢复，不代表 OS reboot、主机宕机、磁盘损坏、任意工具或任意 crash window。
+- 最新离线全量回归为 **352 passed，7 skipped**；7 个 skip 均为需要显式本机镜像的 Docker
+  合同。Docker daemon 本批仍未运行，因此新增停止结果恢复合同继续保持“未实跑”而非通过。
 
 ### 2026-10-05 Docker 检查停止结果恢复
 
@@ -481,11 +498,11 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
   给出 scope/currency/required/available。确定性派发前不足在无 Run reservation 边界原子进入
   `FAILED`，Campaign-only reservation 先以 0 结算；CLI 返回结构化原因。unknown 用量不走此
   终态捷径，第四轮历史 Trace 也未被追溯改写。
-- 新增 `horizon demo run` 一键离线演示并实际产出 73-event Trace：第一任 Worker 完成检索并留下
-  内容寻址的单边范围错误，第二任 Worker 以 `lease_epoch=2` 重开适配器、消费持久化错误，随后
-  双边读取、精确修改、保护检查和最终 required validation 全部通过。EvidencePack 的 Trace、
-  最终投影、报告和摘要均经大小/SHA-256 复核，Trace 再重放一致；真实模型、网络、仓库代码执行
-  和外部费用均为 0，硬崩溃/真实模型/官方 benchmark/不可信代码沙箱结论明确排除。
+- 当时新增的 schema v1 `horizon demo run` 实际产出 73-event Trace：第一任 Worker 完成检索并
+  留下内容寻址的单边范围错误，第二任 Worker 以 `lease_epoch=2` 重开适配器、消费持久化错误，
+  随后双边读取、精确修改、保护检查和最终 required validation 全部通过。该历史版本明确排除
+  硬崩溃结论；2026-10-06 的 schema v3 演示已在其上增加真实子进程硬退出、unknown 对账和
+  epoch 3 精确写入恢复，见本文最新验证段。两版均为零真实模型、零网络和零外部费用。
 
 详细配置、公式、供应商 Trace ID 和限制见
 [SiliconFlow Provider 接入](siliconflow-provider-integration.md)。金额来自冻结 PriceCard 的
@@ -582,7 +599,7 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 六轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸和 Provider-return 崩溃窗接入后，当前主干后续
-继续补齐写入与检查结果恢复；最新离线全量回归为 350 passed、7 个显式 Docker skip。
+继续补齐写入与检查结果恢复；最新离线全量回归为 352 passed、7 个显式 Docker skip。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
 `run_model_cost_limit` 进入 `FAILED`。没有工具、编辑、checkpoint 或验证，Trace 14 事件可重放，

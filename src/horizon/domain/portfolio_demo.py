@@ -13,11 +13,18 @@ from horizon.domain.tools import AcceptanceResult
 
 Sha256 = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
 NonNegativeMoney = Annotated[Decimal, Field(ge=0, allow_inf_nan=False)]
+PORTFOLIO_CRASH_EXIT_CODE = 86
+
+PORTFOLIO_DEMO_LEGACY_EXCLUDED_CLAIMS = (
+    "real_model_quality",
+    "official_benchmark_score",
+    "operating_system_process_crash_survival",
+    "untrusted_code_sandboxing",
+)
 
 PORTFOLIO_DEMO_EXCLUDED_CLAIMS = (
     "real_model_quality",
     "official_benchmark_score",
-    "operating_system_process_crash_survival",
     "untrusted_code_sandboxing",
 )
 
@@ -28,6 +35,7 @@ class PortfolioDemoVerification(Contract):
     resumed_context_contains_error: bool
     retrieval_evidence_in_model_context: bool | None = None
     evidence_backed_write: bool | None = None
+    hard_crash_recovery_verified: bool | None = None
     final_validation_passed: bool
     trace_replay_verified: bool
     source_workspace_unchanged: bool
@@ -59,6 +67,8 @@ class PortfolioDemoVerification(Contract):
             if any(check is None for check in lineage_checks):
                 raise ValueError("Portfolio demo lineage checks must be supplied together")
             checks += tuple(bool(check) for check in lineage_checks)
+        if self.hard_crash_recovery_verified is not None:
+            checks += (self.hard_crash_recovery_verified,)
         if self.all_checks_passed != all(checks):
             raise ValueError("Portfolio demo aggregate verdict does not match its checks")
         return self
@@ -104,16 +114,59 @@ class PortfolioEvidenceLineage(Contract):
         return self
 
 
+class PortfolioCrashRecoveryEvidence(Contract):
+    """Observed process exit and exact write-effect recovery at one durable tool boundary."""
+
+    schema_version: Literal[1] = 1
+    expected_exit_code: Literal[86] = 86
+    observed_exit_code: int
+    crashed_worker_epoch: PositiveInt
+    recovery_worker_epoch: PositiveInt
+    pending_tool_call_id: Identifier
+    crash_marker_tool_call_id: Identifier
+    crash_marker_path: Literal["hard-crash-marker.json"] = "hard-crash-marker.json"
+    crash_marker_sha256: Sha256
+    pending_tool: Literal["replace_text"] = "replace_text"
+    reservation_without_receipt: bool
+    expected_effect_present: bool
+    conservative_unknown_recorded: bool
+    recovery_classification: Literal["tool_effect_unknown"] = "tool_effect_unknown"
+    recovery_disposition: Literal["accept_replace"] = "accept_replace"
+    exact_effect_accepted: bool
+    resumed_context_contains_recovery: bool
+    one_recovered_write_receipt: bool
+    verified: bool
+
+    @model_validator(mode="after")
+    def validate_recovery(self) -> Self:
+        checks = (
+            self.observed_exit_code == self.expected_exit_code,
+            self.recovery_worker_epoch == self.crashed_worker_epoch + 1,
+            self.pending_tool_call_id == self.crash_marker_tool_call_id,
+            self.reservation_without_receipt,
+            self.expected_effect_present,
+            self.conservative_unknown_recorded,
+            self.exact_effect_accepted,
+            self.resumed_context_contains_recovery,
+            self.one_recovered_write_receipt,
+        )
+        if self.verified != all(checks):
+            raise ValueError("Portfolio crash-recovery verdict does not match its evidence")
+        return self
+
+
 class PortfolioDemoReport(Contract):
-    schema_version: Literal[1, 2] = 2
+    schema_version: Literal[1, 2, 3] = 3
     demo_id: Identifier
     run_id: Identifier
     status: RunStatus
     claim_scope: Literal["offline_deterministic_harness_demo"] = (
         "offline_deterministic_harness_demo"
     )
-    recovery_mode: Literal["durable_worker_handoff"] = "durable_worker_handoff"
-    worker_handoffs: Literal[1] = 1
+    recovery_mode: Literal["durable_worker_handoff", "durable_handoff_and_hard_crash"] = (
+        "durable_handoff_and_hard_crash"
+    )
+    worker_handoffs: PositiveInt = 2
     final_lease_epoch: PositiveInt
     event_count: NonNegativeInt
     tool_sequence: tuple[Identifier, ...]
@@ -136,6 +189,7 @@ class PortfolioDemoReport(Contract):
     workspace_manifest_ref: Sha256
     structured_error_artifact_ref: Sha256
     evidence_lineage: PortfolioEvidenceLineage | None = None
+    crash_recovery: PortfolioCrashRecoveryEvidence | None = None
     verification: PortfolioDemoVerification
     excluded_claims: tuple[Text, ...] = PORTFOLIO_DEMO_EXCLUDED_CLAIMS
 
@@ -147,7 +201,7 @@ class PortfolioDemoReport(Contract):
             raise ValueError("A successful portfolio demo requires final validation evidence")
         if self.external_cost_cny != 0 or self.paid_model_called or self.network_called:
             raise ValueError("The portfolio demo must remain offline and externally free")
-        if self.schema_version == 2 and (
+        if self.schema_version >= 2 and (
             self.evidence_lineage is None
             or self.verification.retrieval_evidence_in_model_context is None
             or self.verification.evidence_backed_write is None
@@ -159,7 +213,30 @@ class PortfolioDemoReport(Contract):
             or self.verification.evidence_backed_write != self.evidence_lineage.verified
         ):
             raise ValueError("Portfolio demo lineage does not match verification checks")
-        if tuple(self.excluded_claims) != PORTFOLIO_DEMO_EXCLUDED_CLAIMS:
+        if self.schema_version == 3 and (
+            self.recovery_mode != "durable_handoff_and_hard_crash"
+            or self.worker_handoffs != 2
+            or self.crash_recovery is None
+            or self.verification.hard_crash_recovery_verified is None
+        ):
+            raise ValueError("Portfolio demo schema v3 requires hard-crash recovery evidence")
+        if self.schema_version < 3 and (
+            self.recovery_mode != "durable_worker_handoff"
+            or self.worker_handoffs != 1
+            or self.crash_recovery is not None
+            or self.verification.hard_crash_recovery_verified is not None
+        ):
+            raise ValueError("Legacy portfolio reports cannot claim hard-crash recovery")
+        if self.crash_recovery is not None and (
+            self.verification.hard_crash_recovery_verified != self.crash_recovery.verified
+        ):
+            raise ValueError("Portfolio crash recovery does not match verification checks")
+        expected_exclusions = (
+            PORTFOLIO_DEMO_EXCLUDED_CLAIMS
+            if self.schema_version == 3
+            else PORTFOLIO_DEMO_LEGACY_EXCLUDED_CLAIMS
+        )
+        if tuple(self.excluded_claims) != expected_exclusions:
             raise ValueError("Portfolio demo evidence boundaries must remain explicit")
         return self
 
@@ -179,7 +256,7 @@ class PortfolioEvidenceFile(Contract):
 
 
 class PortfolioEvidencePack(Contract):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 2
     pack_type: Literal["horizon.portfolio-demo"] = "horizon.portfolio-demo"
     demo_id: Identifier
     run_id: Identifier
@@ -203,6 +280,11 @@ class PortfolioEvidencePack(Contract):
             raise ValueError("Portfolio EvidencePack paths must be unique")
         if self.external_cost_cny != 0 or self.paid_model_called or self.network_called:
             raise ValueError("The portfolio EvidencePack must remain offline and externally free")
-        if tuple(self.excluded_claims) != PORTFOLIO_DEMO_EXCLUDED_CLAIMS:
+        expected_exclusions = (
+            PORTFOLIO_DEMO_EXCLUDED_CLAIMS
+            if self.schema_version == 2
+            else PORTFOLIO_DEMO_LEGACY_EXCLUDED_CLAIMS
+        )
+        if tuple(self.excluded_claims) != expected_exclusions:
             raise ValueError("Portfolio EvidencePack boundaries must remain explicit")
         return self

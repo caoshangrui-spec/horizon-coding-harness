@@ -4,8 +4,8 @@
 
 本表是完整开发与验收导航。2026-09-30 已开始基础内核实现，实际证据列记录当前子范围与剩余缺口。目标路径相对 `src/horizon/`；计划测试路径相对 `tests/`；实际证据列的 `tests/` 路径相对仓库根。同一测试文件可验证多个 ID，但不能把子范围通过等同于整项通过。
 
-当前结果：2026-09-30 可靠性内核为 **92 项测试通过**；2026-10-05 的最新离线回归为
-**350 passed，7 skipped**。既有 **6 项真实 Docker 合同**曾单独补跑并全部通过；新增的停止结果
+当前结果：2026-09-30 可靠性内核为 **92 项测试通过**；2026-10-06 的最新离线回归为
+**352 passed，7 skipped**。既有 **6 项真实 Docker 合同**曾单独补跑并全部通过；新增的停止结果
 恢复合同因本批 Docker daemon 未运行尚未实跑。另已完成一次 Tool Calling 探针和一次受预算
 保护的真实单 WorkItem Agent fixture Run。完整长程 Agent 未实现，未做独立安全复核。命令、环境、证据与限制见
 [开发进度](development-progress.md)。仍为“待填”的条目没有实现证据；“部分/初步”不代表
@@ -24,8 +24,8 @@
 | FR-101 | M1 | `adapters/persistence/sqlite.py` | `integration/test_event_store.py`：事务回滚后状态/事件一致 | 部分：SQLite 原子追加/幂等回执/缓存已实现；`tests/integration/test_event_store.py`、`tests/fault_injection/test_database_crash.py` |
 | FR-102 | M2 | `adapters/workspace/promotion.py` | `fault_injection/test_step_boundary.py`：完整 checkpoint 间的写入可从产物链恢复 | 部分：promotion intent 先于源文件副作用提交；1～8 个总变更且至多 1 个新文件可从完整 effect 补 receipt，或从既有目标为 before/after、新目标为 absent/after 的部分 effect 继续；真实子进程退出已覆盖新文件部分效果；通用步骤链未覆盖 |
 | FR-103 | M2 | `domain/checkpoint.py` | `integration/test_checkpoint.py`：显式与每 N 步触发都有有效 manifest | 部分：`application/checkpoints.py` 原子提交文件快照引用；Agent submit 后自动提交 checkpoint；`tests/integration/test_snapshots.py`、`test_agent_loop.py`；每 N 步策略未接入 |
-| FR-104 | M2 | `application/resume_run.py` | `integration/test_rebuild.py`：删除投影后恢复得到相同规范化状态 hash | 部分：PLANNING/READY、安全执行轮次、人工指导后的 session 及已持久化 model response receipt 可由新 Worker继续，且不重复旧模型调用；Provider 返回后、response Artifact 前的真实硬退出会以 client Trace ID 保守阻塞并可重放，不自动重派；任意崩溃窗口仍未完成 |
-| FR-105 | M2 | `orchestration/recovery.py` | `fault_injection/test_pending_operations.py`：模型/工具/验证悬空操作逐项对账 | 部分：Campaign-only 释放、可信 response receipt 补账续跑、只读显式重试；`replace_text`、最多 8 文件的结构化 `apply_patch` 与单文件 `create_file` 可基于派发前 manifest 精确 accept/rollback；真实硬退出先保持 unknown 且不重放，精确处置后恢复 AgentSession；Docker `run_check` 以 tool call ID 绑定标签 attempt，自然退出且 request/workspace/隔离配置与完整小日志精确匹配时可恢复原 success/error，否则可显式停止/删除后丢弃；missing 仍需人工停止确认。部分/漂移写入、信号/超时/OOM check 与其他任意写工具仍保持 unknown |
+| FR-104 | M2 | `application/resume_run.py` | `integration/test_rebuild.py`：删除投影后恢复得到相同规范化状态 hash | 部分：PLANNING/READY、安全执行轮次、人工指导后的 session 及已持久化 model response receipt 可由新 Worker继续，且不重复旧模型调用；Provider 返回后、response Artifact 前的真实硬退出会以 client Trace ID 保守阻塞并可重放，不自动重派；一键演示另以真实子进程覆盖 `replace_text` effect 后、receipt 前硬退出，epoch 3 从原子恢复 session 继续验证。任意崩溃窗口仍未完成 |
+| FR-105 | M2 | `orchestration/recovery.py` | `fault_injection/test_pending_operations.py`：模型/工具/验证悬空操作逐项对账 | 部分：Campaign-only 释放、可信 response receipt 补账续跑、只读显式重试；`replace_text`、最多 8 文件的结构化 `apply_patch` 与单文件 `create_file` 可基于派发前 manifest 精确 accept/rollback；真实硬退出先保持 unknown 且不重放，精确处置后恢复 AgentSession。一键演示把该顺序固化为可自检证据：exit 86 → intent/no receipt → `tool_effect_unknown` → 围栏旧 Lease → `accept_replace` → epoch 3 续跑，且 Trace 中只有一个恢复 receipt。Docker `run_check` 以 tool call ID 绑定标签 attempt，自然退出且 request/workspace/隔离配置与完整小日志精确匹配时可恢复原 success/error，否则可显式停止/删除后丢弃；missing 仍需人工停止确认。部分/漂移写入、信号/超时/OOM check 与其他任意写工具仍保持 unknown |
 | FR-106 | M2 | `adapters/vcs/git.py` | `fault_injection/test_workspace_restore.py`：HEAD/diff/untracked 内容损坏不被接受 | 部分：内容寻址快照恢复；promotion 绑定源/候选 revision，且仅当 source 自身为 Git 根时绑定并复核 HEAD；外部 drift 拒绝，未恢复 Git objects/untracked 全状态 |
 | FR-107 | M2 | `orchestration/recovery.py` | `fault_injection/test_unknown_effect.py`：未知副作用不重复派发，查询或人工对账 | 部分：unknown 阻止重派；只读可显式重试；`replace_text` / `apply_patch` / 单文件 `create_file` 仅在 live workspace 精确等于前态/唯一后态时 accept/rollback，部分写入和额外漂移继续阻塞；真实 create 硬退出、accept/rollback、Trace replay 已覆盖；`run_check` 已有确定性 attempt 身份、自然退出结果恢复、标签核验与显式停止，仍无容器创建前的持久启动回执、missing 证明或超时/信号结果恢复 |
 | FR-201 | M3 | `context/builder.py` | `unit/test_context_layers.py`：必保/事实/近期/历史内容正确分层 | 部分：`application/context.py` 固定保留初始合同和所有未完成工具对，优先保留最近 N 个完整单元；若字符或完整请求保守 input-token 硬上限超限，则确定性折叠最少数量的最老近期完整单元。尚非设计中的完整六层 ContextPack |
@@ -47,7 +47,7 @@
 | FR-501 | M1/M5 | `domain/events.py` | `contract/test_trace_schema.py`：唯一 ID、连续提交 seq、父引用、Schema 合法 | 初步实现：`domain/events.py`、`domain/run.py`；连续 seq、因果链、Schema 与哈希校验；当前控制面自检 |
 | FR-502 | M3/M5 | `adapters/miniswe/model.py` | `contract/test_model_trace.py`：模型/参数/用量/延迟/请求 ID/状态，且无秘密 | 部分：Run Trace 在派发前持久化 client Trace ID，并在成功后保存 policy、request hash、模型、usage、费用、response/provider trace ID、finish reason 和完整 response Artifact 引用；完整延迟和生产级脱敏审计未实现 |
 | FR-503 | M1/M4 | `tools/gateway.py` | `integration/test_tool_trace.py`：参数/授权/起止/状态/输出闭合 | 部分：`tools/gateway.py` + Run 事件记录参数 hash、授权后 intent、状态、输出/Artifact、前后 revision；时间戳由事件提供，崩溃后工具副作用对账未完成 |
-| FR-504 | M5 | `trace/exporter.py` | `integration/test_trace_export.py`：JSONL 可逐行校验并重读 | 当前控制面已实现 JSONL 导出；`horizon demo run` 还把 Trace、最终投影、报告和摘要写入带大小/SHA-256 的 EvidencePack，并在返回前重读文件、重放 Trace：`application/portfolio_demo.py`、`tests/integration/test_portfolio_demo.py` |
+| FR-504 | M5 | `trace/exporter.py` | `integration/test_trace_export.py`：JSONL 可逐行校验并重读 | 当前控制面已实现 JSONL 导出；`horizon demo run` 还把 Trace、最终投影、schema v3 报告和摘要写入带大小/SHA-256 的 EvidencePack，并在返回前重读文件、验证硬退出 marker/恢复 call、复算 evidence→write lineage 和重放 Trace：`application/portfolio_demo.py`、`tests/integration/test_portfolio_demo.py` |
 | FR-505 | M5 | `trace/replay.py` | `e2e/test_projection_replay.py`：禁止模型/执行依赖仍能重建状态和账本 | 部分：控制面及模型/工具/验证/checkpoint 事件可在无模型、无 Docker下重放；真实 fixture JSONL 与 SQLite projection hash 一致；Execution Fork 未实现 |
 | FR-506 | M5 | `application/replay_run.py` | `e2e/test_execution_fork.py`：新 Run/预算/工作区；父事件产物 hash 不变 | 待填 / 未审核 |
 | FR-601 | M0/M4 | `adapters/sandbox/swerex.py` | `contract/test_sandbox.py`：默认容器执行，未授权无宿主执行路径 | 部分：`adapters/sandbox/docker.py` 无宿主 Shell 回退，已接入 `agent run` 保护验收；6 项真实 Docker 契约和一次真实 Agent fixture；SWE-ReX 未接入 |
@@ -60,7 +60,7 @@
 
 | ID | 里程碑 | 目标模块 | 计划检查与测试文件 | 实际证据 / Reviewer |
 |---|---|---|---|---|
-| NFR-001 | M2～M5 | `orchestration/recovery.py` | `fault_injection/`：原 8 类故障全覆盖，可恢复样本真实恢复，阻塞单列 | 部分：确定性集成覆盖多种悬空/冲突；真实进程硬退出覆盖 Provider 返回后但 response Artifact 前、数据库提交、已发布 response Artifact、单/多文件精确写 effect 和 promotion receipt 等窗口；仍非完整统一矩阵 |
+| NFR-001 | M2～M5 | `orchestration/recovery.py` | `fault_injection/`：原 8 类故障全覆盖，可恢复样本真实恢复，阻塞单列 | 部分：确定性集成覆盖多种悬空/冲突；真实进程硬退出覆盖 Provider 返回后但 response Artifact 前、数据库提交、已发布 response Artifact、单/多文件精确写 effect 和 promotion receipt 等窗口；一键作品集演示现把单文件 replace effect→无 receipt→unknown→精确 accept→继续验证做成可运行、自校验链路。仍非完整统一矩阵 |
 | NFR-002 | M1 | `adapters/persistence/sqlite.py` | `integration/test_event_store.py`：重启/并发追加无重复或丢失已提交 seq | 当前事件存储已自检：`tests/integration/test_event_store.py`、`tests/fault_injection/test_database_crash.py` |
 | NFR-003 | M2 | `tools/gateway.py` | `fault_injection/test_idempotency.py`：重复同键仅一个已提交结果 | 部分：管理命令幂等且回执固定历史 seq；工具已有唯一 call ID 和 intent/receipt，但副作用重派 idempotency 与崩溃对账未实现 |
 | NFR-004 | M1/M5 | `trace/projector.py` | `contract/test_state_causation.py`：每个状态迁移有源事件 | 控制面及当前模型/工具/验证/Agent 状态均由事件重放；真实 JSONL 与 SQLite projection hash 一致 |
@@ -85,7 +85,7 @@
 | FR-804 | M3/M5 | `domain/memory.py`, `application/agent_loop.py` | `integration/test_run_memory.py`：scope ID 必须等于 source Run，快照绑定 Task/WorkItem；恢复按历史事件边界重建 | 部分：当前只能同 Run 注入，结构上阻止跨 Run 泄漏；尚无 repo identity、benchmark instance/variant namespace 或跨 Run 隔离实验 |
 | FR-901 | M3 | `retrieval/retriever.py` | `integration/test_retrieval.py`：三路召回融合，片段数/token 有界且带来源 | 部分：`adapters/retrieval/sqlite_fts.py` 实现 path+文本 FTS5/BM25，最多 8 个带 path/range/hash 的 chunk；camelCase/snake_case 双向词项、token 内符号候选、最多 256 候选的同名 `def/class` 优先、定义候选间路径语境消歧及不同文件优先已测；固定 5 案例、youtube-dl 2 案例、同名 Hit@1 2 案例、首批 3 个外部盲测及第二批 3 个独立 holdout 均记录成功/失败证据；尚无 AST/symbol/memory 三路融合或真实模型检索效果 |
 | FR-902 | M3 | `retrieval/indexer.py` | `integration/test_dirty_index.py`：HEAD 不变的编辑、删除、恢复均切换正确 revision | 部分：index key 绑定 immutable manifest、workspace revision、path scope 和算法版本；dirty revision 中同名目标移动会生成新索引并排到新路径，旧 manifest 仍重放原 EvidencePack；派生缓存有界并可重建，删除/恢复完整矩阵未测 |
-| FR-903 | M3 | `retrieval/evidence.py` | `integration/test_evidence_freshness.py`：错误权限/hash 拒绝，使用证据可追溯 | 部分：EvidencePack 记录 revision/manifest/scope/index，Gateway 应用 allow/deny；每个 FTS 命中回查 immutable file Artifact，篡改、越权路径、行号/hash/content 不一致拒绝；作品集报告 v2 还对一个固定闭环保存并复算 retrieval Artifact → write ContextProjection → target/preimage/revision lineage；尚未把该绑定提升为所有生产写工具的强制策略，生产脱敏也未完成 |
+| FR-903 | M3 | `retrieval/evidence.py` | `integration/test_evidence_freshness.py`：错误权限/hash 拒绝，使用证据可追溯 | 部分：EvidencePack 记录 revision/manifest/scope/index，Gateway 应用 allow/deny；每个 FTS 命中回查 immutable file Artifact，篡改、越权路径、行号/hash/content 不一致拒绝；作品集报告 v3 对一个固定闭环保存并复算 retrieval Artifact → write ContextProjection → target/preimage/revision lineage，并把同一写入的硬退出恢复 receipt 绑定进报告；尚未把该绑定提升为所有生产写工具的强制策略，生产脱敏也未完成 |
 | FR-904 | M3 | `retrieval/retriever.py` | `fault_injection/test_retrieval_fallback.py`：empty/degraded 分开、无虚构/混版本证据 | 部分：ok/empty/degraded 分离，非 UTF-8/大小预算显式降级；无 FTS 时 bounded lexical scan 并标 `fts5_unavailable`；尚未测存储中断与真实任务降级质量 |
 | FR-1001 | M0/M4 | `tools/registry.py`, `tools/gateway.py` | `contract/test_tool_adapter.py`：只提议未执行；网关禁止后无副作用 | 部分：模型只返回 typed tool proposal；未知/未授权工具由 Gateway 拒绝；Fake 与真实模型闭环均验证；`retrieve_code` 也只能经 Gateway 返回 EvidencePack |
 | FR-1002 | M1/M4 | `tools/schemas.py`, `gateway.py` | `unit/test_tool_validation.py`：未知工具/非法参数/越界/旧版本/超预算拒绝 | 部分：Pydantic 参数、path allow/deny、symlink、大小、工具 allowlist、Run 预算门禁已实现；`read_file` Schema/错误回执强制行号上下界成对；`create_file` 强制单文件、UTF-8 64 KiB、父目录已存在和目标不覆盖；expected file hash/旧 revision CAS 未实现 |

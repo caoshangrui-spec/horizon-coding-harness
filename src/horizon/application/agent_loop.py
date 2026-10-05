@@ -780,7 +780,9 @@ class CodingAgentRunner:
             outcome = self.tools.dispatch_safe(
                 name,
                 arguments,
-                attempt_id=local_id if name == "run_check" else None,
+                # Every adapter receives the durable local call ID for crash diagnostics. The
+                # production gateway creates an external durable attempt only for run_check.
+                attempt_id=local_id,
             )
         self.service.settle_tool_call(
             run_id,

@@ -5,6 +5,13 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Upgraded `horizon demo run` from a graceful handoff-only story to a bounded real-process crash
+  recovery demonstration. A child Worker now exits with `os._exit(86)` after `replace_text` changes
+  the staging file but before its tool receipt. The supervisor observes the durable intent without
+  a receipt, conservatively records `tool_effect_unknown`, fences the reaped Worker, accepts only
+  the exact manifest-derived effect, and resumes validation on lease epoch 3 without replaying the
+  write. Report schema v3 and the self-verifier bind the crash marker, recovered call ID, Trace,
+  evidence-to-write lineage, and final state while retaining v1/v2 report compatibility.
 - Added exact recovery for a naturally completed but unreceipted Docker `run_check`. Attempts now
   bind image, request, workspace, and a bounded readable log configuration; the trusted CLI accepts
   only a stopped, non-OOM/non-signal result with matching isolation metadata and complete output no

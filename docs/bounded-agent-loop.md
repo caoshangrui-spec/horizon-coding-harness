@@ -357,7 +357,7 @@ Trace 文件拒绝覆盖已有文件。重放不会调用模型、工具或 Dock
 
 2026-10-05 当前环境：
 
-- 离线全量回归：350 passed、7 skipped；
+- 离线全量回归：352 passed、7 skipped；
 - 既有 6 项曾指定本机已有 `redis:7-alpine` 单独复跑并通过；新增停止结果恢复合同因本批
   Docker daemon 未运行尚未实跑，不能把第 7 个 skip 记为通过；
 - Fake Model E2E：精确编辑后成功，以及首次验收失败后一次 repair 成功；

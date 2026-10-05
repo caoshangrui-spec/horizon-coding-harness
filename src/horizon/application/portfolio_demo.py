@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import subprocess
+import sys
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -14,14 +17,17 @@ from horizon.adapters.retrieval.sqlite_fts import SQLiteCodeRetriever
 from horizon.adapters.workspace.promotion import workspace_path_hash
 from horizon.adapters.workspace.snapshot import SnapshotManager
 from horizon.application.agent_loop import AgentLoopConfig, CodingAgentRunner
+from horizon.application.recovery import RecoveryService
 from horizon.application.services import HarnessService, LeaseToken
+from horizon.application.tool_recovery import ToolRecoveryService
 from horizon.domain.common import canonical_json, digest
 from horizon.domain.context import ContextProjection
 from horizon.domain.events import Event
 from horizon.domain.model import CampaignBudget, ModelCallReservation, ModelResponse, PriceCard
 from horizon.domain.plan import Plan, WorkItem
 from horizon.domain.portfolio_demo import (
-    PORTFOLIO_DEMO_EXCLUDED_CLAIMS,
+    PORTFOLIO_CRASH_EXIT_CODE,
+    PortfolioCrashRecoveryEvidence,
     PortfolioDemoReport,
     PortfolioDemoVerification,
     PortfolioEvidenceFile,
@@ -107,6 +113,24 @@ def _file_record(root: Path, role: str, path: Path) -> PortfolioEvidenceFile:
         sha256=_sha256(content),
         bytes=len(content),
     )
+
+
+def _read_crash_marker(path: Path) -> dict[str, object]:
+    try:
+        marker = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("Portfolio hard-crash marker is missing or invalid") from exc
+    if (
+        not isinstance(marker, dict)
+        or set(marker) != {"attempt_id", "exit_code", "pid", "tool"}
+        or not isinstance(marker.get("attempt_id"), str)
+        or marker.get("exit_code") != PORTFOLIO_CRASH_EXIT_CODE
+        or not isinstance(marker.get("pid"), int)
+        or marker["pid"] <= 0
+        or marker.get("tool") != "replace_text"
+    ):
+        raise ValueError("Portfolio hard-crash marker does not match its strict contract")
+    return marker
 
 
 def _model_tool_for_record(run, artifacts: ArtifactStore, record):
@@ -264,8 +288,8 @@ def verify_portfolio_evidence_pack(path: Path) -> PortfolioEvidencePack:
     replayed = SQLiteEventStore.replay_jsonl(trace_text)
     if projection_hash(replayed) != report.projection_hash:
         raise ValueError("Portfolio Trace replay projection does not match its report")
-    if report.schema_version == 2:
-        events = tuple(Event.model_validate_json(line) for line in trace_text.splitlines() if line)
+    events = tuple(Event.model_validate_json(line) for line in trace_text.splitlines() if line)
+    if report.schema_version >= 2:
         lineage = _evidence_write_lineage(
             replayed,
             events,
@@ -273,6 +297,60 @@ def verify_portfolio_evidence_pack(path: Path) -> PortfolioEvidencePack:
         )
         if lineage != report.evidence_lineage:
             raise ValueError("Portfolio evidence-write lineage does not match its Trace")
+    if report.schema_version == 3:
+        crash_recovery = report.crash_recovery
+        if crash_recovery is None:
+            raise ValueError("Portfolio schema v3 report has no hard-crash evidence")
+        marker_path = (root / crash_recovery.crash_marker_path).resolve(strict=True)
+        if not marker_path.is_relative_to(root):
+            raise ValueError("Portfolio hard-crash marker escapes its evidence directory")
+        marker_content = marker_path.read_bytes()
+        marker = _read_crash_marker(marker_path)
+        if (
+            _sha256(marker_content) != crash_recovery.crash_marker_sha256
+            or marker["attempt_id"] != crash_recovery.crash_marker_tool_call_id
+            or marker["exit_code"] != crash_recovery.observed_exit_code
+        ):
+            raise ValueError("Portfolio hard-crash marker does not match its report")
+        recovered_writes = [
+            record
+            for record in replayed.tool_calls
+            if record.call_id == crash_recovery.pending_tool_call_id
+            and record.name == "replace_text"
+            and record.status == "success"
+            and record.recovery_disposition == "accept_replace"
+        ]
+        if len(recovered_writes) != 1:
+            raise ValueError("Portfolio Trace does not contain one exact recovered write")
+        call_id = crash_recovery.pending_tool_call_id
+        reserved_events = [
+            event
+            for event in events
+            if event.event_type == "TOOL_CALL_RESERVED"
+            and event.payload.get("reservation", {}).get("call_id") == call_id
+        ]
+        unknown_events = [
+            event
+            for event in events
+            if event.event_type == "TOOL_CALL_UNKNOWN" and event.payload.get("call_id") == call_id
+        ]
+        settled_events = [
+            event
+            for event in events
+            if event.event_type == "TOOL_CALL_SETTLED"
+            and event.payload.get("record", {}).get("call_id") == call_id
+        ]
+        if (
+            len(reserved_events) != 1
+            or len(unknown_events) != 1
+            or len(settled_events) != 1
+            or not reserved_events[0].seq < unknown_events[0].seq < settled_events[0].seq
+            or replayed.lease_epoch != crash_recovery.recovery_worker_epoch
+            or report.final_lease_epoch != crash_recovery.recovery_worker_epoch
+        ):
+            raise ValueError(
+                "Portfolio Trace does not prove intent-before-unknown-before-recovery ordering"
+            )
     expected_final = (canonical_json(replayed.as_dict()) + "\n").encode("utf-8")
     if contents["final_state"] != expected_final:
         raise ValueError("Portfolio final-state export does not match Trace replay")
@@ -459,20 +537,122 @@ class PortfolioDemoRunner:
             raise ValueError("Portfolio demo did not reach its durable worker handoff boundary")
         service.release_lease(run.run_id, token, "worker-1-handoff")
 
-        # Reopen every worker-owned adapter before continuing from the durable session.
+        # Reopen every worker-owned adapter, then let a real child process die after the exact
+        # replace effect but before its tool receipt is committed.
         store = SQLiteEventStore(store_path)
         service = HarnessService(store)
         artifacts = ArtifactStore(output_dir / "artifacts")
         snapshots = SnapshotManager(artifacts)
-        leased = service.acquire_lease(
+        crashed_lease = service.acquire_lease(
             run.run_id,
             "portfolio-worker-2",
             "lease-2",
             ttl_seconds=120,
         )
-        token = LeaseToken.from_run(leased)
-        second_model = ScriptedModelGateway("portfolio", actions[2:], start_index=2)
-        result = build_runner(service, second_model, artifacts, snapshots).run(run.run_id, token)
+        crashed_token = LeaseToken.from_run(crashed_lease)
+        crash_marker_path = output_dir / "hard-crash-marker.json"
+        crashed_process = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "horizon.application._portfolio_crash_worker",
+                str(store_path),
+                run.run_id,
+                crashed_token.lease_id,
+                crashed_token.worker_id,
+                str(crashed_token.epoch),
+                str(output_dir / "artifacts"),
+                str(workspace),
+                str(campaign_path),
+                str(retrieval_path),
+                str(crash_marker_path),
+            ],
+            capture_output=True,
+            timeout=30,
+        )
+        if crashed_process.returncode != PORTFOLIO_CRASH_EXIT_CODE:
+            stderr = crashed_process.stderr.decode(errors="replace")[-2_000:]
+            raise ValueError(
+                "Portfolio child did not stop at the expected hard-crash boundary: "
+                f"exit={crashed_process.returncode}, stderr={stderr!r}"
+            )
+        marker = _read_crash_marker(crash_marker_path)
+        marker_content = crash_marker_path.read_bytes()
+
+        store = SQLiteEventStore(store_path)
+        service = HarnessService(store)
+        artifacts = ArtifactStore(output_dir / "artifacts")
+        snapshots = SnapshotManager(artifacts)
+        interrupted = store.get(run.run_id)
+        pending_write_ids = [
+            call_id
+            for call_id, reservation in interrupted.tool_reservations.items()
+            if reservation.name == "replace_text"
+        ]
+        if len(pending_write_ids) != 1:
+            raise ValueError("Portfolio hard crash did not leave one pending replace intent")
+        pending_write_id = pending_write_ids[0]
+        reservation_without_receipt = not any(
+            record.call_id == pending_write_id for record in interrupted.tool_calls
+        )
+        expected_effect_present = (workspace / _WRITE_PATH).read_text(encoding="utf-8") == (
+            _FIXED_CONTENT
+        )
+        if marker["attempt_id"] != pending_write_id:
+            raise ValueError("Portfolio crash marker does not identify the pending tool intent")
+
+        ledger = CampaignBudgetLedger(campaign_path)
+        blocked_report = RecoveryService(service, ledger, artifacts).reconcile(
+            run.run_id,
+            crashed_token,
+        )
+        matching_findings = [
+            finding
+            for finding in blocked_report.findings
+            if finding.operation_id == pending_write_id
+            and finding.classification == "tool_effect_unknown"
+        ]
+        conservative_unknown_recorded = (
+            not blocked_report.safe_to_resume
+            and len(matching_findings) == 1
+            and pending_write_id in store.get(run.run_id).unknown_tool_calls
+        )
+
+        # The supervisor has synchronously reaped the child and conservatively classified its
+        # open intent, so it can fence the exact lease token without waiting for TTL expiry. The
+        # crashed worker itself never reaches either command.
+        service.release_lease(
+            run.run_id,
+            crashed_token,
+            "supervisor-fence-reaped-crash-worker",
+        )
+        recovered_lease = service.acquire_lease(
+            run.run_id,
+            "portfolio-worker-3",
+            "lease-3-after-hard-crash",
+            ttl_seconds=120,
+        )
+        token = LeaseToken.from_run(recovered_lease)
+        recovery_gateway = WorkspaceToolGateway(
+            workspace,
+            task,
+            plan.items[0],
+            snapshots,
+            checker,
+            SQLiteCodeRetriever(retrieval_path, snapshots),
+        )
+        resolved = ToolRecoveryService(service, artifacts, recovery_gateway).resolve_write(
+            run.run_id,
+            pending_write_id,
+            decision="accept",
+            token=token,
+        )
+        safe_report = RecoveryService(service, ledger, artifacts).reconcile(run.run_id, token)
+        if not safe_report.safe_to_resume:
+            raise ValueError("Portfolio exact write recovery did not restore a safe Agent boundary")
+
+        final_model = ScriptedModelGateway("portfolio", actions[4:], start_index=4)
+        result = build_runner(service, final_model, artifacts, snapshots).run(run.run_id, token)
 
         trace_content = store.export_jsonl(run.run_id).encode("utf-8")
         replayed = SQLiteEventStore.replay_jsonl(trace_content.decode("utf-8"))
@@ -504,9 +684,55 @@ class PortfolioDemoRunner:
         if len(error_records) != 1 or error_records[0].artifact_ref is None:
             raise ValueError("Portfolio demo requires one content-addressed read error")
         error_content = artifacts.read(error_records[0].artifact_ref).decode("utf-8")
-        resumed_context_contains_error = bool(second_model.requests) and any(
+        resumed_context_contains_error = bool(final_model.requests) and any(
             message.role == "tool" and _STRUCTURED_RANGE_ERROR in (message.content or "")
-            for message in second_model.requests[0].messages
+            for message in final_model.requests[0].messages
+        )
+        resumed_context_contains_recovery = bool(final_model.requests) and any(
+            message.role == "tool" and "accept_replace" in (message.content or "")
+            for message in final_model.requests[0].messages
+        )
+        recovered_write_records = [
+            record
+            for record in result.tool_calls
+            if record.call_id == pending_write_id
+            and record.name == "replace_text"
+            and record.status == "success"
+            and record.recovery_disposition == "accept_replace"
+        ]
+        one_recovered_write_receipt = len(recovered_write_records) == 1
+        resolved_write = next(
+            (record for record in resolved.tool_calls if record.call_id == pending_write_id),
+            None,
+        )
+        exact_effect_accepted = (
+            resolved_write is not None and resolved_write.recovery_disposition == "accept_replace"
+        )
+        crash_checks = (
+            crashed_process.returncode == PORTFOLIO_CRASH_EXIT_CODE,
+            token.epoch == crashed_token.epoch + 1,
+            marker["attempt_id"] == pending_write_id,
+            reservation_without_receipt,
+            expected_effect_present,
+            conservative_unknown_recorded,
+            exact_effect_accepted,
+            resumed_context_contains_recovery,
+            one_recovered_write_receipt,
+        )
+        crash_recovery = PortfolioCrashRecoveryEvidence(
+            observed_exit_code=crashed_process.returncode,
+            crashed_worker_epoch=crashed_token.epoch,
+            recovery_worker_epoch=token.epoch,
+            pending_tool_call_id=pending_write_id,
+            crash_marker_tool_call_id=str(marker["attempt_id"]),
+            crash_marker_sha256=_sha256(marker_content),
+            reservation_without_receipt=reservation_without_receipt,
+            expected_effect_present=expected_effect_present,
+            conservative_unknown_recorded=conservative_unknown_recorded,
+            exact_effect_accepted=exact_effect_accepted,
+            resumed_context_contains_recovery=resumed_context_contains_recovery,
+            one_recovered_write_receipt=one_recovered_write_receipt,
+            verified=all(crash_checks),
         )
         required_ids = {item.id for item in task.acceptance if item.required}
         run_validation_passed = result.validation is not None and required_ids <= set(
@@ -518,6 +744,7 @@ class PortfolioDemoRunner:
             "resumed_context_contains_error": resumed_context_contains_error,
             "retrieval_evidence_in_model_context": (lineage.model_context_contains_retrieval),
             "evidence_backed_write": lineage.verified,
+            "hard_crash_recovery_verified": crash_recovery.verified,
             "final_validation_passed": (
                 run_validation_passed and all(item.passed for item in final_validation)
             ),
@@ -528,7 +755,11 @@ class PortfolioDemoRunner:
             "staging_workspace_changed": (
                 workspace_after.workspace_revision != source_snapshot.workspace_revision
             ),
-            "scripted_actions_consumed": first_model.consumed and second_model.consumed,
+            "scripted_actions_consumed": (
+                first_model.consumed
+                and final_model.consumed
+                and len(result.model_calls) == len(actions)
+            ),
             "no_unknown_calls": (not result.unknown_model_calls and not result.unknown_tool_calls),
             "no_open_reservations": (
                 not result.reservations
@@ -571,6 +802,7 @@ class PortfolioDemoRunner:
             workspace_manifest_ref=workspace_manifest_ref,
             structured_error_artifact_ref=error_records[0].artifact_ref,
             evidence_lineage=lineage,
+            crash_recovery=crash_recovery,
             verification=verification,
         )
         _write_new(report_path, (canonical_json(report) + "\n").encode("utf-8"))
@@ -604,12 +836,17 @@ class PortfolioDemoRunner:
     @staticmethod
     def _summary(report: PortfolioDemoReport) -> str:
         checks = report.verification
-        exclusions = "\n".join(f"- `{item}`" for item in PORTFOLIO_DEMO_EXCLUDED_CLAIMS)
+        crash = report.crash_recovery
+        if crash is None:
+            raise ValueError("Current portfolio summary requires hard-crash evidence")
+        exclusions = "\n".join(f"- `{item}`" for item in report.excluded_claims)
         return (
             "# Horizon Portfolio Demo Evidence\n\n"
             f"- Outcome: `{report.status.value}`\n"
             f"- Run: `{report.run_id}`\n"
             f"- Durable worker handoffs: `{report.worker_handoffs}`\n"
+            f"- Recovery mode: `{report.recovery_mode}`\n"
+            f"- Crashed child exit code: `{crash.observed_exit_code}`\n"
             f"- Final lease epoch: `{report.final_lease_epoch}`\n"
             f"- Events: `{report.event_count}`\n"
             f"- Model/tool calls: `{report.usage.model_calls}` / "
@@ -626,6 +863,15 @@ class PortfolioDemoRunner:
             f"`{checks.retrieval_evidence_in_model_context}`\n"
             f"- Exact write was backed by same-revision evidence: "
             f"`{checks.evidence_backed_write}`\n"
+            f"- Pending write had no receipt after hard exit: "
+            f"`{crash.reservation_without_receipt}`\n"
+            f"- Unknown write was conservatively classified: "
+            f"`{crash.conservative_unknown_recorded}`\n"
+            f"- Exact existing effect was accepted once: "
+            f"`{crash.exact_effect_accepted and crash.one_recovered_write_receipt}`\n"
+            f"- Resumed context contains the recovery disposition: "
+            f"`{crash.resumed_context_contains_recovery}`\n"
+            f"- Hard-crash recovery verified: `{checks.hard_crash_recovery_verified}`\n"
             f"- Protected final validation passed: `{checks.final_validation_passed}`\n"
             f"- Trace replay matched final state: `{checks.trace_replay_verified}`\n"
             f"- Original source stayed unchanged: `{checks.source_workspace_unchanged}`\n"

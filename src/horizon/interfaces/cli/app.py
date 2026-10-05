@@ -589,7 +589,7 @@ def portfolio_demo_run(
         ),
     ] = None,
 ):
-    """Run the deterministic offline portfolio story and export its EvidencePack."""
+    """Run the deterministic offline hard-crash recovery story and export its EvidencePack."""
     destination = output or Path(".horizon") / "demos" / f"portfolio-{uuid4().hex[:12]}"
     result = PortfolioDemoRunner().run(destination)
     typer.echo(
@@ -612,6 +612,21 @@ def portfolio_demo_run(
                 "external_cost_cny": str(result.report.external_cost_cny),
                 "simulated_model_cost_cny": str(result.report.simulated_model_cost),
                 "claim_scope": result.report.claim_scope,
+                "recovery_mode": result.report.recovery_mode,
+                "worker_handoffs": result.report.worker_handoffs,
+                "hard_crash_recovery_verified": (
+                    result.report.verification.hard_crash_recovery_verified
+                ),
+                "crashed_worker_exit_code": (
+                    result.report.crash_recovery.observed_exit_code
+                    if result.report.crash_recovery is not None
+                    else None
+                ),
+                "write_recovery_disposition": (
+                    result.report.crash_recovery.recovery_disposition
+                    if result.report.crash_recovery is not None
+                    else None
+                ),
                 "excluded_claims": result.report.excluded_claims,
             }
         )
@@ -2053,6 +2068,8 @@ def doctor():
                 "run_check_running_attempt_stop_requires_explicit": True,
                 "run_check_missing_attempt_proof": False,
                 "run_check_signal_timeout_result_recovery": False,
+                "portfolio_hard_crash_demo": True,
+                "portfolio_hard_crash_demo_profile": ("replace_effect_before_receipt_exact_accept"),
                 "arbitrary_crash_recovery": False,
                 "promotion_enabled": True,
                 "promotion_profile": "explicit_bounded_existing_files",

@@ -270,6 +270,10 @@ def test_doctor_checks_fts_without_model():
         "exact_natural_exit_bounded_complete_log"
     )
     assert data["run_check_receipt_before_cleanup"] is True
+    assert data["portfolio_hard_crash_demo"] is True
+    assert data["portfolio_hard_crash_demo_profile"] == (
+        "replace_effect_before_receipt_exact_accept"
+    )
     assert data["run_check_running_attempt_stop_requires_explicit"] is True
     assert data["run_check_missing_attempt_proof"] is False
     assert data["run_check_signal_timeout_result_recovery"] is False

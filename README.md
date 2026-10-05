@@ -56,10 +56,12 @@ uv sync --locked
 uv run --locked --cache-dir .uv-cache horizon demo run
 ```
 
-这条命令无需 API Key、Docker 或网络。它会故意触发一次结构化工具错误，释放第一任 Worker，
-由 `lease_epoch=2` 的新 Worker 从持久化会话继续，完成精确编辑、保护性验证、Trace 重放和
-EvidencePack 自检。v2 报告还会把检索 Artifact、写入时上下文、目标路径、旧文本哈希与同一
-workspace revision 绑定并从 Trace 复算。模型动作由冻结脚本提供，外部费用为 0。输出合同见
+这条命令无需 API Key、Docker 或网络。它先故意触发一次结构化工具错误并完成安全 Worker
+交接；`lease_epoch=2` 的真实子进程随后在文件写入生效、tool receipt 尚未提交时用
+`os._exit(86)` 硬退出。控制器只把悬空 intent 标为 `unknown`，核对唯一后态后显式接纳既有
+写入且不重复执行，再由 `lease_epoch=3` 继续保护性验证、Trace 重放和 EvidencePack 自检。
+v3 报告同时保存硬退出证据以及检索 Artifact → 写入上下文 → 目标/旧文本/revision lineage。
+模型动作由冻结脚本提供，外部费用为 0。输出合同见
 [作品集演示文档](docs/portfolio-demo.md)。
 
 ## 已验证证据
@@ -67,8 +69,9 @@ workspace revision 绑定并从 Trace 复算。模型动作由冻结脚本提供
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | Python 3.12/3.13 的测试、静态检查、演示和构建已通过 | CI 不读取 API Key、不运行付费模型 |
-| 离线回归 | `350 passed, 7 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `352 passed, 7 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | Docker 契约 | 既有 6 项曾在 `redis:7-alpine` 上通过；新增停止结果恢复项待 daemon 可用后补跑 | 有限隔离合同，不是恶意代码安全认证 |
+| 一键崩溃恢复演示 | 子进程在 `replace_text` 生效后、receipt 前以退出码 86 硬退出；悬空调用先标 unknown，再按精确 manifest 接纳一次并恢复到 epoch 3 | 固定离线脚本与单一写入窗口，不代表任意进程/主机故障恢复 |
 | 完整 checkout A/B | tqdm 82 files、youtube-dl 872 files；初始失败门、恢复、replan、最终验收和 Trace replay 通过 | 使用 Scripted Model，不是模型能力成绩 |
 | 真实模型 Pilot | 六轮均可重放、费用可核对、source 未变 | 六轮均未编辑或验证成功，保留为负结果 |
 | 预算预留诊断 | 6 Trace、20 个已结算调用；聚合预留/结算比 6.861621；候选公式仅有 3 个可回放样本 | 新 BudgetStop 保存请求尺寸；样本不足，不自动降低费用安全门槛 |
@@ -321,7 +324,7 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **350 passed，7 skipped**。既有 6 项跳过项曾指定本机已有
+当前离线全量回归为 **352 passed，7 skipped**。既有 6 项跳过项曾指定本机已有
 `redis:7-alpine` 单独复跑并通过；新增的第 7 项“自然退出、清理前恢复结果”合同因本批
 Docker daemon 未运行尚未实跑。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实
