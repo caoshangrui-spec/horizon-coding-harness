@@ -18,6 +18,7 @@ from horizon.application.services import HarnessService, LeaseToken
 from horizon.domain.errors import Conflict, PolicyDenied
 from horizon.domain.plan import Plan, WorkItem
 from horizon.domain.promotion import PromotionIntent
+from horizon.domain.recovery_evaluation import PROMOTION_CRASH_EXIT_CODE
 from horizon.domain.states import RunStatus
 from horizon.domain.task import TaskSpec
 from horizon.interfaces.cli.app import app
@@ -458,47 +459,24 @@ def test_promotion_recovers_after_subprocess_hard_exit_before_receipt(tmp_path, 
     plan = promotion.plan(run.run_id, source)
     intent = PromotionIntent(promotion_id="promotion-hard-exit", plan=plan)
     service.reserve_promotion(run.run_id, intent, "reserve-promotion-hard-exit")
-    script = textwrap.dedent(
-        """
-        import os
-        import sys
-        from pathlib import Path
-
-        from horizon.adapters.persistence.artifacts import ArtifactStore
-        from horizon.adapters.persistence.sqlite import SQLiteEventStore
-        from horizon.adapters.workspace.promotion import WorkspacePromoter
-        from horizon.adapters.workspace.snapshot import SnapshotManager
-
-        store = SQLiteEventStore(Path(sys.argv[1]))
-        run = store.get(sys.argv[2])
-        assert run.promotion_intent is not None
-        promoter = WorkspacePromoter(
-            SnapshotManager(ArtifactStore(Path(sys.argv[3])))
-        )
-        promoter.apply_or_recover(
-            run.promotion_intent.plan,
-            Path(sys.argv[4]),
-            Path(sys.argv[5]),
-            run.task.constraints,
-        )
-        os._exit(27)
-        """
-    )
+    marker = tmp_path / "promotion-effect.json"
     crashed = subprocess.run(
         [
             sys.executable,
-            "-c",
-            script,
+            "-m",
+            "horizon.application._promotion_crash_worker",
             str(db),
             run.run_id,
             str(artifacts.root),
             str(source),
             str(candidate),
+            str(marker),
         ],
         capture_output=True,
         timeout=20,
     )
-    assert crashed.returncode == 27, crashed.stderr.decode(errors="replace")
+    assert crashed.returncode == PROMOTION_CRASH_EXIT_CODE, crashed.stderr.decode(errors="replace")
+    assert json.loads(marker.read_text(encoding="utf-8"))["plan_hash"] == plan.sha256
     pending = SQLiteEventStore(db).get(run.run_id)
     assert pending.promotion_intent == intent
     assert pending.promotion_receipt is None

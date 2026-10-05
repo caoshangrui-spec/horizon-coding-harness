@@ -7,9 +7,10 @@ for public releases; unreleased work must not be presented as a published releas
 
 - Added `horizon eval recovery` with frozen, backward-readable recovery matrices. v1 contains one
   real child-process exit-after-write-effect case plus 18 exact write state/decision cases. v2
-  preserves the v1 digest and adds a second real process crash after a model response returns but
-  before its Response Artifact is published; recovery must bind the client Trace ID, mark both
-  ledgers unknown, remain blocked, replay its Trace, and perform zero model redispatches. Reports
+  preserves the v1 digest and adds a real process crash after a model response returns but before
+  its Response Artifact is published; recovery must remain blocked and perform zero model
+  redispatches. v3 preserves both earlier digests and adds a source-promotion effect-before-receipt
+  crash; recovery must settle the exact existing effect without rewriting its target. Reports
   separate `auto_recovered` from `safely_blocked`, count unrecoverable/incorrect resumes and
   duplicate effects, persist per-case content-addressed evidence, detect post-run tampering, and
   remain offline with zero external cost. The matrix explicitly does not claim arbitrary crash

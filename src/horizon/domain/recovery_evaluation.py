@@ -21,6 +21,7 @@ RecoveryOutcome = Literal[
 WriteRecoveryTool = Literal["replace_text", "apply_patch", "create_file"]
 MODEL_RESPONSE_CRASH_EXIT_CODE = 27
 MODEL_RESPONSE_CRASH_RESPONSE_ID = "hard-exit-preartifact-response"
+PROMOTION_CRASH_EXIT_CODE = 29
 
 RECOVERY_MATRIX_EXCLUDED_CLAIMS = (
     "arbitrary_process_or_host_crash_recovery",
@@ -45,6 +46,13 @@ class ModelResponseHardCrashEvalCase(Contract):
     expected_outcome: Literal["safely_blocked"] = "safely_blocked"
 
 
+class PromotionHardCrashEvalCase(Contract):
+    kind: Literal["promotion_hard_crash"] = "promotion_hard_crash"
+    case_id: Identifier
+    description: Annotated[str, Field(min_length=1, max_length=500)]
+    expected_outcome: Literal["auto_recovered"] = "auto_recovered"
+
+
 class WriteRecoveryEvalCase(Contract):
     kind: Literal["write_state"] = "write_state"
     case_id: Identifier
@@ -56,13 +64,16 @@ class WriteRecoveryEvalCase(Contract):
 
 
 RecoveryMatrixCase = Annotated[
-    HardCrashRecoveryEvalCase | ModelResponseHardCrashEvalCase | WriteRecoveryEvalCase,
+    HardCrashRecoveryEvalCase
+    | ModelResponseHardCrashEvalCase
+    | PromotionHardCrashEvalCase
+    | WriteRecoveryEvalCase,
     Field(discriminator="kind"),
 ]
 
 
 class RecoveryMatrixManifest(Contract):
-    schema_version: Literal[1, 2] = 1
+    schema_version: Literal[1, 2, 3] = 1
     benchmark_id: Identifier
     cases: Annotated[tuple[RecoveryMatrixCase, ...], Field(min_length=1, max_length=50)]
 
@@ -83,6 +94,15 @@ class RecoveryMatrixManifest(Contract):
                 f"Recovery matrix schema v{self.schema_version} requires "
                 f"{expected_model_crashes} model-response hard-crash case(s)"
             )
+        promotion_crashes = [
+            case for case in self.cases if isinstance(case, PromotionHardCrashEvalCase)
+        ]
+        expected_promotion_crashes = 1 if self.schema_version >= 3 else 0
+        if len(promotion_crashes) != expected_promotion_crashes:
+            raise ValueError(
+                f"Recovery matrix schema v{self.schema_version} requires "
+                f"{expected_promotion_crashes} promotion hard-crash case(s)"
+            )
         write_keys = [
             (case.tool, case.injected_state, case.decision)
             for case in self.cases
@@ -99,7 +119,12 @@ class RecoveryMatrixManifest(Contract):
 
 class RecoveryMatrixCaseResult(Contract):
     case_id: Identifier
-    kind: Literal["hard_crash", "model_response_hard_crash", "write_state"]
+    kind: Literal[
+        "hard_crash",
+        "model_response_hard_crash",
+        "promotion_hard_crash",
+        "write_state",
+    ]
     expected_outcome: RecoveryOutcome
     observed_outcome: RecoveryOutcome
     passed: bool
@@ -120,7 +145,7 @@ class RecoveryMatrixCaseResult(Contract):
     def validate_result(self) -> Self:
         if self.passed != (self.expected_outcome == self.observed_outcome):
             raise ValueError("Recovery-matrix case verdict does not match its outcomes")
-        if self.kind in {"hard_crash", "model_response_hard_crash"}:
+        if self.kind in {"hard_crash", "model_response_hard_crash", "promotion_hard_crash"}:
             if (
                 self.tool is not None
                 or self.injected_state is not None
@@ -144,7 +169,7 @@ class RecoveryMatrixCaseResult(Contract):
 
 
 class RecoveryMatrixReport(Contract):
-    schema_version: Literal[1, 2] = 1
+    schema_version: Literal[1, 2, 3] = 1
     benchmark_id: Identifier
     manifest_digest: Sha256
     claim_scope: Literal["offline_bounded_recovery_matrix"] = "offline_bounded_recovery_matrix"

@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -15,7 +16,7 @@ MANIFEST_PATH = (
     Path(__file__).resolve().parents[2]
     / "benchmarks"
     / "recovery"
-    / "horizon-recovery-matrix-v2.yaml"
+    / "horizon-recovery-matrix-v3.yaml"
 )
 
 
@@ -35,16 +36,16 @@ def test_recovery_eval_runs_real_crash_and_full_write_state_matrix(tmp_path):
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.stdout)
-    assert payload["case_count"] == 20
-    assert payload["passed_case_count"] == 20
+    assert payload["case_count"] == 21
+    assert payload["passed_case_count"] == 21
     assert payload["recovery_success_rate"] == 1.0
     assert payload["safe_block_rate"] == 1.0
     assert payload["unrecoverable_count"] == 0
     assert payload["incorrect_resume_count"] == 0
     assert payload["recovery_redispatch_count"] == 0
     assert payload["duplicate_side_effect_count"] == 0
-    assert payload["actual_process_crash_case_count"] == 2
-    assert payload["trace_replay_verified_count"] == 2
+    assert payload["actual_process_crash_case_count"] == 3
+    assert payload["trace_replay_verified_count"] == 3
     assert payload["paid_model_called"] is False
     assert payload["network_called"] is False
     assert payload["repository_code_executed"] is False
@@ -65,6 +66,13 @@ def test_recovery_eval_runs_real_crash_and_full_write_state_matrix(tmp_path):
     assert model_crash.trace_replay_verified is True
     assert model_crash.observed_outcome == "safely_blocked"
     assert model_crash.recovery_redispatch_count == 0
+    promotion_crash = report.cases[2]
+    assert promotion_crash.kind == "promotion_hard_crash"
+    assert promotion_crash.actual_process_crash_observed is True
+    assert promotion_crash.trace_replay_verified is True
+    assert promotion_crash.observed_outcome == "auto_recovered"
+    assert promotion_crash.recovery_redispatch_count == 0
+    assert promotion_crash.duplicate_side_effect_count == 0
     assert all(
         case.observed_outcome == "safely_blocked"
         for case in report.cases
@@ -83,7 +91,19 @@ def test_recovery_eval_runs_real_crash_and_full_write_state_matrix(tmp_path):
         verify_recovery_matrix_report(report_path, manifest)
     marker.write_text(original_marker, encoding="utf-8")
 
-    tampered = output / "cases" / "02" / "workspace" / "src" / "alpha.py"
+    promoted = output / "cases" / "02" / "source" / "src" / "parser.py"
+    original_promoted = promoted.read_text(encoding="utf-8")
+    original_promoted_stat = promoted.stat()
+    promoted.write_text("def parse(value):\n    return 'tampered'\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="Promotion crash evidence file hash mismatch"):
+        verify_recovery_matrix_report(report_path, manifest)
+    promoted.write_text(original_promoted, encoding="utf-8")
+    os.utime(
+        promoted,
+        ns=(original_promoted_stat.st_atime_ns, original_promoted_stat.st_mtime_ns),
+    )
+
+    tampered = output / "cases" / "03" / "workspace" / "src" / "alpha.py"
     tampered.write_text("alpha = 'tampered'\n", encoding="utf-8")
     with pytest.raises(ValueError, match="workspace no longer matches evidence"):
         verify_recovery_matrix_report(report_path, manifest)

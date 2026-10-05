@@ -1,0 +1,129 @@
+schema_version: 3
+benchmark_id: horizon-recovery-matrix-v3
+
+# v3 preserves every frozen v2 case and adds one real child-process crash after a
+# staging-to-source promotion effect is durable but before its receipt is published.
+# No provider, network, Docker, repository code, or external service is used.
+cases:
+  - kind: hard_crash
+    case_id: replace-effect-before-receipt-hard-crash
+    description: A child exits after replace_text changes the file but before its receipt commits.
+    expected_outcome: auto_recovered
+
+  - kind: model_response_hard_crash
+    case_id: model-return-before-response-artifact-hard-crash
+    description: A child exits after the model returns but before the response Artifact is published.
+    expected_outcome: safely_blocked
+
+  - kind: promotion_hard_crash
+    case_id: promotion-effect-before-receipt-hard-crash
+    description: A child exits after the exact source promotion effect but before its receipt commits.
+    expected_outcome: auto_recovered
+
+  - &replace_pre_accept
+    kind: write_state
+    case_id: replace-pre-effect-accept
+    description: Accept must block when a replace effect is absent.
+    tool: replace_text
+    injected_state: pre_effect
+    decision: accept
+    expected_outcome: safely_blocked
+  - <<: *replace_pre_accept
+    case_id: replace-pre-effect-rollback
+    description: Rollback at the replace pre-state is a safe no-op.
+    decision: rollback
+    expected_outcome: auto_recovered
+  - <<: *replace_pre_accept
+    case_id: replace-expected-effect-accept
+    description: Accept preserves one exact replace effect without redispatch.
+    injected_state: expected_effect
+    expected_outcome: auto_recovered
+  - <<: *replace_pre_accept
+    case_id: replace-expected-effect-rollback
+    description: Rollback restores an exact replace effect to its pre-state.
+    injected_state: expected_effect
+    decision: rollback
+    expected_outcome: auto_recovered
+  - <<: *replace_pre_accept
+    case_id: replace-diverged-accept
+    description: Accept must block when the replace target diverged.
+    injected_state: diverged
+    expected_outcome: safely_blocked
+  - <<: *replace_pre_accept
+    case_id: replace-diverged-rollback
+    description: Automatic rollback must block when the replace target diverged.
+    injected_state: diverged
+    decision: rollback
+    expected_outcome: safely_blocked
+
+  - &patch_pre_accept
+    kind: write_state
+    case_id: patch-pre-effect-accept
+    description: Accept must block when a multi-file patch effect is absent.
+    tool: apply_patch
+    injected_state: pre_effect
+    decision: accept
+    expected_outcome: safely_blocked
+  - <<: *patch_pre_accept
+    case_id: patch-pre-effect-rollback
+    description: Rollback at the patch pre-state is a safe no-op.
+    decision: rollback
+    expected_outcome: auto_recovered
+  - <<: *patch_pre_accept
+    case_id: patch-expected-effect-accept
+    description: Accept preserves one exact multi-file patch without redispatch.
+    injected_state: expected_effect
+    expected_outcome: auto_recovered
+  - <<: *patch_pre_accept
+    case_id: patch-expected-effect-rollback
+    description: Rollback restores all exact patch targets to their pre-state.
+    injected_state: expected_effect
+    decision: rollback
+    expected_outcome: auto_recovered
+  - <<: *patch_pre_accept
+    case_id: patch-diverged-accept
+    description: Accept must block on a partial multi-file patch effect.
+    injected_state: diverged
+    expected_outcome: safely_blocked
+  - <<: *patch_pre_accept
+    case_id: patch-diverged-rollback
+    description: Automatic rollback must block on a partial multi-file patch effect.
+    injected_state: diverged
+    decision: rollback
+    expected_outcome: safely_blocked
+
+  - &create_pre_accept
+    kind: write_state
+    case_id: create-pre-effect-accept
+    description: Accept must block when the expected new file is absent.
+    tool: create_file
+    injected_state: pre_effect
+    decision: accept
+    expected_outcome: safely_blocked
+  - <<: *create_pre_accept
+    case_id: create-pre-effect-rollback
+    description: Rollback at the create pre-state is a safe no-op.
+    decision: rollback
+    expected_outcome: auto_recovered
+  - <<: *create_pre_accept
+    case_id: create-expected-effect-accept
+    description: Accept preserves one exact new file without creating it again.
+    injected_state: expected_effect
+    expected_outcome: auto_recovered
+  - <<: *create_pre_accept
+    case_id: create-expected-effect-rollback
+    description: Rollback removes the exact newly created file and restores the pre-state.
+    injected_state: expected_effect
+    decision: rollback
+    expected_outcome: auto_recovered
+  - <<: *create_pre_accept
+    case_id: create-diverged-accept
+    description: Accept must block when the created file has unexpected contents.
+    injected_state: diverged
+    expected_outcome: safely_blocked
+  - <<: *create_pre_accept
+    case_id: create-diverged-rollback
+    description: Automatic rollback must preserve an unexpected same-name file and block.
+    injected_state: diverged
+    decision: rollback
+    expected_outcome: safely_blocked
