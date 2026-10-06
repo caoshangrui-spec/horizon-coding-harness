@@ -1,4 +1,4 @@
-name: Full checkout Docker evidence
+name: Source-bound Docker evidence
 
 on:
   workflow_dispatch:
@@ -7,6 +7,8 @@ on:
     paths:
       - ".github/workflows/full-checkout-evidence.yml"
       - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v2.yaml"
+      - "benchmarks/run_ab/bugsinpy-reduced-v2.yaml"
+      - "benchmarks/run_ab/external/**/manifest.yaml"
       - "benchmarks/run_ab/full/**/manifest.yaml"
       - "src/horizon/adapters/sandbox/**"
       - "src/horizon/application/run_ab_eval.py"
@@ -22,7 +24,7 @@ concurrency:
 
 jobs:
   docker-evidence:
-    name: Three-project full-checkout suite
+    name: Reduced and full-checkout suites
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
@@ -84,6 +86,18 @@ jobs:
       - name: Pull the validation image
         run: docker pull python:3.12-alpine
 
+      - name: Run the frozen five-case reduced suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          state_dir=.horizon/reduced-docker-v2
+          mkdir -p "$state_dir"
+          uv run --locked horizon eval run-ab-suite \
+            benchmarks/run_ab/bugsinpy-reduced-v2.yaml \
+            --image python:3.12-alpine \
+            --state-dir "$state_dir" \
+            | tee "$state_dir/cli-result.json"
+
       - name: Run the frozen suite in network-disabled containers
         shell: bash
         run: |
@@ -102,8 +116,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: full-checkout-docker-evidence
-          path: .horizon/full-checkout-docker-v2
+          name: source-bound-docker-evidence
+          path: |
+            .horizon/reduced-docker-v2
+            .horizon/full-checkout-docker-v2
           if-no-files-found: warn
           retention-days: 30
 
@@ -118,26 +134,46 @@ jobs:
           import os
           from pathlib import Path
 
-          payload = json.loads(
+          reduced = json.loads(
+              Path(".horizon/reduced-docker-v2/cli-result.json").read_text(encoding="utf-8")
+          )
+          full = json.loads(
               Path(".horizon/full-checkout-docker-v2/cli-result.json").read_text(
                   encoding="utf-8"
               )
           )
-          report = payload["report"]
+          reduced_report = reduced["report"]
+          full_report = full["report"]
           lines = [
-              "## Frozen full-checkout Docker evidence",
+              "## Frozen source-bound Docker evidence",
               "",
-              f"- Suite report ref: `{payload['report_ref']}`",
-              f"- Docker image ID: `{report['validation_backend_ref']}`",
-              f"- Cases passed: `{report['passed_case_count']}/{report['case_count']}`",
+              f"- Docker image ID: `{full_report['validation_backend_ref']}`",
               (
-                  "- Expected initial failures / recovered treatments: "
-                  f"`{report['initial_failure_confirmed_count']}/"
-                  f"{report['treatment_recovered_count']}`"
+                  "- Dependency-reduced suite: "
+                  f"`{reduced_report['passed_case_count']}/{reduced_report['case_count']}`; "
+                  f"report `{reduced['report_ref']}`"
               ),
-              f"- All expectations met: `{report['all_expectations_met']}`",
-              f"- Paid model / model network calls: `{report['paid_model_called']}` / "
-              f"`{report['network_called']}`",
+              (
+                  "- Full-checkout suite: "
+                  f"`{full_report['passed_case_count']}/{full_report['case_count']}`; "
+                  f"report `{full['report_ref']}`"
+              ),
+              (
+                  "- Reduced initial failures / recovered treatments: "
+                  f"`{reduced_report['initial_failure_confirmed_count']}/"
+                  f"{reduced_report['treatment_recovered_count']}`"
+              ),
+              (
+                  "- Full-checkout initial failures / recovered treatments: "
+                  f"`{full_report['initial_failure_confirmed_count']}/"
+                  f"{full_report['treatment_recovered_count']}`"
+              ),
+              (
+                  "- All expectations met: "
+                  f"`{reduced_report['all_expectations_met'] and full_report['all_expectations_met']}`"
+              ),
+              f"- Paid model / model network calls: `{full_report['paid_model_called']}` / "
+              f"`{full_report['network_called']}`",
               f"- Uploaded artifact digest: `{os.environ['ARTIFACT_DIGEST']}`",
           ]
           with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
