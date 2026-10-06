@@ -102,7 +102,7 @@ Docker 中运行。
 可信集成通过，原 v1 三例有历史 Docker 证据，v2 Docker 待验证，见
 [外部来源 Run A/B Suite](external-run-ab-suite.md)。其中 tqdm-1、youtube-dl-3 与 Luigi-1 还完成了
 [三项目完整 checkout suite](full-checkout-pilot.md)，包含 Git 来源门和真实 Code RAG；v2 本地可信
-3/3，原 v1 两例有历史 Docker 证据。872 文件下
+与专用公开禁网 Docker 均为 3/3。872 文件下
 重复 CAS blob 校验的开销也已完成前后对照优化。youtube-dl-3 随后完成
 [完整 checkout 两阶段 A/B](multi-stage-full-checkout-pilot.md)：两条 arm 都在第一项通过后切换到
 epoch 2 Worker，Baseline 等待、Treatment replan 后成功，Trace replay 与来源未变均通过。

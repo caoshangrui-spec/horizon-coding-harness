@@ -98,10 +98,48 @@ jobs:
             | tee "$state_dir/cli-result.json"
 
       - name: Upload content-addressed evidence
+        id: evidence-upload
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: full-checkout-docker-evidence
           path: .horizon/full-checkout-docker-v2
           if-no-files-found: warn
           retention-days: 30
+
+      - name: Publish evidence summary
+        if: success()
+        shell: bash
+        env:
+          ARTIFACT_DIGEST: ${{ steps.evidence-upload.outputs.artifact-digest }}
+        run: |
+          uv run --locked python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(
+              Path(".horizon/full-checkout-docker-v2/cli-result.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          report = payload["report"]
+          lines = [
+              "## Frozen full-checkout Docker evidence",
+              "",
+              f"- Suite report ref: `{payload['report_ref']}`",
+              f"- Docker image ID: `{report['validation_backend_ref']}`",
+              f"- Cases passed: `{report['passed_case_count']}/{report['case_count']}`",
+              (
+                  "- Expected initial failures / recovered treatments: "
+                  f"`{report['initial_failure_confirmed_count']}/"
+                  f"{report['treatment_recovered_count']}`"
+              ),
+              f"- All expectations met: `{report['all_expectations_met']}`",
+              f"- Paid model / model network calls: `{report['paid_model_called']}` / "
+              f"`{report['network_called']}`",
+              f"- Uploaded artifact digest: `{os.environ['ARTIFACT_DIGEST']}`",
+          ]
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
+              summary.write("\n".join(lines) + "\n")
+          PY

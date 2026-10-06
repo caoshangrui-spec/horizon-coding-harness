@@ -9,9 +9,10 @@ for public releases; unreleased work must not be presented as a published releas
   preserving the v1 cases and digest. The new Luigi case fixes the exact 382-file buggy checkout,
   executes the real `MetricsHandler` class without installing its historical dependency stack,
   and retrieves `luigi/server.py` at rank 1 with skipped files reported as degraded. The local
-  trusted v2 suite passes 3/3 with replayable traces and unchanged sources; the original two cases
-  retain historical Docker evidence, while Luigi Docker verification remains pending. An initial
-  CRLF-sensitive multiline edit failure is retained and covered by a line-ending regression test.
+  trusted v2 suite passes 3/3 with replayable traces and unchanged sources. A dedicated public CI
+  job now reconstructs all three exact upstream commits and passes the same suite in network-disabled
+  Docker containers, publishing the content-addressed state as an artifact. An initial CRLF-sensitive
+  multiline edit failure is retained and covered by a line-ending regression test.
 - Expanded the source-bound dependency-reduced BugsInPy suite from three to five frozen cases while
   preserving the v1 case objects and digest. The new Apache-2.0 Luigi and Tornado fixtures bind
   upstream buggy/fixed commits, tests, fixes, and licenses. A trusted test-only executor now proves

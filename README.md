@@ -87,7 +87,7 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 一键崩溃恢复演示 | 子进程在 `replace_text` 生效后、receipt 前以退出码 86 硬退出；悬空调用先标 unknown，再按精确 manifest 接纳一次并恢复到 epoch 3 | 固定离线脚本与单一写入窗口，不代表任意进程/主机故障恢复 |
 | 有界恢复矩阵 v3 | 21/21；自动恢复 11/11、安全阻塞 10/10、incorrect resume 0、恢复重派/重复副作用 0；含 3 个真实硬退出和 Trace replay | 其余 18 例是生成 fixture 的状态/决策矩阵，不是完整 8 故障点或主机故障验收 |
 | 外部来源裁剪 A/B v2 | 5 个来源绑定案例的初始失败、Baseline 等待和 Treatment 修复均由本地可信集成测试执行；v1 原 3 例有历史 Docker 证据 | v2 五例尚未在 Docker 中复跑；使用 Scripted Model，不是 BugsInPy 官方成绩 |
-| 完整 checkout A/B v2 | tqdm 82 files、youtube-dl 872 files、Luigi 382 files；三例本地可信 A/B、RAG rank 1 和 Trace replay 通过；v1 原两例有历史 Docker 证据 | Luigi Docker 待验证；使用 Scripted Model，不是模型能力或官方 BugsInPy 成绩 |
+| 完整 checkout A/B v2 | tqdm 82 files、youtube-dl 872 files、Luigi 382 files；本地可信与公开禁网 Docker 均为 3/3，RAG rank 1、Trace replay 和证据上传通过 | 使用 Scripted Model，不是模型能力或官方 BugsInPy 成绩 |
 | 真实模型 Pilot | 六轮均可重放、费用可核对、source 未变 | 六轮均未编辑或验证成功，保留为负结果 |
 | 预算预留诊断 | 6 Trace、20 个已结算调用；聚合预留/结算比 6.861621；候选公式仅有 3 个可回放样本 | 新 BudgetStop 保存请求尺寸；样本不足，不自动降低费用安全门槛 |
 | 出站请求尺寸 | 5 类离线边界请求均复用 Adapter 的精确 wire encoder；167～9,061 bytes | 无 Provider usage，不证明候选公式安全或模型效果 |
@@ -216,7 +216,7 @@ uv run --locked --cache-dir .uv-cache horizon eval run-ab `
 uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
   benchmarks/run_ab/bugsinpy-reduced-v2.yaml --image python:3.12-alpine
 
-# 三个完整 checkout 需先按 docs/full-checkout-pilot.md 固定源码；v2 的 Luigi Docker 结果待补。
+# 三个完整 checkout 需先按 docs/full-checkout-pilot.md 固定源码；专用 CI 会自动重建精确 commit。
 uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
   benchmarks/run_ab/bugsinpy-full-checkout-pilot-v2.yaml --image python:3.12-alpine
 

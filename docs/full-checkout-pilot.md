@@ -72,7 +72,27 @@ uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
 
 ## 3. 当前 A/B 证据
 
-### 3.1 v2 三项目本地可信执行
+### 3.1 v2 三项目公开 Docker 执行
+
+2026-10-06 的专用 [Full checkout Docker evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/37435485497)
+工作流在 GitHub-hosted Linux runner 上重新 shallow-fetch 三个固定 buggy commit，并逐一检查 HEAD、
+tracked 文件数和 clean status。随后它拉取 `python:3.12-alpine`，通过生产
+`DockerAcceptanceExecutor` 在 `network=none`、只读根文件系统、非 root 用户、drop all capabilities
+和资源上限下运行 v2 suite：
+
+- 工作流、三项目 suite 和证据上传均成功；Docker suite 步骤用时约 28 秒；
+- 3/3 初始保护检查失败，3/3 Baseline 进入 `WAITING_FOR_USER`，3/3 Treatment 进入 `SUCCEEDED`；
+- CLI 只在 suite 全部期望满足时以 0 退出；每个 report/Trace、具体 Docker image ID 和状态库存入
+  `.horizon/full-checkout-docker-v2`；
+- 31.3 MB 公开 artifact 的 digest 为
+  `sha256:9395166ac42c0e59724beca0071e111ff9e2a34915bf82f3d89fd266da4b7e06`，保留 30 天；
+- 工作流不读取 API Key，不调用付费模型；Agent 模型仍是冻结 Scripted Model，验收容器自身禁网。
+
+这关闭了 Luigi “仅本地可信、尚无 Docker”的缺口，但仍不是原 Python 版本、完整依赖环境或
+BugsInPy 官方 runner 成绩。工作流只在自身、v2 manifests 或直接的 runner/sandbox 合同变化时
+自动执行，也可手动触发；不拖慢每个普通文档提交。
+
+### 3.2 v2 三项目本地可信执行
 
 2026-10-06 使用 Python 3.12 的 test-only 本地执行器实际运行三个冻结保护命令；Harness 的源码门、
 快照、RAG、Gateway、预算、Run/Trace 和重放路径保持不变，只有生产 Docker acceptance adapter 被
@@ -100,7 +120,7 @@ uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
 checkout，Gateway 正确返回 `Exact replacement occurrence count did not match`，Treatment 最终失败。
 修正为两个行结尾无关的原子单行替换后，单案和三项目 suite 均通过；没有放宽 exact-match 合同。
 
-### 3.2 v1 双项目历史 Docker 结果
+### 3.3 v1 双项目历史 Docker 结果
 
 2026-10-03 使用本机已有禁网镜像 digest
 `sha256:0687a6bc9716edc2a6ee0fbfb0f87e7ee358b262b67c9215de91bc9b2d38ba71`：
@@ -141,8 +161,8 @@ checkout，Gateway 正确返回 `Exact replacement occurrence count did not matc
 ## 4. 完整仓库 Code RAG
 
 每个 arm 先重复同一条 `retrieve_code` 查询，第三次相同查询由 NoProgressPolicy 阻断；Treatment
-随后显式 replan、精确修改真实生产文件并通过对应保护验收。v1 两例的历史结果来自 Docker，
-v2 三例的本批结果来自 test-only 本地 Python 执行器。
+随后显式 replan、精确修改真实生产文件并通过对应保护验收。v2 三例同时有 test-only 本地执行
+和专用公开禁网 Docker 执行，两条路径均保存 revision-bound EvidencePack。
 
 | 项 | tqdm-1 | youtube-dl-3 | Luigi-1 |
 |---|---|---|---|
@@ -184,11 +204,10 @@ v2 三例的本批结果来自 test-only 本地 Python 执行器。
 ## 6. 结论边界
 
 可以声称：三个不同项目、共 1,336 个 tracked 文件的精确完整 checkout 已通过来源门、初始负例、
-真实 Code RAG、可恢复等待、单次 replan、本地可信验收和 Trace replay；其中原 v1 两个项目另有
-历史禁网 Docker 证据。不能声称：
+真实 Code RAG、可恢复等待、单次 replan、本地可信验收、公开禁网 Docker 验收和 Trace replay。
+不能声称：
 
 - 这是 BugsInPy 官方分数、原 Python 版本或完整依赖环境的测试结果；
-- v2 三项目已经通过 Docker；Luigi 的正式 Docker 验收仍待 daemon 可用后执行；
 - 脚本模型证明真实模型能自主生成查询、定位缺陷或选择 replan；
 - 3 个作者选择案例足以估计泛化成功率、误触发率或成本收益。
 

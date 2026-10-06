@@ -90,7 +90,7 @@ E2E 与 `trace replay` 测试承担。
 也已扩展到五个来源绑定的 BugsInPy 依赖裁剪案例；五例本地可信集成通过，原 v1 三例有历史
 Docker 证据，v2 Docker 待验证，见[外部来源 A/B Suite](external-run-ab-suite.md)。
 其中 tqdm-1、youtube-dl-3 与 Luigi-1 又在[完整固定 checkout](full-checkout-pilot.md)上通过并实际
-运行 Code RAG；v2 三例是本地可信执行，原 v1 两例有历史 Docker 证据。重复 CAS blob 校验的
+运行 Code RAG；v2 三例已有本地可信执行和公开禁网 Docker 3/3。重复 CAS blob 校验的
 规模开销已优化；youtube-dl-3 的
 [完整 checkout 多阶段任务](multi-stage-full-checkout-pilot.md)还在 WorkItem 边界切换 Worker，
 验证 epoch fencing、持久会话、跨 revision Memory/RAG 与最终检查。真实模型决策证据出现前，
