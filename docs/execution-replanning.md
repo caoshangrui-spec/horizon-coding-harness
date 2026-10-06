@@ -98,10 +98,11 @@ observation，并按原 session 的下一 iteration 继续。包含 `revise_plan
 冻结[控制器可靠性策略离线评测](reliability-evaluation.md)另含 5 个 replan 接受/拒绝案例，并与
 生产路径共用 `check_execution_replan`；它只验证合同判断，不是模型决策质量或任务收益证据。
 首个[完整 Run A/B](run-ab-evaluation.md)进一步保存 baseline 等待与单次 replan 成功的完整事件
-Trace，并执行真实 Docker required check；同一 runner/report 合同还通过了三个
+Trace，并执行真实 Docker required check；同一 runner/report 合同还扩展到五个
 [BugsInPy 来源的依赖裁剪案例](external-run-ab-suite.md)。两个 arm 仍由冻结脚本指定动作，裁剪
-案例本身不是完整上游 checkout；随后 tqdm 与 youtube-dl 两个[完整 checkout](full-checkout-pilot.md)
-也通过了相同对照并实际调用 Code RAG。youtube-dl 还完成了
+案例本身不是完整上游 checkout；随后 tqdm、youtube-dl 与 Luigi 三个
+[完整 checkout](full-checkout-pilot.md)也通过了相同对照并实际调用 Code RAG，其中原 v1 两例有
+历史 Docker 证据、v2 三例为本地可信执行。youtube-dl 还完成了
 [两阶段完整 checkout](multi-stage-full-checkout-pilot.md)：production 项通过后切换至 epoch 2
 Worker，Treatment 保留完成项并只 replan regression 项。所有 arm 仍由冻结脚本指定动作，因此
 都不是实际模型效果或官方 benchmark 分数。

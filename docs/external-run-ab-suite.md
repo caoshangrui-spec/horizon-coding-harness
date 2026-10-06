@@ -126,5 +126,6 @@ token、合成成本、workspace manifest 和全部边界检查。Suite 汇总�
 额外验证 Git HEAD 和清洁度，82/872 文件快照上的 Code RAG 都返回目标文件 rank 1，并显式保留
 9/2 个文件跳过导致的 degraded 状态。重复 CAS blob 校验的规模开销已完成前后对照优化；
 youtube-dl-3 还完成了[两阶段完整 checkout 与 Worker 重启](multi-stage-full-checkout-pilot.md)。
-下一步优先在 Docker 可用时补齐 v2 五例的同一生产命令，或继续增加完整 checkout 的真实任务
-覆盖；在真实模型决策证据出现前，不增加第二次自动 replan、向量库、通用审批流或复杂 Planner。
+Luigi-1 也已进入[三项目完整 checkout v2](full-checkout-pilot.md)，当前有本地可信 3/3 证据。
+下一步优先在 Docker 可用时补齐两个 v2 suite 的生产命令，或再把 Tornado 升级为完整 checkout；
+在真实模型决策证据出现前，不增加第二次自动 replan、向量库、通用审批流或复杂 Planner。

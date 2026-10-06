@@ -376,6 +376,9 @@ Trace 文件拒绝覆盖已有文件。重放不会调用模型、工具或 Dock
 - 来源门验证后的 tqdm 82 files 与 youtube-dl 872 files 完整 checkout A/B：两个初始断言均失败，
   Code RAG 对两个目标生产文件均返回 rank 1，Baseline 2/2 等待、Treatment 2/2 单次 replan 后
   成功；73/82 与 870/872 文件可索引，degraded 不隐藏；
+- Luigi 382 files 完整 checkout 在同一合同的 v2 本地可信 suite 中通过：初始断言失败、Baseline
+  等待、Treatment 成功，Code RAG 在 327/382 可索引且 55 skipped 的 degraded 状态下将
+  `luigi/server.py` 排为 rank 1；正式 Docker 结果仍待验证；
 - youtube-dl 872 files 两阶段 A/B 在 production 项通过后释放 epoch 1 Lease，以重新打开的
   SQLite/ArtifactStore/检索库/预算账本和 epoch 2 Worker 执行 regression 项；Baseline 86-event
   Trace 等待，Treatment 116-event Trace 成功，两个 Trace 均可重放且源 checkout 未变化；

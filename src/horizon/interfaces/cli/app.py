@@ -2099,6 +2099,8 @@ def doctor():
                 "source_bound_run_ab_reduced_case_count": 5,
                 "source_bound_run_ab_reduced_docker_verified_count": 3,
                 "source_bound_run_ab_full_checkout_gate": True,
+                "source_bound_run_ab_full_checkout_case_count": 3,
+                "source_bound_run_ab_full_checkout_docker_verified_count": 2,
                 "bounded_multi_file_patch": True,
                 "max_patch_files": 8,
                 "patch_recovery": "exact_pre_or_expected_effect",

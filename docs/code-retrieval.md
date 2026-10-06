@@ -171,8 +171,9 @@ v6 为 Hit@1=2/2、MRR=1.0、leakage=0。它们都是实现者编写的小样例
 camelCase 定义和 `registerSocksProtocols` 的 snake_case 定义都排在 rank 1。最初仅加词项时
 `unescape HTML` 未进前 5，随后只优先精确 token 仍因大量 import/call 命中失败；这两个负结果
 均保留，最终才加入有界定义优先。它是作者选定的固定诊断，不是盲测。补充的
-[双项目完整 checkout suite](full-checkout-pilot.md)在 82/872 文件历史仓库中分别索引 73/870、
-跳过 9/2，两个目标生产文件均 rank 1，但查询由作者冻结、Agent 动作由脚本给定，也没有无 RAG
+[三项目完整 checkout suite](full-checkout-pilot.md)在 82/872/382 文件历史仓库中分别索引
+73/870/327、跳过 9/2/55，三个目标生产文件均 rank 1，但查询由作者冻结、Agent 动作由脚本给定，
+也没有无 RAG
 对照。另有三个未参与规则开发的外部任务形成顺序冻结盲测：v6 为 Hit@1 0/3、top-5 production
 path recall 3/4；不同文件优先的 v7 为 Hit@1 0/3、recall 4/4。v7 已使用基线结果，不是独立
 holdout。随后独立冻结的 Luigi/Sanic/Tornado 三案例在 v7 上均为 rank 1；其中两个因跳过

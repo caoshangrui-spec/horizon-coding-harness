@@ -25,7 +25,11 @@ ROOT = Path(__file__).resolve().parents[2]
 MANIFEST_PATH = ROOT / "benchmarks" / "run_ab" / "stalled-reader-replan-v1.yaml"
 SUITE_V1_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-reduced-v1.yaml"
 SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-reduced-v2.yaml"
-FULL_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v1.yaml"
+FULL_SUITE_V1_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v1.yaml"
+FULL_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v2.yaml"
+LUIGI_FULL_MANIFEST_PATH = (
+    ROOT / "benchmarks" / "run_ab" / "full" / "luigi-1-metrics-handler" / "manifest.yaml"
+)
 MULTI_STAGE_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-pilot-v1.yaml"
 
 
@@ -432,20 +436,49 @@ def test_run_ab_suite_rejects_manifest_with_mismatched_source_commit():
         RunABSuiteManifest.model_validate(suite_data)
 
 
-def test_full_checkout_suite_binds_two_projects_to_exact_case_manifests():
-    suite = RunABSuiteManifest.model_validate(
+def test_full_checkout_v2_preserves_v1_and_binds_three_exact_case_manifests():
+    v1 = RunABSuiteManifest.model_validate(
+        yaml.safe_load(FULL_SUITE_V1_PATH.read_text(encoding="utf-8"))
+    )
+    v2 = RunABSuiteManifest.model_validate(
         yaml.safe_load(FULL_SUITE_PATH.read_text(encoding="utf-8"))
     )
 
-    assert {case.source.project for case in suite.cases} == {"tqdm", "youtube-dl"}
-    assert all(case.source.reduction == "full_checkout" for case in suite.cases)
+    assert v1.sha256 == "e6856e2e974cd855b535c9bae46bdd2795c3e5cb0bbdafcbd481ef54d649d69e"
+    assert v2.sha256 == "be359684b9e3adfd676ed06c457197f7aff42bdcd1dbb3913321cebf5ef857b4"
+    assert list(v2.cases[:2]) == list(v1.cases)
+    assert {case.source.project for case in v2.cases} == {"luigi", "tqdm", "youtube-dl"}
+    assert all(case.source.reduction == "full_checkout" for case in v2.cases)
 
-    for case in suite.cases:
+    for case in v2.cases:
         case_path = FULL_SUITE_PATH.parent / case.manifest_path
         case_manifest = RunABEvalManifest.model_validate(
             yaml.safe_load(case_path.read_text(encoding="utf-8"))
         )
         case.check_manifest(case_manifest)
+
+
+def test_luigi_full_checkout_repair_is_line_ending_independent():
+    manifest = RunABEvalManifest.model_validate(
+        yaml.safe_load(LUIGI_FULL_MANIFEST_PATH.read_text(encoding="utf-8"))
+    )
+    edits = [action for action in manifest.arms[1].actions if action.tool == "replace_text"]
+    assert len(edits) == 2
+
+    lines = [
+        "    def get(self):",
+        "        metrics = self._scheduler._state._metrics_collector.generate_latest()",
+        "        if metrics:",
+        "            metrics.configure_http_handler(self)",
+        "            self.write(metrics)",
+    ]
+    for newline in ("\n", "\r\n"):
+        source = newline.join(lines)
+        for edit in edits:
+            assert source.count(edit.arguments["old"]) == 1
+            source = source.replace(edit.arguments["old"], edit.arguments["new"])
+        assert "metrics = metrics_collector.generate_latest()" in source
+        assert "metrics_collector.configure_http_handler(self)" in source
 
 
 def test_multi_stage_full_checkout_suite_binds_dependency_order_and_source():

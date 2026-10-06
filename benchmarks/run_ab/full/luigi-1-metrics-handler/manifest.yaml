@@ -1,0 +1,109 @@
+schema_version: 1
+benchmark_id: luigi-1-metrics-handler-full
+fixture_path: fixture
+
+task:
+  task_id: luigi-metrics-handler-full
+  title: Configure the metrics collector in the full upstream checkout
+  objective: Route HTTP handler configuration to the collector that owns the metrics backend
+  repository:
+    source: local
+    path: /fixture
+    base_commit: 1164eb6b85b8a70f596dbb99452bec513e72c12e
+  constraints:
+    allowed_paths: ["**"]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+  acceptance:
+    - id: luigi-metrics-handler-full
+      command: >-
+        python -B -c "import ast,pathlib,types; source=pathlib.Path('luigi/server.py').read_text(encoding='utf-8'); tree=ast.parse(source); node=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='MetricsHandler'); node.bases=[]; node.keywords=[]; namespace={}; exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),'luigi/server.py','exec'),namespace); calls=[]; writes=[]; payload=object(); collector=types.SimpleNamespace(generate_latest=lambda:payload,configure_http_handler=lambda handler:calls.append(handler)); scheduler=types.SimpleNamespace(_state=types.SimpleNamespace(_metrics_collector=collector)); handler=namespace['MetricsHandler'](); handler.initialize(scheduler); handler.write=lambda value:writes.append(value); handler.get(); assert calls==[handler] and writes==[payload]"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 20
+    max_model_calls: 10
+    max_tool_calls: 20
+    max_wall_time_seconds: 600
+    max_cost_usd: "1.00"
+    max_input_tokens: 100000
+    max_output_tokens: 5000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+
+initial_plan:
+  version: 1
+  items:
+    - work_item_id: locate-metrics-handler-full
+      title: Locate metrics handler ownership in the upstream checkout
+      objective: Retrieve revision-bound evidence before changing the HTTP configuration target
+      dependencies: []
+      expected_artifacts: [Code EvidencePack, luigi-metrics-handler-full receipt]
+      acceptance_ids: [luigi-metrics-handler-full]
+      allowed_tools: [retrieve_code]
+
+expected_initial_failed_checks: [luigi-metrics-handler-full]
+
+arms:
+  - arm_id: no-replan
+    role: baseline
+    description: Continue the stalled code retrieval until deterministic guidance is required.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items: []
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 4
+    expected_tool_calls: 4
+    expected_steps: 4
+    actions:
+      - &retrieve_target
+        tool: retrieve_code
+        arguments:
+          query: MetricsHandler generate_latest configure_http_handler metrics collector
+          max_chunks: 4
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+
+  - arm_id: single-replan
+    role: single_replan
+    description: Replace the stalled investigation with the bounded upstream ownership repair.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items: [repair-metrics-handler-full]
+    expected_model_calls: 7
+    expected_tool_calls: 8
+    expected_steps: 8
+    actions:
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+      - tool: revise_plan
+        arguments:
+          reason: Repeated retrieval produced no new evidence; configure the owning collector.
+          items:
+            - work_item_id: repair-metrics-handler-full
+              title: Configure the owning metrics collector
+              objective: Generate the payload and configure HTTP behavior on the collector
+              dependencies: []
+              expected_artifacts: [Code EvidencePack, luigi-metrics-handler-full receipt]
+              acceptance_ids: [luigi-metrics-handler-full]
+              allowed_tools: [retrieve_code, replace_text, run_check]
+      - tool: replace_text
+        arguments:
+          path: luigi/server.py
+          old: metrics = self._scheduler._state._metrics_collector.generate_latest()
+          new: "metrics_collector = self._scheduler._state._metrics_collector\n        metrics = metrics_collector.generate_latest()"
+      - tool: replace_text
+        arguments:
+          path: luigi/server.py
+          old: metrics.configure_http_handler(self)
+          new: metrics_collector.configure_http_handler(self)
+      - tool: submit
+        arguments:
+          summary: Applied the upstream metrics ownership repair and ran the protected regression check.
