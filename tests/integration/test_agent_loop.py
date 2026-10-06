@@ -18,7 +18,7 @@ from horizon.application.services import HarnessService, LeaseToken
 from horizon.application.tool_recovery import ToolRecoveryService
 from horizon.domain.agent import AgentSession
 from horizon.domain.budget import Usage
-from horizon.domain.common import digest
+from horizon.domain.common import canonical_json, digest
 from horizon.domain.context import ContextProjection, MandatoryFactLedger
 from horizon.domain.errors import BudgetStopReason, Conflict
 from horizon.domain.human import HumanGuidanceRequest
@@ -189,6 +189,9 @@ class InterruptBeforeCampaignSettlement:
     def attempt(self, *args, **kwargs):
         return self.delegate.attempt(*args, **kwargs)
 
+    def summary(self, *args, **kwargs):
+        return self.delegate.summary(*args, **kwargs)
+
 
 class InterruptAfterCampaignReservation:
     def __init__(self, delegate):
@@ -212,6 +215,9 @@ class InterruptAfterCampaignReservation:
 
     def attempts(self, *args, **kwargs):
         return self.delegate.attempts(*args, **kwargs)
+
+    def summary(self, *args, **kwargs):
+        return self.delegate.summary(*args, **kwargs)
 
 
 class InterruptToolDispatch:
@@ -2525,6 +2531,84 @@ def test_agent_loop_persists_bounded_context_projection_without_losing_transcrip
     assert facts.task_spec_hash in (projection.messages[0].content or "")
 
 
+def test_agent_loop_compacts_history_to_fit_remaining_campaign_budget(tmp_path, task_dict):
+    actions = [
+        ("read_file", {"path": "src/parser.py"}),
+        (
+            "replace_text",
+            {
+                "path": "src/parser.py",
+                "old": "return [value]",
+                "new": "return [] if value == '' else [value]",
+            },
+        ),
+        ("submit", {"summary": "Completed within the remaining Campaign budget."}),
+    ]
+    runner, store, run_id, token, workspace, model = setup_loop(
+        tmp_path,
+        task_dict,
+        actions,
+    )
+    (workspace / "src/parser.py").write_text(
+        f"# {'budget-context-' * 1_600}\ndef parse(value):\n    return [value]\n",
+        encoding="utf-8",
+    )
+    runner.campaign = runner.campaign.model_copy(
+        update={"max_cost": Decimal("0.08"), "max_cost_per_call": Decimal("0.08")}
+    )
+    runner.config = AgentLoopConfig(
+        max_model_iterations=8,
+        max_output_tokens=256,
+        max_context_chars=100_000,
+        preserve_recent_context_units=1,
+        max_identical_no_progress_actions=10,
+    )
+
+    result = runner.run(run_id, token)
+
+    assert result.status == RunStatus.SUCCEEDED
+    assert "return [] if" in (workspace / "src/parser.py").read_text(encoding="utf-8")
+    reservations = [
+        ModelCallReservation.model_validate(event.payload["reservation"])
+        for event in store.events(run_id)
+        if event.event_type == "MODEL_CALL_RESERVED"
+    ]
+    projections = [
+        ContextProjection.model_validate_json(
+            runner.session_store.read(reservation.context_projection_ref)
+        )
+        for reservation in reservations
+        if reservation.context_projection_ref is not None
+    ]
+    compacted = [projection for projection in projections if projection.compacted]
+    assert compacted
+    assert projections[0].input_token_budget.max_input_tokens == 25_898
+    assert all(
+        projection.input_token_budget.max_input_tokens < runner.config.max_input_tokens
+        for projection in projections
+    )
+    assert all(
+        projection.input_token_budget.estimate.token_ceiling
+        <= projection.input_token_budget.max_input_tokens
+        for projection in projections
+    )
+    assert any(
+        message.role == "user" and "Deterministic history projection" in (message.content or "")
+        for request in model.requests
+        for message in request.messages
+    )
+    assert result.agent_session is not None
+    session = AgentSession.model_validate_json(
+        runner.session_store.read(result.agent_session.artifact_ref)
+    )
+    assert (
+        len(canonical_json([message.model_dump(mode="json") for message in session.messages]))
+        < runner.config.max_context_chars
+    )
+    campaign = runner.campaign_ledger.summary(runner.campaign.campaign_id)
+    assert campaign.remaining_cost > 0
+
+
 def test_compacted_pending_model_response_recovers_without_rebilling(tmp_path, task_dict):
     reads = [("read_file", {"path": "src/parser.py"})] * 4
     runner, store, run_id, first_token, workspace, first_model = setup_loop(
@@ -2533,13 +2617,16 @@ def test_compacted_pending_model_response_recovers_without_rebilling(tmp_path, t
         reads,
     )
     (workspace / "src/parser.py").write_text(
-        f"# {'recovery-context-' * 80}\ndef parse(value):\n    return [value]\n",
+        f"# {'recovery-context-' * 1_600}\ndef parse(value):\n    return [value]\n",
         encoding="utf-8",
+    )
+    runner.campaign = runner.campaign.model_copy(
+        update={"max_cost": Decimal("0.08"), "max_cost_per_call": Decimal("0.08")}
     )
     runner.config = AgentLoopConfig(
         max_model_iterations=8,
         max_output_tokens=256,
-        max_context_chars=6_000,
+        max_context_chars=100_000,
         preserve_recent_context_units=1,
         max_identical_no_progress_actions=10,
     )
@@ -2563,6 +2650,7 @@ def test_compacted_pending_model_response_recovers_without_rebilling(tmp_path, t
         runner.session_store.read(pending_reservation.context_projection_ref)
     )
     assert pending_projection.compacted is True
+    assert pending_projection.input_token_budget.max_input_tokens < runner.config.max_input_tokens
     assert len(first_model.requests) == 4
 
     report = RecoveryService(runner.service, ledger, runner.session_store).reconcile(

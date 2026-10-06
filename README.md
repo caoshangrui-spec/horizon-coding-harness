@@ -20,8 +20,8 @@ Horizon 是一个面向长程软件工程任务的**可恢复执行控制层**�
 
 - **可恢复执行**：追加式事件、幂等命令、Worker Lease/epoch、内容寻址 checkpoint，以及模型、
   工具和 promotion 提交窗口的保守恢复。
-- **上下文与知识**：字符与保守 input-token 双硬门槛的确定性投影、不可丢失的 Mandatory
-  Facts、有来源的 Run Memory，以及绑定 workspace revision 的 SQLite FTS5 Code RAG。
+- **上下文与知识**：字符、保守 input-token 与剩余费用余量共同约束的确定性投影、不可丢失的
+  Mandatory Facts、有来源的 Run Memory，以及绑定 workspace revision 的 SQLite FTS5 Code RAG。
 - **验证与治理**：有界工具权限、禁网 Docker 验收、Campaign/Run 双层费用门禁、持久化 HITL、
   单次证据驱动 replan 和可离线重放的 JSONL Trace。
 

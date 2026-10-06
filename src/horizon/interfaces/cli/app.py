@@ -2145,7 +2145,11 @@ def doctor():
                 "mandatory_fact_ledger": True,
                 "mandatory_fact_artifacts": True,
                 "tool_schema_fact_binding": True,
-                "token_aware_compaction": False,
+                "token_aware_compaction": True,
+                "budget_aware_context_compaction": True,
+                "budget_aware_context_compaction_profile": (
+                    "run_campaign_per_call_headroom_effective_input_cap"
+                ),
                 "semantic_compaction": False,
                 "memory_enabled": True,
                 "memory_profile": "evidence_backed_run_projection",

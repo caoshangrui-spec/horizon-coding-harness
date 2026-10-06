@@ -1,18 +1,20 @@
 # 确定性上下文投影：实现与恢复合同
 
-更新：2026-10-04。本文描述当前已经接入 `CodingAgentRunner` 的实现，不把确定性裁剪冒充
+更新：2026-10-06。本文描述当前已经接入 `CodingAgentRunner` 的实现，不把确定性裁剪冒充
 语义摘要或 RAG。权威完整消息始终保留；投影只是一次模型调用的可重放视图。证据驱动的
 Run Memory 已作为独立派生层接入，其边界见 [Run Memory](run-memory.md)。
 
 ## 1. 目标与非目标
 
-当前增量解决四个具体问题：
+当前增量解决五个具体问题：
 
 1. 长轮次工具输出持续累积时，模型请求不能无限增长；
 2. assistant tool call 与 tool result 不能在裁剪时被拆开或形成孤立消息；
 3. 已结算模型响应跨进程恢复时，必须证明新 Worker 重建的是同一个请求上下文。
 4. 字符预算通过时，完整请求仍可能因 UTF-8 内容或工具 Schema 膨胀；派发前必须有独立、
    可重放的保守 input-token 上界。
+5. 执行期 Run/Campaign 余额不足以容纳完整历史时，应先在同一保守公式下压缩可压缩历史，
+   而不是直接停止或暗中放宽费用上限。
 
 当前明确不解决：
 
@@ -88,8 +90,23 @@ ledger ref、关键 hash、WorkItem ID、required acceptance IDs、权限模式�
 Run Memory 包含 snapshot ref、失效/未知/省略计数，以及最近 2 条观察的来源 WorkItem、工具、
 outcome、status 和最多 80 字符 active excerpt。stale excerpt 不注入。完整 canonical transcript
 不被改写。
+执行调用在投影前读取当前 Run、Campaign 和单调用三类费用余量，并按同一 `PriceCard` 先为
+`max_output_tokens` 保留完整输出费用，再把剩余金额换算为可负担的 input-token 数：
+
+```text
+available = min(run_remaining, campaign_remaining, campaign_max_per_call)
+output_reserve = reserve_cost(0, max_output_tokens)
+affordable_input = floor((available - output_reserve) * 1_000_000 / input_price)
+effective_input_cap = min(configured_input_cap, affordable_input)
+```
+
+输入单价为 0 时直接使用配置上限。若可负担值低于领域合同可表达的 2,000 token，或不可压缩
+前缀/未完成回合无法满足该值，则改用配置上限重建请求，让既有 Run/Campaign reservation gate
+做最终派发或类型化 `BudgetStop` 判定；不会把费用不足伪装成上下文损坏，也不会弱化
+`2 * request_bytes + 1024` 公式。
+
 只有加上 binding 后同时满足 `projected_chars <= max_context_chars` 和
-`input_token_ceiling <= max_input_tokens`，除 system binding 外其余投影消息才与源消息相同。
+`input_token_ceiling <= effective_input_cap`，除 system binding 外其余投影消息才与源消息相同。
 超过任一硬上限时：
 
 1. 保留初始 system/user；
@@ -119,7 +136,8 @@ outcome、status 和最多 80 字符 active excerpt。stale excerpt 不注入。
   → 写 ledger Artifact 并按 hash 回读校验
   → 从 EventLog/tool Artifact 派生 RunMemorySnapshot
   → 写 memory Artifact 并按 hash 回读校验
-  → 对候选投影重建完整 ModelRequest，应用字符 + input-token 双硬门槛
+  → 读取 Run/Campaign/单调用余量，计算本次 effective input cap
+  → 对候选投影重建完整 ModelRequest，应用字符 + effective input-token 双硬门槛
   → 绑定 InputTokenBudget，写 ContextProjection 并按 hash 回读校验
   → 写 Artifact 并按 hash 回读校验
   → 构造 ModelRequest 和 request hash
@@ -146,14 +164,16 @@ outcome、status 和最多 80 字符 active excerpt。stale excerpt 不注入。
    并回读 ledger Artifact 做逐字段比较；
 4. 回读 RunMemorySnapshot，再从 reservation 记录的历史事件边界重建，要求 ref/hash、revision、
    count 与完整对象一致；恢复后新增的 unknown/cancelled 事件不得倒灌原请求；
-5. 使用当前配置和已验证 ledger/memory 重新计算 ContextProjection；
+5. 使用已记录的 estimator 与当时持久化的 effective input cap，加上当前已验证的
+   ledger/memory，重新计算 ContextProjection；不按恢复时已经变化的 Campaign 余额另算 cap；
 6. 重新构造 ModelRequest，要求 request hash 等于已记录 response 的 request hash；
 7. 读取 reservation 绑定的 projection Artifact，要求对象、ledger/memory binding、字符预算、
-   token 估算算法/请求字节/上界/配置上限和消息数逐字段一致；
+   token 估算算法/请求字节/上界/effective cap 和消息数逐字段一致；
 8. 通过后消费原 response，不再次调用 Provider、不重复计费。
 
-Artifact 缺失/损坏、任务/权限/验收/预算/模型策略/工具 Schema/workspace 漂移、上下文配置
-漂移、消息变化或投影算法输出变化都会保守拒绝。升级前缺少 MandatoryFactLedger 的悬空模型
+Artifact 缺失/损坏、任务/权限/验收/预算/模型策略/工具 Schema/workspace 漂移、影响请求的
+上下文配置漂移、消息变化或投影算法输出变化都会保守拒绝。恢复历史响应时，配置的 input cap
+不覆盖 reservation 已绑定的 effective cap；升级前缺少 MandatoryFactLedger 的悬空模型
 响应不会跨版本自动恢复；已完成的历史 Trace 仍可读取。新调用一律产生 ledger 和 projection。
 
 ## 6. 配置
@@ -193,9 +213,12 @@ Schema 约束为：字符上限 2,000～1,000,000；保守 input-token 上限
 - 待恢复 response 遇到工具 Schema 漂移时在调用 Provider 前拒绝；
 - reservation 中的 projection Artifact 可解析且与实际模型请求一致；
 - projection 与 reservation 保存相同 `InputTokenBudget`，其 estimate 可由完整请求逐字节重算；
+- 字符预算仍宽裕时，执行调用会按 Run/Campaign/单调用的最小费用余量降低 effective input cap，
+  折叠完整历史工具单元并在低余额 Campaign 内成功闭环；
 - 自动规划在 input-token 上界超限时不产生模型 reservation，也不调用 Provider；
-- 压缩后的 pending response 在 Campaign settlement 中断后由新 Worker 恢复，原响应不重派、
-  不重复计费；显式只读重试产生后续事件时仍按原历史边界重建 Memory。
+- 费用余量触发压缩后的 pending response 在 Campaign settlement 中断后，由新 Worker 使用原
+  effective cap 恢复，原响应不重派、不重复计费；显式只读重试产生后续事件时仍按原历史边界
+  重建 Memory。
 
 这些测试使用 Scripted Fake Model，不联网、不产生模型费用。全量数字以
 [开发进度与验证记录](development-progress.md)的最新一次完整回归为准；Docker skip 不算通过。

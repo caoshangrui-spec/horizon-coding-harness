@@ -1349,8 +1349,8 @@ B/C/D 使用相同 Horizon 工具与检索配置；A→B 同时改变工具面�
 |---|---|---|---|
 | FR-001～005 | `domain/`, `application/agent_loop.py` | Schema、DAG、计划版本与顺序调度/恢复测试 | 部分：合同/DAG/版本、deterministic dependency-ready 顺序执行及一次显式受限 replan 已实现；自然语言分解、自动/多次 replan 与并行调度未完成 |
 | FR-101～107 | `persistence/`, `recovery.py`, `checkpoint.py` | 重启与故障注入 | 部分：事件重建/快照/checkpoint、安全续跑、单/多文件精确写与有界 promotion 恢复；通用副作用对账未完成 |
-| FR-201～205 | `context/` | 事实保留和压缩拒绝测试 | 部分：完整 transcript + 字符/完整请求保守 token 双硬门投影、工具对与恢复校验；六层、精确 tokenizer 和语义事实验证未完成 |
-| FR-301～305 | `domain/budget.py` | reservation/settlement、硬上限测试 | 部分：通用预算 + CNY Run/Campaign 硬门禁；软阈/迟到对账未完成 |
+| FR-201～205 | `context/` | 事实保留和压缩拒绝测试 | 部分：完整 transcript + 字符/完整请求保守 token 双硬门投影、执行期费用余量收窄 effective cap、工具对与恢复校验；六层、精确 tokenizer 和语义事实验证未完成 |
+| FR-301～305 | `domain/budget.py` | reservation/settlement、硬上限测试 | 部分：通用预算 + CNY Run/Campaign 硬门禁 + 执行历史的费用余量感知压缩；通用软阈/迟到对账未完成 |
 | FR-401～406 | `application/agent_loop.py`, `tools/gateway.py` | E2E 逐项/最终验证与返修测试 | 部分：多 WorkItem 逐项验收、最终 required 全量回归和 repair 已实现；通用错误分类未完成 |
 | FR-501～506 | `trace/` | JSONL Schema、投影重放 | 部分：模型/工具/验证事件可重放；Execution Fork 未完成 |
 | FR-601～605 | `sandbox/`, `policies.py`, CLI | 权限、取消、终态产物测试 | 部分：Docker/staging/取消/显式有界多文件 promotion；通用审批与完整终态包未完成 |

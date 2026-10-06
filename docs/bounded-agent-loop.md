@@ -180,7 +180,8 @@ workspace 仍等于派发前 revision，才可显式写入 `success|error/accept
 ### 5.1 上下文投影边界
 
 完整 Agent transcript 始终保存在会话 Artifact 中，是恢复和审计的权威记录。模型可见视图
-同时受 `max_context_chars` 和 `max_input_tokens` 两个硬上限约束：前者测量投影消息规范 JSON
+同时受 `max_context_chars` 和 effective `max_input_tokens` 两个硬上限约束：后者在执行期取配置
+上限与 Run/Campaign/单调用剩余 CNY 可负担输入量的较小值；前者测量投影消息规范 JSON
 字符数；后者对包含工具 Schema 和参数的完整 `ModelRequest` 使用
 `2 * utf8_bytes + 1024` 保守上界。它可离线重算并用于派发门禁/费用预留，但不是精确
 tokenizer 计数或模型窗口探测。初始 system/user 合同总是保留；assistant tool calls 与其全部
@@ -189,8 +190,9 @@ tool results 组成不可拆分单元；最近 N 个单元和任何未完成单�
 重复或错配的 tool result 会直接拒绝。
 
 每次投影记录算法 Schema、字符上限/实际字符数、token 估算算法、完整请求字节数、token
-上界/配置上限、近期单元数、完整 transcript digest、源/投影消息数和实际消息。对应模型
-reservation 绑定同一个 `InputTokenBudget`。跨 Worker 消费已结算响应时会重新生成并逐字段比较；配置漂移、Artifact 损坏或
+上界/effective cap、近期单元数、完整 transcript digest、源/投影消息数和实际消息。对应模型
+reservation 绑定同一个 `InputTokenBudget`。跨 Worker 消费已结算响应时按 reservation 保存的
+cap 重新生成并逐字段比较，不按新余额改写历史请求；其他请求配置漂移、Artifact 损坏或
 消息变化都会阻止继续。MandatoryFactLedger 另行绑定任务、计划、权限、验收、预算、模型
 策略、工具 Schema 和 workspace。证据驱动的 Run Memory 从工具事件/Artifact 派生：失败保留
 失败，旧 revision 标为 stale，unknown 保持 unresolved，模型 `submit` 声明不能升级为事实；

@@ -5,6 +5,15 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Added budget-aware deterministic execution-context projection. Before each model dispatch, the
+  runner converts the smallest remaining Run, Campaign, or per-call CNY headroom into an effective
+  input-token ceiling while retaining the unchanged conservative sizing formula and output
+  reservation. Complete historical tool units are compacted only as needed; when a monetary cap
+  cannot be represented or a protected prefix cannot fit it, the unchanged reservation gates make
+  the final dispatch-or-typed-BudgetStop decision. The
+  effective ceiling is persisted with the request and reused during recovery, preventing a changed
+  ledger balance from changing the recovered request hash. Offline integration tests cover a
+  successful low-headroom run and crash recovery without redispatch or rebilling.
 - Generalized scripted Run A/B worker-boundary injection from one restart to an ordered set while
   preserving the legacy scalar manifest contract and digest. A new youtube-dl full-checkout v2 case
   executes three dependent WorkItems across two complete worker-adapter reopenings, carries

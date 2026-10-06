@@ -32,7 +32,7 @@ Lease，Run 投影仍停留在 `RUNNING`。账本实际上没有开放 reservati
 |---|---|
 | `call_id` / `request_hash` | 未派发调用的稳定身份和规范请求摘要 |
 | `purpose` | `planning` 或 `execution`，并且必须匹配 Run 当时阶段 |
-| `input_token_budget.max_input_tokens` | 当前配置允许的 input cap |
+| `input_token_budget.max_input_tokens` | 本次投影实际采用的 input cap；执行调用可由当前费用余量收窄 |
 | `input_token_budget.estimate.estimator` | 生产估算器版本 |
 | `input_token_budget.estimate.request_bytes` | 完整规范 Provider 请求的 UTF-8 字节数 |
 | `input_token_budget.estimate.token_ceiling` | 生产 estimator 算出的 input token 上界 |
@@ -61,6 +61,8 @@ unknown 用量阻断、wall-clock 到期和 Provider 返回后的实际账单超
 ```text
 PLANNING / RUNNING
         │
+        ├─ 执行期把 Run/Campaign/单调用最小余量换算为 effective input cap
+        ├─ 在不改变保守估算公式的前提下，按需压缩完整历史单元
         ├─ 构造有界请求并计算保守预留
         │
         ├─ Campaign reserve gate
@@ -81,6 +83,11 @@ PLANNING / RUNNING
 Lease/Worker/expiry，避免出现“终态但 Worker 仍活跃”。若停止来自已完成尺寸估算的模型请求，
 同一事件还写入 `model_request_budget`；证据的 purpose 必须与 `PLANNING`/`RUNNING` 阶段一致，
 且其 call ID 不得已经出现在 reservation 或 settlement 中。
+
+费用感知投影不是降低硬门禁：它先为完整输出上限预留费用，只把剩余额度按输入单价换算为
+effective cap。若该 cap 低于 2,000、不可压缩前缀/未完成工具回合仍放不下，或压缩后费用依然
+超限，控制器回到配置 cap，让原 reservation gate 做最终派发或 BudgetStop 判定。恢复已结算
+响应时使用 reservation 保存的原 cap，不因稍后结算释放余额而生成另一个请求。
 
 ## 4. 不变量
 

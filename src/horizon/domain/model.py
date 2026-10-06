@@ -70,7 +70,7 @@ class InputTokenEstimate(Contract):
 
 
 class InputTokenBudget(Contract):
-    """Configured request ceiling paired with the estimate that must fit it."""
+    """Effective request ceiling paired with the estimate that must fit it."""
 
     schema_version: Literal[1] = 1
     max_input_tokens: Annotated[StrictInt, Field(ge=2_000, le=2_000_000)]

@@ -366,6 +366,7 @@ class CodingAgentRunner:
         memory_ref: str,
         *,
         estimator: str | None = None,
+        max_input_tokens: int | None = None,
     ) -> ContextProjection:
         if tuple(messages[:2]) != tuple(_initial_messages(run, _active_work_item(run))):
             raise Conflict("Canonical Agent task prefix does not match the current Run")
@@ -377,7 +378,9 @@ class CodingAgentRunner:
         return ContextProjector(
             max_chars=self.config.max_context_chars,
             preserve_recent_units=self.config.preserve_recent_context_units,
-            max_input_tokens=self.config.max_input_tokens,
+            max_input_tokens=(
+                self.config.max_input_tokens if max_input_tokens is None else max_input_tokens
+            ),
             estimate_input_tokens=lambda projected_messages: estimate_input(
                 self._request_for_messages(projected_messages, run)
             ),
@@ -388,6 +391,36 @@ class CodingAgentRunner:
             run_memory=memory,
             run_memory_ref=memory_ref,
         )
+
+    def _affordable_input_token_limit(self, run: Run) -> int:
+        """Return a representable input ceiling that fits every monetary scope.
+
+        A limit below the domain minimum cannot be persisted as an InputTokenBudget. In that
+        case the normal configured ceiling is retained so the existing reservation gates make
+        the final cost decision instead of turning a possible monetary stop into a projection
+        error.
+        """
+        if run.model_policy is None or self.pricing.input_per_million == 0:
+            return self.config.max_input_tokens
+        campaign = self.campaign_ledger.summary(self.campaign.campaign_id)
+        run_remaining = max(
+            Decimal("0"),
+            run.model_policy.max_run_cost - run.model_occupied_cost,
+        )
+        available = min(
+            run_remaining,
+            campaign.remaining_cost,
+            self.campaign.max_cost_per_call,
+        )
+        output_cost = self.pricing.reserve_cost(0, self.config.max_output_tokens)
+        if available <= output_cost:
+            return self.config.max_input_tokens
+        affordable = int(
+            (available - output_cost) * Decimal(1_000_000) / self.pricing.input_per_million
+        )
+        if affordable < 2_000:
+            return self.config.max_input_tokens
+        return min(self.config.max_input_tokens, affordable)
 
     def _request_for_messages(
         self,
@@ -514,6 +547,11 @@ class CodingAgentRunner:
                 if reservation.input_token_budget is not None
                 else None
             ),
+            max_input_tokens=(
+                reservation.input_token_budget.max_input_tokens
+                if reservation.input_token_budget is not None
+                else None
+            ),
         )
         recovered_request = self._request_from_projection(projection, run)
         if recovered_request.sha256 != pending.record.request_hash:
@@ -558,14 +596,28 @@ class CodingAgentRunner:
         mandatory_facts_ref = self._store_mandatory_facts(facts)
         memory = self._run_memory(run, workspace_revision=workspace_revision)
         run_memory_ref = self._store_run_memory(memory)
-        projection = self._project_context(
-            run,
-            messages,
-            facts,
-            mandatory_facts_ref,
-            memory,
-            run_memory_ref,
-        )
+        effective_input_limit = self._affordable_input_token_limit(run)
+        try:
+            projection = self._project_context(
+                run,
+                messages,
+                facts,
+                mandatory_facts_ref,
+                memory,
+                run_memory_ref,
+                max_input_tokens=effective_input_limit,
+            )
+        except Conflict:
+            if effective_input_limit == self.config.max_input_tokens:
+                raise
+            projection = self._project_context(
+                run,
+                messages,
+                facts,
+                mandatory_facts_ref,
+                memory,
+                run_memory_ref,
+            )
         request = self._request_from_projection(projection, run)
         request_estimate, request_payload = conservative_input_sizing(request)
         if request_estimate != projection.input_token_budget.estimate:

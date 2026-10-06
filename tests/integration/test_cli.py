@@ -303,7 +303,11 @@ def test_doctor_checks_fts_without_model():
     assert data["mandatory_fact_ledger"] is True
     assert data["mandatory_fact_artifacts"] is True
     assert data["tool_schema_fact_binding"] is True
-    assert data["token_aware_compaction"] is False
+    assert data["token_aware_compaction"] is True
+    assert data["budget_aware_context_compaction"] is True
+    assert data["budget_aware_context_compaction_profile"] == (
+        "run_campaign_per_call_headroom_effective_input_cap"
+    )
     assert data["semantic_compaction"] is False
     assert data["memory_enabled"] is True
     assert data["memory_profile"] == "evidence_backed_run_projection"
