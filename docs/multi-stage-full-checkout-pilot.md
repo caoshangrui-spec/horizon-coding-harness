@@ -3,8 +3,8 @@
 更新：2026-10-06。本记录保留 v1 两阶段任务的失败与成功证据、v2 的 youtube-dl 三阶段任务，
 并在 v3 增加独立的 Luigi 三阶段任务。两个案例都使用固定的干净历史 checkout，验证两个持久化
 Worker 边界、跨 revision Code RAG/Run Memory、只替换最后未完成项的受限 replan、最终全量验收
-和 Trace replay；仍使用冻结脚本模型，不是实际模型或 BugsInPy 官方跑分。youtube-dl 已有公开
-禁网 Docker 证据，Luigi 当前只有本地可信执行，公开 Docker 结果必须等工作流实际完成后再记录。
+和 Trace replay；仍使用冻结脚本模型，不是实际模型或 BugsInPy 官方跑分。youtube-dl 与 Luigi
+现均有本地可信执行和公开禁网 Docker 证据。
 
 ## 1. 冻结输入与 v1 两阶段合同
 
@@ -314,20 +314,24 @@ collector 阶段与 handler 阶段都把 `luigi/server.py` 排为 rank 1，且�
 查询仍命中同一目标，但绑定新的 revision/content hash（`880c92…` → `7936d2…`）。这证明该次
 运行没有复用旧 revision 片段；它不证明词法检索对任意任务的语义质量。
 
-专用工作流已经改为在 `python:3.12-alpine`、禁网生产 Docker adapter 中顺序执行 youtube-dl 和
-Luigi 两例，并上传统一内容寻址状态。但在对应公开 run 成功前，项目计数仍保持
-`source_bound_run_ab_multi_stage_docker_verified_count=1`，不能把 v3 写成 Docker 2/2。
+专用公开工作流
+[`37450253181`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/37450253181)
+已在 `python:3.12-alpine`、禁网生产 Docker adapter 中顺序执行 youtube-dl 和 Luigi 两例并以
+2/2 通过；两例 Baseline/Treatment 均记录 2 次重启和 final epoch 3。上传的统一 artifact
+`source-bound-docker-evidence` ID 为 `11406606543`，digest 为
+`sha256:dfa069250ec2ee85fff1e972ce35c348ad9b576736ae12e42189ccb23a61e1af`。因此 doctor 的
+`source_bound_run_ab_multi_stage_docker_verified_count` 已提升为 2；该运行没有付费模型调用。
 
 ## 8. 结论边界与下一步
 
 可以声称：两个完整上游 checkout 上的三阶段任务已在本地可信路径实际通过依赖调度、隔离会话、
 跨 revision 检索、Run Memory、两个 WorkItem 边界 Worker 更替、完成项保留 replan、最终三项
-全量检查和离线重放；其中 youtube-dl 另有公开禁网 Docker 证据。不能声称：
+全量检查、公开禁网 Docker 验证和离线重放。不能声称：
 
 - 冻结脚本证明真实模型能自主分解、查询、修复或选择 replan；
 - 源码断言等价于运行 youtube-dl 原 Python 版本的完整 pytest；
 - 协作式释放/重取 Lease 等同于 OS 在任意指令处崩溃，或证明所有任意副作用都能恢复；
-- 两个作者选择任务足以给出泛化成功率，或 Luigi 已有公开 Docker 通过证据。
+- 两个作者选择任务足以给出泛化成功率。
 
 后续增量已为悬空 `run_check` 加入 tool-call-ID 标签容器、显式丢弃合同，以及自然退出、清理前
 停止容器的精确 success/error 结果恢复。控制器可查询状态，且只有显式授权才终止仍运行的精确

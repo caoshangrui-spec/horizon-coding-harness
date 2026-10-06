@@ -13,9 +13,9 @@ Horizon 是一个面向长程软件工程任务的**可恢复执行控制层**�
 包装成完成。
 
 > **当前状态：** v0.1.0 工程核心可运行。离线 Harness 主链路、来源绑定的完整 checkout A/B，
-> 以及三 WorkItem/两次 Worker 重启的恢复场景已有可重放证据；其中 youtube-dl 已有公开禁网
-> Docker 证据，新加入的 Luigi 独立案例已通过本地可信执行、公开 Docker 尚待验证。六次真实模型
-> Pilot 均为负结果，因此目前**不宣称真实 Issue 成功率或官方 benchmark 成绩**。
+> 以及三 WorkItem/两次 Worker 重启的恢复场景已有可重放证据；youtube-dl 与新加入的 Luigi
+> 独立案例均已通过本地可信执行和公开禁网 Docker。六次真实模型 Pilot 均为负结果，因此目前
+> **不宣称真实 Issue 成功率或官方 benchmark 成绩**。
 
 ## 为什么值得看
 
@@ -89,7 +89,7 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 有界恢复矩阵 v3 | 21/21；自动恢复 11/11、安全阻塞 10/10、incorrect resume 0、恢复重派/重复副作用 0；含 3 个真实硬退出和 Trace replay | 其余 18 例是生成 fixture 的状态/决策矩阵，不是完整 8 故障点或主机故障验收 |
 | 外部来源裁剪 A/B v2 | 5 个来源绑定案例的初始失败、Baseline 等待和 Treatment 修复均由本地可信与公开禁网 Docker 执行，证据已上传 | 使用 Scripted Model 和 dependency-reduced fixture，不是 BugsInPy 官方成绩 |
 | 完整 checkout A/B v2 | tqdm 82 files、youtube-dl 872 files、Luigi 382 files；本地可信与公开禁网 Docker 均为 3/3，RAG rank 1、Trace replay 和证据上传通过 | 使用 Scripted Model，不是模型能力或官方 BugsInPy 成绩 |
-| [三阶段恢复 A/B v3](docs/multi-stage-full-checkout-pilot.md) | youtube-dl 872 files + Luigi 382 files；两例均含 3 个依赖 WorkItem、2 次持久化 Worker 重启、final epoch 3 和一次只改未完成项的 replan；本地可信 2/2，youtube-dl [公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/37442538827) 1/1，Luigi 公开验证待运行 | 作者选择的两个案例与 Scripted Model；边界重启不等于任意指令处崩溃，不是模型能力或官方成绩 |
+| [三阶段恢复 A/B v3](docs/multi-stage-full-checkout-pilot.md) | youtube-dl 872 files + Luigi 382 files；两例均含 3 个依赖 WorkItem、2 次持久化 Worker 重启、final epoch 3 和一次只改未完成项的 replan；本地可信与[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/37450253181)均为 2/2 | 作者选择的两个案例与 Scripted Model；边界重启不等于任意指令处崩溃，不是模型能力或官方成绩 |
 | 真实模型 Pilot | 六轮均可重放、费用可核对、source 未变 | 六轮均未编辑或验证成功，保留为负结果 |
 | 预算预留诊断 | 6 Trace、20 个已结算调用；聚合预留/结算比 6.861621；候选公式仅有 3 个可回放样本 | 新 BudgetStop 保存请求尺寸；样本不足，不自动降低费用安全门槛 |
 | 出站请求尺寸 | 5 类离线边界请求均复用 Adapter 的精确 wire encoder；167～9,061 bytes | 无 Provider usage，不证明候选公式安全或模型效果 |

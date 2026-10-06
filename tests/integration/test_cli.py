@@ -260,7 +260,7 @@ def test_doctor_checks_fts_without_model():
     assert data["source_bound_run_ab_multi_stage_case_count"] == 2
     assert data["source_bound_run_ab_multi_stage_work_item_count"] == 3
     assert data["source_bound_run_ab_multi_stage_worker_restart_count"] == 2
-    assert data["source_bound_run_ab_multi_stage_docker_verified_count"] == 1
+    assert data["source_bound_run_ab_multi_stage_docker_verified_count"] == 2
     assert data["bounded_multi_file_patch"] is True
     assert data["max_patch_files"] == 8
     assert data["patch_recovery"] == "exact_pre_or_expected_effect"

@@ -11,8 +11,8 @@ for public releases; unreleased work must not be presented as a published releas
   into three dependent WorkItems, crosses two persisted worker boundaries, and compares a
   safely-waiting Baseline with a Treatment that revises only the final incomplete item. A trusted
   local run passed the source-bound, dependency-free runtime, Trace replay, unchanged-source,
-  and zero-open-call checks; public network-disabled Docker verification remains pending and is
-  not counted as passed.
+  and zero-open-call checks. The public network-disabled Docker workflow then passed both cases
+  and published their content-addressed state with an artifact digest.
 - Added budget-aware deterministic execution-context projection. Before each model dispatch, the
   runner converts the smallest remaining Run, Campaign, or per-call CNY headroom into an effective
   input-token ceiling while retaining the unchanged conservative sizing formula and output
