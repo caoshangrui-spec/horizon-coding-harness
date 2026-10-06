@@ -5,6 +5,14 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Expanded the three-stage full-checkout recovery suite from one youtube-dl task to two
+  independent upstream tasks while preserving the frozen v1/v2 manifests and digests. The new
+  Luigi case separates collector binding, handler ownership, and the upstream regression update
+  into three dependent WorkItems, crosses two persisted worker boundaries, and compares a
+  safely-waiting Baseline with a Treatment that revises only the final incomplete item. A trusted
+  local run passed the source-bound, dependency-free runtime, Trace replay, unchanged-source,
+  and zero-open-call checks; public network-disabled Docker verification remains pending and is
+  not counted as passed.
 - Added budget-aware deterministic execution-context projection. Before each model dispatch, the
   runner converts the smallest remaining Run, Campaign, or per-call CNY headroom into an effective
   input-token ceiling while retaining the unchanged conservative sizing formula and output

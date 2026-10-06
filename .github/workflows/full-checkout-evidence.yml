@@ -7,10 +7,11 @@ on:
     paths:
       - ".github/workflows/full-checkout-evidence.yml"
       - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v2.yaml"
-      - "benchmarks/run_ab/bugsinpy-multi-stage-pilot-v2.yaml"
+      - "benchmarks/run_ab/bugsinpy-multi-stage-pilot-v*.yaml"
       - "benchmarks/run_ab/bugsinpy-reduced-v2.yaml"
       - "benchmarks/run_ab/external/**/manifest.yaml"
       - "benchmarks/run_ab/full/**/manifest.yaml"
+      - "benchmarks/run_ab/full/**/multi-stage*.yaml"
       - "src/horizon/adapters/sandbox/**"
       - "src/horizon/application/run_ab_eval.py"
       - "src/horizon/domain/run_evaluation.py"
@@ -112,14 +113,14 @@ jobs:
             --state-dir "$state_dir" \
             | tee "$state_dir/cli-result.json"
 
-      - name: Run the three-stage recovery suite in network-disabled containers
+      - name: Run the two-case three-stage recovery suite in network-disabled containers
         shell: bash
         run: |
           set -euo pipefail
-          state_dir=.horizon/multi-stage-docker-v2
+          state_dir=.horizon/multi-stage-docker-v3
           mkdir -p "$state_dir"
           uv run --locked horizon eval run-ab-suite \
-            benchmarks/run_ab/bugsinpy-multi-stage-pilot-v2.yaml \
+            benchmarks/run_ab/bugsinpy-multi-stage-pilot-v3.yaml \
             --image python:3.12-alpine \
             --state-dir "$state_dir" \
             | tee "$state_dir/cli-result.json"
@@ -133,7 +134,7 @@ jobs:
           path: |
             .horizon/reduced-docker-v2
             .horizon/full-checkout-docker-v2
-            .horizon/multi-stage-docker-v2
+            .horizon/multi-stage-docker-v3
           if-no-files-found: warn
           retention-days: 30
 
@@ -157,21 +158,24 @@ jobs:
               )
           )
           multi = json.loads(
-              Path(".horizon/multi-stage-docker-v2/cli-result.json").read_text(
+              Path(".horizon/multi-stage-docker-v3/cli-result.json").read_text(
                   encoding="utf-8"
               )
           )
           reduced_report = reduced["report"]
           full_report = full["report"]
           multi_report = multi["report"]
-          multi_case_ref = multi_report["cases"][0]["report_ref"]
-          multi_case = json.loads(
-              (
-                  Path(".horizon/multi-stage-docker-v2/artifacts")
-                  / multi_case_ref[:2]
-                  / multi_case_ref
-              ).read_text(encoding="utf-8")
-          )
+          multi_cases = []
+          for case in multi_report["cases"]:
+              case_ref = case["report_ref"]
+              report = json.loads(
+                  (
+                      Path(".horizon/multi-stage-docker-v3/artifacts")
+                      / case_ref[:2]
+                      / case_ref
+                  ).read_text(encoding="utf-8")
+              )
+              multi_cases.append((case["case_id"], report))
           lines = [
               "## Frozen source-bound Docker evidence",
               "",
@@ -193,10 +197,13 @@ jobs:
               ),
               (
                   "- Three-stage worker restarts / final epochs: "
-                  f"baseline `{multi_case['baseline']['worker_restarts']}/"
-                  f"{multi_case['baseline']['final_lease_epoch']}`, treatment "
-                  f"`{multi_case['single_replan']['worker_restarts']}/"
-                  f"{multi_case['single_replan']['final_lease_epoch']}`"
+                  + "; ".join(
+                      f"{case_id} baseline `{case['baseline']['worker_restarts']}/"
+                      f"{case['baseline']['final_lease_epoch']}`, treatment "
+                      f"`{case['single_replan']['worker_restarts']}/"
+                      f"{case['single_replan']['final_lease_epoch']}`"
+                      for case_id, case in multi_cases
+                  )
               ),
               (
                   "- Reduced initial failures / recovered treatments: "

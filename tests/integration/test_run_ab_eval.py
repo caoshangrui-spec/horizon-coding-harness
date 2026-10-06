@@ -31,7 +31,11 @@ LUIGI_FULL_MANIFEST_PATH = (
     ROOT / "benchmarks" / "run_ab" / "full" / "luigi-1-metrics-handler" / "manifest.yaml"
 )
 MULTI_STAGE_V1_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-pilot-v1.yaml"
-MULTI_STAGE_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-pilot-v2.yaml"
+MULTI_STAGE_V2_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-pilot-v2.yaml"
+MULTI_STAGE_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-pilot-v3.yaml"
+LUIGI_MULTI_STAGE_MANIFEST_PATH = (
+    ROOT / "benchmarks" / "run_ab" / "full" / "luigi-1-metrics-handler" / "multi-stage-v3.yaml"
+)
 
 
 class FixtureContentAcceptance:
@@ -537,36 +541,46 @@ def test_luigi_full_checkout_repair_is_line_ending_independent():
         assert "metrics_collector.configure_http_handler(self)" in source
 
 
-def test_three_stage_full_checkout_suite_preserves_v1_and_binds_dependency_order():
+def test_three_stage_full_checkout_suite_preserves_v1_v2_and_binds_dependency_order():
     v1 = RunABSuiteManifest.model_validate(
         yaml.safe_load(MULTI_STAGE_V1_SUITE_PATH.read_text(encoding="utf-8"))
+    )
+    v2 = RunABSuiteManifest.model_validate(
+        yaml.safe_load(MULTI_STAGE_V2_SUITE_PATH.read_text(encoding="utf-8"))
     )
     suite = RunABSuiteManifest.model_validate(
         yaml.safe_load(MULTI_STAGE_SUITE_PATH.read_text(encoding="utf-8"))
     )
     assert v1.sha256 == "e4afeee636e571010c65557757770b8c1b489227e3c3809314371e35527b7569"
-    assert suite.sha256 == "c57ae62f6a4bbed7a7ba22e4169822887564c41272f9e440ca0f1c2bd4d458d3"
-    assert len(suite.cases) == 1
-    case = suite.cases[0]
-    assert case.source.project == "youtube-dl"
-    assert case.source.reduction == "full_checkout"
+    assert v2.sha256 == "c57ae62f6a4bbed7a7ba22e4169822887564c41272f9e440ca0f1c2bd4d458d3"
+    assert suite.sha256 == "4f1d9c5596b5acb06986f082a42fa328f25e8954d44f56a9d02ddb50149314dd"
+    assert list(suite.cases[:1]) == list(v2.cases)
+    assert {case.source.project for case in suite.cases} == {"luigi", "youtube-dl"}
+    assert all(case.source.reduction == "full_checkout" for case in suite.cases)
 
-    case_path = MULTI_STAGE_SUITE_PATH.parent / case.manifest_path
-    manifest = RunABEvalManifest.model_validate(
-        yaml.safe_load(case_path.read_text(encoding="utf-8"))
-    )
-    case.check_manifest(manifest)
-
-    assert manifest.sha256 == "ae87c1d42c3a4464e6167ee72f885bac45997806a06f67c98cd9942404448da4"
-    first, second, third = manifest.initial_plan.items
-    assert second.dependencies == (first.work_item_id,)
-    assert third.dependencies == (second.work_item_id,)
-    assert {arm.restart_points for arm in manifest.arms} == {(3, 6)}
-    assert set(first.acceptance_ids) | set(second.acceptance_ids) | set(third.acceptance_ids) == {
-        "youtube-dl-unescape-html-behavior",
-        "youtube-dl-unescape-html-regression-source",
-        "youtube-dl-unescape-html-compatibility",
+    expected_digests = {
+        "youtube-dl-3-unescape-html-three-stage-full": (
+            "ae87c1d42c3a4464e6167ee72f885bac45997806a06f67c98cd9942404448da4"
+        ),
+        "luigi-1-metrics-handler-three-stage-full": (
+            "fab149f13284d5428702d3f6ca72e618fe1004bc0dab7ae2409fc6161dd2e6c3"
+        ),
     }
+    for case in suite.cases:
+        case_path = MULTI_STAGE_SUITE_PATH.parent / case.manifest_path
+        manifest = RunABEvalManifest.model_validate(
+            yaml.safe_load(case_path.read_text(encoding="utf-8"))
+        )
+        case.check_manifest(manifest)
+        assert manifest.sha256 == expected_digests[case.case_id]
+        first, second, third = manifest.initial_plan.items
+        assert second.dependencies == (first.work_item_id,)
+        assert third.dependencies == (second.work_item_id,)
+        assert {arm.restart_points for arm in manifest.arms} == {(3, 6)}
+        assert (
+            len(set(first.acceptance_ids) | set(second.acceptance_ids) | set(third.acceptance_ids))
+            == 3
+        )
 
 
 def test_three_stage_regression_edit_is_line_ending_independent():
@@ -592,3 +606,29 @@ def test_three_stage_regression_edit_is_line_ending_independent():
         assert source.count(edit.arguments["old"]) == 1
         repaired = source.replace(edit.arguments["old"], edit.arguments["new"])
         assert "self.assertEqual(unescapeHTML('&a&quot;'), '&a\"')" in repaired
+
+
+def test_luigi_three_stage_regression_edit_is_line_ending_independent():
+    manifest = RunABEvalManifest.model_validate(
+        yaml.safe_load(LUIGI_MULTI_STAGE_MANIFEST_PATH.read_text(encoding="utf-8"))
+    )
+    edit = next(
+        action
+        for action in manifest.arms[1].actions
+        if action.tool == "replace_text" and action.arguments["path"] == "test/server_test.py"
+    )
+    lines = [
+        "            self.handler.get()",
+        "            patched_write.assert_called_once_with(mock_metrics)",
+        "            mock_metrics.configure_http_handler.assert_called_once_with(self.handler)",
+        "",
+        "    def test_get_no_metrics(self):",
+    ]
+    for newline in ("\n", "\r\n"):
+        source = newline.join(lines)
+        assert source.count(edit.arguments["old"]) == 1
+        repaired = source.replace(edit.arguments["old"], edit.arguments["new"])
+        assert (
+            "self.mock_scheduler._state._metrics_collector.configure_http_handler"
+            ".assert_called_once_with(\n                self.handler)"
+        ) in repaired

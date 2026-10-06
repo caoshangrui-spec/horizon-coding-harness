@@ -1,10 +1,10 @@
-# 完整 Checkout 多阶段 Pilot：youtube-dl-3
+# 完整 Checkout 多阶段 Pilot：youtube-dl-3 与 Luigi-1
 
-更新：2026-10-06。本记录保留 v1 两阶段任务的失败与成功证据，并新增 v2 三阶段任务：在同一个
-干净、固定的 872 文件 youtube-dl 历史 checkout 上，依次修复生产代码、补入上游回归断言、关闭
-相邻行为矩阵。v2 验证两个持久化 Worker 边界、跨 revision Code RAG/Run Memory、只替换最后
-未完成项的受限 replan、最终全量验收和 Trace replay；仍使用冻结脚本模型，不是实际模型或
-BugsInPy 官方跑分。
+更新：2026-10-06。本记录保留 v1 两阶段任务的失败与成功证据、v2 的 youtube-dl 三阶段任务，
+并在 v3 增加独立的 Luigi 三阶段任务。两个案例都使用固定的干净历史 checkout，验证两个持久化
+Worker 边界、跨 revision Code RAG/Run Memory、只替换最后未完成项的受限 replan、最终全量验收
+和 Trace replay；仍使用冻结脚本模型，不是实际模型或 BugsInPy 官方跑分。youtube-dl 已有公开
+禁网 Docker 证据，Luigi 当前只有本地可信执行，公开 Docker 结果必须等工作流实际完成后再记录。
 
 ## 1. 冻结输入与 v1 两阶段合同
 
@@ -260,16 +260,74 @@ NoProgress 证据出现后只发生一次 `PLAN_REVISED`：old/new plan hash 分
 `source-bound-docker-evidence` 的 digest 为
 `sha256:cca5c0a2ac25f173c19de247d46631955b0154d621f812568a7f25ba58d684f3`；没有付费模型或模型网络调用。
 
-## 7. 结论边界与下一步
+## 7. v3 第二个独立任务：Luigi-1
 
-可以声称：一个完整上游 checkout 上的三阶段任务已实际通过依赖调度、隔离会话、跨 revision
-检索、Run Memory、两个 WorkItem 边界 Worker 更替、完成项保留 replan、最终三项全量检查、
-禁网 Docker 验证和离线重放。不能声称：
+v3 原样保留 v2 的 youtube-dl case 对象和 digest，再追加一个不同项目、不同缺陷形态的 Luigi
+案例：
+
+- Suite：[`bugsinpy-multi-stage-pilot-v3.yaml`](../benchmarks/run_ab/bugsinpy-multi-stage-pilot-v3.yaml)，
+  digest `4f1d9c5596b5acb06986f082a42fa328f25e8954d44f56a9d02ddb50149314dd`；
+- Case：[`multi-stage-v3.yaml`](../benchmarks/run_ab/full/luigi-1-metrics-handler/multi-stage-v3.yaml)，
+  digest `fab149f13284d5428702d3f6ca72e618fe1004bc0dab7ae2409fc6161dd2e6c3`；
+- 来源：[BugsInPy](https://github.com/soarsmu/BugsInPy) / Luigi bug 1；buggy commit
+  [`1164eb6`](https://github.com/spotify/luigi/commit/1164eb6b85b8a70f596dbb99452bec513e72c12e)，
+  fixed commit [`aec5dc2`](https://github.com/spotify/luigi/commit/aec5dc2ed8db53fc282a0bd24aabe59031b6d1ba)；
+- v2 suite 与 youtube-dl case digest 仍分别为
+  `c57ae62f6a4bbed7a7ba22e4169822887564c41272f9e440ca0f1c2bd4d458d3` /
+  `ae87c1d42c3a4464e6167ee72f885bac45997806a06f67c98cd9942404448da4`。
+
+上游修复被拆成严格依赖的 `collector binding → handler ownership → regression assertion` 三项。
+前两项分别修改同一个生产文件，但各自有独立验收：第一项检查 collector 绑定和 payload 生成，
+第二项用标准库 AST 提取并真实执行 `MetricsHandler`，确认配置调用落在 collector 而非生成结果上。
+第三项精确更新上游回归断言。三个 required check 在原始 checkout 上都失败；最终检查不依赖安装
+历史 Luigi/Tornado 依赖栈。
+
+### 7.1 本地可信完整运行
+
+本地执行复用生产 Harness、SQLite、Artifact、RAG、预算、Trace 和 Worker 重启路径，仅把最终
+验收换成严格 test-only Python 执行器；因此这是本地可信运行，不是 Docker 证据。
+
+| 指标 | Baseline | Single replan |
+|---|---:|---:|
+| Run | `run_92db7d9585ba4eb4ac5888e4e2c3ff71` | `run_18c8397b0dda4b1f8712fae7f0e7615d` |
+| 最终状态 | `WAITING_FOR_USER` | `SUCCEEDED` |
+| Worker restarts / final lease epoch | 2 / 3 | 2 / 3 |
+| 已通过 WorkItem | collector + handler | collector + handler + regression |
+| Plan version / replans | 1 / 0 | 2 / 1 |
+| Model calls | 10 | 13 |
+| Tool calls / steps | 12 / 12 | 18 / 18 |
+| Event count | 124 | 167 |
+| 合成模型成本（CNY） | 0.00480 | 0.00624 |
+| Trace replay / source unchanged | 通过 / 是 | 通过 / 是 |
+
+两条 arm 均无 unknown/open 调用。Baseline 在完成两个生产项后，因最后一项重复相同检索而安全
+进入等待；Treatment 只替换最后的 regression WorkItem，保留前两项及其验收事实。Treatment 的
+Trace ref 为 `2c1a989d3d1ba54e31a8003db66391597d8ae3df130fa313ae8dd584f7f7092d`，Baseline 为
+`70750e108c0fe2172ba0f619ee07b9268ebfae9636afaf51a064a9bb8efabc00`；最终 validation evidence
+为 `df422c8f30732b27ae6dc28a429f6476fe52f75ad43d22f5cc8fbb6f6c3ac956`，Treatment workspace
+revision 为 `80ecd9871aa66e188367d6879211f5980d53e61111bd72cffd167286a35b4ab4`。
+
+### 7.2 跨 revision 检索与当前证据边界
+
+collector 阶段与 handler 阶段都把 `luigi/server.py` 排为 rank 1，且生产编辑后内容 hash 从
+`622822…` 变为 `881536…`；regression 阶段把 `test/server_test.py` 排为 rank 1，replan 后的新
+查询仍命中同一目标，但绑定新的 revision/content hash（`880c92…` → `7936d2…`）。这证明该次
+运行没有复用旧 revision 片段；它不证明词法检索对任意任务的语义质量。
+
+专用工作流已经改为在 `python:3.12-alpine`、禁网生产 Docker adapter 中顺序执行 youtube-dl 和
+Luigi 两例，并上传统一内容寻址状态。但在对应公开 run 成功前，项目计数仍保持
+`source_bound_run_ab_multi_stage_docker_verified_count=1`，不能把 v3 写成 Docker 2/2。
+
+## 8. 结论边界与下一步
+
+可以声称：两个完整上游 checkout 上的三阶段任务已在本地可信路径实际通过依赖调度、隔离会话、
+跨 revision 检索、Run Memory、两个 WorkItem 边界 Worker 更替、完成项保留 replan、最终三项
+全量检查和离线重放；其中 youtube-dl 另有公开禁网 Docker 证据。不能声称：
 
 - 冻结脚本证明真实模型能自主分解、查询、修复或选择 replan；
 - 源码断言等价于运行 youtube-dl 原 Python 版本的完整 pytest；
 - 协作式释放/重取 Lease 等同于 OS 在任意指令处崩溃，或证明所有任意副作用都能恢复；
-- 一个作者选择任务足以给出泛化成功率。
+- 两个作者选择任务足以给出泛化成功率，或 Luigi 已有公开 Docker 通过证据。
 
 后续增量已为悬空 `run_check` 加入 tool-call-ID 标签容器、显式丢弃合同，以及自然退出、清理前
 停止容器的精确 success/error 结果恢复。控制器可查询状态，且只有显式授权才终止仍运行的精确

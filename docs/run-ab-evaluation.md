@@ -103,8 +103,9 @@ Docker 中运行。
 [外部来源 Run A/B Suite](external-run-ab-suite.md)。其中 tqdm-1、youtube-dl-3 与 Luigi-1 还完成了
 [三项目完整 checkout suite](full-checkout-pilot.md)，包含 Git 来源门和真实 Code RAG；v2 本地可信
 与专用公开禁网 Docker 均为 3/3。872 文件下
-重复 CAS blob 校验的开销也已完成前后对照优化。youtube-dl-3 随后把
-[完整 checkout 多阶段 A/B](multi-stage-full-checkout-pilot.md)扩为三个依赖 WorkItem：两条 arm
-都跨两个持久边界到 epoch 3；Baseline 在最后一项等待，Treatment 只修订最后未完成项后成功。
-本地可信与公开禁网 Docker 均为 1/1，Trace replay 与来源未变均通过。
+重复 CAS blob 校验的开销也已完成前后对照优化。[完整 checkout 多阶段
+A/B](multi-stage-full-checkout-pilot.md)随后在 youtube-dl-3 与 Luigi-1 上各扩为三个依赖
+WorkItem：每条 arm 都跨两个持久边界到 epoch 3；Baseline 在最后一项等待，Treatment 只修订
+最后未完成项后成功。本地可信为 2/2，youtube-dl 公开禁网 Docker 为 1/1，Luigi 公开验证待运行；
+已有运行的 Trace replay 与来源未变均通过。
 真实模型 arm 仍只在用户明确授权的费用上限内增加。

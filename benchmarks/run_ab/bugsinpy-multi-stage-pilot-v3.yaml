@@ -1,0 +1,36 @@
+schema_version: 1
+suite_id: bugsinpy-multi-stage-pilot-v3
+
+# v3 preserves the frozen v2 youtube-dl case and adds an independent Luigi three-stage task.
+cases:
+  - case_id: youtube-dl-3-unescape-html-three-stage-full
+    manifest_path: full/youtube-dl-3-unescape-html/multi-stage-v2.yaml
+    source:
+      benchmark: BugsInPy
+      project: youtube-dl
+      bug_id: "3"
+      repository_url: https://github.com/ytdl-org/youtube-dl
+      buggy_commit: f5469da9e6e259c1690c7ef54f1da1c19f65036f
+      fixed_commit: 95f3f7c20a05e7ac490e768b8470b20538ef8581
+      fix_url: https://github.com/ytdl-org/youtube-dl/commit/95f3f7c20a05e7ac490e768b8470b20538ef8581
+      upstream_test: test/test_utils.py::TestUtil.test_unescape_html
+      license_spdx: Unlicense
+      license_url: https://github.com/ytdl-org/youtube-dl/blob/f5469da9e6e259c1690c7ef54f1da1c19f65036f/LICENSE
+      reduction: full_checkout
+      reduction_note: Uses the clean 872-file upstream checkout for three dependent WorkItems, two persisted worker-boundary restarts, one bounded final-item replan, and three protected checks.
+
+  - case_id: luigi-1-metrics-handler-three-stage-full
+    manifest_path: full/luigi-1-metrics-handler/multi-stage-v3.yaml
+    source:
+      benchmark: BugsInPy
+      project: luigi
+      bug_id: "1"
+      repository_url: https://github.com/spotify/luigi
+      buggy_commit: 1164eb6b85b8a70f596dbb99452bec513e72c12e
+      fixed_commit: aec5dc2ed8db53fc282a0bd24aabe59031b6d1ba
+      fix_url: https://github.com/spotify/luigi/commit/aec5dc2ed8db53fc282a0bd24aabe59031b6d1ba
+      upstream_test: test/server_test.py::MetricsHandlerTest::test_get
+      license_spdx: Apache-2.0
+      license_url: https://github.com/spotify/luigi/blob/1164eb6b85b8a70f596dbb99452bec513e72c12e/LICENSE
+      reduction: full_checkout
+      reduction_note: Uses the clean 382-file upstream checkout for collector binding, handler ownership, and the exact upstream regression update across two persisted worker-boundary restarts and one bounded final-item replan.
