@@ -99,7 +99,8 @@ observation，并按原 session 的下一 iteration 继续。包含 `revise_plan
 生产路径共用 `check_execution_replan`；它只验证合同判断，不是模型决策质量或任务收益证据。
 首个[完整 Run A/B](run-ab-evaluation.md)进一步保存 baseline 等待与单次 replan 成功的完整事件
 Trace，并执行真实 Docker required check；同一 runner/report 合同还扩展到五个
-[BugsInPy 来源的依赖裁剪案例](external-run-ab-suite.md)。两个 arm 仍由冻结脚本指定动作，裁剪
+[BugsInPy 来源的依赖裁剪案例](external-run-ab-suite.md)，本地可信与公开禁网 Docker 均为 5/5。
+两个 arm 仍由冻结脚本指定动作，裁剪
 案例本身不是完整上游 checkout；随后 tqdm、youtube-dl 与 Luigi 三个
 [完整 checkout](full-checkout-pilot.md)也通过了相同对照并实际调用 Code RAG；v2 三例除本地可信
 执行外，已由专用公开 CI 在禁网 Docker 中通过 3/3。youtube-dl 还完成了

@@ -88,10 +88,26 @@ Docker adapter，实际启动独立 Python 进程运行五个 dependency-free �
 全部失败、五个 treatment 全部通过。该失败没有通过放宽生产合同来掩盖。
 
 这份测试证明确实执行了裁剪后的回归脚本及 Harness A/B 路径，但临时测试目录不会作为正式
-suite report 长期保存。由于本机 Docker daemon 本批不可用，v2 五例的生产 Docker 运行仍是
-**待验证**，不能写成 Docker 5/5。
+suite report 长期保存。本机 Docker daemon 当时不可用，因此先保留为本地可信证据；后续公开
+Docker 工作流已独立补齐同一 v2 的正式容器执行。
 
-### 4.2 v1 历史 Docker 结果
+### 4.2 v2 公开 Docker 5/5
+
+2026-10-06 的统一 [Source-bound Docker evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/37436568589)
+工作流使用生产 `DockerAcceptanceExecutor` 和本机拉取的 `python:3.12-alpine`，在禁网、非 root、
+只读根文件系统、drop all capabilities 与资源上限下运行冻结 v2：
+
+- 5/5 初始保护检查失败，5/5 Baseline 进入 `WAITING_FOR_USER`，5/5 Treatment 进入 `SUCCEEDED`；
+- success/model/tool/step delta 保持 +5/+10/+15/+15，未调用付费模型或模型网络；
+- 同一 job 还复跑完整 checkout v2 3/3；两份 suite 的 report、Trace 和具体 Docker image ID 一并
+  上传为 32.3 MB artifact；
+- artifact digest 为
+  `sha256:5bb438df11526a43476272f5622af3446c013bdc0c3ae1614b56272c8bcbc4b2`，保留 30 天。
+
+工作流成功证明的是 dependency-reduced fixture 的生产 Docker Harness 路径，不把裁剪案例扩写成
+完整上游 checkout 或官方 BugsInPy 分数。
+
+### 4.3 v1 历史 Docker 结果
 
 2026-10-03 使用官方镜像 digest
 `sha256:0687a6bc9716edc2a6ee0fbfb0f87e7ee358b262b67c9215de91bc9b2d38ba71`：
@@ -116,8 +132,7 @@ token、合成成本、workspace manifest 和全部边界检查。Suite 汇总�
 当前证据比内部 synthetic fixture 更强，因为缺陷类型、生产修复行和 commit 来自五个公开历史
 任务；但依赖裁剪会降低仓库规模、检索难度和环境复杂度，脚本模型也预先知道修复动作。因此：
 
-- 可以声称 v2 五个来源合同和本地可信完整 Harness A/B 均通过；
-- 只能对 v1 原三个案例声称已有禁网 Docker 验收，v2 Docker 结果待补；
+- 可以声称 v2 五个来源合同、本地可信 Harness A/B 和公开禁网 Docker Harness A/B 均通过；
 - 不能声称在完整 Cookiecutter/FastAPI/Luigi/Tornado checkout 上通过；
 - 不能声称真实模型会定位这些文件或自主选择 replan；
 - 不能把 5/5 写成 SWE-bench、BugsInPy 官方跑分或泛化成功率。
@@ -126,6 +141,7 @@ token、合成成本、workspace manifest 和全部边界检查。Suite 汇总�
 额外验证 Git HEAD 和清洁度，82/872 文件快照上的 Code RAG 都返回目标文件 rank 1，并显式保留
 9/2 个文件跳过导致的 degraded 状态。重复 CAS blob 校验的规模开销已完成前后对照优化；
 youtube-dl-3 还完成了[两阶段完整 checkout 与 Worker 重启](multi-stage-full-checkout-pilot.md)。
-Luigi-1 也已进入[三项目完整 checkout v2](full-checkout-pilot.md)，当前有本地可信 3/3 证据。
-下一步优先在 Docker 可用时补齐两个 v2 suite 的生产命令，或再把 Tornado 升级为完整 checkout；
-在真实模型决策证据出现前，不增加第二次自动 replan、向量库、通用审批流或复杂 Planner。
+Luigi-1 也已进入[三项目完整 checkout v2](full-checkout-pilot.md)，并与 tqdm/youtube-dl 一起取得
+本地可信和公开禁网 Docker 3/3。下一步优先增加一个多阶段完整 checkout 的真实任务深度，而不是
+继续堆叠同类裁剪案例；在真实模型决策证据出现前，不增加第二次自动 replan、向量库、通用审批流
+或复杂 Planner。

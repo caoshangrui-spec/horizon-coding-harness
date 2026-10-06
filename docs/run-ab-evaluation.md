@@ -99,7 +99,7 @@ Docker 中运行。
 一个任务和一次正式运行，也没有独立安全复核。
 
 同一 runner/report 合同现已扩展到五个来源与许可证明确的 BugsInPy 依赖裁剪案例；五例本地
-可信集成通过，原 v1 三例有历史 Docker 证据，v2 Docker 待验证，见
+可信与公开禁网 Docker 均为 5/5，见
 [外部来源 Run A/B Suite](external-run-ab-suite.md)。其中 tqdm-1、youtube-dl-3 与 Luigi-1 还完成了
 [三项目完整 checkout suite](full-checkout-pilot.md)，包含 Git 来源门和真实 Code RAG；v2 本地可信
 与专用公开禁网 Docker 均为 3/3。872 文件下

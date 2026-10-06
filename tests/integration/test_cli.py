@@ -253,7 +253,7 @@ def test_doctor_checks_fts_without_model():
     assert data["source_bound_run_ab_suite"] is True
     assert data["source_bound_run_ab_suite_profile"] == ("external_reduced_and_clean_full_checkout")
     assert data["source_bound_run_ab_reduced_case_count"] == 5
-    assert data["source_bound_run_ab_reduced_docker_verified_count"] == 3
+    assert data["source_bound_run_ab_reduced_docker_verified_count"] == 5
     assert data["source_bound_run_ab_full_checkout_gate"] is True
     assert data["source_bound_run_ab_full_checkout_case_count"] == 3
     assert data["source_bound_run_ab_full_checkout_docker_verified_count"] == 3

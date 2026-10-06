@@ -74,18 +74,18 @@ uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
 
 ### 3.1 v2 三项目公开 Docker 执行
 
-2026-10-06 的专用 [Full checkout Docker evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/37435485497)
+2026-10-06 的专用 [Source-bound Docker evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/37436568589)
 工作流在 GitHub-hosted Linux runner 上重新 shallow-fetch 三个固定 buggy commit，并逐一检查 HEAD、
 tracked 文件数和 clean status。随后它拉取 `python:3.12-alpine`，通过生产
 `DockerAcceptanceExecutor` 在 `network=none`、只读根文件系统、非 root 用户、drop all capabilities
 和资源上限下运行 v2 suite：
 
-- 工作流、三项目 suite 和证据上传均成功；Docker suite 步骤用时约 28 秒；
+- 工作流、依赖裁剪 5-case suite、三项目完整 checkout suite 和证据上传均成功；总 job 用时 56 秒；
 - 3/3 初始保护检查失败，3/3 Baseline 进入 `WAITING_FOR_USER`，3/3 Treatment 进入 `SUCCEEDED`；
 - CLI 只在 suite 全部期望满足时以 0 退出；每个 report/Trace、具体 Docker image ID 和状态库存入
   `.horizon/full-checkout-docker-v2`；
-- 31.3 MB 公开 artifact 的 digest 为
-  `sha256:9395166ac42c0e59724beca0071e111ff9e2a34915bf82f3d89fd266da4b7e06`，保留 30 天；
+- 32.3 MB 统一公开 artifact 的 digest 为
+  `sha256:5bb438df11526a43476272f5622af3446c013bdc0c3ae1614b56272c8bcbc4b2`，保留 30 天；
 - 工作流不读取 API Key，不调用付费模型；Agent 模型仍是冻结 Scripted Model，验收容器自身禁网。
 
 这关闭了 Luigi “仅本地可信、尚无 Docker”的缺口，但仍不是原 Python 版本、完整依赖环境或

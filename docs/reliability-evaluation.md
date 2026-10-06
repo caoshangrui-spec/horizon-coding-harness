@@ -87,8 +87,8 @@ E2E 与 `trace replay` 测试承担。
 
 内部 shell fixture 的“无 replan / 单次 replan”完整 Run 对照现已落地，包含真实 Docker
 验收、两份内容寻址 Trace、调用数和合成费用，见[完整 Run A/B](run-ab-evaluation.md)。同一合同
-也已扩展到五个来源绑定的 BugsInPy 依赖裁剪案例；五例本地可信集成通过，原 v1 三例有历史
-Docker 证据，v2 Docker 待验证，见[外部来源 A/B Suite](external-run-ab-suite.md)。
+也已扩展到五个来源绑定的 BugsInPy 依赖裁剪案例；五例本地可信和公开禁网 Docker 均为 5/5，
+见[外部来源 A/B Suite](external-run-ab-suite.md)。
 其中 tqdm-1、youtube-dl-3 与 Luigi-1 又在[完整固定 checkout](full-checkout-pilot.md)上通过并实际
 运行 Code RAG；v2 三例已有本地可信执行和公开禁网 Docker 3/3。重复 CAS blob 校验的
 规模开销已优化；youtube-dl-3 的

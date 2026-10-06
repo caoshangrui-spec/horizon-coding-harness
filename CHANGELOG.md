@@ -16,9 +16,9 @@ for public releases; unreleased work must not be presented as a published releas
 - Expanded the source-bound dependency-reduced BugsInPy suite from three to five frozen cases while
   preserving the v1 case objects and digest. The new Apache-2.0 Luigi and Tornado fixtures bind
   upstream buggy/fixed commits, tests, fixes, and licenses. A trusted test-only executor now proves
-  all five initial failures and scripted repairs by running their dependency-free Python checks;
-  production evaluation remains Docker-only, and the five-case Docker run is still pending because
-  the local daemon was unavailable.
+  all five initial failures and scripted repairs by running their dependency-free Python checks.
+  The unified public source-bound workflow also passes all five cases in network-disabled Docker
+  and publishes their report/Trace state beside the three-project full-checkout evidence.
 - Added `horizon eval recovery` with frozen, backward-readable recovery matrices. v1 contains one
   real child-process exit-after-write-effect case plus 18 exact write state/decision cases. v2
   preserves the v1 digest and adds a real process crash after a model response returns but before
