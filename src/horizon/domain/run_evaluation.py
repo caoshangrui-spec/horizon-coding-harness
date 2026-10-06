@@ -46,7 +46,15 @@ class RunABArm(Contract):
     expected_model_calls: NonNegativeInt
     expected_tool_calls: NonNegativeInt
     expected_steps: NonNegativeInt
-    restart_after_model_calls: PositiveInt | None = None
+    restart_after_model_calls: PositiveInt | tuple[PositiveInt, ...] | None = None
+
+    @property
+    def restart_points(self) -> tuple[int, ...]:
+        if self.restart_after_model_calls is None:
+            return ()
+        if isinstance(self.restart_after_model_calls, int):
+            return (self.restart_after_model_calls,)
+        return self.restart_after_model_calls
 
     @model_validator(mode="after")
     def validate_expectation(self) -> Self:
@@ -57,9 +65,10 @@ class RunABArm(Contract):
             and self.expected_status != RunStatus.WAITING_FOR_USER
         ):
             raise ValueError("A human-request pattern requires WAITING_FOR_USER")
-        if self.restart_after_model_calls is not None and self.restart_after_model_calls >= len(
-            self.actions
-        ):
+        restart_points = self.restart_points
+        if restart_points != tuple(sorted(set(restart_points))):
+            raise ValueError("Worker restart points must be unique and strictly increasing")
+        if restart_points and restart_points[-1] >= len(self.actions):
             raise ValueError("A worker restart must leave at least one scripted action to resume")
         return self
 
@@ -109,7 +118,7 @@ class RunABArmResult(Contract):
     model_cost: NonNegativeMoney
     model_currency: Literal["CNY", "USD"]
     event_count: NonNegativeInt
-    worker_restarts: Literal[0, 1]
+    worker_restarts: NonNegativeInt
     final_lease_epoch: PositiveInt
     trace_ref: Sha256
     projection_hash: Sha256

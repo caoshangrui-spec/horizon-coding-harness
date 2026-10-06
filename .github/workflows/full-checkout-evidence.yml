@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/workflows/full-checkout-evidence.yml"
       - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v2.yaml"
+      - "benchmarks/run_ab/bugsinpy-multi-stage-pilot-v2.yaml"
       - "benchmarks/run_ab/bugsinpy-reduced-v2.yaml"
       - "benchmarks/run_ab/external/**/manifest.yaml"
       - "benchmarks/run_ab/full/**/manifest.yaml"
@@ -24,9 +25,9 @@ concurrency:
 
 jobs:
   docker-evidence:
-    name: Reduced and full-checkout suites
+    name: Reduced, full-checkout, and multi-stage suites
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
 
     steps:
       - name: Check out harness
@@ -111,6 +112,18 @@ jobs:
             --state-dir "$state_dir" \
             | tee "$state_dir/cli-result.json"
 
+      - name: Run the three-stage recovery suite in network-disabled containers
+        shell: bash
+        run: |
+          set -euo pipefail
+          state_dir=.horizon/multi-stage-docker-v2
+          mkdir -p "$state_dir"
+          uv run --locked horizon eval run-ab-suite \
+            benchmarks/run_ab/bugsinpy-multi-stage-pilot-v2.yaml \
+            --image python:3.12-alpine \
+            --state-dir "$state_dir" \
+            | tee "$state_dir/cli-result.json"
+
       - name: Upload content-addressed evidence
         id: evidence-upload
         if: always()
@@ -120,6 +133,7 @@ jobs:
           path: |
             .horizon/reduced-docker-v2
             .horizon/full-checkout-docker-v2
+            .horizon/multi-stage-docker-v2
           if-no-files-found: warn
           retention-days: 30
 
@@ -142,8 +156,22 @@ jobs:
                   encoding="utf-8"
               )
           )
+          multi = json.loads(
+              Path(".horizon/multi-stage-docker-v2/cli-result.json").read_text(
+                  encoding="utf-8"
+              )
+          )
           reduced_report = reduced["report"]
           full_report = full["report"]
+          multi_report = multi["report"]
+          multi_case_ref = multi_report["cases"][0]["report_ref"]
+          multi_case = json.loads(
+              (
+                  Path(".horizon/multi-stage-docker-v2/artifacts")
+                  / multi_case_ref[:2]
+                  / multi_case_ref
+              ).read_text(encoding="utf-8")
+          )
           lines = [
               "## Frozen source-bound Docker evidence",
               "",
@@ -159,6 +187,18 @@ jobs:
                   f"report `{full['report_ref']}`"
               ),
               (
+                  "- Three-stage recovery suite: "
+                  f"`{multi_report['passed_case_count']}/{multi_report['case_count']}`; "
+                  f"report `{multi['report_ref']}`"
+              ),
+              (
+                  "- Three-stage worker restarts / final epochs: "
+                  f"baseline `{multi_case['baseline']['worker_restarts']}/"
+                  f"{multi_case['baseline']['final_lease_epoch']}`, treatment "
+                  f"`{multi_case['single_replan']['worker_restarts']}/"
+                  f"{multi_case['single_replan']['final_lease_epoch']}`"
+              ),
+              (
                   "- Reduced initial failures / recovered treatments: "
                   f"`{reduced_report['initial_failure_confirmed_count']}/"
                   f"{reduced_report['treatment_recovered_count']}`"
@@ -169,11 +209,19 @@ jobs:
                   f"{full_report['treatment_recovered_count']}`"
               ),
               (
-                  "- All expectations met: "
-                  f"`{reduced_report['all_expectations_met'] and full_report['all_expectations_met']}`"
+                  "- Three-stage initial failures / recovered treatments: "
+                  f"`{multi_report['initial_failure_confirmed_count']}/"
+                  f"{multi_report['treatment_recovered_count']}`"
               ),
-              f"- Paid model / model network calls: `{full_report['paid_model_called']}` / "
-              f"`{full_report['network_called']}`",
+              (
+                  "- All expectations met: "
+                  f"`{reduced_report['all_expectations_met'] and full_report['all_expectations_met'] and multi_report['all_expectations_met']}`"
+              ),
+              (
+                  "- Paid model / model network calls: "
+                  f"`{any(report['paid_model_called'] for report in (reduced_report, full_report, multi_report))}` / "
+                  f"`{any(report['network_called'] for report in (reduced_report, full_report, multi_report))}`"
+              ),
               f"- Uploaded artifact digest: `{os.environ['ARTIFACT_DIGEST']}`",
           ]
           with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:

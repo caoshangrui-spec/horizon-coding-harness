@@ -1,0 +1,177 @@
+schema_version: 1
+benchmark_id: youtube-dl-3-unescape-html-three-stage-full
+fixture_path: fixture
+
+task:
+  task_id: youtube-dl-unescape-html-three-stage-full
+  title: Repair nested HTML entities, preserve the regression, and close compatibility verification
+  objective: Complete production repair, regression coverage, and an adjacent behavior matrix across recoverable worker boundaries
+  repository:
+    source: local
+    path: /fixture
+    base_commit: f5469da9e6e259c1690c7ef54f1da1c19f65036f
+  constraints:
+    allowed_paths: ["**"]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+  acceptance:
+    - id: youtube-dl-unescape-html-behavior
+      command: >-
+        python -B -c "from youtube_dl.utils import unescapeHTML; assert unescapeHTML('&a&quot;') == '&a' + chr(34)"
+      timeout_seconds: 60
+      required: true
+    - id: youtube-dl-unescape-html-regression-source
+      command: >-
+        python -B -c "from pathlib import Path; text=Path('test/test_utils.py').read_text(encoding='utf-8'); expected=chr(32)*8 + 'self.assertEqual(unescapeHTML(' + chr(39) + '&a&quot;' + chr(39) + '), ' + chr(39) + '&a' + chr(34) + chr(39) + ')'; assert expected in text"
+      timeout_seconds: 30
+      required: true
+    - id: youtube-dl-unescape-html-compatibility
+      command: >-
+        python -B -c "from youtube_dl.utils import unescapeHTML; values=('&amp;', '&a&quot;', '&#39;', '&unknown;'); expected=('&', '&a' + chr(34), chr(39), '&unknown;'); assert tuple(map(unescapeHTML, values)) == expected"
+      timeout_seconds: 60
+      required: true
+  budgets:
+    max_steps: 40
+    max_model_calls: 30
+    max_tool_calls: 40
+    max_wall_time_seconds: 900
+    max_cost_usd: "1.00"
+    max_input_tokens: 120000
+    max_output_tokens: 8000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+
+initial_plan:
+  version: 1
+  items:
+    - &production_item
+      work_item_id: repair-unescape-html-production
+      title: Repair the nested HTML entity matcher
+      objective: Decode the final valid entity without consuming an earlier ampersand
+      dependencies: []
+      expected_artifacts: [Code EvidencePack, youtube-dl-unescape-html-behavior receipt]
+      acceptance_ids: [youtube-dl-unescape-html-behavior]
+      allowed_tools: [retrieve_code, replace_text, run_check]
+    - &regression_item
+      work_item_id: add-unescape-html-regression
+      title: Add the upstream nested-entity regression assertion
+      objective: Preserve the fixed input/output pair in the existing upstream test module
+      dependencies: [repair-unescape-html-production]
+      expected_artifacts: [Code EvidencePack, youtube-dl-unescape-html-regression-source receipt]
+      acceptance_ids: [youtube-dl-unescape-html-regression-source]
+      allowed_tools: [retrieve_code, replace_text, run_check]
+    - work_item_id: verify-unescape-html-compatibility
+      title: Verify adjacent HTML entity behavior
+      objective: Close the task with named, numeric, unknown, and nested entity behavior evidence
+      dependencies: [add-unescape-html-regression]
+      expected_artifacts: [Code EvidencePack, youtube-dl-unescape-html-compatibility receipt]
+      acceptance_ids: [youtube-dl-unescape-html-compatibility]
+      allowed_tools: [retrieve_code]
+
+expected_initial_failed_checks:
+  - youtube-dl-unescape-html-behavior
+  - youtube-dl-unescape-html-regression-source
+  - youtube-dl-unescape-html-compatibility
+
+arms:
+  - arm_id: no-replan
+    role: baseline
+    description: Complete production and regression work across two worker boundaries, then remain stalled on final compatibility closure.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items:
+      - repair-unescape-html-production
+      - add-unescape-html-regression
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 10
+    expected_tool_calls: 12
+    expected_steps: 12
+    restart_after_model_calls: [3, 6]
+    actions:
+      - &retrieve_production
+        tool: retrieve_code
+        arguments:
+          query: unescapeHTML html entity ampersand quot regex
+          max_chunks: 4
+      - &replace_production
+        tool: replace_text
+        arguments:
+          path: youtube_dl/utils.py
+          old: "r'&([^;]+;)', lambda m: _htmlentity_transform(m.group(1)), s)"
+          new: "r'&([^&;]+;)', lambda m: _htmlentity_transform(m.group(1)), s)"
+      - &submit_production
+        tool: submit
+        arguments:
+          summary: Repaired nested HTML entity decoding and verified the production behavior.
+      - &retrieve_regression
+        tool: retrieve_code
+        arguments:
+          query: test_unescape_html assertEqual unescapeHTML html entity
+          max_chunks: 4
+      - &replace_regression
+        tool: replace_text
+        arguments:
+          path: test/test_utils.py
+          old: "        self.assertEqual(unescapeHTML('&#2013266066;'), '&#2013266066;')"
+          new: "        self.assertEqual(unescapeHTML('&#2013266066;'), '&#2013266066;')\n        self.assertEqual(unescapeHTML('&a&quot;'), '&a\"')"
+      - &submit_regression
+        tool: submit
+        arguments:
+          summary: Added the upstream nested-entity regression assertion and preserved production behavior.
+      - &retrieve_compatibility
+        tool: retrieve_code
+        arguments:
+          query: unescapeHTML compatibility amp numeric unknown nested entity behavior
+          max_chunks: 4
+      - *retrieve_compatibility
+      - *retrieve_compatibility
+      - *retrieve_compatibility
+
+  - arm_id: single-replan
+    role: single_replan
+    description: Preserve two completed WorkItems, revise only compatibility closure, and finish all required checks after two worker restarts.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items:
+      - repair-unescape-html-production
+      - add-unescape-html-regression
+      - verify-unescape-html-compatibility-after-stall
+    expected_model_calls: 12
+    expected_tool_calls: 17
+    expected_steps: 17
+    restart_after_model_calls: [3, 6]
+    actions:
+      - *retrieve_production
+      - *replace_production
+      - *submit_production
+      - *retrieve_regression
+      - *replace_regression
+      - *submit_regression
+      - *retrieve_compatibility
+      - *retrieve_compatibility
+      - *retrieve_compatibility
+      - tool: revise_plan
+        arguments:
+          reason: Production and regression WorkItems are already validated; replace only the stalled compatibility investigation with a bounded evidence-ready closure item.
+          items:
+            - *production_item
+            - *regression_item
+            - work_item_id: verify-unescape-html-compatibility-after-stall
+              title: Close adjacent HTML entity compatibility from persisted evidence
+              objective: Run the named, numeric, unknown, and nested entity behavior matrix
+              dependencies: [add-unescape-html-regression]
+              expected_artifacts: [Code EvidencePack, youtube-dl-unescape-html-compatibility receipt]
+              acceptance_ids: [youtube-dl-unescape-html-compatibility]
+              allowed_tools: [retrieve_code, run_check]
+      - tool: retrieve_code
+        arguments:
+          query: unescapeHTML HTML5 named numeric unknown entity compatibility matrix
+          max_chunks: 4
+      - tool: submit
+        arguments:
+          summary: Preserved both completed edits and closed the adjacent entity compatibility matrix.

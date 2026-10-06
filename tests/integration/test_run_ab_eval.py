@@ -30,7 +30,8 @@ FULL_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot
 LUIGI_FULL_MANIFEST_PATH = (
     ROOT / "benchmarks" / "run_ab" / "full" / "luigi-1-metrics-handler" / "manifest.yaml"
 )
-MULTI_STAGE_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-pilot-v1.yaml"
+MULTI_STAGE_V1_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-pilot-v1.yaml"
+MULTI_STAGE_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-pilot-v2.yaml"
 
 
 class FixtureContentAcceptance:
@@ -74,14 +75,17 @@ class TrustedFixturePythonAcceptance:
         )
 
 
-class TwoStageAcceptance:
+class MultiStageAcceptance:
     """Small fixture contract used to exercise evaluator-owned worker restart injection."""
 
     def execute(self, workspace, check):
         content = (workspace / "src/parser.sh").read_text(encoding="utf-8")
+        empty_guarded = "printf '[]\\n'" in content
+        nonempty_wrapped = "printf '[%s]\\n'" in content
         markers = {
-            "empty-contract": "printf '[]\\n'" in content,
-            "nonempty-contract": "printf '[%s]\\n'" in content,
+            "empty-contract": empty_guarded,
+            "nonempty-contract": nonempty_wrapped,
+            "combined-contract": empty_guarded and nonempty_wrapped,
         }
         passed = markers[check.id]
         output = "expected stage marker present" if passed else "expected stage marker absent"
@@ -217,7 +221,31 @@ def test_run_ab_rejects_state_inside_fixture_before_creating_it(tmp_path):
     assert not state.exists()
 
 
-def test_run_ab_restarts_worker_at_persisted_work_item_boundary(tmp_path):
+@pytest.mark.parametrize(
+    ("restart_points", "message"),
+    [
+        ([2, 2], "unique and strictly increasing"),
+        ([3, 2], "unique and strictly increasing"),
+        ([7], "leave at least one scripted action"),
+    ],
+)
+def test_run_ab_rejects_invalid_worker_restart_points(restart_points, message):
+    data = yaml.safe_load(MANIFEST_PATH.read_text(encoding="utf-8"))
+    data["arms"][0]["restart_after_model_calls"] = restart_points
+
+    with pytest.raises(ValueError, match=message):
+        RunABEvalManifest.model_validate(data)
+
+
+@pytest.mark.parametrize(
+    ("restart_after_model_calls", "expected_restarts"),
+    [(2, 1), ([2, 4], 2)],
+)
+def test_run_ab_restarts_workers_at_persisted_work_item_boundaries(
+    tmp_path,
+    restart_after_model_calls,
+    expected_restarts,
+):
     data = yaml.safe_load(MANIFEST_PATH.read_text(encoding="utf-8"))
     data["benchmark_id"] = "worker-boundary-restart-v1"
     data["task"]["acceptance"] = [
@@ -230,6 +258,12 @@ def test_run_ab_restarts_worker_at_persisted_work_item_boundary(tmp_path):
         {
             "id": "nonempty-contract",
             "command": "unused-nonempty-check",
+            "timeout_seconds": 30,
+            "required": True,
+        },
+        {
+            "id": "combined-contract",
+            "command": "unused-combined-check",
             "timeout_seconds": 30,
             "required": True,
         },
@@ -255,9 +289,22 @@ def test_run_ab_restarts_worker_at_persisted_work_item_boundary(tmp_path):
                 "acceptance_ids": ["nonempty-contract"],
                 "allowed_tools": ["replace_text"],
             },
+            {
+                "work_item_id": "verify-combined",
+                "title": "Verify both parser contracts",
+                "objective": "Run the final combined parser contract",
+                "dependencies": ["guard-nonempty"],
+                "expected_artifacts": ["combined-contract receipt"],
+                "acceptance_ids": ["combined-contract"],
+                "allowed_tools": ["run_check"],
+            },
         ],
     }
-    data["expected_initial_failed_checks"] = ["empty-contract", "nonempty-contract"]
+    data["expected_initial_failed_checks"] = [
+        "empty-contract",
+        "nonempty-contract",
+        "combined-contract",
+    ]
     actions = [
         {
             "tool": "replace_text",
@@ -283,20 +330,21 @@ def test_run_ab_restarts_worker_at_persisted_work_item_boundary(tmp_path):
             },
         },
         {"tool": "submit", "arguments": {"summary": "Wrapped non-empty input."}},
+        {"tool": "submit", "arguments": {"summary": "Verified both parser contracts."}},
     ]
     data["arms"] = [
         {
             "arm_id": arm_id,
             "role": role,
-            "description": "Complete both stages across one persisted worker restart.",
+            "description": "Complete three stages across persisted worker boundaries.",
             "expected_status": "SUCCEEDED",
             "expected_plan_version": 1,
             "expected_execution_replans": 0,
-            "expected_passed_items": ["guard-empty", "guard-nonempty"],
-            "expected_model_calls": 4,
-            "expected_tool_calls": 7,
-            "expected_steps": 7,
-            "restart_after_model_calls": 2,
+            "expected_passed_items": ["guard-empty", "guard-nonempty", "verify-combined"],
+            "expected_model_calls": 5,
+            "expected_tool_calls": 10,
+            "expected_steps": 10,
+            "restart_after_model_calls": restart_after_model_calls,
             "actions": actions,
         }
         for arm_id, role in (
@@ -308,21 +356,25 @@ def test_run_ab_restarts_worker_at_persisted_work_item_boundary(tmp_path):
     fixture = MANIFEST_PATH.parent / manifest.fixture_path
 
     report = RunABEvaluator(
-        TwoStageAcceptance(),
+        MultiStageAcceptance(),
         validation_backend="fixture-content",
         validation_backend_ref="test-only-two-stage-contract",
         repository_code_executed=False,
     ).evaluate(manifest, fixture_source=fixture, state_dir=tmp_path / "state")
 
     assert report.all_expectations_met is True
-    assert report.initial_failed_checks == ("empty-contract", "nonempty-contract")
+    assert report.initial_failed_checks == (
+        "combined-contract",
+        "empty-contract",
+        "nonempty-contract",
+    )
     assert report.treatment_recovered is False
     artifacts = ArtifactStore(tmp_path / "state" / "artifacts")
     for arm in (report.baseline, report.single_replan):
         assert arm.status == RunStatus.SUCCEEDED
-        assert arm.worker_restarts == 1
-        assert arm.final_lease_epoch == 2
-        assert arm.passed_items == ("guard-empty", "guard-nonempty")
+        assert arm.worker_restarts == expected_restarts
+        assert arm.final_lease_epoch == expected_restarts + 1
+        assert arm.passed_items == ("guard-empty", "guard-nonempty", "verify-combined")
         assert arm.actions_consumed is True
         assert arm.trace_replay_verified is True
         assert arm.source_workspace_unchanged is True
@@ -330,14 +382,18 @@ def test_run_ab_restarts_worker_at_persisted_work_item_boundary(tmp_path):
             Event.model_validate_json(line)
             for line in artifacts.read(arm.trace_ref).decode("utf-8").splitlines()
         ]
-        restarted_lease = next(
+        restarted_leases = [
             event
             for event in events
-            if event.event_type == "LEASE_ACQUIRED" and event.payload["epoch"] == 2
+            if event.event_type == "LEASE_ACQUIRED" and event.payload["epoch"] > 1
+        ]
+        assert [event.payload["epoch"] for event in restarted_leases] == list(
+            range(2, expected_restarts + 2)
         )
-        assert datetime.fromisoformat(
-            restarted_lease.payload["expires_at"]
-        ) - datetime.fromisoformat(restarted_lease.created_at) == timedelta(seconds=600)
+        for restarted_lease in restarted_leases:
+            assert datetime.fromisoformat(
+                restarted_lease.payload["expires_at"]
+            ) - datetime.fromisoformat(restarted_lease.created_at) == timedelta(seconds=600)
 
 
 def test_run_ab_suite_cli_aggregates_source_bound_cases(tmp_path, monkeypatch):
@@ -481,10 +537,15 @@ def test_luigi_full_checkout_repair_is_line_ending_independent():
         assert "metrics_collector.configure_http_handler(self)" in source
 
 
-def test_multi_stage_full_checkout_suite_binds_dependency_order_and_source():
+def test_three_stage_full_checkout_suite_preserves_v1_and_binds_dependency_order():
+    v1 = RunABSuiteManifest.model_validate(
+        yaml.safe_load(MULTI_STAGE_V1_SUITE_PATH.read_text(encoding="utf-8"))
+    )
     suite = RunABSuiteManifest.model_validate(
         yaml.safe_load(MULTI_STAGE_SUITE_PATH.read_text(encoding="utf-8"))
     )
+    assert v1.sha256 == "e4afeee636e571010c65557757770b8c1b489227e3c3809314371e35527b7569"
+    assert suite.sha256 == "c57ae62f6a4bbed7a7ba22e4169822887564c41272f9e440ca0f1c2bd4d458d3"
     assert len(suite.cases) == 1
     case = suite.cases[0]
     assert case.source.project == "youtube-dl"
@@ -496,10 +557,38 @@ def test_multi_stage_full_checkout_suite_binds_dependency_order_and_source():
     )
     case.check_manifest(manifest)
 
-    first, second = manifest.initial_plan.items
+    assert manifest.sha256 == "ae87c1d42c3a4464e6167ee72f885bac45997806a06f67c98cd9942404448da4"
+    first, second, third = manifest.initial_plan.items
     assert second.dependencies == (first.work_item_id,)
-    assert {arm.restart_after_model_calls for arm in manifest.arms} == {3}
-    assert set(first.acceptance_ids) | set(second.acceptance_ids) == {
+    assert third.dependencies == (second.work_item_id,)
+    assert {arm.restart_points for arm in manifest.arms} == {(3, 6)}
+    assert set(first.acceptance_ids) | set(second.acceptance_ids) | set(third.acceptance_ids) == {
         "youtube-dl-unescape-html-behavior",
         "youtube-dl-unescape-html-regression-source",
+        "youtube-dl-unescape-html-compatibility",
     }
+
+
+def test_three_stage_regression_edit_is_line_ending_independent():
+    suite = RunABSuiteManifest.model_validate(
+        yaml.safe_load(MULTI_STAGE_SUITE_PATH.read_text(encoding="utf-8"))
+    )
+    case_path = MULTI_STAGE_SUITE_PATH.parent / suite.cases[0].manifest_path
+    manifest = RunABEvalManifest.model_validate(
+        yaml.safe_load(case_path.read_text(encoding="utf-8"))
+    )
+    edit = next(
+        action
+        for action in manifest.arms[0].actions
+        if action.tool == "replace_text" and action.arguments["path"] == "test/test_utils.py"
+    )
+    lines = [
+        "    def test_unescape_html(self):",
+        "        self.assertEqual(unescapeHTML('&#2013266066;'), '&#2013266066;')",
+        "        # HTML5 entities",
+    ]
+    for newline in ("\n", "\r\n"):
+        source = newline.join(lines)
+        assert source.count(edit.arguments["old"]) == 1
+        repaired = source.replace(edit.arguments["old"], edit.arguments["new"])
+        assert "self.assertEqual(unescapeHTML('&a&quot;'), '&a\"')" in repaired

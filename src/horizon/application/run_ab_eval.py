@@ -232,8 +232,8 @@ class RunABEvaluator:
                 config=runner_config,
             )
 
-        restart_at = arm.restart_after_model_calls
-        if restart_at is None:
+        restart_points = arm.restart_points
+        if not restart_points:
             model = ScriptedModelGateway(arm.arm_id, arm.actions)
             models.append(model)
             result = build_runner(service, model, active_artifacts, active_snapshots).run(
@@ -242,63 +242,71 @@ class RunABEvaluator:
             )
             worker_restarts = 0
         else:
-            first_model = ScriptedModelGateway(arm.arm_id, arm.actions[:restart_at])
-            models.append(first_model)
-            partial = build_runner(
-                service,
-                first_model,
-                active_artifacts,
-                active_snapshots,
-            ).run(
-                run.run_id,
-                token,
-                max_iterations_this_invocation=restart_at,
-            )
-            if (
-                partial.status != RunStatus.RUNNING
-                or partial.agent_session is None
-                or not partial.passed_items
-                or partial.agent_session.work_item_id in partial.passed_items
-                or not set(
-                    next(
-                        item.dependencies
-                        for item in partial.plan.items
-                        if item.work_item_id == partial.agent_session.work_item_id
-                    )
-                )
-                <= partial.passed_items
+            segment_starts = (0, *restart_points)
+            segment_ends = (*restart_points, len(arm.actions))
+            result = None
+            for segment_index, (start, end) in enumerate(
+                zip(segment_starts, segment_ends, strict=True)
             ):
-                raise ValueError(
-                    "Configured worker restart did not land on a persisted WorkItem boundary"
+                model = ScriptedModelGateway(
+                    arm.arm_id,
+                    arm.actions[start:end],
+                    start_index=start,
                 )
-            service.release_lease(run.run_id, token, "release-for-scripted-worker-restart")
+                models.append(model)
+                runner = build_runner(service, model, active_artifacts, active_snapshots)
+                if end == len(arm.actions):
+                    result = runner.run(run.run_id, token)
+                    break
 
-            # Reopen every worker-owned durable adapter. The Docker acceptance backend remains
-            # external to the worker, just as a surviving sandbox would in production.
-            store = SQLiteEventStore(arm_root / "control.sqlite3")
-            service = HarnessService(store)
-            leased = service.acquire_lease(
-                run.run_id,
-                f"worker-{arm.arm_id}-restart-1",
-                "lease-after-scripted-worker-restart",
-                ttl_seconds=600,
-            )
-            token = LeaseToken.from_run(leased)
-            active_artifacts = ArtifactStore(artifacts.root)
-            active_snapshots = SnapshotManager(active_artifacts)
-            resumed_model = ScriptedModelGateway(
-                arm.arm_id,
-                arm.actions[restart_at:],
-                start_index=restart_at,
-            )
-            models.append(resumed_model)
-            result = build_runner(
-                service,
-                resumed_model,
-                active_artifacts,
-                active_snapshots,
-            ).run(run.run_id, token)
-            worker_restarts = 1
+                partial = runner.run(
+                    run.run_id,
+                    token,
+                    max_iterations_this_invocation=end - start,
+                )
+                if (
+                    partial.status != RunStatus.RUNNING
+                    or partial.agent_session is None
+                    or not partial.passed_items
+                    or partial.agent_session.work_item_id in partial.passed_items
+                    or not set(
+                        next(
+                            item.dependencies
+                            for item in partial.plan.items
+                            if item.work_item_id == partial.agent_session.work_item_id
+                        )
+                    )
+                    <= partial.passed_items
+                ):
+                    raise ValueError(
+                        "Configured worker restart did not land on a persisted WorkItem boundary"
+                    )
+
+                restart_number = segment_index + 1
+                release_key = "release-for-scripted-worker-restart"
+                lease_key = "lease-after-scripted-worker-restart"
+                if restart_number > 1:
+                    release_key = f"{release_key}-{restart_number}"
+                    lease_key = f"{lease_key}-{restart_number}"
+                service.release_lease(run.run_id, token, release_key)
+
+                # Reopen every worker-owned durable adapter. The Docker acceptance backend remains
+                # external to the worker, just as a surviving sandbox would in production.
+                store = SQLiteEventStore(arm_root / "control.sqlite3")
+                service = HarnessService(store)
+                leased = service.acquire_lease(
+                    run.run_id,
+                    f"worker-{arm.arm_id}-restart-{restart_number}",
+                    lease_key,
+                    ttl_seconds=600,
+                )
+                token = LeaseToken.from_run(leased)
+                active_artifacts = ArtifactStore(artifacts.root)
+                active_snapshots = SnapshotManager(active_artifacts)
+
+            if result is None:
+                raise ValueError("Worker restart evaluation did not execute its final segment")
+            worker_restarts = len(restart_points)
 
         trace = store.export_jsonl(run.run_id)
         trace_ref = active_artifacts.put(trace.encode("utf-8"))
