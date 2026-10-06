@@ -1,11 +1,12 @@
 # 完整 Checkout 多阶段 Pilot：youtube-dl-3
 
-更新：2026-10-03。本 pilot 在同一个干净、固定的 872 文件 youtube-dl 历史 checkout 上执行两个
-有依赖的 WorkItem：先修复生产代码，再在新会话中补入上游回归断言。它验证 WorkItem 交接、
-revision-aware Code RAG、Run Memory、完成项不可变 replan、WorkItem 边界 Worker 重启、最终
-全量验收和 Trace replay；仍使用冻结脚本模型，不是实际模型或 BugsInPy 官方跑分。
+更新：2026-10-06。本记录保留 v1 两阶段任务的失败与成功证据，并新增 v2 三阶段任务：在同一个
+干净、固定的 872 文件 youtube-dl 历史 checkout 上，依次修复生产代码、补入上游回归断言、关闭
+相邻行为矩阵。v2 验证两个持久化 Worker 边界、跨 revision Code RAG/Run Memory、只替换最后
+未完成项的受限 replan、最终全量验收和 Trace replay；仍使用冻结脚本模型，不是实际模型或
+BugsInPy 官方跑分。
 
-## 1. 冻结输入与两阶段合同
+## 1. 冻结输入与 v1 两阶段合同
 
 - Suite：[`bugsinpy-multi-stage-pilot-v1.yaml`](../benchmarks/run_ab/bugsinpy-multi-stage-pilot-v1.yaml)
 - Case：[`multi-stage.yaml`](../benchmarks/run_ab/full/youtube-dl-3-unescape-html/multi-stage.yaml)
@@ -176,11 +177,94 @@ Lease，event 47 由 `worker-*-restart-1` 获取 epoch 2、600 秒 Lease。Treat
 汇总仍为 `success_delta=+1`、model/tool/step delta `+2/+4/+4`、成本增量 CNY 0.00096；
 unknown model/tool calls 与开放预留均为 0，`paid_model_called=false`、`network_called=false`。
 
-## 6. 结论边界与下一步
+## 6. v2 三阶段、两次 Worker 重启
 
-可以声称：一个完整上游 checkout 上的两阶段生产代码 + 回归测试任务已实际通过依赖调度、隔离
-会话、跨 revision 检索、Run Memory、完成项保留 replan、WorkItem 边界 Worker 更替、最终全量
-检查和离线重放。不能声称：
+v2 没有覆盖 v1 文件或重写历史结果：
+
+- Suite：[`bugsinpy-multi-stage-pilot-v2.yaml`](../benchmarks/run_ab/bugsinpy-multi-stage-pilot-v2.yaml)，
+  digest `c57ae62f6a4bbed7a7ba22e4169822887564c41272f9e440ca0f1c2bd4d458d3`；
+- Case：[`multi-stage-v2.yaml`](../benchmarks/run_ab/full/youtube-dl-3-unescape-html/multi-stage-v2.yaml)，
+  digest `ae87c1d42c3a4464e6167ee72f885bac45997806a06f67c98cd9942404448da4`；
+- v1 suite / case digest 仍分别为 `e4afeee636e571010c65557757770b8c1b489227e3c3809314371e35527b7569` /
+  `d3a5bad7eb1c93842678bb584f1e507154a86d6d9d996e85c017ba2bc781341e`；
+- 回归断言改用单行精确替换，同一 manifest 在 LF 与 CRLF 输入上都由回归测试证明 occurrence 恰好
+  为 1；没有引入模糊匹配。
+
+Plan v1 有三个严格依赖的 WorkItem：`production → regression → compatibility`。两个 arm 都在第
+3、6 次模型调用后停在已持久化的 WorkItem 边界，释放旧 Lease，重新构造 Worker 所有持久适配器，
+再由 epoch 2、epoch 3 Worker 继续。每个重启 Lease 都是 600 秒；旧 epoch 不能继续写入。
+
+### 6.1 本地可信完整运行
+
+本地使用严格 test-only Python 执行器实际运行三个验收命令；它复用生产 Harness 主链路，但不是
+Docker 证据。结果如下：
+
+| 指标 | Baseline | Single replan |
+|---|---:|---:|
+| 最终状态 | `WAITING_FOR_USER` | `SUCCEEDED` |
+| Worker restarts / final lease epoch | 2 / 3 | 2 / 3 |
+| 已通过 WorkItem | production + regression | production + regression + compatibility |
+| Plan version / replans | 1 / 0 | 2 / 1 |
+| Model calls | 10 | 12 |
+| Tool calls / steps | 12 / 12 | 17 / 17 |
+| Event count | 124 | 158 |
+| 合成模型成本（CNY） | 0.00480 | 0.00576 |
+| Trace duration | 270.42 s | 323.25 s |
+| Trace replay / source unchanged | 通过 / 是 | 通过 / 是 |
+
+汇总 `success_delta=+1`、model/tool/step delta 为 `+2/+5/+5`、成本增量 CNY 0.00096；unknown
+model/tool calls 与开放预留均为 0，`paid_model_called=false`、`network_called=false`。
+
+内容寻址证据：
+
+- Suite report：`adbd34e860a171f42730a84baf886d403e14bb561966b00ae32138b4db9fedea`；
+- Case report：`31c49fe98fc54c05c2876feea314064f6a8c082204c016dd9324f8358102bfc5`；
+- Baseline / Treatment trace：
+  `6cb1da3ecd715461c9ade9f7b955dc07f0c8539891369801e51e776f4717da6e` /
+  `4dad1233acc58c0eaa416e692cc59673a411e59a67c739cccb07bcd76088ff56`；
+- 最终 workspace revision / manifest：
+  `d32ed3b4d6e7cc875578fe3fdcfa2c6d4597bba08e1ff11bf5f1ee828430fd5e` /
+  `32d4ce0bf29ea08baf98eb6ac4e51d5f91a02b6caa9258b8c3993de7e353803a`；
+- 最终三项 validation evidence：
+  `7090babbe2956b41d83f394d16209ee7543841afaeba085bfc1084527243e0c9`。
+
+### 6.2 跨两次重启的数据连续性
+
+四次有效检索都绑定当时的 immutable workspace revision，且目标路径均为 rank 1：
+
+| 阶段 | Workspace revision | EvidencePack | rank 1 |
+|---|---|---|---|
+| production | `fb97a849…` | `1de34743323676b1099704c3dc311f253d53d65722c36ad48d1d4ff0add77ffc` | `youtube_dl/utils.py` |
+| regression | `24853249…` | `9546ec2faaedcac98e9a30dd2b3de0b7b73c0f1374fab195f1ade494f288b63e` | `test/test_utils.py` |
+| compatibility 停滞前 | `d32ed3b4…` | `75f3fe9e56158b4f648d102a1e5cf83c69795cbcbe9871232d963f7bc45ab66d` | `youtube_dl/utils.py` |
+| replan 后新查询 | `d32ed3b4…` | `a750942da766a570d834cb1c5d242f933f20a2a806b5a8362ece168ce9bd3c84` | `youtube_dl/utils.py` |
+
+Treatment 在第二次重启后仍从权威事件重建 Run Memory。replan 后首个请求绑定 Memory
+`d370213601aaaf6ed444fc1d4df84046cd9327b3483484899d4d34e0a57f59dc`，其中 5 条 active、4 条
+stale；新查询后绑定 `7b06e9b6d5258511dc20553a63faf3ad3e0cba42341b51868b4a79398bfb311d`，为 6 条 active、
+4 条 stale。旧 revision 片段没有被重新标成当前事实。
+
+NoProgress 证据出现后只发生一次 `PLAN_REVISED`：old/new plan hash 分别为
+`5e54d8cd7cebdc9455a8f1ff9c283bc72982313866dfc7adfa98fd687dc0dd16` /
+`17ab7a42eee8e60a947a52c66ee49018dab6255f642ca9ee402049bc553bf317`，明确保存
+`preserved_work_item_ids=[repair-unescape-html-production, add-unescape-html-regression]`。因此两个已
+验收项未被重写，只把最后的 compatibility 项替换为有界闭环项。
+
+### 6.3 公开禁网 Docker 证据
+
+提交 `c369870d70330703f0adb795209bd66cc760f28b` 的
+[公开工作流 #37442538827](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/37442538827)
+在 `python:3.12-alpine`、`--network none` 的生产 Docker adapter 上通过：依赖裁剪 suite 5/5、
+三项目完整 checkout suite 3/3、本 v2 三阶段 suite 1/1。三阶段 Baseline/Treatment 均记录 2 次
+重启和 final epoch 3，初始失败 1/1、Treatment 恢复 1/1。上传证据包
+`source-bound-docker-evidence` 的 digest 为
+`sha256:cca5c0a2ac25f173c19de247d46631955b0154d621f812568a7f25ba58d684f3`；没有付费模型或模型网络调用。
+
+## 7. 结论边界与下一步
+
+可以声称：一个完整上游 checkout 上的三阶段任务已实际通过依赖调度、隔离会话、跨 revision
+检索、Run Memory、两个 WorkItem 边界 Worker 更替、完成项保留 replan、最终三项全量检查、
+禁网 Docker 验证和离线重放。不能声称：
 
 - 冻结脚本证明真实模型能自主分解、查询、修复或选择 replan；
 - 源码断言等价于运行 youtube-dl 原 Python 版本的完整 pytest；

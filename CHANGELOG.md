@@ -5,6 +5,13 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Generalized scripted Run A/B worker-boundary injection from one restart to an ordered set while
+  preserving the legacy scalar manifest contract and digest. A new youtube-dl full-checkout v2 case
+  executes three dependent WorkItems across two complete worker-adapter reopenings, carries
+  revision-bound RAG and event-derived Run Memory into lease epoch 3, then compares a Baseline that
+  safely waits with a Treatment that revises only the final incomplete item. Local trusted execution
+  and the public network-disabled Docker workflow both pass 1/1 with replayable traces, unchanged
+  source, zero unknown/open calls, and no paid model use.
 - Expanded the clean full-checkout suite from two to three source-bound BugsInPy cases while
   preserving the v1 cases and digest. The new Luigi case fixes the exact 382-file buggy checkout,
   executes the real `MetricsHandler` class without installing its historical dependency stack,

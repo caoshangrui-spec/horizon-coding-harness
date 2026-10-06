@@ -92,6 +92,7 @@ E2E 与 `trace replay` 测试承担。
 其中 tqdm-1、youtube-dl-3 与 Luigi-1 又在[完整固定 checkout](full-checkout-pilot.md)上通过并实际
 运行 Code RAG；v2 三例已有本地可信执行和公开禁网 Docker 3/3。重复 CAS blob 校验的
 规模开销已优化；youtube-dl-3 的
-[完整 checkout 多阶段任务](multi-stage-full-checkout-pilot.md)还在 WorkItem 边界切换 Worker，
-验证 epoch fencing、持久会话、跨 revision Memory/RAG 与最终检查。真实模型决策证据出现前，
-仍不增加自动 replan、第二次修订或语义循环检测。
+[完整 checkout 多阶段任务](multi-stage-full-checkout-pilot.md)在三个依赖 WorkItem 之间两次切换
+Worker，并以本地可信和公开禁网 Docker 1/1 验证 epoch fencing、持久会话、跨 revision
+Memory/RAG、仅替换最后未完成项的单次 replan 与最终三项检查。真实模型决策证据出现前，仍不
+增加自动 replan、第二次修订或语义循环检测。
