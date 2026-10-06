@@ -1,0 +1,107 @@
+name: Full checkout Docker evidence
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/full-checkout-evidence.yml"
+      - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v2.yaml"
+      - "benchmarks/run_ab/full/**/manifest.yaml"
+      - "src/horizon/adapters/sandbox/**"
+      - "src/horizon/application/run_ab_eval.py"
+      - "src/horizon/domain/run_evaluation.py"
+      - "src/horizon/interfaces/cli/app.py"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docker-evidence:
+    name: Three-project full-checkout suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out harness
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pinned uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.11.18"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install Python
+        run: uv python install 3.12
+
+      - name: Sync locked dependencies
+        run: uv sync --locked --python 3.12
+
+      - name: Prepare exact upstream checkouts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          prepare_fixture() {
+            local repository="$1"
+            local commit="$2"
+            local destination="$3"
+            local expected_files="$4"
+
+            mkdir -p "$destination"
+            git -C "$destination" init --quiet
+            git -C "$destination" remote add origin "$repository"
+            git -C "$destination" fetch --quiet --depth 1 origin "$commit"
+            git -C "$destination" checkout --quiet --detach FETCH_HEAD
+
+            test "$(git -C "$destination" rev-parse HEAD)" = "$commit"
+            test -z "$(git -C "$destination" status --porcelain --untracked-files=all)"
+            test "$(git -C "$destination" ls-files | wc -l | tr -d ' ')" = "$expected_files"
+          }
+
+          prepare_fixture \
+            https://github.com/tqdm/tqdm.git \
+            8cc777fe8401a05d07f2c97e65d15e4460feab88 \
+            benchmarks/run_ab/full/tqdm-1-tenumerate-start/fixture \
+            82
+          prepare_fixture \
+            https://github.com/ytdl-org/youtube-dl.git \
+            f5469da9e6e259c1690c7ef54f1da1c19f65036f \
+            benchmarks/run_ab/full/youtube-dl-3-unescape-html/fixture \
+            872
+          prepare_fixture \
+            https://github.com/spotify/luigi.git \
+            1164eb6b85b8a70f596dbb99452bec513e72c12e \
+            benchmarks/run_ab/full/luigi-1-metrics-handler/fixture \
+            382
+
+      - name: Pull the validation image
+        run: docker pull python:3.12-alpine
+
+      - name: Run the frozen suite in network-disabled containers
+        shell: bash
+        run: |
+          set -euo pipefail
+          state_dir=.horizon/full-checkout-docker-v2
+          mkdir -p "$state_dir"
+          docker image inspect python:3.12-alpine --format '{{.Id}}'
+          uv run --locked horizon eval run-ab-suite \
+            benchmarks/run_ab/bugsinpy-full-checkout-pilot-v2.yaml \
+            --image python:3.12-alpine \
+            --state-dir "$state_dir" \
+            | tee "$state_dir/cli-result.json"
+
+      - name: Upload content-addressed evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: full-checkout-docker-evidence
+          path: .horizon/full-checkout-docker-v2
+          if-no-files-found: warn
+          retention-days: 30
