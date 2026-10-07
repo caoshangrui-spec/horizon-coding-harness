@@ -59,16 +59,9 @@ TQDM_PILOT_MANIFEST = (
 )
 TQDM_PILOT_CONFIG = ROOT / "config" / "providers" / "siliconflow-tqdm-pilot.yaml"
 TQDM_NARROW_PILOT_MANIFEST = (
-    ROOT
-    / "benchmarks"
-    / "run_ab"
-    / "full"
-    / "tqdm-1-tenumerate-start"
-    / "real-model-pilot-v3.yaml"
+    ROOT / "benchmarks" / "run_ab" / "full" / "tqdm-1-tenumerate-start" / "real-model-pilot-v3.yaml"
 )
-TQDM_NARROW_PILOT_CONFIG = (
-    ROOT / "config" / "providers" / "siliconflow-tqdm-pilot-v3.yaml"
-)
+TQDM_NARROW_PILOT_CONFIG = ROOT / "config" / "providers" / "siliconflow-tqdm-pilot-v3.yaml"
 
 
 def load_manifest() -> RealModelPilotManifest:
