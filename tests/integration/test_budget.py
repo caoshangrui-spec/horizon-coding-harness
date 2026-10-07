@@ -4,8 +4,14 @@ import pytest
 
 from horizon.adapters.persistence.sqlite import SQLiteEventStore
 from horizon.domain.budget import Usage
-from horizon.domain.errors import BudgetExceeded, IntegrityError
+from horizon.domain.errors import (
+    BudgetExceeded,
+    Conflict,
+    IntegrityError,
+    RunDeadlineExceeded,
+)
 from horizon.domain.states import RunStatus
+from horizon.domain.tools import ToolCallReservation
 
 
 def test_reservation_survives_restart_and_settles_decimal_exactly(store, service, running):
@@ -73,8 +79,122 @@ def test_attempts_cannot_be_refunded(store, service, running):
 def test_downtime_does_not_reset_deadline(store, service, running, clock):
     run, token = running
     clock.advance(3601)
-    with pytest.raises(BudgetExceeded, match="deadline"):
+    with pytest.raises(RunDeadlineExceeded, match="deadline") as stopped:
         service.reserve(run.run_id, "call", Usage(model_calls=1), token, "late")
+    assert stopped.value.run_id == run.run_id
+    persisted = store.get(run.run_id)
+    assert persisted.status == RunStatus.FAILED
+    assert persisted.failure_reason == "wall_clock_limit"
     result = service.expire(run.run_id, "expire")
     assert result.deadline_at == run.deadline_at
     assert result.status == RunStatus.FAILED
+
+
+def test_deadline_preserves_unclassified_intent_until_recovery(store, service, running, clock):
+    run, token = running
+    service.reserve(
+        run.run_id,
+        "uncertain",
+        Usage(model_calls=1, cost_usd="0.50"),
+        token,
+        "reserve-uncertain",
+    )
+    clock.advance(3601)
+
+    with pytest.raises(Conflict, match="unclassified or recoverable tool operations"):
+        service.expire(run.run_id, "unsafe-expire")
+    preserved = store.get(run.run_id)
+    assert preserved.status == RunStatus.RUNNING
+    assert set(preserved.reservations) == {"uncertain"}
+
+    recovered = service.acquire_recovery_lease(
+        run.run_id,
+        "recovery-worker",
+        "recovery-lease",
+        prior_worker_stopped=True,
+    )
+    recovery_token = type(token).from_run(recovered)
+    classified = service.mark_usage_unknown(
+        run.run_id,
+        "uncertain",
+        recovery_token,
+        "classify-uncertain",
+    )
+    assert classified.status == RunStatus.RUNNING
+    assert classified.unknown_reservations == {"uncertain"}
+
+    result = service.expire(run.run_id, "safe-expire")
+    assert result.status == RunStatus.FAILED
+    assert result.failure_reason == "wall_clock_limit"
+    assert result.occupied.cost_usd == Decimal("0.50")
+
+
+def test_late_receipt_settles_after_deadline_before_terminalization(store, service, running, clock):
+    run, token = running
+    service.reserve(
+        run.run_id,
+        "late-receipt",
+        Usage(model_calls=1, cost_usd="0.50"),
+        token,
+        "reserve-late-receipt",
+    )
+    clock.advance(3601)
+    recovered = service.acquire_recovery_lease(
+        run.run_id,
+        "receipt-worker",
+        "receipt-lease",
+        prior_worker_stopped=True,
+    )
+    recovery_token = type(token).from_run(recovered)
+
+    settled = service.settle(
+        run.run_id,
+        "late-receipt",
+        Usage(model_calls=1, cost_usd="0.25"),
+        recovery_token,
+        "settle-late-receipt",
+    )
+    assert settled.status == RunStatus.RUNNING
+    assert not settled.reservations
+    assert settled.usage.cost_usd == Decimal("0.25")
+
+    result = service.release_lease(run.run_id, recovery_token, "release-after-receipt")
+    assert result.status == RunStatus.FAILED
+    assert result.failure_reason == "wall_clock_limit"
+
+
+def test_deadline_does_not_hide_recoverable_tool_effect(store, service, running, clock):
+    run, token = running
+    service.reserve_tool_call(
+        run.run_id,
+        ToolCallReservation(
+            call_id="pending-tool",
+            name="replace_text",
+            arguments_hash="a" * 64,
+            workspace_revision="before",
+            workspace_manifest_ref="b" * 64,
+        ),
+        token,
+        "reserve-pending-tool",
+    )
+    clock.advance(3601)
+    recovered = service.acquire_recovery_lease(
+        run.run_id,
+        "tool-recovery-worker",
+        "tool-recovery-lease",
+        prior_worker_stopped=True,
+    )
+    recovery_token = type(token).from_run(recovered)
+    classified = service.mark_tool_call_unknown(
+        run.run_id,
+        "pending-tool",
+        recovery_token,
+        "classify-pending-tool",
+    )
+
+    preserved = service.expire_if_safe(run.run_id, "preserve-tool-recovery")
+    assert preserved.status == RunStatus.RUNNING
+    assert preserved.unknown_tool_calls == {"pending-tool"}
+    assert preserved.lease_id == classified.lease_id
+    with pytest.raises(Conflict, match="recoverable tool operations"):
+        service.expire(run.run_id, "reject-tool-terminalization")

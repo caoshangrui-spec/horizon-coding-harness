@@ -139,7 +139,7 @@ class ToolRecoveryService:
         token: LeaseToken,
     ) -> Run:
         run = self.service.store.get(run_id)
-        self.service.check_worker(run, token)
+        self.service.check_recovery_worker(run, token)
         pending = pending_unknown_readonly_tool_turn(
             run,
             self.service.store.events(run_id),
@@ -194,7 +194,7 @@ class ToolRecoveryService:
         token: LeaseToken,
     ) -> tuple[Run, RecoverableToolTurn, ToolCallReservation, str]:
         run = self.service.store.get(run_id)
-        self.service.check_worker(run, token)
+        self.service.check_recovery_worker(run, token)
         pending = pending_unknown_tool_turn(
             run,
             self.service.store.events(run_id),
@@ -446,7 +446,7 @@ class ToolRecoveryService:
         if self.write_recovery is None:
             raise Conflict("Write recovery adapter is unavailable")
         run = self.service.store.get(run_id)
-        self.service.check_worker(run, token)
+        self.service.check_recovery_worker(run, token)
         pending = pending_unknown_tool_turn(
             run,
             self.service.store.events(run_id),

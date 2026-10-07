@@ -1153,6 +1153,12 @@ class CodingAgentRunner:
         )
         return None
 
+    def _yield_at_safe_boundary(self, run_id: str) -> Run:
+        return self.service.expire_if_safe(
+            run_id,
+            f"agent_yield_deadline_{uuid4().hex}",
+        )
+
     def run(
         self,
         run_id: str,
@@ -1236,7 +1242,7 @@ class CodingAgentRunner:
                     and iterations_this_invocation >= max_iterations_this_invocation
                     and iteration < self.config.max_model_iterations
                 ):
-                    return run
+                    return self._yield_at_safe_boundary(run_id)
                 continue
             replan_calls = [
                 call
@@ -1275,7 +1281,7 @@ class CodingAgentRunner:
                         and iterations_this_invocation >= max_iterations_this_invocation
                         and iteration < self.config.max_model_iterations
                     ):
-                        return run
+                        return self._yield_at_safe_boundary(run_id)
                     continue
                 source_model_call_id = run.model_calls[-1].call_id
                 replanned, outcome = self._apply_execution_replan(
@@ -1305,7 +1311,7 @@ class CodingAgentRunner:
                         and iterations_this_invocation >= max_iterations_this_invocation
                         and iteration < self.config.max_model_iterations
                     ):
-                        return run
+                        return self._yield_at_safe_boundary(run_id)
                     continue
                 iterations_this_invocation += 1
                 if iteration >= self.config.max_model_iterations:
@@ -1319,7 +1325,7 @@ class CodingAgentRunner:
                     max_iterations_this_invocation is not None
                     and iterations_this_invocation >= max_iterations_this_invocation
                 ):
-                    return replanned
+                    return self._yield_at_safe_boundary(run_id)
                 remaining_iterations = (
                     None
                     if max_iterations_this_invocation is None
@@ -1373,7 +1379,7 @@ class CodingAgentRunner:
                     and iterations_this_invocation >= max_iterations_this_invocation
                     and iteration < self.config.max_model_iterations
                 ):
-                    return run
+                    return self._yield_at_safe_boundary(run_id)
                 continue
 
             run = self.service.store.get(run_id)
@@ -1430,7 +1436,7 @@ class CodingAgentRunner:
                     and iterations_this_invocation >= max_iterations_this_invocation
                     and iteration < self.config.max_model_iterations
                 ):
-                    return run
+                    return self._yield_at_safe_boundary(run_id)
                 continue
             terminal = self._repair_or_fail(run, token, messages, results)
             if terminal is not None:
@@ -1447,7 +1453,7 @@ class CodingAgentRunner:
                 and iterations_this_invocation >= max_iterations_this_invocation
                 and iteration < self.config.max_model_iterations
             ):
-                return run
+                return self._yield_at_safe_boundary(run_id)
 
         return self.service.fail(
             run_id,

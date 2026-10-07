@@ -69,6 +69,7 @@ from horizon.domain.errors import (
     NotFound,
     PlanProposalError,
     PolicyDenied,
+    RunDeadlineExceeded,
 )
 from horizon.domain.evaluation import RetrievalEvalManifest
 from horizon.domain.human import HumanGuidanceRequest, HumanPlanRequest
@@ -112,6 +113,8 @@ def guarded(function):
             raise typer.Exit(2) from None
         except BudgetExceeded as exc:
             payload = {"error": type(exc).__name__, "message": str(exc)}
+            if isinstance(exc, RunDeadlineExceeded):
+                payload["run_id"] = exc.run_id
             if exc.stop is not None:
                 payload["budget_stop"] = exc.stop.model_dump(mode="json")
             if exc.model_request_budget is not None:
@@ -1690,7 +1693,7 @@ def agent_reconcile(
     if not ledger_path.is_file():
         raise NotFound("No provider campaign ledger exists for reconciliation")
     ledger = CampaignBudgetLedger(ledger_path)
-    leased = service.acquire_lease(
+    leased = service.acquire_recovery_lease(
         run_id,
         "local-agent-recovery",
         f"recovery_lease_{uuid4().hex}",
@@ -1703,11 +1706,15 @@ def agent_reconcile(
         ledger,
         ArtifactStore(Path(".horizon") / "artifacts"),
     ).reconcile(run_id, token)
-    service.release_lease(run_id, token, f"recovery_release_{uuid4().hex}")
+    current = service.expire_if_safe(run_id, f"recovery_deadline_{uuid4().hex}")
+    if not current.terminal:
+        current = service.release_lease(run_id, token, f"recovery_release_{uuid4().hex}")
     typer.echo(
         canonical_json(
             {
                 **report.model_dump(mode="json"),
+                "run_status": current.status,
+                "failure_reason": current.failure_reason,
                 "campaign": ledger.summary(provider.campaign.campaign_id).model_dump(mode="json"),
                 "network_called": False,
             }
@@ -1957,7 +1964,7 @@ def agent_resolve_tool(
     artifacts = ArtifactStore(control_root / "artifacts")
     snapshots = SnapshotManager(artifacts)
     ledger = CampaignBudgetLedger(ledger_path)
-    leased = service.acquire_lease(
+    leased = service.acquire_recovery_lease(
         run_id,
         "local-agent-tool-resolution",
         f"tool_resolution_lease_{uuid4().hex}",
@@ -2091,7 +2098,9 @@ def agent_resolve_tool(
             )
         report = RecoveryService(service, ledger, artifacts).reconcile(run_id, token)
         resolved_record = resolved.tool_calls[-1]
-        service.release_lease(run_id, token, f"tool_resolution_release_{uuid4().hex}")
+        current = service.expire_if_safe(run_id, f"tool_resolution_deadline_{uuid4().hex}")
+        if not current.terminal:
+            service.release_lease(run_id, token, f"tool_resolution_release_{uuid4().hex}")
         released = True
     finally:
         if not released:

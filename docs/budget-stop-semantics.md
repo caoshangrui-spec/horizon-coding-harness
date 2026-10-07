@@ -1,6 +1,6 @@
 # 确定性费用停止语义
 
-更新：2026-10-03。本文描述模型请求在 Provider 派发前因 CNY 硬上限被拒绝时，Harness 如何
+更新：2026-10-08。本文描述模型请求在 Provider 派发前因 CNY 硬上限被拒绝时，Harness 如何
 形成可重放终态。它只处理能够由持久账本确定证明的费用不足，不把 unknown 用量、Provider
 不确定结果或一般执行错误误判为“费用已耗尽”。
 
@@ -53,8 +53,27 @@ Lease，Run 投影仍停留在 `RUNNING`。账本实际上没有开放 reservati
 | `campaign_call_cost_limit` | 本次请求预留超过 Campaign 单调用上限 |
 | `campaign_cost_limit` | Campaign 已占用费用加本次请求超过 Campaign 总上限 |
 
-unknown 用量阻断、wall-clock 到期和 Provider 返回后的实际账单超限不套用这三个原因：前两者仍需
-原有对账/到期流程，后者必须先保存真实回执再按 usage overrun 处理。
+unknown 用量阻断、wall-clock 到期和 Provider 返回后的实际账单超限不套用这三个原因：
+wall-clock 使用独立的 `wall_clock_limit` 合同；unknown 先进入恢复/对账；实际账单超限必须先保存
+真实回执再按 usage overrun 处理。
+
+### 2.1 wall-clock 到期边界
+
+`deadline_at` 是从 Run 创建时间计算的绝对时间，进程停机、人工等待或 Worker 接力都不会重置。
+它只禁止新的模型/工具调度，不禁止给已经派发的外部调用写入可信 receipt、保守 unknown 分类，
+或用 recovery Lease 处理遗留 intent。具体顺序为：
+
+1. 新的 active command 首次观察到到期时抛出带 `run_id` 的 `RunDeadlineExceeded`；
+2. 若没有未分类 reservation，也没有仍可由 HITL 精确处置的 tool reservation，控制器追加
+   `RUN_FAILED(reason=wall_clock_limit)`，投影清除 Lease；
+3. 若外部调用已经派发，先保留非终态和 intent。旧 Worker 仍受 lease/epoch 围栏；恢复 Worker
+   可以结算可信回执或标记 unknown，但不能借 recovery Lease 发起新调用；
+4. 工具副作用完成 accept/rollback/discard 后再次检查截止时间，并在安全边界进入上述终态；
+5. unknown 模型/通用费用继续保守占用预算，可在没有可执行工具恢复动作时随到期终态留在 Trace。
+
+这一区分避免两个相反错误：到期后继续花费，以及为了尽快写 `FAILED` 而丢失迟到回执或遮蔽
+待检查的文件副作用。它不提供后台计时器；终态在下一次控制命令、Agent slice yield 或恢复入口
+观察截止时间时持久化。
 
 ## 3. 状态和数据流
 

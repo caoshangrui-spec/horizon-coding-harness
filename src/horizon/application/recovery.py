@@ -183,7 +183,7 @@ class RecoveryService:
 
     def reconcile(self, run_id: str, token: LeaseToken) -> RecoveryReport:
         run = self.service.store.get(run_id)
-        self.service.check_worker(run, token)
+        self.service.check_recovery_worker(run, token)
         historical = self._historical_model_reservations(run)
         if (run.model_reservations or run.model_calls) and run.model_policy is None:
             raise IntegrityError("Run-linked model attempts require a bound model policy")

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta
 from decimal import Decimal
+from typing import Any
 from uuid import uuid4
 
 from horizon.domain.agent import AgentSessionRecord
@@ -14,6 +16,7 @@ from horizon.domain.errors import (
     Conflict,
     InvalidTransition,
     LeaseConflict,
+    RunDeadlineExceeded,
 )
 from horizon.domain.events import NewEvent
 from horizon.domain.human import (
@@ -65,10 +68,14 @@ class HarnessService:
         if run.terminal:
             raise InvalidTransition(f"Run is terminal: {run.status}")
         if self.store.clock() >= datetime.fromisoformat(run.deadline_at):
-            raise BudgetExceeded("Run wall-clock deadline has expired; downtime is not refunded")
+            raise RunDeadlineExceeded(run.run_id)
 
-    def check_worker(self, run: Run, token: LeaseToken) -> None:
-        self._active(run)
+    @staticmethod
+    def _nonterminal(run: Run) -> None:
+        if run.terminal:
+            raise InvalidTransition(f"Run is terminal: {run.status}")
+
+    def _check_lease(self, run: Run, token: LeaseToken) -> None:
         if (
             run.lease_id != token.lease_id
             or run.worker_id != token.worker_id
@@ -77,6 +84,31 @@ class HarnessService:
             or self.store.clock() >= datetime.fromisoformat(run.lease_expires_at)
         ):
             raise LeaseConflict("Worker lease is missing, expired or fenced")
+
+    def check_worker(self, run: Run, token: LeaseToken) -> None:
+        self._active(run)
+        self._check_lease(run, token)
+
+    def check_recovery_worker(self, run: Run, token: LeaseToken) -> None:
+        """Fence the worker without blocking receipt/recovery writes after the deadline."""
+
+        self._nonterminal(run)
+        self._check_lease(run, token)
+
+    def _command(
+        self,
+        run_id: str,
+        key: str,
+        request: dict[str, Any],
+        decide: Callable[[Run], Iterable[NewEvent]],
+    ) -> Run:
+        """Persist a safe wall-clock terminal event when an active command observes expiry."""
+
+        try:
+            return self.store.command(run_id, key, request, decide)
+        except RunDeadlineExceeded:
+            self.expire_if_safe(run_id, f"deadline_{digest({'command_key': key})}")
+            raise
 
     def set_plan(
         self,
@@ -134,7 +166,7 @@ class HarnessService:
                 )
             return proposed
 
-        return self.store.command(run_id, key, request, decide)
+        return self._command(run_id, key, request, decide)
 
     def request_replacement_plan(
         self,
@@ -188,7 +220,7 @@ class HarnessService:
                 NewEvent(event_type="LEASE_RELEASED", payload=token.model_dump()),
             ]
 
-        return self.store.command(run_id, key, request_data, decide)
+        return self._command(run_id, key, request_data, decide)
 
     def resolve_replacement_plan(
         self,
@@ -251,7 +283,7 @@ class HarnessService:
                 ),
             ]
 
-        return self.store.command(run_id, key, request_data, decide)
+        return self._command(run_id, key, request_data, decide)
 
     def request_operator_guidance(
         self,
@@ -327,7 +359,7 @@ class HarnessService:
                 NewEvent(event_type="LEASE_RELEASED", payload=token.model_dump()),
             ]
 
-        return self.store.command(run_id, key, request_data, decide)
+        return self._command(run_id, key, request_data, decide)
 
     def resolve_operator_guidance(
         self,
@@ -397,7 +429,7 @@ class HarnessService:
                 NewEvent(event_type="LEASE_RELEASED", payload=token.model_dump()),
             ]
 
-        return self.store.command(run_id, key, request_data, decide)
+        return self._command(run_id, key, request_data, decide)
 
     def bind_workspace_origin(self, run_id: str, origin: WorkspaceOrigin, key: str) -> Run:
         request = {
@@ -422,7 +454,7 @@ class HarnessService:
                 )
             ]
 
-        return self.store.command(run_id, key, request, decide)
+        return self._command(run_id, key, request, decide)
 
     def acquire_lease(
         self,
@@ -433,17 +465,59 @@ class HarnessService:
         *,
         prior_worker_stopped: bool = False,
     ) -> Run:
+        return self._acquire_lease(
+            run_id,
+            worker_id,
+            key,
+            ttl_seconds,
+            prior_worker_stopped=prior_worker_stopped,
+            recovery=False,
+        )
+
+    def acquire_recovery_lease(
+        self,
+        run_id: str,
+        worker_id: str,
+        key: str,
+        ttl_seconds: int = 60,
+        *,
+        prior_worker_stopped: bool = False,
+    ) -> Run:
+        """Acquire a fenced lease for reconciliation without authorizing new work."""
+
+        return self._acquire_lease(
+            run_id,
+            worker_id,
+            key,
+            ttl_seconds,
+            prior_worker_stopped=prior_worker_stopped,
+            recovery=True,
+        )
+
+    def _acquire_lease(
+        self,
+        run_id: str,
+        worker_id: str,
+        key: str,
+        ttl_seconds: int,
+        *,
+        prior_worker_stopped: bool,
+        recovery: bool,
+    ) -> Run:
         if not worker_id or not 1 <= ttl_seconds <= 600:
             raise ValueError("Worker ID and a lease TTL in [1, 600] are required")
         request = {
-            "operation": "acquire_lease",
+            "operation": "acquire_recovery_lease" if recovery else "acquire_lease",
             "worker_id": worker_id,
             "ttl": ttl_seconds,
             "prior_worker_stopped": prior_worker_stopped,
         }
 
         def decide(run):
-            self._active(run)
+            if recovery:
+                self._nonterminal(run)
+            else:
+                self._active(run)
             now = self.store.clock()
             if run.lease_id:
                 if now < datetime.fromisoformat(run.lease_expires_at):
@@ -463,7 +537,7 @@ class HarnessService:
                 )
             ]
 
-        return self.store.command(run_id, key, request, decide)
+        return self._command(run_id, key, request, decide)
 
     def takeover_reaped_worker_lease(
         self,
@@ -494,7 +568,9 @@ class HarnessService:
         }
 
         def decide(run):
-            self._active(run)
+            # A reaped-worker takeover only fences a proven-stopped process. It may be needed
+            # after the wall-clock deadline to classify an already-dispatched effect.
+            self._nonterminal(run)
             now = self.store.clock()
             if run.status != RunStatus.RUNNING or run.plan is None:
                 raise LeaseConflict("Expired reaped-worker takeover requires a RUNNING Run")
@@ -530,7 +606,7 @@ class HarnessService:
                 )
             ]
 
-        return self.store.command(run_id, key, request, decide)
+        return self._command(run_id, key, request, decide)
 
     def renew_lease(self, run_id: str, token: LeaseToken, key: str, ttl_seconds: int = 60) -> Run:
         if not 1 <= ttl_seconds <= 600:
@@ -552,18 +628,24 @@ class HarnessService:
                 )
             ]
 
-        return self.store.command(run_id, key, request, decide)
+        return self._command(run_id, key, request, decide)
 
     def release_lease(self, run_id: str, token: LeaseToken, key: str) -> Run:
         request = {"operation": "release_lease", "token": token.model_dump()}
 
         def decide(run):
-            self.check_worker(run, token)
+            self.check_recovery_worker(run, token)
             if set(run.reservations) - run.unknown_reservations:
                 raise LeaseConflict("Cannot release a worker with unsettled operations")
             return [NewEvent(event_type="LEASE_RELEASED", payload=token.model_dump())]
 
-        return self.store.command(run_id, key, request, decide)
+        released = self._command(run_id, key, request, decide)
+        if released.terminal:
+            return released
+        return self.expire_if_safe(
+            run_id,
+            f"release_deadline_{digest({'command_key': key})}",
+        )
 
     def release_reaped_worker_lease(
         self,
@@ -593,7 +675,7 @@ class HarnessService:
         }
 
         def decide(run):
-            self.check_worker(run, token)
+            self.check_recovery_worker(run, token)
             if run.status != RunStatus.RUNNING or run.agent_session is None:
                 raise LeaseConflict("Reaped worker release requires a running Agent session")
             if run.reservations:
@@ -614,7 +696,13 @@ class HarnessService:
                 )
             ]
 
-        return self.store.command(run_id, key, request, decide)
+        released = self._command(run_id, key, request, decide)
+        if released.terminal:
+            return released
+        return self.expire_if_safe(
+            run_id,
+            f"reaped_release_deadline_{digest({'command_key': key})}",
+        )
 
     def transition(self, run_id: str, target: RunStatus, token: LeaseToken, key: str) -> Run:
         request = {"operation": "transition", "to": target.value, "token": token.model_dump()}
@@ -629,7 +717,7 @@ class HarnessService:
                 NewEvent(event_type="STATE_CHANGED", payload={"from": run.status, "to": target})
             ]
 
-        return self.store.command(run_id, key, request, decide)
+        return self._command(run_id, key, request, decide)
 
     def cancel(self, run_id: str, key: str) -> Run:
         def decide(run):
@@ -643,9 +731,24 @@ class HarnessService:
         def decide(run):
             if run.terminal or self.store.clock() < datetime.fromisoformat(run.deadline_at):
                 return []
+            if set(run.reservations) - run.unknown_reservations or run.tool_reservations:
+                raise Conflict(
+                    "Run deadline cannot terminalize unclassified or recoverable tool "
+                    "operations; reconciliation is required"
+                )
             return [NewEvent(event_type="RUN_FAILED", payload={"reason": "wall_clock_limit"})]
 
         return self.store.command(run_id, key, {"operation": "expire"}, decide)
+
+    def expire_if_safe(self, run_id: str, key: str) -> Run:
+        """Terminalize an expired Run only when no remaining effect needs operator recovery."""
+
+        current = self.store.get(run_id)
+        if current.terminal or self.store.clock() < datetime.fromisoformat(current.deadline_at):
+            return current
+        if set(current.reservations) - current.unknown_reservations or current.tool_reservations:
+            return current
+        return self.expire(run_id, key)
 
     def reserve(
         self,
@@ -677,7 +780,7 @@ class HarnessService:
             run.occupied.plus(amount).check(run.task.budgets)
             return [NewEvent(event_type="BUDGET_RESERVED", payload=request)]
 
-        return self.store.command(run_id, key, request, decide)
+        return self._command(run_id, key, request, decide)
 
     def bind_model_policy(
         self,
@@ -707,7 +810,7 @@ class HarnessService:
                 )
             ]
 
-        return self.store.command(run_id, key, request, decide)
+        return self._command(run_id, key, request, decide)
 
     def reserve_model_call(
         self,
@@ -774,7 +877,7 @@ class HarnessService:
                 ),
             ]
 
-        return self.store.command(run_id, key, request, decide)
+        return self._command(run_id, key, request, decide)
 
     def settle_model_call(
         self,
@@ -799,7 +902,7 @@ class HarnessService:
         }
 
         def decide(run):
-            self.check_worker(run, token)
+            self.check_recovery_worker(run, token)
             reservation = run.model_reservations.get(record.call_id)
             if reservation is None or record.call_id not in run.reservations:
                 raise Conflict("Unknown or already settled model call")
@@ -831,7 +934,7 @@ class HarnessService:
                 )
             return events
 
-        return self.store.command(run_id, key, request, decide)
+        return self._command(run_id, key, request, decide)
 
     def mark_model_call_unknown(
         self,
@@ -847,7 +950,7 @@ class HarnessService:
         }
 
         def decide(run):
-            self.check_worker(run, token)
+            self.check_recovery_worker(run, token)
             if call_id not in run.model_reservations:
                 raise Conflict("Unknown model reservation")
             events = []
@@ -868,7 +971,7 @@ class HarnessService:
                 )
             return events
 
-        return self.store.command(run_id, key, request, decide)
+        return self._command(run_id, key, request, decide)
 
     def reserve_tool_call(
         self,
@@ -907,7 +1010,7 @@ class HarnessService:
                 ),
             ]
 
-        return self.store.command(run_id, key, request, decide)
+        return self._command(run_id, key, request, decide)
 
     def settle_tool_call(
         self,
@@ -924,7 +1027,7 @@ class HarnessService:
         }
 
         def decide(run):
-            self.check_worker(run, token)
+            self.check_recovery_worker(run, token)
             if record.call_id not in run.tool_reservations:
                 raise Conflict("Unknown or already settled tool call")
             return [
@@ -943,7 +1046,7 @@ class HarnessService:
                 ),
             ]
 
-        return self.store.command(run_id, key, request, decide)
+        return self._command(run_id, key, request, decide)
 
     def apply_execution_replan(
         self,
@@ -1086,7 +1189,7 @@ class HarnessService:
                 ),
             ]
 
-        return self.store.command(run_id, key, request, decide)
+        return self._command(run_id, key, request, decide)
 
     def settle_tool_call_and_save_session(
         self,
@@ -1106,7 +1209,7 @@ class HarnessService:
         }
 
         def decide(run):
-            self.check_worker(run, token)
+            self.check_recovery_worker(run, token)
             if record.call_id not in run.tool_reservations:
                 raise Conflict("Unknown or already settled tool call")
             if run.status != RunStatus.RUNNING or run.plan is None:
@@ -1146,7 +1249,7 @@ class HarnessService:
                 ),
             ]
 
-        return self.store.command(run_id, key, request, decide)
+        return self._command(run_id, key, request, decide)
 
     def mark_tool_call_unknown(
         self,
@@ -1162,7 +1265,7 @@ class HarnessService:
         }
 
         def decide(run):
-            self.check_worker(run, token)
+            self.check_recovery_worker(run, token)
             if call_id not in run.tool_reservations:
                 raise Conflict("Unknown tool reservation")
             events = []
@@ -1183,7 +1286,7 @@ class HarnessService:
                 )
             return events
 
-        return self.store.command(run_id, key, request, decide)
+        return self._command(run_id, key, request, decide)
 
     def save_agent_session(
         self,
@@ -1199,7 +1302,7 @@ class HarnessService:
         }
 
         def decide(run):
-            self.check_worker(run, token)
+            self.check_recovery_worker(run, token)
             if run.status != RunStatus.RUNNING or run.plan is None or run.reservations:
                 raise Conflict("Agent session requires a quiescent running phase")
             if (
@@ -1223,7 +1326,7 @@ class HarnessService:
                 )
             ]
 
-        return self.store.command(run_id, key, request, decide)
+        return self._command(run_id, key, request, decide)
 
     def settle(
         self,
@@ -1242,7 +1345,7 @@ class HarnessService:
 
         def decide(run):
             # Late receipts are handled by explicit recovery; a stale worker cannot write them.
-            self.check_worker(run, token)
+            self.check_recovery_worker(run, token)
             if reservation_id not in run.reservations:
                 raise Conflict("Unknown or already settled reservation")
             events = [NewEvent(event_type="BUDGET_SETTLED", payload=request)]
@@ -1256,7 +1359,7 @@ class HarnessService:
                 )
             return events
 
-        return self.store.command(run_id, key, request, decide)
+        return self._command(run_id, key, request, decide)
 
     def mark_usage_unknown(
         self,
@@ -1272,10 +1375,10 @@ class HarnessService:
         }
 
         def decide(run):
-            self.check_worker(run, token)
+            self.check_recovery_worker(run, token)
             return [NewEvent(event_type="BUDGET_USAGE_UNKNOWN", payload=request)]
 
-        return self.store.command(run_id, key, request, decide)
+        return self._command(run_id, key, request, decide)
 
     def record_validation(
         self,
@@ -1293,7 +1396,7 @@ class HarnessService:
         }
 
         def decide(run):
-            self.check_worker(run, token)
+            self.check_recovery_worker(run, token)
             if run.status != RunStatus.VALIDATING or run.workspace_revision is None:
                 raise InvalidTransition("Validation requires a checkpointed validating run")
             return [
@@ -1308,7 +1411,7 @@ class HarnessService:
                 )
             ]
 
-        return self.store.command(run_id, key, request, decide)
+        return self._command(run_id, key, request, decide)
 
     def pass_work_item(
         self,
@@ -1332,7 +1435,7 @@ class HarnessService:
                 )
             ]
 
-        return self.store.command(run_id, key, request, decide)
+        return self._command(run_id, key, request, decide)
 
     def advance_work_item_and_save_session(
         self,
@@ -1394,7 +1497,7 @@ class HarnessService:
                 ),
             ]
 
-        return self.store.command(run_id, key, request, decide)
+        return self._command(run_id, key, request, decide)
 
     def pass_work_item_and_succeed(
         self,
@@ -1425,7 +1528,7 @@ class HarnessService:
                 ),
             ]
 
-        return self.store.command(run_id, key, request, decide)
+        return self._command(run_id, key, request, decide)
 
     def fail(
         self,
@@ -1446,7 +1549,7 @@ class HarnessService:
             self.check_worker(run, token)
             return [NewEvent(event_type="RUN_FAILED", payload={"reason": reason})]
 
-        return self.store.command(run_id, key, request, decide)
+        return self._command(run_id, key, request, decide)
 
     def fail_budget_stop(
         self,
@@ -1496,7 +1599,7 @@ class HarnessService:
                 )
             ]
 
-        return self.store.command(run_id, key, request, decide)
+        return self._command(run_id, key, request, decide)
 
     def reserve_promotion(self, run_id: str, intent: PromotionIntent, key: str) -> Run:
         request = {
@@ -1533,7 +1636,7 @@ class HarnessService:
                 )
             ]
 
-        return self.store.command(run_id, key, request, decide)
+        return self._command(run_id, key, request, decide)
 
     def settle_promotion(self, run_id: str, receipt: PromotionReceipt, key: str) -> Run:
         request = {

@@ -74,6 +74,14 @@ class BudgetExceeded(HorizonError):
         super().__init__(message)
 
 
+class RunDeadlineExceeded(BudgetExceeded):
+    """The persisted wall-clock deadline prevents any new Run work."""
+
+    def __init__(self, run_id: str):
+        self.run_id = run_id
+        super().__init__(f"Run {run_id} wall-clock deadline has expired; downtime is not refunded")
+
+
 class LeaseConflict(Conflict):
     pass
 

@@ -5,6 +5,13 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Made wall-clock expiry a replayable execution boundary. Active commands now raise a typed
+  `RunDeadlineExceeded` and persist `FAILED / wall_clock_limit` whenever no external effect still
+  needs classification. Model/tool receipts, conservative unknown classification, lease release,
+  and explicit recovery leases remain available after the deadline, so a late receipt is recorded
+  before terminalization and a recoverable tool effect is not hidden by a forced failure. Agent
+  slice yields and recovery CLI paths apply the same rule; no retry, fallback, network call, or
+  budget expansion was added.
 - Extended the local sequential Supervisor with a narrow trusted-parent handoff for reaped child
   Workers. A launch boundary binds the exact Run, lease epoch, event cursor, and AgentSession;
   continuation requires zero reservations plus the existing RecoveryService's safe-resume verdict.

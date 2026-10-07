@@ -2855,6 +2855,43 @@ def test_sequential_supervisor_reopens_workers_and_respects_slice_limit(tmp_path
     assert "return [] if" in (workspace / "src/parser.py").read_text(encoding="utf-8")
 
 
+def test_agent_slice_persists_deadline_after_late_model_receipt(tmp_path, task_dict):
+    bounded_task = {
+        **task_dict,
+        "budgets": {**task_dict["budgets"], "max_wall_time_seconds": 1},
+    }
+    runner, store, run_id, token, _, _ = setup_loop(tmp_path, bounded_task, [])
+    deadline = datetime.fromisoformat(store.get(run_id).deadline_at)
+
+    class DeadlineCrossingModel:
+        def __init__(self):
+            self.requests = []
+
+        def generate(self, request, trace_id):
+            self.requests.append((request, trace_id))
+            store.clock = lambda: deadline + timedelta(seconds=1)
+            return ModelResponse(
+                response_id="late-response",
+                model=request.model,
+                message=ModelMessage(role="assistant", content="finished without a tool"),
+                finish_reason="stop",
+                usage=ModelUsage(input_tokens=100, output_tokens=20),
+                provider_trace_id="late-trace",
+            )
+
+    model = DeadlineCrossingModel()
+    runner.model = model
+    result = runner.run(run_id, token, max_iterations_this_invocation=1)
+
+    assert result.status == RunStatus.FAILED
+    assert result.failure_reason == "wall_clock_limit"
+    assert len(model.requests) == 1
+    assert len(result.model_calls) == 1
+    assert not result.tool_calls
+    assert not result.reservations
+    assert store.events(run_id)[-1].event_type == "RUN_FAILED"
+
+
 @pytest.mark.parametrize(
     ("error", "lease_released"),
     [

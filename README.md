@@ -83,7 +83,7 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | Python 3.12/3.13 的测试、静态检查、演示和构建已通过 | CI 不读取 API Key、不运行付费模型 |
-| 离线回归 | `397 passed, 7 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `401 passed, 7 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | [本地顺序 Supervisor](docs/local-sequential-supervisor.md) | 完整轮次后自动释放 Lease并重开 Worker；真实子 Worker 退出后，活/过期 Lease 都可由同一父进程按精确身份接管并记录 Trace；pending intent 只保留或取得恢复 Lease，零重派 | 仅接管父进程已确认退出的本地 Worker，副作用安全仍由 Recovery/HITL 判定；不是常驻进程平台、分布式队列或任意崩溃自动恢复 |
 | Docker 契约 | 7 项均已在本机已有镜像上单独通过 | 有限隔离合同，不是恶意代码安全认证 |
 | 一键崩溃恢复演示 | 子进程在 `replace_text` 生效后、receipt 前以退出码 86 硬退出；悬空调用先标 unknown，再按精确 manifest 接纳一次并恢复到 epoch 3 | 固定离线脚本与单一写入窗口，不代表任意进程/主机故障恢复 |
@@ -134,7 +134,9 @@ Trace 导出及离线重放，以及 `read → edit → test → submit → prot
 intent/receipt、用量、费用、工作区版本、检查点和验证证据
 都会进入 Run 事件流；离线 reconciliation 能分类悬空调用、修复有可信 Run 回执的 Campaign
 提交窗口。新模型响应先进入不可变 Artifact；若只差 Campaign settlement，新 Worker 可直接
-继续该响应而不重复计费。每次模型调用还有一份内容寻址的 ContextProjection：候选视图必须
+继续该响应而不重复计费。墙钟到期会阻止新模型/工具派发，并在安全静止边界写入可重放的
+`FAILED / wall_clock_limit`；已经派发的调用仍可先落账或标为 unknown，待恢复的工具副作用不会
+被终态覆盖。每次模型调用还有一份内容寻址的 ContextProjection：候选视图必须
 同时满足字符上限和覆盖消息、工具 Schema 与请求参数的保守 input-token 上界；超限时只折叠
 旧的完整工具轮次，保留初始合同、最近轮次和未完成工具对。该上界可重放但不是精确 tokenizer
 计数。每次调用另把
@@ -362,7 +364,7 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **397 passed，7 skipped**；7 项 Docker 合同均已指定本机已有镜像
+当前离线全量回归为 **401 passed，7 skipped**；7 项 Docker 合同均已指定本机已有镜像
 单独复跑并通过。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实
 Issue 效果。新增真实模型 Pilot 单元测试覆盖私有答案拒绝、初始失败证据、内容寻址报告和

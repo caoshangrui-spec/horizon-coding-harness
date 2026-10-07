@@ -1,6 +1,6 @@
 # 开发进度与验证记录
 
-更新：2026-10-07。已发布版本为 0.1.0，主干继续积累 Unreleased 改动；技术设计基线继续为
+更新：2026-10-08。已发布版本为 0.1.0，主干继续积累 Unreleased 改动；技术设计基线继续为
 0.2.0。2026-09-30 的
 可靠性内核证据保留，本次在其上增加 Provider 垂直切片和首个受控 Coding Agent 闭环。
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
@@ -22,6 +22,7 @@
 | Run 状态投影、终态和成功前置检查 | [run.py](../src/horizon/domain/run.py) | 状态规则；顺序 WorkItem DAG、单次 vN→vN+1 revision 和最终 required checks 全量回归已接入；无并行或多次 replan |
 | 追加事件、事务、幂等回执、历史合同、重放 | [sqlite.py](../src/horizon/adapters/persistence/sqlite.py) | SQLite 重启、投影损坏/删除、并发写、真实进程退出 |
 | Lease/epoch、取消、合同修订、预算账本 | [services.py](../src/horizon/application/services.py) | 旧 Worker 拒绝写入；Run 内模型/工具 intent、receipt、unknown 与硬预算事件化 |
+| wall-clock 到期与迟到回执 | [services.py](../src/horizon/application/services.py)、[agent_loop.py](../src/horizon/application/agent_loop.py)、[语义说明](budget-stop-semantics.md#21-wall-clock-到期边界) | 到期后禁止新派发并在安全边界记录 `FAILED / wall_clock_limit`；已派发调用可先结算/隔离，恢复 Lease 不扩展执行权限；待 HITL 的工具副作用保留非终态。当前无后台定时器，需由控制命令或 slice 边界观察到期 |
 | 不可变内容寻址文件产物与新目录恢复 | [artifacts.py](../src/horizon/adapters/persistence/artifacts.py)、[snapshot.py](../src/horizon/adapters/workspace/snapshot.py) | 文本/二进制文件；同进程已完整验证且元数据未变化的 CAS 去重命中不重复读 blob，变化或重启后重新验 hash；不恢复 Git 对象、进程或网络状态 |
 | 检查点产物引用与事件原子提交 | [checkpoints.py](../src/horizon/application/checkpoints.py) | 产物校验、游标 CAS、拒绝未结算动作；正常轮次的调度静止由本地顺序 Supervisor 校验，异常退出仍须 recovery 围栏 |
 | 临时副本 Docker 执行与受保护验收 | [docker.py](../src/horizon/adapters/sandbox/docker.py)、[validation.py](../src/horizon/adapters/sandbox/validation.py) | 非 root、禁网、只读根、超时、输出有界；模型只能选择控制器冻结的 check ID |
@@ -86,6 +87,24 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 仍是后续适配约束；不能以该文档代替本项目的实际联调。
 
 ## 验证结果
+
+### 2026-10-08 wall-clock 安全终态与恢复边界
+
+- 新增类型化 `RunDeadlineExceeded(run_id)`。所有走 active gate 的 Harness command 在事务拒绝后
+  会重新读取持久状态：没有未分类外部效果或可恢复工具 intent 时，追加
+  `RUN_FAILED(reason=wall_clock_limit)`；异常仍返回调用方，Trace 可解释为何没有执行原命令。
+- receipt/unknown/session/validation evidence 写入、Lease 释放和 reaped-worker 围栏改用只校验
+  非终态与精确 Lease 身份的 recovery gate。该 gate 不允许 reserve、transition 或任何新模型/
+  工具派发；普通 Worker 即使拿到 recovery Lease 也不能越过 active deadline。
+- `agent reconcile` 与 `agent resolve-tool` 可在 deadline 后取得专用 recovery Lease。前者保留仍可
+  精确处置的 tool intent；后者 accept/rollback/discard 并清空 intent 后统一落到到期终态。
+  Agent slice 若在模型回执之后才跨过 deadline，会先结算回执和保存会话，再在 yield 边界失败，
+  不发起下一次工具/模型调用。
+- 新增 3 个离线回归：静止 active command 自动终态、未分类 intent 拒绝提前终态且可在恢复
+  Lease 下标 unknown、迟到回执先结算后终态；另有 Agent slice 级跨 deadline 用例验证模型
+  receipt 已保存、工具调用为 0、最后事件为 `RUN_FAILED`；另验证 unknown tool intent 不会被到期
+  终态遮蔽。全量结果为 **401 passed，7 skipped**，
+  本轮未联网、未调用付费模型、未扩大任何费用上限。
 
 ### 2026-10-07 本地顺序 Supervisor 安全接力
 
@@ -269,7 +288,7 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
   验证器还会从最终 Trace 复核同一 call 只出现一次成功恢复记录。v1/v2 报告继续可读。
 - 该演示仍是固定 Scripted Model、固定 `replace_text` 提交窗和只读文本验收；它证明本演示的真实
   子进程硬退出恢复，不代表 OS reboot、主机宕机、磁盘损坏、任意工具或任意 crash window。
-- 最新离线全量回归为 **397 passed，7 skipped**；7 个 skip 均为需要显式本机镜像的 Docker
+- 最新离线全量回归为 **401 passed，7 skipped**；7 个 skip 均为需要显式本机镜像的 Docker
   合同，已使用本机已有镜像单独复跑并全部通过。
 
 ### 2026-10-05 Docker 检查停止结果恢复
@@ -638,6 +657,8 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
   is not refunded”硬规则拒绝，因此没有篡改为成功或重新派发。它保留为过期负证据。修复包含：
   大文件整读拒绝并要求范围、近期完整单元在硬上限下最少应急折叠、incomplete 单元保守拒绝，
   以及 pre-dispatch HorizonError 的静止租约释放；122,665 字符事故尺寸有专门回归。
+  这是当时版本的冻结事实；当前主干允许 deadline 后只取得 recovery Lease 来对账，并在安全
+  边界写入 `wall_clock_limit`，但不会追溯改写该历史 Run 或把它解释为成功。
 - 单 Run cap `CNY 0.14` 的 continuation 零费用 preflight 通过后，用户授权执行了
   Run `run_f42d1e4bf3d34203b247d56448215f41`。它调用 3 次模型（1 planning、2 execution）、
   3 次只读工具，消耗 10,108 input / 412 output tokens，费用 `CNY 0.0285024`。Planner 在
@@ -779,7 +800,7 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 七轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新离线全量回归为 397 passed、7 个显式 Docker skip，
+当前主干继续补齐尚未统一覆盖的故障点；最新离线全量回归为 401 passed、7 个显式 Docker skip，
 7 个 Docker 合同已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
