@@ -90,7 +90,7 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 外部来源裁剪 A/B v2 | 5 个来源绑定案例的初始失败、Baseline 等待和 Treatment 修复均由本地可信与公开禁网 Docker 执行，证据已上传 | 使用 Scripted Model 和 dependency-reduced fixture，不是 BugsInPy 官方成绩 |
 | 完整 checkout A/B v2 | tqdm 82 files、youtube-dl 872 files、Luigi 382 files；本地可信与公开禁网 Docker 均为 3/3，RAG rank 1、Trace replay 和证据上传通过 | 使用 Scripted Model，不是模型能力或官方 BugsInPy 成绩 |
 | [三阶段恢复 A/B v3](docs/multi-stage-full-checkout-pilot.md) | youtube-dl 872 files + Luigi 382 files；两例均含 3 个依赖 WorkItem、2 次持久化 Worker 重启、final epoch 3 和一次只改未完成项的 replan；本地可信与[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/37450253181)均为 2/2 | 作者选择的两个案例与 Scripted Model；边界重启不等于任意指令处崩溃，不是模型能力或官方成绩 |
-| [源码绑定写入硬崩溃 A/B](docs/source-bound-hard-crash-recovery.md) | Luigi 382 files；两条 arm 都在首个生产写入 effect 后、receipt 前真实退出，先标 unknown，再由新 epoch 精确 `accept_replace`，随后跨两个 WorkItem 边界到 epoch 4；本地可信 1/1，公开禁网 Docker 待跑 | 固定第 2 次调用、单个作者选择任务与 Scripted Model；不是任意崩溃、自动恢复策略或官方成绩 |
+| [源码绑定写入硬崩溃 A/B](docs/source-bound-hard-crash-recovery.md) | Luigi 382 files；两条 arm 都在首个生产写入 effect 后、receipt 前真实退出，先标 unknown，再由新 epoch 精确 `accept_replace`，随后跨两个 WorkItem 边界到 epoch 4；本地可信与[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/37569667246)均为 1/1 | 固定第 2 次调用、单个作者选择任务与 Scripted Model；不是任意崩溃、自动恢复策略或官方成绩 |
 | 真实模型 Pilot | 六轮均可重放、费用可核对、source 未变 | 六轮均未编辑或验证成功，保留为负结果 |
 | 预算预留诊断 | 6 Trace、20 个已结算调用；聚合预留/结算比 6.861621；候选公式仅有 3 个可回放样本 | 新 BudgetStop 保存请求尺寸；样本不足，不自动降低费用安全门槛 |
 | 出站请求尺寸 | 5 类离线边界请求均复用 Adapter 的精确 wire encoder；167～9,061 bytes | 无 Provider usage，不证明候选公式安全或模型效果 |

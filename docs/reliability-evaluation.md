@@ -100,5 +100,5 @@ E2E 与 `trace replay` 测试承担。
 
 新增的[源码绑定写入硬崩溃 A/B](source-bound-hard-crash-recovery.md)进一步把 Luigi 的第一个生产
 写入放进独立子进程：effect 已发生、receipt 未提交时真实退出，恢复路径先保守 unknown，再在
-新 lease epoch 精确接纳既有 effect，且不重派模型。当前只有本地可信一例；公开禁网 Docker 尚待
-验证，也不把这一精确窗口扩展为任意崩溃或自动恢复结论。
+新 lease epoch 精确接纳既有 effect，且不重派模型。本地可信与公开禁网 Docker 均已通过 1/1；
+这一精确窗口仍不能扩展为任意崩溃或自动恢复结论。

@@ -2107,7 +2107,7 @@ def doctor():
                 "source_bound_run_ab_multi_stage_docker_verified_count": 2,
                 "source_bound_run_ab_multi_stage_hard_crash_case_count": 1,
                 "source_bound_run_ab_multi_stage_hard_crash_worker_restart_count": 3,
-                "source_bound_run_ab_multi_stage_hard_crash_docker_verified_count": 0,
+                "source_bound_run_ab_multi_stage_hard_crash_docker_verified_count": 1,
                 "source_bound_run_ab_multi_stage_hard_crash_profile": (
                     "write_effect_before_receipt_exact_accept_no_redispatch"
                 ),

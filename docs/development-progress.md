@@ -36,7 +36,7 @@
 | 有界恢复矩阵 v3 | [recovery_evaluation.py](../src/horizon/domain/recovery_evaluation.py)、[recovery_eval.py](../src/horizon/application/recovery_eval.py)、[horizon-recovery-matrix-v3.yaml](../benchmarks/recovery/horizon-recovery-matrix-v3.yaml)、[recovery-matrix-evaluation.md](recovery-matrix-evaluation.md) | 保留 v1/v2 digest；新增 promotion effect→receipt 前真实硬退出，与既有写入/模型响应硬退出及 18 个三工具状态/决策组合合计 21/21。自动恢复 11/11、安全阻塞 10/10、incorrect resume/redispatch/重复副作用均 0；三条 Trace replay。仍非完整设计故障矩阵、主机故障或 exactly-once 验收 |
 | 完整 Run A/B 与来源绑定 Suite | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[scripted.py](../src/horizon/adapters/model/scripted.py) | 同一 Task/Plan/workspace 的 baseline 与单次 replan arm；先真实确认初始失败，再检查 EventLog/预算/Gateway/Trace；1 个内部、v2 的 5 个 BugsInPy 依赖裁剪案例，以及 tqdm 82 files、youtube-dl 872 files、Luigi 382 files 三个完整 checkout。两个 v2 suite 均有 test-only 本地真实回归，并由统一公开 CI 在禁网 Docker 中通过 5/5 与 3/3、上传内容寻址证据。完整案例还验证干净 Git HEAD 与 Code RAG，仍是脚本模型 |
 | 完整 checkout 多阶段/重启 A/B | [bugsinpy-multi-stage-pilot-v3.yaml](../benchmarks/run_ab/bugsinpy-multi-stage-pilot-v3.yaml) | youtube-dl 872 files 与 Luigi 382 files 上各有三个依赖 WorkItem；四条 arm 均跨两个持久边界到 epoch 3，并覆盖跨 revision RAG、active/stale Run Memory、完成项保留 replan、最终三项 required checks 与 Trace replay。本地可信与公开禁网 Docker 均为 2/2，doctor 的 Docker 计数为 2。v1 的 CRLF 精确替换失败和 60 秒重启 Lease 到期负结果继续保留 |
-| 源码绑定的写入硬崩溃 A/B | [bugsinpy-multi-stage-hard-crash-v1.yaml](../benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v1.yaml)、[设计与证据](source-bound-hard-crash-recovery.md) | Luigi 382-file checkout 的两条 arm 都由真实子进程在第一个生产写入 effect 后、receipt 前退出；父进程先记录 unknown、围栏旧 lease，再按精确后态 `accept_replace`，不重派模型，并继续两个 WorkItem 边界到 epoch 4。本地可信 1/1、Trace replay、source unchanged、unknown/open 0；公开禁网 Docker 尚未运行，doctor 计数保持 0 |
+| 源码绑定的写入硬崩溃 A/B | [bugsinpy-multi-stage-hard-crash-v1.yaml](../benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v1.yaml)、[设计与证据](source-bound-hard-crash-recovery.md) | Luigi 382-file checkout 的两条 arm 都由真实子进程在第一个生产写入 effect 后、receipt 前退出；父进程先记录 unknown、围栏旧 lease，再按精确后态 `accept_replace`，不重派模型，并继续两个 WorkItem 边界到 epoch 4。本地可信与公开禁网 Docker 均为 1/1、Trace replay、source unchanged、unknown/open 0；doctor 的 Docker 计数为 1 |
 | 真实模型 Pilot | [pilot.py](../src/horizon/domain/pilot.py)、[pilot.py](../src/horizon/application/pilot.py)、[real-model-pilot.md](real-model-pilot.md) | 离线预检绑定完整干净 checkout、初始失败、source snapshot、Docker image、Provider policy、Harness 源码指纹、费用 cap 和首次规划保守预留。六个付费 Run 均无编辑/验证、Trace 可重放且 source 未变；第六轮的 Plan 错把已有 `itertools.py` 当实现位置，但 execution 先检索并把真实 `__init__.py` 排为 rank 1，下一模型请求再因 Campaign 预留不足停止。当前累计 `CNY 0.1954812`；没有自动复跑或真实 Issue 成功 |
 | 模型预留压力诊断 | [reservation_analysis.py](../src/horizon/application/reservation_analysis.py)、[reservation-diagnostics.md](reservation-diagnostics.md) | `trace reservation-report` 在 replay/hash-chain 校验后关联 reservation、settlement 和新 BudgetStop 请求尺寸；六轮 20 次调用的聚合预留/结算比为 6.861621。候选 `request_bytes + 1024` 仅可回放 3 次，0 次观测低估、中位比 4.137869；生产 estimator、费用门禁和付费预算均未改变 |
 | 安全轮次续跑 | [agent.py](../src/horizon/domain/agent.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 消息 Artifact + event/revision 绑定；新 Worker 续跑；PLANNING/READY 也可恢复，任意崩溃窗口对账未完成 |
@@ -106,7 +106,14 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 - 一次性结果打印器在 evaluator 已完成并确认 `all_expectations_met=true` 后，因使用不存在的旧字段名
   抛出 `AttributeError`。没有将该辅助命令记为通过，也没有重跑核心任务；随后从落盘 SQLite/CAS
   只读复核两个投影、128/171-event Trace、marker/receipt/revision、epoch 1～4 和 source Git clean，
-  复核命令通过。公开 Docker 尚无证据，因此计数仍为 0。
+  复核命令通过。
+- 实现提交 `b8e31a8c9108718a6553e3867d9537c68cbd25e3` 的公开工作流
+  [`37569667246`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/37569667246)
+  在 `python:3.12-alpine` 与生产 `--network none` Docker adapter 上通过新增 suite 1/1，同时保持
+  裁剪 5/5、完整 checkout 3/3、既有三阶段 2/2。Artifact `source-bound-docker-evidence` ID
+  `11460356798`、大小 105,093,914 bytes、digest
+  `sha256:30c69b28d8c38602b5e0b7a83ad355ca27bb7da8a284958b1f3aa4e0e3152ee0`；上传与 evidence summary
+  步骤均成功，doctor 的硬崩溃 Docker 计数提升为 1。
 
 ### 2026-10-06 有界恢复矩阵 v1 → v3
 

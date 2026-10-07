@@ -112,11 +112,17 @@ check 均失败；核心 evaluator 返回 `all_expectations_met=true`。一次�
 拒绝以下配置：schema v1 带硬崩溃字段、只有一条 arm 配置故障、两条 arm 的故障点或写参数不同、
 非可恢复工具、故障点与边界重启重合。
 
-公开工作流会重建精确 Luigi commit，在 `python:3.12-alpine` 且 `--network none` 的生产 Docker
-验收路径运行独立一例 suite，并上传完整状态目录。当前尚未获得这次新增 suite 的公开 Docker
-结果，所以 `horizon doctor` 中
-`source_bound_run_ab_multi_stage_hard_crash_docker_verified_count` 保持 0；本地可信结果不能冒充
-Docker 通过。工作流成功后才允许把该值提升为 1 并补充 run、artifact ID 与 digest。
+实现提交 `b8e31a8c9108718a6553e3867d9537c68cbd25e3` 的公开工作流
+[`37569667246`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/37569667246)
+重建精确 Luigi commit，在 `python:3.12-alpine` 且 `--network none` 的生产 Docker 验收路径通过
+新增 suite 1/1；同一运行也保持依赖裁剪 5/5、完整 checkout 3/3、既有三阶段 suite 2/2。
+`Upload content-addressed evidence` 与 `Publish evidence summary` 均成功。
+
+统一 artifact `source-bound-docker-evidence` 的 ID 为 `11460356798`，大小 105,093,914 bytes，
+digest 为 `sha256:30c69b28d8c38602b5e0b7a83ad355ca27bb7da8a284958b1f3aa4e0e3152ee0`，
+保留期到 2026-11-06。`horizon doctor` 的
+`source_bound_run_ab_multi_stage_hard_crash_docker_verified_count` 因此从 0 提升为 1。该公开结果
+证明同一冻结合同在生产 Docker 验收路径可复现，但仍不改变下一节的能力边界。
 
 ## 6. 明确边界
 
