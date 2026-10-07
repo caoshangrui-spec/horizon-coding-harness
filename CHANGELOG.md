@@ -5,6 +5,14 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Added source-bound write-effect-before-receipt recovery to the multi-stage Run A/B evaluator.
+  Both arms execute the same first Luigi production write in a real child process that fsyncs a
+  crash marker and exits before its tool receipt. The parent conservatively records the pending
+  effect as unknown, fences the old lease, accepts only the exact existing effect on the next
+  epoch, and continues without model redispatch before crossing the two existing WorkItem
+  boundaries. Manifest/report schema v2 carries typed crash evidence while schema v1 digests stay
+  frozen. The 382-file local trusted run reaches epoch 4 with replayable traces and zero open or
+  unknown calls; public network-disabled Docker verification remains pending.
 - Expanded the three-stage full-checkout recovery suite from one youtube-dl task to two
   independent upstream tasks while preserving the frozen v1/v2 manifests and digests. The new
   Luigi case separates collector binding, handler ownership, and the upstream regression update

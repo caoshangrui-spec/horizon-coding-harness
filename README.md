@@ -83,13 +83,14 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | Python 3.12/3.13 的测试、静态检查、演示和构建已通过 | CI 不读取 API Key、不运行付费模型 |
-| 离线回归 | `374 passed, 7 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `377 passed, 7 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | Docker 契约 | 既有 6 项曾在 `redis:7-alpine` 上通过；新增停止结果恢复项待 daemon 可用后补跑 | 有限隔离合同，不是恶意代码安全认证 |
 | 一键崩溃恢复演示 | 子进程在 `replace_text` 生效后、receipt 前以退出码 86 硬退出；悬空调用先标 unknown，再按精确 manifest 接纳一次并恢复到 epoch 3 | 固定离线脚本与单一写入窗口，不代表任意进程/主机故障恢复 |
 | 有界恢复矩阵 v3 | 21/21；自动恢复 11/11、安全阻塞 10/10、incorrect resume 0、恢复重派/重复副作用 0；含 3 个真实硬退出和 Trace replay | 其余 18 例是生成 fixture 的状态/决策矩阵，不是完整 8 故障点或主机故障验收 |
 | 外部来源裁剪 A/B v2 | 5 个来源绑定案例的初始失败、Baseline 等待和 Treatment 修复均由本地可信与公开禁网 Docker 执行，证据已上传 | 使用 Scripted Model 和 dependency-reduced fixture，不是 BugsInPy 官方成绩 |
 | 完整 checkout A/B v2 | tqdm 82 files、youtube-dl 872 files、Luigi 382 files；本地可信与公开禁网 Docker 均为 3/3，RAG rank 1、Trace replay 和证据上传通过 | 使用 Scripted Model，不是模型能力或官方 BugsInPy 成绩 |
 | [三阶段恢复 A/B v3](docs/multi-stage-full-checkout-pilot.md) | youtube-dl 872 files + Luigi 382 files；两例均含 3 个依赖 WorkItem、2 次持久化 Worker 重启、final epoch 3 和一次只改未完成项的 replan；本地可信与[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/37450253181)均为 2/2 | 作者选择的两个案例与 Scripted Model；边界重启不等于任意指令处崩溃，不是模型能力或官方成绩 |
+| [源码绑定写入硬崩溃 A/B](docs/source-bound-hard-crash-recovery.md) | Luigi 382 files；两条 arm 都在首个生产写入 effect 后、receipt 前真实退出，先标 unknown，再由新 epoch 精确 `accept_replace`，随后跨两个 WorkItem 边界到 epoch 4；本地可信 1/1，公开禁网 Docker 待跑 | 固定第 2 次调用、单个作者选择任务与 Scripted Model；不是任意崩溃、自动恢复策略或官方成绩 |
 | 真实模型 Pilot | 六轮均可重放、费用可核对、source 未变 | 六轮均未编辑或验证成功，保留为负结果 |
 | 预算预留诊断 | 6 Trace、20 个已结算调用；聚合预留/结算比 6.861621；候选公式仅有 3 个可回放样本 | 新 BudgetStop 保存请求尺寸；样本不足，不自动降低费用安全门槛 |
 | 出站请求尺寸 | 5 类离线边界请求均复用 Adapter 的精确 wire encoder；167～9,061 bytes | 无 Provider usage，不证明候选公式安全或模型效果 |
@@ -226,6 +227,10 @@ uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
 uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
   benchmarks/run_ab/bugsinpy-multi-stage-pilot-v3.yaml --image python:3.12-alpine
 
+# Luigi 完整 checkout 上的写入 effect→receipt 硬崩溃；恢复后再跨两个 Worker 边界。
+uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
+  benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v1.yaml --image python:3.12-alpine
+
 # 第六轮 tqdm v2 的历史零费用预检命令；不读取 API Key、不调用模型。
 # 该轮授权已消费，后续源码也已变化；旧 report 不能再次启动付费运行。
 uv run --locked --cache-dir .uv-cache horizon eval pilot-preflight `
@@ -342,7 +347,7 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **374 passed，7 skipped**。既有 6 项跳过项曾指定本机已有
+当前离线全量回归为 **377 passed，7 skipped**。既有 6 项跳过项曾指定本机已有
 `redis:7-alpine` 单独复跑并通过；新增的第 7 项“自然退出、清理前恢复结果”合同因本批
 Docker daemon 未运行尚未实跑。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实
@@ -408,6 +413,7 @@ Horizon 原创代码和文档使用 [MIT License](LICENSE)。依赖裁剪的外�
 - [外部来源 Run A/B Suite：BugsInPy 依赖裁剪复现](docs/external-run-ab-suite.md)
 - [完整上游 Checkout Suite：BugsInPy tqdm-1 与 youtube-dl-3](docs/full-checkout-pilot.md)
 - [完整 Checkout 多阶段 Pilot：youtube-dl-3 与 Luigi-1](docs/multi-stage-full-checkout-pilot.md)
+- [源码绑定的多阶段写入硬崩溃恢复](docs/source-bound-hard-crash-recovery.md)
 - [真实模型 Pilot：预检、首轮负结果与付费边界](docs/real-model-pilot.md)
 - [v0.1.0 Release Notes](docs/release-v0.1.0.md)
 

@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/workflows/full-checkout-evidence.yml"
       - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v2.yaml"
+      - "benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v1.yaml"
       - "benchmarks/run_ab/bugsinpy-multi-stage-pilot-v*.yaml"
       - "benchmarks/run_ab/bugsinpy-reduced-v2.yaml"
       - "benchmarks/run_ab/external/**/manifest.yaml"
@@ -14,6 +15,7 @@ on:
       - "benchmarks/run_ab/full/**/multi-stage*.yaml"
       - "src/horizon/adapters/sandbox/**"
       - "src/horizon/application/run_ab_eval.py"
+      - "src/horizon/application/_run_ab_crash_worker.py"
       - "src/horizon/domain/run_evaluation.py"
       - "src/horizon/interfaces/cli/app.py"
 
@@ -26,7 +28,7 @@ concurrency:
 
 jobs:
   docker-evidence:
-    name: Reduced, full-checkout, and multi-stage suites
+    name: Reduced, full-checkout, multi-stage, and hard-crash suites
     runs-on: ubuntu-latest
     timeout-minutes: 40
 
@@ -125,6 +127,18 @@ jobs:
             --state-dir "$state_dir" \
             | tee "$state_dir/cli-result.json"
 
+      - name: Run the source-bound write hard-crash suite in network-disabled containers
+        shell: bash
+        run: |
+          set -euo pipefail
+          state_dir=.horizon/multi-stage-hard-crash-docker-v1
+          mkdir -p "$state_dir"
+          uv run --locked horizon eval run-ab-suite \
+            benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v1.yaml \
+            --image python:3.12-alpine \
+            --state-dir "$state_dir" \
+            | tee "$state_dir/cli-result.json"
+
       - name: Upload content-addressed evidence
         id: evidence-upload
         if: always()
@@ -135,6 +149,7 @@ jobs:
             .horizon/reduced-docker-v2
             .horizon/full-checkout-docker-v2
             .horizon/multi-stage-docker-v3
+            .horizon/multi-stage-hard-crash-docker-v1
           if-no-files-found: warn
           retention-days: 30
 
@@ -162,9 +177,15 @@ jobs:
                   encoding="utf-8"
               )
           )
+          hard_crash = json.loads(
+              Path(
+                  ".horizon/multi-stage-hard-crash-docker-v1/cli-result.json"
+              ).read_text(encoding="utf-8")
+          )
           reduced_report = reduced["report"]
           full_report = full["report"]
           multi_report = multi["report"]
+          hard_crash_report = hard_crash["report"]
           multi_cases = []
           for case in multi_report["cases"]:
               case_ref = case["report_ref"]
@@ -176,6 +197,14 @@ jobs:
                   ).read_text(encoding="utf-8")
               )
               multi_cases.append((case["case_id"], report))
+          hard_crash_case_ref = hard_crash_report["cases"][0]["report_ref"]
+          hard_crash_case = json.loads(
+              (
+                  Path(".horizon/multi-stage-hard-crash-docker-v1/artifacts")
+                  / hard_crash_case_ref[:2]
+                  / hard_crash_case_ref
+              ).read_text(encoding="utf-8")
+          )
           lines = [
               "## Frozen source-bound Docker evidence",
               "",
@@ -196,6 +225,12 @@ jobs:
                   f"report `{multi['report_ref']}`"
               ),
               (
+                  "- Write hard-crash recovery suite: "
+                  f"`{hard_crash_report['passed_case_count']}/"
+                  f"{hard_crash_report['case_count']}`; "
+                  f"report `{hard_crash['report_ref']}`"
+              ),
+              (
                   "- Three-stage worker restarts / final epochs: "
                   + "; ".join(
                       f"{case_id} baseline `{case['baseline']['worker_restarts']}/"
@@ -204,6 +239,22 @@ jobs:
                       f"{case['single_replan']['final_lease_epoch']}`"
                       for case_id, case in multi_cases
                   )
+              ),
+              (
+                  "- Hard-crash exit / recovered disposition / worker restarts / final epoch: "
+                  + "; ".join(
+                      f"{arm_name} `{arm['hard_crash']['observed_exit_code']}/"
+                      f"{arm['hard_crash']['recovery_disposition']}/"
+                      f"{arm['worker_restarts']}/{arm['final_lease_epoch']}`"
+                      for arm_name, arm in (
+                          ("baseline", hard_crash_case["baseline"]),
+                          ("treatment", hard_crash_case["single_replan"]),
+                      )
+                  )
+              ),
+              (
+                  "- Hard-crash recovery without model redispatch: "
+                  f"`{all(arm['hard_crash']['recovered_without_model_redispatch'] for arm in (hard_crash_case['baseline'], hard_crash_case['single_replan']))}`"
               ),
               (
                   "- Reduced initial failures / recovered treatments: "
@@ -221,13 +272,18 @@ jobs:
                   f"{multi_report['treatment_recovered_count']}`"
               ),
               (
+                  "- Hard-crash initial failures / recovered treatments: "
+                  f"`{hard_crash_report['initial_failure_confirmed_count']}/"
+                  f"{hard_crash_report['treatment_recovered_count']}`"
+              ),
+              (
                   "- All expectations met: "
-                  f"`{reduced_report['all_expectations_met'] and full_report['all_expectations_met'] and multi_report['all_expectations_met']}`"
+                  f"`{reduced_report['all_expectations_met'] and full_report['all_expectations_met'] and multi_report['all_expectations_met'] and hard_crash_report['all_expectations_met']}`"
               ),
               (
                   "- Paid model / model network calls: "
-                  f"`{any(report['paid_model_called'] for report in (reduced_report, full_report, multi_report))}` / "
-                  f"`{any(report['network_called'] for report in (reduced_report, full_report, multi_report))}`"
+                  f"`{any(report['paid_model_called'] for report in (reduced_report, full_report, multi_report, hard_crash_report))}` / "
+                  f"`{any(report['network_called'] for report in (reduced_report, full_report, multi_report, hard_crash_report))}`"
               ),
               f"- Uploaded artifact digest: `{os.environ['ARTIFACT_DIGEST']}`",
           ]

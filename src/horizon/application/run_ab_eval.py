@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import subprocess
+import sys
 from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
@@ -12,7 +15,9 @@ from horizon.adapters.retrieval.sqlite_fts import SQLiteCodeRetriever
 from horizon.adapters.workspace.promotion import workspace_path_hash
 from horizon.adapters.workspace.snapshot import SnapshotManager
 from horizon.application.agent_loop import AgentLoopConfig, CodingAgentRunner
+from horizon.application.recovery import RecoveryService
 from horizon.application.services import HarnessService, LeaseToken
+from horizon.application.tool_recovery import ToolRecoveryService
 from horizon.domain.common import canonical_json
 from horizon.domain.human import HumanGuidanceRequest
 from horizon.domain.model import CampaignBudget, PriceCard
@@ -20,13 +25,16 @@ from horizon.domain.ports import AcceptanceExecutorPort
 from horizon.domain.promotion import WorkspaceOrigin
 from horizon.domain.run import projection_hash
 from horizon.domain.run_evaluation import (
+    RUN_AB_HARD_CRASH_EXIT_CODE,
     RunABArm,
     RunABArmResult,
     RunABEvalManifest,
     RunABEvalReport,
+    RunABHardCrashEvidence,
     RunABSuiteCaseResult,
     RunABSuiteManifest,
     RunABSuiteReport,
+    ScriptedModelAction,
 )
 from horizon.domain.states import RunStatus
 from horizon.domain.task import TaskSpec
@@ -116,6 +124,7 @@ class RunABEvaluator:
         baseline_success = baseline.status == RunStatus.SUCCEEDED
         treatment_success = treatment.status == RunStatus.SUCCEEDED
         return RunABEvalReport(
+            schema_version=manifest.schema_version,
             benchmark_id=manifest.benchmark_id,
             evaluation_id=evaluation_id,
             manifest_digest=manifest.sha256,
@@ -138,6 +147,210 @@ class RunABEvaluator:
             model_cost_delta=treatment.model_cost - baseline.model_cost,
             repository_code_executed=self.repository_code_executed,
         )
+
+    def _inject_write_hard_crash(
+        self,
+        *,
+        action: ScriptedModelAction,
+        action_index: int,
+        total_actions: int,
+        arm: RunABArm,
+        run_id: str,
+        token: LeaseToken,
+        arm_root: Path,
+        workspace: Path,
+        artifacts: ArtifactStore,
+    ) -> tuple[
+        SQLiteEventStore,
+        HarnessService,
+        LeaseToken,
+        ArtifactStore,
+        SnapshotManager,
+        RunABHardCrashEvidence,
+    ]:
+        action_content = canonical_json(action).encode("utf-8")
+        action_ref = artifacts.put(action_content)
+        if artifacts.read(action_ref) != action_content:
+            raise ValueError("Run A/B hard-crash action artifact verification failed")
+        store_path = arm_root / "control.sqlite3"
+        campaign_path = arm_root / "campaign.sqlite3"
+        retrieval_path = arm_root / "retrieval.sqlite3"
+        marker_path = arm_root / f"hard-crash-model-call-{action_index}.json"
+        crashed_process = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "horizon.application._run_ab_crash_worker",
+                str(store_path),
+                run_id,
+                token.lease_id,
+                token.worker_id,
+                str(token.epoch),
+                str(artifacts.root),
+                str(workspace),
+                str(campaign_path),
+                str(retrieval_path),
+                str(marker_path),
+                action_ref,
+                arm.arm_id,
+                str(action_index),
+                str(total_actions),
+            ],
+            capture_output=True,
+            timeout=180,
+        )
+        if crashed_process.returncode != RUN_AB_HARD_CRASH_EXIT_CODE:
+            stderr = crashed_process.stderr.decode(errors="replace")[-2_000:]
+            raise ValueError(
+                "Run A/B child did not stop at the expected hard-crash boundary: "
+                f"exit={crashed_process.returncode}, stderr={stderr!r}"
+            )
+        try:
+            marker_content = marker_path.read_bytes()
+            marker = json.loads(marker_content)
+        except (OSError, ValueError) as exc:
+            raise ValueError("Run A/B hard-crash marker is missing or invalid") from exc
+
+        store = SQLiteEventStore(store_path)
+        service = HarnessService(store)
+        artifacts = ArtifactStore(artifacts.root)
+        snapshots = SnapshotManager(artifacts)
+        interrupted = store.get(run_id)
+        recorded_ids = {record.call_id for record in interrupted.tool_calls}
+        pending = [
+            reservation
+            for call_id, reservation in interrupted.tool_reservations.items()
+            if call_id not in recorded_ids and reservation.name == action.tool
+        ]
+        if len(pending) != 1:
+            raise ValueError("Run A/B hard crash did not leave one pending write intent")
+        reservation = pending[0]
+        marker_contract = {
+            "attempt_id": reservation.call_id,
+            "exit_code": RUN_AB_HARD_CRASH_EXIT_CODE,
+            "model_call_index": action_index,
+            "scripted_action_ref": action_ref,
+            "tool": action.tool,
+        }
+        if any(marker.get(key) != value for key, value in marker_contract.items()):
+            raise ValueError("Run A/B hard-crash marker does not match its durable intent")
+        if not isinstance(marker.get("pid"), int) or marker["pid"] <= 0:
+            raise ValueError("Run A/B hard-crash marker has no valid child process ID")
+        reservation_without_receipt = reservation.call_id not in recorded_ids
+        model_calls_before_recovery = len(interrupted.model_calls)
+        if model_calls_before_recovery != action_index:
+            raise ValueError("Run A/B hard crash occurred at an unexpected model call")
+
+        ledger = CampaignBudgetLedger(campaign_path)
+        blocked_report = RecoveryService(service, ledger, artifacts).reconcile(run_id, token)
+        unknown = store.get(run_id)
+        conservative_unknown_recorded = (
+            not blocked_report.safe_to_resume
+            and reservation.call_id in unknown.unknown_tool_calls
+            and len(
+                [
+                    finding
+                    for finding in blocked_report.findings
+                    if finding.operation_id == reservation.call_id
+                    and finding.classification == "tool_effect_unknown"
+                ]
+            )
+            == 1
+        )
+
+        service.release_lease(
+            run_id,
+            token,
+            f"supervisor-fence-hard-crash-{action_index}",
+        )
+        leased = service.acquire_lease(
+            run_id,
+            f"worker-{arm.arm_id}-after-hard-crash",
+            f"lease-after-hard-crash-{action_index}",
+            ttl_seconds=600,
+        )
+        recovery_token = LeaseToken.from_run(leased)
+        if leased.plan is None or leased.agent_session is None:
+            raise ValueError("Run A/B hard-crash recovery lost its active Agent session")
+        active_item = next(
+            (
+                item
+                for item in leased.plan.items
+                if item.work_item_id == leased.agent_session.work_item_id
+            ),
+            None,
+        )
+        if active_item is None:
+            raise ValueError("Run A/B hard-crash recovery cannot find its active WorkItem")
+        gateway = WorkspaceToolGateway(
+            workspace,
+            leased.task,
+            active_item,
+            snapshots,
+            self.acceptance,
+            SQLiteCodeRetriever(retrieval_path, snapshots),
+        )
+        resolved = ToolRecoveryService(service, artifacts, gateway).resolve_write(
+            run_id,
+            reservation.call_id,
+            decision="accept",
+            token=recovery_token,
+        )
+        safe_report = RecoveryService(service, ledger, artifacts).reconcile(
+            run_id,
+            recovery_token,
+        )
+        matching_receipts = [
+            record
+            for record in resolved.tool_calls
+            if record.call_id == reservation.call_id
+            and record.status == "success"
+            and record.recovery_disposition is not None
+        ]
+        recovered_without_model_redispatch = (
+            len(resolved.model_calls) == model_calls_before_recovery
+        )
+        one_recovered_receipt = len(matching_receipts) == 1
+        exact_effect_accepted = one_recovered_receipt and matching_receipts[
+            0
+        ].recovery_disposition in {"accept_replace", "accept_patch", "accept_create"}
+        marker_revision_matches = (
+            one_recovered_receipt
+            and marker.get("workspace_revision_after")
+            == matching_receipts[0].workspace_revision_after
+        )
+        checks = (
+            reservation_without_receipt,
+            conservative_unknown_recorded,
+            safe_report.safe_to_resume,
+            exact_effect_accepted,
+            marker_revision_matches,
+            recovered_without_model_redispatch,
+            one_recovered_receipt,
+        )
+        if not all(checks):
+            raise ValueError("Run A/B hard-crash recovery evidence is incomplete")
+        marker_ref = artifacts.put(marker_content)
+        receipt = matching_receipts[0]
+        assert receipt.recovery_disposition is not None
+        evidence = RunABHardCrashEvidence(
+            model_call_index=action_index,
+            tool=action.tool,
+            observed_exit_code=crashed_process.returncode,
+            crashed_worker_epoch=token.epoch,
+            recovery_worker_epoch=recovery_token.epoch,
+            pending_tool_call_id=reservation.call_id,
+            scripted_action_ref=action_ref,
+            crash_marker_ref=marker_ref,
+            recovery_disposition=receipt.recovery_disposition,
+            reservation_without_receipt=True,
+            expected_effect_present=True,
+            conservative_unknown_recorded=True,
+            exact_effect_accepted=True,
+            recovered_without_model_redispatch=True,
+            one_recovered_tool_receipt=True,
+        )
+        return store, service, recovery_token, artifacts, snapshots, evidence
 
     def _run_arm(
         self,
@@ -201,6 +414,7 @@ class RunABEvaluator:
         active_artifacts = artifacts
         active_snapshots = snapshots
         models: list[ScriptedModelGateway] = []
+        hard_crash_evidence: RunABHardCrashEvidence | None = None
 
         def build_runner(
             active_service: HarnessService,
@@ -233,7 +447,8 @@ class RunABEvaluator:
             )
 
         restart_points = arm.restart_points
-        if not restart_points:
+        crash_point = arm.hard_crash_after_tool_effect_at_model_call
+        if crash_point is None and not restart_points:
             model = ScriptedModelGateway(arm.arm_id, arm.actions)
             models.append(model)
             result = build_runner(service, model, active_artifacts, active_snapshots).run(
@@ -241,7 +456,7 @@ class RunABEvaluator:
                 token,
             )
             worker_restarts = 0
-        else:
+        elif crash_point is None:
             segment_starts = (0, *restart_points)
             segment_ends = (*restart_points, len(arm.actions))
             result = None
@@ -307,6 +522,107 @@ class RunABEvaluator:
             if result is None:
                 raise ValueError("Worker restart evaluation did not execute its final segment")
             worker_restarts = len(restart_points)
+        else:
+            cursor = 0
+            result = None
+            worker_restarts = 0
+            boundary_restart_number = 0
+            while cursor < len(arm.actions):
+                if cursor + 1 == crash_point:
+                    (
+                        store,
+                        service,
+                        token,
+                        active_artifacts,
+                        active_snapshots,
+                        hard_crash_evidence,
+                    ) = self._inject_write_hard_crash(
+                        action=arm.actions[cursor],
+                        action_index=crash_point,
+                        total_actions=len(arm.actions),
+                        arm=arm,
+                        run_id=run.run_id,
+                        token=token,
+                        arm_root=arm_root,
+                        workspace=workspace,
+                        artifacts=active_artifacts,
+                    )
+                    worker_restarts += 1
+                    cursor += 1
+                    continue
+
+                control_points = [len(arm.actions)]
+                if cursor < crash_point - 1:
+                    control_points.append(crash_point - 1)
+                control_points.extend(point for point in restart_points if point > cursor)
+                end = min(control_points)
+                if end <= cursor:
+                    raise ValueError("Run A/B hard-crash scheduler made no progress")
+                model = ScriptedModelGateway(
+                    arm.arm_id,
+                    arm.actions[cursor:end],
+                    start_index=cursor,
+                )
+                models.append(model)
+                runner = build_runner(service, model, active_artifacts, active_snapshots)
+                if end == len(arm.actions):
+                    result = runner.run(run.run_id, token)
+                    cursor = end
+                    break
+
+                partial = runner.run(
+                    run.run_id,
+                    token,
+                    max_iterations_this_invocation=end - cursor,
+                )
+                cursor = end
+                if cursor == crash_point - 1:
+                    if partial.status != RunStatus.RUNNING or partial.agent_session is None:
+                        raise ValueError(
+                            "Configured hard crash did not retain a resumable Agent session"
+                        )
+                    continue
+                if cursor not in restart_points:
+                    raise ValueError("Run A/B scheduler stopped outside a configured boundary")
+                if (
+                    partial.status != RunStatus.RUNNING
+                    or partial.agent_session is None
+                    or not partial.passed_items
+                    or partial.agent_session.work_item_id in partial.passed_items
+                    or not set(
+                        next(
+                            item.dependencies
+                            for item in partial.plan.items
+                            if item.work_item_id == partial.agent_session.work_item_id
+                        )
+                    )
+                    <= partial.passed_items
+                ):
+                    raise ValueError(
+                        "Configured worker restart did not land on a persisted WorkItem boundary"
+                    )
+
+                boundary_restart_number += 1
+                service.release_lease(
+                    run.run_id,
+                    token,
+                    f"release-for-scripted-worker-restart-{boundary_restart_number}",
+                )
+                store = SQLiteEventStore(arm_root / "control.sqlite3")
+                service = HarnessService(store)
+                leased = service.acquire_lease(
+                    run.run_id,
+                    f"worker-{arm.arm_id}-restart-{boundary_restart_number}",
+                    f"lease-after-scripted-worker-restart-{boundary_restart_number}",
+                    ttl_seconds=600,
+                )
+                token = LeaseToken.from_run(leased)
+                active_artifacts = ArtifactStore(artifacts.root)
+                active_snapshots = SnapshotManager(active_artifacts)
+                worker_restarts += 1
+
+            if result is None or hard_crash_evidence is None:
+                raise ValueError("Hard-crash evaluation did not execute its final segment")
 
         trace = store.export_jsonl(run.run_id)
         trace_ref = active_artifacts.put(trace.encode("utf-8"))
@@ -345,6 +661,9 @@ class RunABEvaluator:
         )
 
         failures: list[str] = []
+        actions_consumed = all(model.consumed for model in models) and (
+            crash_point is None or hard_crash_evidence is not None
+        )
         expectations = (
             (result.status == arm.expected_status, "status"),
             (
@@ -360,7 +679,11 @@ class RunABEvaluator:
             (result.usage.model_calls == arm.expected_model_calls, "model_calls"),
             (result.usage.tool_calls == arm.expected_tool_calls, "tool_calls"),
             (result.usage.steps == arm.expected_steps, "steps"),
-            (all(model.consumed for model in models), "scripted_actions_consumed"),
+            (actions_consumed, "scripted_actions_consumed"),
+            (
+                (hard_crash_evidence is not None) == (crash_point is not None),
+                "hard_crash_evidence",
+            ),
             (
                 result.lease_epoch == 1 + worker_restarts,
                 "worker_restart_lease_epoch",
@@ -396,12 +719,13 @@ class RunABEvaluator:
             workspace_revision=current_snapshot.workspace_revision,
             workspace_manifest_ref=current_manifest_ref,
             final_validation_passed=final_validation_passed,
-            actions_consumed=all(model.consumed for model in models),
+            actions_consumed=actions_consumed,
             trace_replay_verified=replay_verified,
             source_workspace_unchanged=source_unchanged,
             unknown_model_calls=len(result.unknown_model_calls),
             unknown_tool_calls=len(result.unknown_tool_calls),
             open_reservations=len(result.reservations),
+            hard_crash=hard_crash_evidence,
             expectation_failures=tuple(failures),
             passed=not failures,
         )

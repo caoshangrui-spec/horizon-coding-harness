@@ -24,6 +24,8 @@ Sha256 = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
 GitCommit = Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
 NonNegativeMoney = Annotated[Decimal, Field(ge=0, allow_inf_nan=False)]
 SignedCount = StrictInt
+RUN_AB_HARD_CRASH_EXIT_CODE = 87
+_RECOVERABLE_WRITE_TOOLS = {"replace_text", "apply_patch", "create_file"}
 
 
 class ScriptedModelAction(Contract):
@@ -47,6 +49,10 @@ class RunABArm(Contract):
     expected_tool_calls: NonNegativeInt
     expected_steps: NonNegativeInt
     restart_after_model_calls: PositiveInt | tuple[PositiveInt, ...] | None = None
+    hard_crash_after_tool_effect_at_model_call: PositiveInt | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
 
     @property
     def restart_points(self) -> tuple[int, ...]:
@@ -70,11 +76,21 @@ class RunABArm(Contract):
             raise ValueError("Worker restart points must be unique and strictly increasing")
         if restart_points and restart_points[-1] >= len(self.actions):
             raise ValueError("A worker restart must leave at least one scripted action to resume")
+        crash_point = self.hard_crash_after_tool_effect_at_model_call
+        if crash_point is not None:
+            if crash_point <= 1 or crash_point >= len(self.actions):
+                raise ValueError(
+                    "A hard-crash point must follow one safe turn and leave an action to resume"
+                )
+            if crash_point in restart_points:
+                raise ValueError("A hard-crash point cannot also be a worker restart point")
+            if self.actions[crash_point - 1].tool not in _RECOVERABLE_WRITE_TOOLS:
+                raise ValueError("A hard crash after effect requires a recoverable write tool")
         return self
 
 
 class RunABEvalManifest(Contract):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 1
     benchmark_id: Identifier
     fixture_path: Text
     task: TaskSpec
@@ -91,6 +107,22 @@ class RunABEvalManifest(Contract):
             raise ValueError("Run A/B evaluation requires one baseline and one single_replan arm")
         if len({arm.arm_id for arm in self.arms}) != len(self.arms):
             raise ValueError("Run A/B arm IDs must be unique")
+        crash_points = tuple(arm.hard_crash_after_tool_effect_at_model_call for arm in self.arms)
+        if self.schema_version == 1 and any(point is not None for point in crash_points):
+            raise ValueError("Run A/B hard-crash injection requires manifest schema version 2")
+        if self.schema_version == 2:
+            if any(point is None for point in crash_points):
+                raise ValueError("Schema version 2 requires one hard-crash point in each arm")
+            if len(set(crash_points)) != 1:
+                raise ValueError("Run A/B arms must inject the hard crash at the same model call")
+            crash_index = crash_points[0]
+            assert crash_index is not None
+            crash_actions = tuple(arm.actions[crash_index - 1] for arm in self.arms)
+            if (
+                len({action.tool for action in crash_actions}) != 1
+                or len({digest(action.arguments) for action in crash_actions}) != 1
+            ):
+                raise ValueError("Run A/B arms must inject the same write effect")
         expected_failures = set(self.expected_initial_failed_checks)
         if len(expected_failures) != len(self.expected_initial_failed_checks):
             raise ValueError("Expected initial failed checks must be unique")
@@ -103,6 +135,38 @@ class RunABEvalManifest(Contract):
     @property
     def sha256(self) -> str:
         return digest(self)
+
+
+class RunABHardCrashEvidence(Contract):
+    kind: Literal["write_effect_before_receipt"] = "write_effect_before_receipt"
+    model_call_index: PositiveInt
+    tool: Literal["replace_text", "apply_patch", "create_file"]
+    observed_exit_code: Annotated[StrictInt, Field(gt=0)]
+    crashed_worker_epoch: PositiveInt
+    recovery_worker_epoch: PositiveInt
+    pending_tool_call_id: Identifier
+    scripted_action_ref: Sha256
+    crash_marker_ref: Sha256
+    recovery_disposition: Literal["accept_replace", "accept_patch", "accept_create"]
+    reservation_without_receipt: Literal[True]
+    expected_effect_present: Literal[True]
+    conservative_unknown_recorded: Literal[True]
+    exact_effect_accepted: Literal[True]
+    recovered_without_model_redispatch: Literal[True]
+    one_recovered_tool_receipt: Literal[True]
+
+    @model_validator(mode="after")
+    def validate_recovery(self) -> Self:
+        expected_disposition = {
+            "replace_text": "accept_replace",
+            "apply_patch": "accept_patch",
+            "create_file": "accept_create",
+        }[self.tool]
+        if self.recovery_disposition != expected_disposition:
+            raise ValueError("Hard-crash recovery disposition does not match its write tool")
+        if self.observed_exit_code != RUN_AB_HARD_CRASH_EXIT_CODE:
+            raise ValueError("Hard-crash evidence has an unexpected child exit code")
+        return self
 
 
 class RunABArmResult(Contract):
@@ -131,6 +195,10 @@ class RunABArmResult(Contract):
     unknown_model_calls: NonNegativeInt
     unknown_tool_calls: NonNegativeInt
     open_reservations: NonNegativeInt
+    hard_crash: RunABHardCrashEvidence | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
     expectation_failures: tuple[Text, ...] = ()
     passed: bool
 
@@ -138,11 +206,16 @@ class RunABArmResult(Contract):
     def validate_restart_evidence(self) -> Self:
         if self.final_lease_epoch != self.worker_restarts + 1:
             raise ValueError("Final lease epoch must account for every injected worker restart")
+        if self.hard_crash is not None:
+            if self.worker_restarts < 1:
+                raise ValueError("Hard-crash evidence requires a restarted worker")
+            if self.hard_crash.recovery_worker_epoch != self.hard_crash.crashed_worker_epoch + 1:
+                raise ValueError("Hard-crash recovery must acquire the next lease epoch")
         return self
 
 
 class RunABEvalReport(Contract):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 1
     benchmark_id: Identifier
     evaluation_id: Identifier
     manifest_digest: Sha256
@@ -171,6 +244,11 @@ class RunABEvalReport(Contract):
     def validate_comparison(self) -> Self:
         if self.baseline.role != "baseline" or self.single_replan.role != "single_replan":
             raise ValueError("Run A/B report arms do not match their roles")
+        crash_evidence = (self.baseline.hard_crash, self.single_replan.hard_crash)
+        if self.schema_version == 1 and any(item is not None for item in crash_evidence):
+            raise ValueError("Schema version 1 reports cannot contain hard-crash evidence")
+        if self.schema_version == 2 and any(item is None for item in crash_evidence):
+            raise ValueError("Schema version 2 reports require hard-crash evidence for both arms")
         observed_initial_failures = tuple(
             sorted(result.check_id for result in self.initial_validation if not result.passed)
         )

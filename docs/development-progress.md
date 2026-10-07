@@ -36,6 +36,7 @@
 | 有界恢复矩阵 v3 | [recovery_evaluation.py](../src/horizon/domain/recovery_evaluation.py)、[recovery_eval.py](../src/horizon/application/recovery_eval.py)、[horizon-recovery-matrix-v3.yaml](../benchmarks/recovery/horizon-recovery-matrix-v3.yaml)、[recovery-matrix-evaluation.md](recovery-matrix-evaluation.md) | 保留 v1/v2 digest；新增 promotion effect→receipt 前真实硬退出，与既有写入/模型响应硬退出及 18 个三工具状态/决策组合合计 21/21。自动恢复 11/11、安全阻塞 10/10、incorrect resume/redispatch/重复副作用均 0；三条 Trace replay。仍非完整设计故障矩阵、主机故障或 exactly-once 验收 |
 | 完整 Run A/B 与来源绑定 Suite | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[scripted.py](../src/horizon/adapters/model/scripted.py) | 同一 Task/Plan/workspace 的 baseline 与单次 replan arm；先真实确认初始失败，再检查 EventLog/预算/Gateway/Trace；1 个内部、v2 的 5 个 BugsInPy 依赖裁剪案例，以及 tqdm 82 files、youtube-dl 872 files、Luigi 382 files 三个完整 checkout。两个 v2 suite 均有 test-only 本地真实回归，并由统一公开 CI 在禁网 Docker 中通过 5/5 与 3/3、上传内容寻址证据。完整案例还验证干净 Git HEAD 与 Code RAG，仍是脚本模型 |
 | 完整 checkout 多阶段/重启 A/B | [bugsinpy-multi-stage-pilot-v3.yaml](../benchmarks/run_ab/bugsinpy-multi-stage-pilot-v3.yaml) | youtube-dl 872 files 与 Luigi 382 files 上各有三个依赖 WorkItem；四条 arm 均跨两个持久边界到 epoch 3，并覆盖跨 revision RAG、active/stale Run Memory、完成项保留 replan、最终三项 required checks 与 Trace replay。本地可信与公开禁网 Docker 均为 2/2，doctor 的 Docker 计数为 2。v1 的 CRLF 精确替换失败和 60 秒重启 Lease 到期负结果继续保留 |
+| 源码绑定的写入硬崩溃 A/B | [bugsinpy-multi-stage-hard-crash-v1.yaml](../benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v1.yaml)、[设计与证据](source-bound-hard-crash-recovery.md) | Luigi 382-file checkout 的两条 arm 都由真实子进程在第一个生产写入 effect 后、receipt 前退出；父进程先记录 unknown、围栏旧 lease，再按精确后态 `accept_replace`，不重派模型，并继续两个 WorkItem 边界到 epoch 4。本地可信 1/1、Trace replay、source unchanged、unknown/open 0；公开禁网 Docker 尚未运行，doctor 计数保持 0 |
 | 真实模型 Pilot | [pilot.py](../src/horizon/domain/pilot.py)、[pilot.py](../src/horizon/application/pilot.py)、[real-model-pilot.md](real-model-pilot.md) | 离线预检绑定完整干净 checkout、初始失败、source snapshot、Docker image、Provider policy、Harness 源码指纹、费用 cap 和首次规划保守预留。六个付费 Run 均无编辑/验证、Trace 可重放且 source 未变；第六轮的 Plan 错把已有 `itertools.py` 当实现位置，但 execution 先检索并把真实 `__init__.py` 排为 rank 1，下一模型请求再因 Campaign 预留不足停止。当前累计 `CNY 0.1954812`；没有自动复跑或真实 Issue 成功 |
 | 模型预留压力诊断 | [reservation_analysis.py](../src/horizon/application/reservation_analysis.py)、[reservation-diagnostics.md](reservation-diagnostics.md) | `trace reservation-report` 在 replay/hash-chain 校验后关联 reservation、settlement 和新 BudgetStop 请求尺寸；六轮 20 次调用的聚合预留/结算比为 6.861621。候选 `request_bytes + 1024` 仅可回放 3 次，0 次观测低估、中位比 4.137869；生产 estimator、费用门禁和付费预算均未改变 |
 | 安全轮次续跑 | [agent.py](../src/horizon/domain/agent.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 消息 Artifact + event/revision 绑定；新 Worker 续跑；PLANNING/READY 也可恢复，任意崩溃窗口对账未完成 |
@@ -84,6 +85,28 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 仍是后续适配约束；不能以该文档代替本项目的实际联调。
 
 ## 验证结果
+
+### 2026-10-07 源码绑定的多阶段写入硬崩溃恢复
+
+- Run A/B manifest/report 增加向后兼容的 schema v2。两条 arm 必须在同一模型调用执行参数完全相同
+  的 `replace_text`、`apply_patch` 或 `create_file`；旧 schema v1 的字段和冻结 digest 不变。
+- 独立 child Worker 在 durable model/tool intent 和真实写入完成后，把 call ID、PID、action ref、
+  effect revision 与固定退出码 87 写入并 fsync marker，然后 `os._exit(87)`，因此不可能走正常 receipt。
+- 父进程重开持久化 adapter，确认 exactly one pending write，先通过 `RecoveryService` 记录
+  `TOOL_CALL_UNKNOWN`，再围栏旧 lease、获取下一 epoch，并由现有 `ToolRecoveryService` 精确接纳
+  expected effect；恢复前后 model call 数不变，同一 call ID 只有一个 recovery receipt。
+- 小型集成测试的两条成功 arm 均通过真实硬退出、无重派恢复和继续执行；合同负例拒绝 legacy、
+  单边或不对称故障配置。Suite/case digest 为
+  `3b421aca80519b65e50d230c4cb3e397dc40851796f615c5ab778a83f1e64a02` /
+  `72c612e86b0c2649ed70c251be48306916e11a2638313317cacd63421b53d6aa`。
+- Luigi 382-file 本地可信运行完成。Baseline/Treatment 分别是 `WAITING_FOR_USER` / `SUCCEEDED`，
+  都经历 3 次 Worker 重启并到 epoch 4，恢复 disposition 为 `accept_replace`，unknown/open 均为 0；
+  Trace refs 为 `fdf3dca9d4ad0de7840e7cd32681daee2f40f276454064fb5b177c979c083a26` /
+  `3602869c4daf5b9df7eba2ec19ef940615c624838b25a1db5e1a98a16af7d2f7`。
+- 一次性结果打印器在 evaluator 已完成并确认 `all_expectations_met=true` 后，因使用不存在的旧字段名
+  抛出 `AttributeError`。没有将该辅助命令记为通过，也没有重跑核心任务；随后从落盘 SQLite/CAS
+  只读复核两个投影、128/171-event Trace、marker/receipt/revision、epoch 1～4 和 source Git clean，
+  复核命令通过。公开 Docker 尚无证据，因此计数仍为 0。
 
 ### 2026-10-06 有界恢复矩阵 v1 → v3
 
@@ -201,7 +224,7 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
   验证器还会从最终 Trace 复核同一 call 只出现一次成功恢复记录。v1/v2 报告继续可读。
 - 该演示仍是固定 Scripted Model、固定 `replace_text` 提交窗和只读文本验收；它证明本演示的真实
   子进程硬退出恢复，不代表 OS reboot、主机宕机、磁盘损坏、任意工具或任意 crash window。
-- 最新离线全量回归为 **374 passed，7 skipped**；7 个 skip 均为需要显式本机镜像的 Docker
+- 最新离线全量回归为 **377 passed，7 skipped**；7 个 skip 均为需要显式本机镜像的 Docker
   合同。Docker daemon 本批仍未运行，因此新增停止结果恢复合同继续保持“未实跑”而非通过。
 
 ### 2026-10-05 Docker 检查停止结果恢复
@@ -709,7 +732,7 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 六轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新离线全量回归为 374 passed、7 个显式 Docker skip。
+当前主干继续补齐尚未统一覆盖的故障点；最新离线全量回归为 377 passed、7 个显式 Docker skip。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
 `run_model_cost_limit` 进入 `FAILED`。没有工具、编辑、checkpoint 或验证，Trace 14 事件可重放，

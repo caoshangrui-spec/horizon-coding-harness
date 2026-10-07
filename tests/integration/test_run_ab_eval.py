@@ -36,6 +36,15 @@ MULTI_STAGE_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-
 LUIGI_MULTI_STAGE_MANIFEST_PATH = (
     ROOT / "benchmarks" / "run_ab" / "full" / "luigi-1-metrics-handler" / "multi-stage-v3.yaml"
 )
+HARD_CRASH_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-hard-crash-v1.yaml"
+LUIGI_HARD_CRASH_MANIFEST_PATH = (
+    ROOT
+    / "benchmarks"
+    / "run_ab"
+    / "full"
+    / "luigi-1-metrics-handler"
+    / "multi-stage-hard-crash-v1.yaml"
+)
 
 
 class FixtureContentAcceptance:
@@ -400,6 +409,161 @@ def test_run_ab_restarts_workers_at_persisted_work_item_boundaries(
             ) - datetime.fromisoformat(restarted_lease.created_at) == timedelta(seconds=600)
 
 
+def test_run_ab_recovers_real_write_hard_crash_without_redispatch(tmp_path):
+    data = yaml.safe_load(MANIFEST_PATH.read_text(encoding="utf-8"))
+    data["schema_version"] = 2
+    data["benchmark_id"] = "write-hard-crash-recovery-v1"
+    data["task"]["acceptance"] = [
+        {
+            "id": "empty-contract",
+            "command": "unused-empty-check",
+            "timeout_seconds": 30,
+            "required": True,
+        },
+        {
+            "id": "combined-contract",
+            "command": "unused-combined-check",
+            "timeout_seconds": 30,
+            "required": True,
+        },
+    ]
+    data["initial_plan"] = {
+        "version": 1,
+        "items": [
+            {
+                "work_item_id": "guard-empty",
+                "title": "Guard empty input",
+                "objective": "Render empty input as an empty list",
+                "dependencies": [],
+                "expected_artifacts": ["empty-contract receipt"],
+                "acceptance_ids": ["empty-contract"],
+                "allowed_tools": ["read_file", "replace_text"],
+            },
+            {
+                "work_item_id": "wrap-nonempty",
+                "title": "Wrap non-empty input",
+                "objective": "Preserve the empty guard and wrap non-empty input",
+                "dependencies": ["guard-empty"],
+                "expected_artifacts": ["combined-contract receipt"],
+                "acceptance_ids": ["combined-contract"],
+                "allowed_tools": ["replace_text"],
+            },
+        ],
+    }
+    data["expected_initial_failed_checks"] = ["empty-contract", "combined-contract"]
+    actions = [
+        {
+            "tool": "read_file",
+            "arguments": {"path": "src/parser.sh", "start_line": 1, "end_line": 3},
+        },
+        {
+            "tool": "replace_text",
+            "arguments": {
+                "path": "src/parser.sh",
+                "old": "printf '%s\\n' \"$value\"",
+                "new": (
+                    'if [ -z "$value" ]; then\n'
+                    "  printf '[]\\n'\n"
+                    "else\n"
+                    "  printf '%s\\n' \"$value\"\n"
+                    "fi"
+                ),
+            },
+        },
+        {"tool": "submit", "arguments": {"summary": "Guarded empty input."}},
+        {
+            "tool": "replace_text",
+            "arguments": {
+                "path": "src/parser.sh",
+                "old": "printf '%s\\n' \"$value\"",
+                "new": "printf '[%s]\\n' \"$value\"",
+            },
+        },
+        {
+            "tool": "submit",
+            "arguments": {"summary": "Preserved empty and wrapped non-empty input."},
+        },
+    ]
+    data["arms"] = [
+        {
+            "arm_id": arm_id,
+            "role": role,
+            "description": "Recover one real write hard crash, then finish both WorkItems.",
+            "expected_status": "SUCCEEDED",
+            "expected_plan_version": 1,
+            "expected_execution_replans": 0,
+            "expected_passed_items": ["guard-empty", "wrap-nonempty"],
+            "expected_model_calls": 5,
+            "expected_tool_calls": 8,
+            "expected_steps": 8,
+            "restart_after_model_calls": 3,
+            "hard_crash_after_tool_effect_at_model_call": 2,
+            "actions": actions,
+        }
+        for arm_id, role in (
+            ("baseline-hard-crash", "baseline"),
+            ("treatment-hard-crash", "single_replan"),
+        )
+    ]
+    manifest = RunABEvalManifest.model_validate(data)
+    fixture = MANIFEST_PATH.parent / manifest.fixture_path
+
+    report = RunABEvaluator(
+        MultiStageAcceptance(),
+        validation_backend="fixture-content",
+        validation_backend_ref="test-only-hard-crash-contract",
+        repository_code_executed=False,
+    ).evaluate(manifest, fixture_source=fixture, state_dir=tmp_path / "state")
+
+    assert report.schema_version == 2
+    assert report.all_expectations_met is True
+    assert report.treatment_recovered is False
+    artifacts = ArtifactStore(tmp_path / "state" / "artifacts")
+    for arm in (report.baseline, report.single_replan):
+        assert arm.status == RunStatus.SUCCEEDED
+        assert arm.worker_restarts == 2
+        assert arm.final_lease_epoch == 3
+        assert arm.usage.model_calls == 5
+        assert arm.usage.tool_calls == 8
+        assert arm.actions_consumed is True
+        assert arm.hard_crash is not None
+        assert arm.hard_crash.model_call_index == 2
+        assert arm.hard_crash.tool == "replace_text"
+        assert arm.hard_crash.crashed_worker_epoch == 1
+        assert arm.hard_crash.recovery_worker_epoch == 2
+        assert arm.hard_crash.recovery_disposition == "accept_replace"
+        assert artifacts.read(arm.hard_crash.scripted_action_ref)
+        assert artifacts.read(arm.hard_crash.crash_marker_ref)
+        replayed = SQLiteEventStore.replay_jsonl(artifacts.read(arm.trace_ref).decode("utf-8"))
+        recovered = [
+            record
+            for record in replayed.tool_calls
+            if record.call_id == arm.hard_crash.pending_tool_call_id
+        ]
+        assert len(recovered) == 1
+        assert recovered[0].recovery_disposition == "accept_replace"
+        assert not replayed.unknown_tool_calls
+        assert not replayed.reservations
+
+
+def test_run_ab_hard_crash_contract_rejects_legacy_or_asymmetric_configuration():
+    data = yaml.safe_load(MANIFEST_PATH.read_text(encoding="utf-8"))
+    write = {
+        "tool": "replace_text",
+        "arguments": {"path": "src/parser.sh", "old": "before", "new": "after"},
+    }
+    for arm in data["arms"]:
+        arm["actions"][1] = write
+        arm["hard_crash_after_tool_effect_at_model_call"] = 2
+    with pytest.raises(ValueError, match="schema version 2"):
+        RunABEvalManifest.model_validate(data)
+
+    data["schema_version"] = 2
+    data["arms"][1].pop("hard_crash_after_tool_effect_at_model_call")
+    with pytest.raises(ValueError, match="each arm"):
+        RunABEvalManifest.model_validate(data)
+
+
 def test_run_ab_suite_cli_aggregates_source_bound_cases(tmp_path, monkeypatch):
     cli_module = importlib.import_module("horizon.interfaces.cli.app")
 
@@ -581,6 +745,29 @@ def test_three_stage_full_checkout_suite_preserves_v1_v2_and_binds_dependency_or
             len(set(first.acceptance_ids) | set(second.acceptance_ids) | set(third.acceptance_ids))
             == 3
         )
+
+
+def test_source_bound_hard_crash_suite_binds_exact_recovery_window():
+    suite = RunABSuiteManifest.model_validate(
+        yaml.safe_load(HARD_CRASH_SUITE_PATH.read_text(encoding="utf-8"))
+    )
+    manifest = RunABEvalManifest.model_validate(
+        yaml.safe_load(LUIGI_HARD_CRASH_MANIFEST_PATH.read_text(encoding="utf-8"))
+    )
+
+    assert suite.sha256 == "3b421aca80519b65e50d230c4cb3e397dc40851796f615c5ab778a83f1e64a02"
+    assert manifest.sha256 == "72c612e86b0c2649ed70c251be48306916e11a2638313317cacd63421b53d6aa"
+    assert len(suite.cases) == 1
+    suite.cases[0].check_manifest(manifest)
+    assert suite.cases[0].source.project == "luigi"
+    assert suite.cases[0].source.reduction == "full_checkout"
+    assert manifest.schema_version == 2
+    assert {arm.restart_points for arm in manifest.arms} == {(3, 6)}
+    assert {arm.hard_crash_after_tool_effect_at_model_call for arm in manifest.arms} == {2}
+    crash_actions = [arm.actions[1] for arm in manifest.arms]
+    assert crash_actions[0] == crash_actions[1]
+    assert crash_actions[0].tool == "replace_text"
+    assert crash_actions[0].arguments["path"] == "luigi/server.py"
 
 
 def test_three_stage_regression_edit_is_line_ending_independent():

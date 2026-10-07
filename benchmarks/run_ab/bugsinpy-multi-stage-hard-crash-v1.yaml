@@ -1,0 +1,20 @@
+schema_version: 1
+suite_id: bugsinpy-multi-stage-hard-crash-v1
+
+# One author-selected source-bound case for exact write-effect-before-receipt recovery.
+cases:
+  - case_id: luigi-1-metrics-handler-three-stage-hard-crash-full
+    manifest_path: full/luigi-1-metrics-handler/multi-stage-hard-crash-v1.yaml
+    source:
+      benchmark: BugsInPy
+      project: luigi
+      bug_id: "1"
+      repository_url: https://github.com/spotify/luigi
+      buggy_commit: 1164eb6b85b8a70f596dbb99452bec513e72c12e
+      fixed_commit: aec5dc2ed8db53fc282a0bd24aabe59031b6d1ba
+      fix_url: https://github.com/spotify/luigi/commit/aec5dc2ed8db53fc282a0bd24aabe59031b6d1ba
+      upstream_test: test/server_test.py::MetricsHandlerTest::test_get
+      license_spdx: Apache-2.0
+      license_url: https://github.com/spotify/luigi/blob/1164eb6b85b8a70f596dbb99452bec513e72c12e/LICENSE
+      reduction: full_checkout
+      reduction_note: Uses the clean 382-file upstream checkout; both arms survive a real child-process exit after the first production write effect but before its receipt, recover the exact existing effect without model redispatch, then cross two persisted WorkItem boundaries and retain the bounded final-item replan comparison.

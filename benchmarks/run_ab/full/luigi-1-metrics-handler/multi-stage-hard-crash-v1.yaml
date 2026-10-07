@@ -1,0 +1,184 @@
+schema_version: 2
+benchmark_id: luigi-1-metrics-handler-three-stage-hard-crash-full
+fixture_path: fixture
+
+task:
+  task_id: luigi-metrics-handler-three-stage-hard-crash-full
+  title: Recover an unreceipted collector write, finish handler routing, and preserve the regression
+  objective: Complete the upstream production repair and regression update after a real write-effect-before-receipt process crash
+  repository:
+    source: local
+    path: /fixture
+    base_commit: 1164eb6b85b8a70f596dbb99452bec513e72c12e
+  constraints:
+    allowed_paths: ["**"]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+  acceptance:
+    - id: luigi-metrics-collector-binding-source
+      command: >-
+        python -B -c "from pathlib import Path; text=Path('luigi/server.py').read_text(encoding='utf-8'); expected=chr(32)*8 + 'metrics_collector = self._scheduler._state._metrics_collector' + chr(10) + chr(32)*8 + 'metrics = metrics_collector.generate_latest()'; assert expected in text"
+      timeout_seconds: 30
+      required: true
+    - id: luigi-metrics-handler-runtime
+      command: >-
+        python -B -c "import ast,pathlib,types; source=pathlib.Path('luigi/server.py').read_text(encoding='utf-8'); tree=ast.parse(source); node=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='MetricsHandler'); node.bases=[]; node.keywords=[]; namespace={}; exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),'luigi/server.py','exec'),namespace); calls=[]; writes=[]; payload=object(); collector=types.SimpleNamespace(generate_latest=lambda:payload,configure_http_handler=lambda handler:calls.append(handler)); scheduler=types.SimpleNamespace(_state=types.SimpleNamespace(_metrics_collector=collector)); handler=namespace['MetricsHandler'](); handler.initialize(scheduler); handler.write=lambda value:writes.append(value); handler.get(); assert calls==[handler] and writes==[payload]"
+      timeout_seconds: 30
+      required: true
+    - id: luigi-metrics-regression-source
+      command: >-
+        python -B -c "from pathlib import Path; text=Path('test/server_test.py').read_text(encoding='utf-8'); expected=chr(32)*12 + 'self.mock_scheduler._state._metrics_collector.configure_http_handler.assert_called_once_with(' + chr(10) + chr(32)*16 + 'self.handler)'; assert expected in text"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 50
+    max_model_calls: 30
+    max_tool_calls: 50
+    max_wall_time_seconds: 900
+    max_cost_usd: "1.00"
+    max_input_tokens: 120000
+    max_output_tokens: 8000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+
+initial_plan:
+  version: 1
+  items:
+    - &collector_item
+      work_item_id: bind-metrics-collector
+      title: Bind the scheduler metrics collector once
+      objective: Name the collector before generating its payload
+      dependencies: []
+      expected_artifacts: [Code EvidencePack, luigi-metrics-collector-binding-source receipt]
+      acceptance_ids: [luigi-metrics-collector-binding-source]
+      allowed_tools: [retrieve_code, replace_text, run_check]
+    - &handler_item
+      work_item_id: route-metrics-handler-configuration
+      title: Configure HTTP behavior on the owning collector
+      objective: Call configure_http_handler on the collector rather than its generated payload
+      dependencies: [bind-metrics-collector]
+      expected_artifacts: [Code EvidencePack, luigi-metrics-handler-runtime receipt]
+      acceptance_ids: [luigi-metrics-handler-runtime]
+      allowed_tools: [retrieve_code, replace_text, run_check]
+    - work_item_id: update-metrics-handler-regression
+      title: Update the upstream ownership assertion
+      objective: Assert that the scheduler collector receives configure_http_handler
+      dependencies: [route-metrics-handler-configuration]
+      expected_artifacts: [Code EvidencePack, luigi-metrics-regression-source receipt]
+      acceptance_ids: [luigi-metrics-regression-source]
+      allowed_tools: [retrieve_code]
+
+expected_initial_failed_checks:
+  - luigi-metrics-collector-binding-source
+  - luigi-metrics-handler-runtime
+  - luigi-metrics-regression-source
+
+arms:
+  - arm_id: no-replan-hard-crash
+    role: baseline
+    description: Recover the first write after its child process exits, cross both later worker boundaries, then remain stalled on the regression update.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items:
+      - bind-metrics-collector
+      - route-metrics-handler-configuration
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 10
+    expected_tool_calls: 12
+    expected_steps: 12
+    restart_after_model_calls: [3, 6]
+    hard_crash_after_tool_effect_at_model_call: 2
+    actions:
+      - &retrieve_collector
+        tool: retrieve_code
+        arguments:
+          query: MetricsHandler scheduler metrics collector generate_latest
+          max_chunks: 4
+      - &bind_collector
+        tool: replace_text
+        arguments:
+          path: luigi/server.py
+          old: metrics = self._scheduler._state._metrics_collector.generate_latest()
+          new: "metrics_collector = self._scheduler._state._metrics_collector\n        metrics = metrics_collector.generate_latest()"
+      - &submit_collector
+        tool: submit
+        arguments:
+          summary: Bound the owning metrics collector and verified payload generation source.
+      - &retrieve_handler
+        tool: retrieve_code
+        arguments:
+          query: MetricsHandler configure_http_handler metrics collector payload
+          max_chunks: 4
+      - &route_handler
+        tool: replace_text
+        arguments:
+          path: luigi/server.py
+          old: metrics.configure_http_handler(self)
+          new: metrics_collector.configure_http_handler(self)
+      - &submit_handler
+        tool: submit
+        arguments:
+          summary: Routed HTTP handler configuration to the owning collector and verified runtime behavior.
+      - &retrieve_regression
+        tool: retrieve_code
+        arguments:
+          query: MetricsHandlerTest configure_http_handler assert_called_once collector
+          max_chunks: 4
+      - *retrieve_regression
+      - *retrieve_regression
+      - *retrieve_regression
+
+  - arm_id: single-replan-hard-crash
+    role: single_replan
+    description: Recover the first write without redispatch, preserve both completed production WorkItems, revise only the stalled regression item, and finish all required checks.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items:
+      - bind-metrics-collector
+      - route-metrics-handler-configuration
+      - update-metrics-handler-regression-after-stall
+    expected_model_calls: 13
+    expected_tool_calls: 18
+    expected_steps: 18
+    restart_after_model_calls: [3, 6]
+    hard_crash_after_tool_effect_at_model_call: 2
+    actions:
+      - *retrieve_collector
+      - *bind_collector
+      - *submit_collector
+      - *retrieve_handler
+      - *route_handler
+      - *submit_handler
+      - *retrieve_regression
+      - *retrieve_regression
+      - *retrieve_regression
+      - tool: revise_plan
+        arguments:
+          reason: Both production ownership WorkItems are already validated; replace only the stalled regression investigation with a bounded edit-ready item.
+          items:
+            - *collector_item
+            - *handler_item
+            - work_item_id: update-metrics-handler-regression-after-stall
+              title: Apply the evidence-backed collector ownership assertion
+              objective: Assert that the scheduler collector receives configure_http_handler
+              dependencies: [route-metrics-handler-configuration]
+              expected_artifacts: [Code EvidencePack, luigi-metrics-regression-source receipt]
+              acceptance_ids: [luigi-metrics-regression-source]
+              allowed_tools: [retrieve_code, replace_text, run_check]
+      - tool: retrieve_code
+        arguments:
+          query: server_test MetricsHandlerTest scheduler metrics collector configure_http_handler
+          max_chunks: 4
+      - tool: replace_text
+        arguments:
+          path: test/server_test.py
+          old: "            mock_metrics.configure_http_handler.assert_called_once_with(self.handler)"
+          new: "            self.mock_scheduler._state._metrics_collector.configure_http_handler.assert_called_once_with(\n                self.handler)"
+      - tool: submit
+        arguments:
+          summary: Preserved both completed production repairs, updated the upstream ownership assertion, and reran all required checks.
