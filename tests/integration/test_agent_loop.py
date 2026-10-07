@@ -2,6 +2,7 @@ import hashlib
 import json
 import subprocess
 import sys
+from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -2892,7 +2893,46 @@ def test_sequential_supervisor_only_releases_lease_for_handled_controller_errors
     assert len(releases) == int(lease_released)
 
 
-def test_supervisor_continues_after_reaped_worker_at_safe_boundary(tmp_path, task_dict):
+def _run_reaped_supervisor_worker(
+    tmp_path,
+    store,
+    run_id,
+    token,
+    workspace,
+    *,
+    mode,
+    expected_exit_code,
+):
+    worker = Path(__file__).parents[1] / "fault_injection" / "_reaped_supervisor_worker.py"
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            str(worker),
+            mode,
+            str(store.path),
+            run_id,
+            token.lease_id,
+            token.worker_id,
+            str(token.epoch),
+            str(tmp_path / "artifacts"),
+            str(workspace),
+            str(tmp_path / "campaign.sqlite3"),
+            str(tmp_path / "retrieval.sqlite3"),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    _, stderr = process.communicate(timeout=20)
+    assert process.returncode == expected_exit_code, stderr.decode(errors="replace")
+    return process
+
+
+@pytest.mark.parametrize("expire_original_lease", [False, True], ids=["live", "expired"])
+def test_supervisor_continues_after_reaped_worker_at_safe_boundary(
+    tmp_path,
+    task_dict,
+    expire_original_lease,
+):
     remaining_actions = [
         (
             "replace_text",
@@ -2910,32 +2950,31 @@ def test_supervisor_continues_after_reaped_worker_at_safe_boundary(tmp_path, tas
         remaining_actions,
     )
     boundary = ReapedWorkerBoundary.capture(store.get(run_id), token)
-    worker = Path(__file__).parents[1] / "fault_injection" / "_reaped_supervisor_worker.py"
-    process = subprocess.Popen(
-        [
-            sys.executable,
-            str(worker),
-            "safe",
-            str(store.path),
-            run_id,
-            token.lease_id,
-            token.worker_id,
-            str(token.epoch),
-            str(tmp_path / "artifacts"),
-            str(workspace),
-            str(tmp_path / "campaign.sqlite3"),
-            str(tmp_path / "retrieval.sqlite3"),
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+    process = _run_reaped_supervisor_worker(
+        tmp_path,
+        store,
+        run_id,
+        token,
+        workspace,
+        mode="safe",
+        expected_exit_code=37,
     )
-    _, stderr = process.communicate(timeout=20)
-    assert process.returncode == 37, stderr.decode(errors="replace")
+
+    expired_now = None
+    if expire_original_lease:
+        lease_expires_at = store.get(run_id).lease_expires_at
+        assert lease_expires_at is not None
+        expired_now = datetime.fromisoformat(lease_expires_at) + timedelta(seconds=1)
+
+    def reopened_store():
+        if expired_now is None:
+            return SQLiteEventStore(store.path)
+        return SQLiteEventStore(store.path, clock=lambda: expired_now)
 
     reopened_services = []
 
     def service_factory():
-        service = HarnessService(SQLiteEventStore(store.path))
+        service = HarnessService(reopened_store())
         reopened_services.append(service)
         return service
 
@@ -2982,7 +3021,7 @@ def test_supervisor_continues_after_reaped_worker_at_safe_boundary(tmp_path, tas
     )
     result = supervisor.continue_after_reaped_worker(
         boundary,
-        HarnessService(SQLiteEventStore(store.path)),
+        HarnessService(reopened_store()),
         process_id=process.pid,
         exit_code=process.returncode,
     )
@@ -2995,55 +3034,77 @@ def test_supervisor_continues_after_reaped_worker_at_safe_boundary(tmp_path, tas
     assert result.supervision is not None
     assert result.supervision.worker_slices == 2
     assert result.supervision.worker_handoffs == 1
+    assert result.lease_transition == (
+        "expired_takeover" if expire_original_lease else "live_release"
+    )
     assert len(reopened_services) == 2
     assert len(model.requests) == 2
     assert "return [] if" in (workspace / "src/parser.py").read_text(encoding="utf-8")
 
     events = store.events(run_id)
-    reaped_release = next(
-        event
-        for event in events
-        if event.event_type == "LEASE_RELEASED"
-        and event.payload.get("release_reason") == "confirmed_reaped_worker"
-    )
-    assert reaped_release.payload["process_id"] == process.pid
-    assert reaped_release.payload["exit_code"] == 37
-    assert reaped_release.payload["launch_event_seq"] == boundary.launch_event_seq
-    assert reaped_release.payload["safe_event_seq"] > boundary.launch_event_seq
+    if expire_original_lease:
+        takeover = next(
+            event
+            for event in events
+            if event.event_type == "LEASE_ACQUIRED"
+            and event.payload.get("takeover_reason") == "confirmed_reaped_worker_expired"
+        )
+        assert takeover.payload["previous_lease_id"] == token.lease_id
+        assert takeover.payload["previous_epoch"] == token.epoch
+        assert takeover.payload["process_id"] == process.pid
+        assert takeover.payload["exit_code"] == 37
+        assert takeover.payload["launch_event_seq"] == boundary.launch_event_seq
+        assert takeover.payload["observed_event_seq"] > boundary.launch_event_seq
+    else:
+        reaped_release = next(
+            event
+            for event in events
+            if event.event_type == "LEASE_RELEASED"
+            and event.payload.get("release_reason") == "confirmed_reaped_worker"
+        )
+        assert reaped_release.payload["process_id"] == process.pid
+        assert reaped_release.payload["exit_code"] == 37
+        assert reaped_release.payload["launch_event_seq"] == boundary.launch_event_seq
+        assert reaped_release.payload["safe_event_seq"] > boundary.launch_event_seq
     replayed = SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id))
     assert replayed.as_dict() == result.run.as_dict()
 
 
-def test_supervisor_does_not_fence_reaped_worker_with_pending_intent(tmp_path, task_dict):
+@pytest.mark.parametrize("expire_original_lease", [False, True], ids=["live", "expired"])
+def test_supervisor_does_not_dispatch_reaped_worker_with_pending_intent(
+    tmp_path,
+    task_dict,
+    expire_original_lease,
+):
     template, store, run_id, token, workspace, model = setup_loop(
         tmp_path,
         task_dict,
         [("submit", {"summary": "must not be dispatched"})],
     )
     boundary = ReapedWorkerBoundary.capture(store.get(run_id), token)
-    worker = Path(__file__).parents[1] / "fault_injection" / "_reaped_supervisor_worker.py"
-    process = subprocess.Popen(
-        [
-            sys.executable,
-            str(worker),
-            "pending",
-            str(store.path),
-            run_id,
-            token.lease_id,
-            token.worker_id,
-            str(token.epoch),
-            str(tmp_path / "artifacts"),
-            str(workspace),
-            str(tmp_path / "campaign.sqlite3"),
-            str(tmp_path / "retrieval.sqlite3"),
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+    process = _run_reaped_supervisor_worker(
+        tmp_path,
+        store,
+        run_id,
+        token,
+        workspace,
+        mode="pending",
+        expected_exit_code=38,
     )
-    _, stderr = process.communicate(timeout=20)
-    assert process.returncode == 38, stderr.decode(errors="replace")
+
+    expired_now = None
+    if expire_original_lease:
+        lease_expires_at = store.get(run_id).lease_expires_at
+        assert lease_expires_at is not None
+        expired_now = datetime.fromisoformat(lease_expires_at) + timedelta(seconds=1)
+
+    def reopened_store():
+        if expired_now is None:
+            return SQLiteEventStore(store.path)
+        return SQLiteEventStore(store.path, clock=lambda: expired_now)
 
     recovery_called = False
+    reopened_services = []
 
     def recovery_factory(service):
         nonlocal recovery_called
@@ -3054,15 +3115,20 @@ def test_supervisor_does_not_fence_reaped_worker_with_pending_intent(tmp_path, t
             ArtifactStore(tmp_path / "artifacts"),
         )
 
+    def service_factory():
+        service = HarnessService(reopened_store())
+        reopened_services.append(service)
+        return service
+
     supervisor = SequentialAgentSupervisor(
-        lambda: pytest.fail("blocked handoff must not reopen a Worker"),
+        service_factory,
         lambda service: pytest.fail("blocked handoff must not construct a runner"),
         config=SequentialSupervisorConfig(slice_iterations=1, max_worker_slices=2),
         recovery_factory=recovery_factory,
     )
     result = supervisor.continue_after_reaped_worker(
         boundary,
-        HarnessService(SQLiteEventStore(store.path)),
+        HarnessService(reopened_store()),
         process_id=process.pid,
         exit_code=process.returncode,
     )
@@ -3073,9 +3139,95 @@ def test_supervisor_does_not_fence_reaped_worker_with_pending_intent(tmp_path, t
     assert result.recovery_report is None
     assert result.supervision is None
     assert recovery_called is False
-    assert persisted.lease_id == token.lease_id
-    assert persisted.lease_epoch == token.epoch
+    assert result.lease_transition == ("expired_takeover" if expire_original_lease else "none")
+    assert len(reopened_services) == int(expire_original_lease)
+    if expire_original_lease:
+        assert persisted.lease_id != token.lease_id
+        assert persisted.lease_epoch == token.epoch + 1
+        takeover = next(
+            event
+            for event in store.events(run_id)
+            if event.event_type == "LEASE_ACQUIRED"
+            and event.payload.get("takeover_reason") == "confirmed_reaped_worker_expired"
+        )
+        assert takeover.payload["previous_lease_id"] == token.lease_id
+        assert takeover.payload["process_id"] == process.pid
+        assert result.run.lease_id == persisted.lease_id
+    else:
+        assert persisted.lease_id == token.lease_id
+        assert persisted.lease_epoch == token.epoch
     assert set(persisted.reservations) == {"reaped-pending-read"}
     assert not model.requests
     assert not any(event.event_type == "LEASE_RELEASED" for event in store.events(run_id))
-    assert template.service.store.get(run_id).lease_id == token.lease_id
+    assert template.service.store.get(run_id).lease_id == persisted.lease_id
+
+
+@pytest.mark.parametrize("expire_original_lease", [False, True], ids=["live", "expired"])
+def test_supervisor_requires_recovery_safe_boundary_after_reaped_worker(
+    tmp_path,
+    task_dict,
+    expire_original_lease,
+):
+    _, store, run_id, token, workspace, model = setup_loop(
+        tmp_path,
+        task_dict,
+        [("submit", {"summary": "must not be dispatched"})],
+    )
+    boundary = ReapedWorkerBoundary.capture(store.get(run_id), token)
+    process = _run_reaped_supervisor_worker(
+        tmp_path,
+        store,
+        run_id,
+        token,
+        workspace,
+        mode="idle",
+        expected_exit_code=39,
+    )
+
+    expired_now = None
+    if expire_original_lease:
+        lease_expires_at = store.get(run_id).lease_expires_at
+        assert lease_expires_at is not None
+        expired_now = datetime.fromisoformat(lease_expires_at) + timedelta(seconds=1)
+
+    def reopened_store():
+        if expired_now is None:
+            return SQLiteEventStore(store.path)
+        return SQLiteEventStore(store.path, clock=lambda: expired_now)
+
+    reopened_services = []
+
+    def service_factory():
+        service = HarnessService(reopened_store())
+        reopened_services.append(service)
+        return service
+
+    supervisor = SequentialAgentSupervisor(
+        service_factory,
+        lambda service: pytest.fail("unsafe boundary must not construct a runner"),
+        config=SequentialSupervisorConfig(slice_iterations=1, max_worker_slices=2),
+        recovery_factory=lambda service: RecoveryService(
+            service,
+            CampaignBudgetLedger(tmp_path / "campaign.sqlite3"),
+            ArtifactStore(tmp_path / "artifacts"),
+        ),
+    )
+    result = supervisor.continue_after_reaped_worker(
+        boundary,
+        HarnessService(reopened_store()),
+        process_id=process.pid,
+        exit_code=process.returncode,
+    )
+
+    persisted = store.get(run_id)
+    assert result.disposition == "reconciliation_required"
+    assert result.pending_reservation_ids == ()
+    assert result.recovery_report is not None
+    assert result.recovery_report.safe_to_resume is False
+    assert result.recovery_report.findings[-1].classification == "unsafe_agent_boundary"
+    assert result.supervision is None
+    assert result.lease_transition == ("expired_takeover" if expire_original_lease else "none")
+    assert len(reopened_services) == int(expire_original_lease)
+    assert persisted.lease_epoch == token.epoch + int(expire_original_lease)
+    assert not persisted.reservations
+    assert not model.requests

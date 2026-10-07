@@ -8,10 +8,12 @@ for public releases; unreleased work must not be presented as a published releas
 - Extended the local sequential Supervisor with a narrow trusted-parent handoff for reaped child
   Workers. A launch boundary binds the exact Run, lease epoch, event cursor, and AgentSession;
   continuation requires zero reservations plus the existing RecoveryService's safe-resume verdict.
-  The fenced lease event retains PID, exit code, launch cursor, and safe cursor before adapters are
-  reopened on a new epoch. A real subprocess safe-boundary exit resumes through validation and
-  Trace replay, while a second subprocess with a pending tool intent keeps the original lease and
-  returns `reconciliation_required` without reconciliation, model redispatch, or fallback.
+  A live lease uses an evidence-bearing release; an expired exact lease is atomically replaced by
+  an evidence-bearing recovery epoch only after the parent confirms the process exit. Real
+  subprocess tests cover both lease states through validation and Trace replay. Pending-intent
+  cases return `reconciliation_required` without reconciliation, model redispatch, or fallback;
+  the expired case changes only the fenced lease epoch so explicit recovery can proceed. Separate
+  zero-reservation subprocess exits still block when no valid AgentSession boundary exists.
 - Added an opt-in local sequential Supervisor for `agent run` and `agent resume`. It executes
   bounded model-iteration slices, hands off only after a newer AgentSession is durable and the Run
   is quiescent, reopens worker-owned persistence/retrieval/tool adapters, and acquires a new lease

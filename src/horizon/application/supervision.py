@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Annotated, Literal, Protocol
 from uuid import uuid4
 
@@ -79,6 +80,7 @@ class ReapedWorkerSupervisionResult:
     process_id: int
     exit_code: int
     pending_reservation_ids: tuple[str, ...]
+    lease_transition: Literal["none", "live_release", "expired_takeover"] = "none"
     recovery_report: RecoveryReport | None = None
     supervision: AgentSupervisionResult | None = None
 
@@ -278,7 +280,10 @@ class SequentialAgentSupervisor:
             raise Conflict("Reaped worker no longer owns the exact launch lease")
 
         pending = tuple(sorted(current.reservations))
-        if pending:
+        if current.lease_expires_at is None:
+            raise Conflict("Reaped worker has no durable lease expiry")
+        lease_expired = service.store.clock() >= datetime.fromisoformat(current.lease_expires_at)
+        if pending and not lease_expired:
             return ReapedWorkerSupervisionResult(
                 run=current,
                 disposition="reconciliation_required",
@@ -286,11 +291,49 @@ class SequentialAgentSupervisor:
                 exit_code=exit_code,
                 pending_reservation_ids=pending,
             )
-        if self.recovery_factory is None:
+        recovery_factory = self.recovery_factory
+        if not pending and recovery_factory is None:
             raise Conflict("Reaped worker continuation requires a RecoveryService factory")
 
-        recovery = self.recovery_factory(service).reconcile(boundary.run_id, token)
-        current = service.store.get(boundary.run_id)
+        handoff_id = uuid4().hex
+        active_service = service
+        active_token = token
+        lease_transition: Literal["none", "live_release", "expired_takeover"] = "none"
+        if lease_expired:
+            # Reaping proves that the old process can be fenced; it says nothing about an
+            # already-dispatched effect. Preserve every pending intent for explicit recovery.
+            active_service = self.service_factory()
+            current = active_service.takeover_reaped_worker_lease(
+                boundary.run_id,
+                token,
+                f"{self.worker_id_prefix}-reaped-expired-{handoff_id[:8]}",
+                f"supervisor-reaped-expired-takeover-{handoff_id}",
+                process_id=process_id,
+                exit_code=exit_code,
+                launch_event_seq=boundary.launch_event_seq,
+                ttl_seconds=self.config.lease_ttl_seconds,
+            )
+            active_token = LeaseToken.from_run(current)
+            lease_transition = "expired_takeover"
+            if pending:
+                if tuple(sorted(current.reservations)) != pending:
+                    raise Conflict("Expired reaped-worker takeover changed pending operations")
+                return ReapedWorkerSupervisionResult(
+                    run=current,
+                    disposition="reconciliation_required",
+                    process_id=process_id,
+                    exit_code=exit_code,
+                    pending_reservation_ids=pending,
+                    lease_transition=lease_transition,
+                )
+
+        if recovery_factory is None:
+            raise Conflict("Reaped worker continuation requires a RecoveryService factory")
+        recovery = recovery_factory(active_service).reconcile(
+            boundary.run_id,
+            active_token,
+        )
+        current = active_service.store.get(boundary.run_id)
         if current.status != RunStatus.RUNNING or not recovery.safe_to_resume:
             return ReapedWorkerSupervisionResult(
                 run=current,
@@ -298,36 +341,39 @@ class SequentialAgentSupervisor:
                 process_id=process_id,
                 exit_code=exit_code,
                 pending_reservation_ids=tuple(sorted(current.reservations)),
+                lease_transition=lease_transition,
                 recovery_report=recovery,
             )
 
-        handoff_id = uuid4().hex
-        service.release_reaped_worker_lease(
-            boundary.run_id,
-            token,
-            f"supervisor-reaped-release-{handoff_id}",
-            process_id=process_id,
-            exit_code=exit_code,
-            launch_event_seq=boundary.launch_event_seq,
-        )
-        replacement_service = self.service_factory()
-        durable = replacement_service.store.get(boundary.run_id)
-        if (
-            durable.status != RunStatus.RUNNING
-            or durable.lease_id is not None
-            or durable.reservations
-        ):
-            raise Conflict("Persisted Run is not quiescent after reaped worker fencing")
-        leased = replacement_service.acquire_lease(
-            boundary.run_id,
-            f"{self.worker_id_prefix}-reaped-{handoff_id[:8]}",
-            f"supervisor-reaped-acquire-{handoff_id}",
-            ttl_seconds=self.config.lease_ttl_seconds,
-        )
+        if not lease_expired:
+            service.release_reaped_worker_lease(
+                boundary.run_id,
+                token,
+                f"supervisor-reaped-release-{handoff_id}",
+                process_id=process_id,
+                exit_code=exit_code,
+                launch_event_seq=boundary.launch_event_seq,
+            )
+            active_service = self.service_factory()
+            durable = active_service.store.get(boundary.run_id)
+            if (
+                durable.status != RunStatus.RUNNING
+                or durable.lease_id is not None
+                or durable.reservations
+            ):
+                raise Conflict("Persisted Run is not quiescent after reaped worker fencing")
+            leased = active_service.acquire_lease(
+                boundary.run_id,
+                f"{self.worker_id_prefix}-reaped-{handoff_id[:8]}",
+                f"supervisor-reaped-acquire-{handoff_id}",
+                ttl_seconds=self.config.lease_ttl_seconds,
+            )
+            active_token = LeaseToken.from_run(leased)
+            lease_transition = "live_release"
         supervision = self.run(
             boundary.run_id,
-            replacement_service,
-            LeaseToken.from_run(leased),
+            active_service,
+            active_token,
         )
         return ReapedWorkerSupervisionResult(
             run=supervision.run,
@@ -335,6 +381,7 @@ class SequentialAgentSupervisor:
             process_id=process_id,
             exit_code=exit_code,
             pending_reservation_ids=(),
+            lease_transition=lease_transition,
             recovery_report=recovery,
             supervision=supervision,
         )

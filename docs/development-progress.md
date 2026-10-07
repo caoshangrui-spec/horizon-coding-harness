@@ -27,7 +27,7 @@
 | 临时副本 Docker 执行与受保护验收 | [docker.py](../src/horizon/adapters/sandbox/docker.py)、[validation.py](../src/horizon/adapters/sandbox/validation.py) | 非 root、禁网、只读根、超时、输出有界；模型只能选择控制器冻结的 check ID |
 | Typed Tool Gateway | [gateway.py](../src/horizon/tools/gateway.py) | 搜索、读取、单文件精确替换、最多 8 文件的结构化精确 patch、单个最多 64 KiB 的 UTF-8 新文件、受保护检查和 submit；路径/链接/大小受限，每次 intent/receipt 持久化；existing target 不覆盖、父目录不自动创建；exact search 饱和时显式标记截断并引导 ranked retrieval；`retrieve_code` 默认只返回 rank 1，需要时才显式扩大；大文件整读拒绝并要求最多 400 行、32 Ki 字符的范围读取 |
 | 顺序多 WorkItem Agent Loop | [agent_loop.py](../src/horizon/application/agent_loop.py) | dependency-ready 调度、逐项会话/权限/验收、原子交接、最终全量回归、有限 repair 与单次受限 replan；不支持并行或自动/多次 replan |
-| 本地顺序 Supervisor | [supervision.py](../src/horizon/application/supervision.py)、[设计与边界](local-sequential-supervisor.md) | `--supervise` 在新 AgentSession 已持久化后释放 Lease并重开完整 Worker 栈；可信父进程还可在同步回收子进程后，以精确 Lease/epoch、零 reservation 和 RecoveryService 的 `safe_to_resume` 三重门禁接管，退出证据进入 Trace；pending intent 保留原 Lease并返回 `reconciliation_required`。不是 daemon、分布式队列或任意崩溃恢复 |
+| 本地顺序 Supervisor | [supervision.py](../src/horizon/application/supervision.py)、[设计与边界](local-sequential-supervisor.md) | `--supervise` 在新 AgentSession 已持久化后释放 Lease并重开完整 Worker 栈；可信父进程同步回收子进程后可绑定精确 Lease/epoch 接管：活 Lease 的 pending intent 保持原样，过期 Lease 只提升恢复 epoch，二者都不重派；零 reservation 还须 RecoveryService `safe_to_resume` 才继续，退出/接管证据进入 Trace。不是 daemon、分布式队列或任意崩溃恢复 |
 | 执行证据驱动的受限 Replan | [plan.py](../src/horizon/domain/plan.py)、[services.py](../src/horizon/application/services.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 模型显式 `revise_plan`，最多 1 次成功；大型动态 Schema 只在当前 WorkItem 已积累至少两轮执行证据或已有通过项后暴露，并用持久会话元数据保持崩溃恢复请求稳定；完成项逐字段不可变，工具 receipt、Plan vN+1、新 session 同事务；未做真实模型效果评测 |
 | 确定性 ContextProjection + MandatoryFactLedger | [context.py](../src/horizon/application/context.py)、[context.py](../src/horizon/domain/context.py) | 完整 transcript 留存；候选投影同时满足字符上限与覆盖工具 Schema 的完整请求保守 token 上界，执行期再按 Run/Campaign/单调用最小 CNY 余量收窄 effective cap，近期完整单元在任一硬上限需要时只折叠最少数量，incomplete 单元绝不折叠；新 Projection/Reservation 使用 Adapter 实际 OpenAI-compatible body 字节，绑定版本化 estimator、payload hash/字段分量、上界与 effective cap，并按 estimator ID 恢复 v1；Task/Plan/权限/验收/预算/策略/工具 Schema/workspace 另做内容寻址绑定；不是精确 tokenizer、语义压缩或 Project Memory |
 | 证据驱动的 Run Memory | [memory.py](../src/horizon/application/memory.py)、[memory.py](../src/horizon/domain/memory.py) | 从工具事件和内容寻址输出派生；保留失败/unknown，按 workspace revision 失效并绑定模型请求恢复边界；仅 run scope，不是 Project Memory |
@@ -101,11 +101,13 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
   CLI E2E 覆盖 `agent run --supervise`，以及先显式让出再由 `agent resume --supervise` 以两个
   slice 和一次 handoff 接续成功，源目录未变化。未联网、未调用真实模型或产生费用。
 - 新增父进程确认退出后的窄接管 API。启动边界绑定 Run/Lease/epoch/event seq/AgentSession；
-  只有零 reservation 且现有 RecoveryService 返回 `safe_to_resume` 时，才以带 PID、退出码和
-  安全事件序号的 `LEASE_RELEASED` 围栏旧 Worker，并获取下一 epoch。真实子进程在完整
-  `read_file` 轮次后硬退出的用例继续到 epoch 3 并成功，Trace 可重放；另一真实子进程留下
-  pending tool intent 后退出的用例保持原 Lease、零重派并返回 `reconciliation_required`。
-  该入口要求原 Lease 仍有效，且目前是 Python application API，不是常驻子进程管理平台。
+  活 Lease 的安全路径以带 PID、退出码和游标的 `LEASE_RELEASED` 围栏；过期 Lease 必须仍精确
+  匹配启动身份，才以带旧 token 和进程证据的 `LEASE_ACQUIRED` 提升 epoch。提升 epoch 只证明
+  旧进程无法再写，不代表悬空 effect 安全。真实子进程在完整 `read_file` 轮次后退出的活 Lease/
+  过期 Lease 两种用例均继续到 epoch 3、成功并可重放；pending tool intent 两种用例都返回
+  `reconciliation_required` 且零重派，过期情形只提供新恢复 Lease。领域负例拒绝活 Lease 和
+  错误旧 token 走过期入口；零 reservation 但尚无安全 AgentSession 的活/过期负例也都返回
+  `unsafe_agent_boundary`。该能力仍是 Python application API，不是常驻子进程管理平台。
 
 ### 2026-10-07 预算估计证据按 byte basis 分层
 
@@ -267,7 +269,7 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
   验证器还会从最终 Trace 复核同一 call 只出现一次成功恢复记录。v1/v2 报告继续可读。
 - 该演示仍是固定 Scripted Model、固定 `replace_text` 提交窗和只读文本验收；它证明本演示的真实
   子进程硬退出恢复，不代表 OS reboot、主机宕机、磁盘损坏、任意工具或任意 crash window。
-- 最新离线全量回归为 **392 passed，7 skipped**；7 个 skip 均为需要显式本机镜像的 Docker
+- 最新离线全量回归为 **397 passed，7 skipped**；7 个 skip 均为需要显式本机镜像的 Docker
   合同，已使用本机已有镜像单独复跑并全部通过。
 
 ### 2026-10-05 Docker 检查停止结果恢复
@@ -777,7 +779,7 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 七轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新离线全量回归为 392 passed、7 个显式 Docker skip，
+当前主干继续补齐尚未统一覆盖的故障点；最新离线全量回归为 397 passed、7 个显式 Docker skip，
 7 个 Docker 合同已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以

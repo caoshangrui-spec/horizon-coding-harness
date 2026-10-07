@@ -465,6 +465,73 @@ class HarnessService:
 
         return self.store.command(run_id, key, request, decide)
 
+    def takeover_reaped_worker_lease(
+        self,
+        run_id: str,
+        previous_token: LeaseToken,
+        worker_id: str,
+        key: str,
+        *,
+        process_id: int,
+        exit_code: int,
+        launch_event_seq: int,
+        ttl_seconds: int = 60,
+    ) -> Run:
+        """Fence an expired exact Lease after a trusted parent reaped its child Worker."""
+
+        if not worker_id or not 1 <= ttl_seconds <= 600 or process_id < 1 or launch_event_seq < 1:
+            raise ValueError(
+                "Expired reaped-worker takeover requires worker/process evidence and a valid TTL"
+            )
+        request = {
+            "operation": "takeover_reaped_worker_lease",
+            "previous_token": previous_token.model_dump(),
+            "worker_id": worker_id,
+            "ttl": ttl_seconds,
+            "process_id": process_id,
+            "exit_code": exit_code,
+            "launch_event_seq": launch_event_seq,
+        }
+
+        def decide(run):
+            self._active(run)
+            now = self.store.clock()
+            if run.status != RunStatus.RUNNING or run.plan is None:
+                raise LeaseConflict("Expired reaped-worker takeover requires a RUNNING Run")
+            if (
+                run.lease_id != previous_token.lease_id
+                or run.worker_id != previous_token.worker_id
+                or run.lease_epoch != previous_token.epoch
+                or run.lease_expires_at is None
+            ):
+                raise LeaseConflict("Reaped worker no longer owns the exact expired lease")
+            if now < datetime.fromisoformat(run.lease_expires_at):
+                raise LeaseConflict("Reaped worker lease is still live")
+            if launch_event_seq > run.seq:
+                raise Conflict("Reaped worker launch boundary is ahead of the durable Run")
+            return [
+                NewEvent(
+                    event_type="LEASE_ACQUIRED",
+                    payload={
+                        "lease_id": f"lease_{uuid4().hex}",
+                        "worker_id": worker_id,
+                        "epoch": run.lease_epoch + 1,
+                        "expires_at": timestamp(now + timedelta(seconds=ttl_seconds)),
+                        "takeover_reason": "confirmed_reaped_worker_expired",
+                        "previous_lease_id": previous_token.lease_id,
+                        "previous_worker_id": previous_token.worker_id,
+                        "previous_epoch": previous_token.epoch,
+                        "process_id": process_id,
+                        "exit_code": exit_code,
+                        "launch_event_seq": launch_event_seq,
+                        "observed_event_seq": run.seq,
+                    },
+                    occurred_at=now,
+                )
+            ]
+
+        return self.store.command(run_id, key, request, decide)
+
     def renew_lease(self, run_id: str, token: LeaseToken, key: str, ttl_seconds: int = 60) -> Run:
         if not 1 <= ttl_seconds <= 600:
             raise ValueError("Lease TTL must be in [1, 600]")

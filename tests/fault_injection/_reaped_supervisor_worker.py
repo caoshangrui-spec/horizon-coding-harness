@@ -23,6 +23,7 @@ from horizon.tools.gateway import WorkspaceToolGateway
 
 SAFE_SLICE_EXIT_CODE = 37
 PENDING_INTENT_EXIT_CODE = 38
+IDLE_EXIT_CODE = 39
 
 
 def _token() -> LeaseToken:
@@ -105,7 +106,7 @@ def _pending_intent(service: HarnessService, run_id: str, token: LeaseToken) -> 
 
 
 def main() -> None:
-    if len(sys.argv) != 11 or sys.argv[1] not in {"safe", "pending"}:
+    if len(sys.argv) != 11 or sys.argv[1] not in {"safe", "pending", "idle"}:
         raise SystemExit(
             "usage: _reaped_supervisor_worker MODE STORE RUN LEASE WORKER EPOCH "
             "ARTIFACTS WORKSPACE CAMPAIGN RETRIEVAL"
@@ -116,6 +117,8 @@ def main() -> None:
     token = _token()
     if mode == "safe":
         _safe_slice(service, run_id, token)
+    if mode == "idle":
+        os._exit(IDLE_EXIT_CODE)
     _pending_intent(service, run_id, token)
 
 

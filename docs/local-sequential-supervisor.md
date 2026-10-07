@@ -79,18 +79,22 @@ ID、Worker ID、epoch、事件序号和当时的 AgentSession。只有父进程
 接管依次执行以下门禁：
 
 1. 当前 Run 仍对应启动前的精确 Lease/epoch，且 AgentSession 没有倒退；
-2. `reservations` 必须为空，包含已标 unknown 的 reservation 也不例外；
-3. 使用现有 `RecoveryService` 对 Run、Campaign 账本、响应 Artifact 和事件尾部进行一致性检查；
-4. 只有 `safe_to_resume=true` 才记录带 PID、退出码和边界序号的 `LEASE_RELEASED`，重开适配器、
-   获取新 epoch，并进入普通顺序 Supervisor；
-5. 有未决 model/tool/budget intent 时返回 `reconciliation_required`，保留原 Lease，不运行
-   reconcile、不创建新 Worker、不重派模型；无 reservation 但边界仍不安全时，返回同一结果并
-   附带 RecoveryReport。
+2. 若原 Lease 仍有效且存在 reservation，保持原 Lease/intent 原样并返回
+   `reconciliation_required`；
+3. 若原 Lease 已过期，只有精确旧 Lease 身份和父进程回收证据都匹配，才以一个
+   `LEASE_ACQUIRED` 原子提升 epoch；这只证明旧 Worker 已被围栏，不证明悬空副作用安全；
+4. 过期接管后如存在 reservation，保留全部 intent 并返回带新恢复 Lease 的
+   `reconciliation_required`，不运行 reconcile、runner、模型重派或 fallback；
+5. 没有 reservation 时，使用现有 `RecoveryService` 对 Run、Campaign 账本、响应 Artifact 和
+   事件尾部进行一致性检查；只有 `safe_to_resume=true` 才进入普通顺序 Supervisor；
+6. 原 Lease 仍有效的安全路径记录带进程证据的 `LEASE_RELEASED` 后获取新 epoch；原 Lease 已
+   过期的安全路径直接复用步骤 3 的新 epoch。边界不安全则返回
+   `reconciliation_required` 和 RecoveryReport，不调用模型。
 
 若子 Worker 已提交终态或持久化人工等待并按原协议清除 Lease，则返回 `stopped`，不会重新启动。
-当前入口要求父进程在原 Lease 仍有效时及时处理；过期 Lease 继续使用显式
-`--confirm-old-worker-stopped` 的既有恢复路径。它是 Python application API，尚未把 CLI
-Supervisor 改造成常驻进程管理器。
+这个入口只接受同一个可信父进程同步回收的子进程；父进程自身重启后无法从数据库重建该操作
+系统事实，仍使用显式 `--confirm-old-worker-stopped` 的既有恢复路径。它是 Python
+application API，尚未把 CLI Supervisor 改造成常驻进程管理器。
 
 ## 5. 输出与 Trace
 
@@ -116,6 +120,10 @@ Supervisor 改造成常驻进程管理器。
 `process_id`、`exit_code`、`launch_event_seq` 和 `safe_event_seq`。这些字段是父进程观察的审计证据，
 不是跨主机存活证明；重放仍以事件 hash 链和 Run 投影为准。
 
+过期 Lease 不先伪造释放事件，而以新的 `LEASE_ACQUIRED` 覆盖旧 epoch，并记录
+`takeover_reason=confirmed_reaped_worker_expired`、旧 Lease/Worker/epoch、PID、退出码、启动游标和
+接管时事件游标。返回结果的 `lease_transition` 区分 `live_release`、`expired_takeover` 和 `none`。
+
 ## 6. 已验证范围
 
 离线集成测试使用 Scripted Model 完成 `read_file -> replace_text -> submit -> protected validation`：
@@ -128,10 +136,16 @@ Supervisor 改造成常驻进程管理器。
 - CLI 先显式让出一个安全轮次、再由 `agent resume --supervise` 以两个 slice 接续成功，最终
   lease epoch 为 3；
 - 真实子进程完成一次 `read_file` 轮次、持久化 AgentSession 后以固定非零码退出；父进程同步
-  回收它，RecoveryService 判定安全，Supervisor 记录退出证据并从 epoch 1 接管到 epoch 2，
-  随后再经一次正常 handoff 到 epoch 3 完成编辑、提交和保护验证；完整 Trace 可重放；
+  回收它；原 Lease 仍有效和通过注入时钟变为过期两种情况下，Supervisor 都记录对应退出证据，
+  从 epoch 1 接管到 epoch 2，再经一次正常 handoff 到 epoch 3 完成编辑、提交和保护验证；两条
+  完整 Trace 均可重放；
 - 第二个真实子进程留下未决 `read_file` intent 后退出；结果严格为
-  `reconciliation_required`，原 Lease/intent 保留，reconcile/runner/模型均未调用；
+  `reconciliation_required`：Lease 仍有效时保持原 Lease；Lease 过期时仅提升到恢复 epoch，
+  两者都保留 intent，且 reconcile/runner/模型均未调用；
+- 第三个真实子进程在首个 AgentSession 形成前退出且没有 reservation；活/过期 Lease 两种路径
+  都由 RecoveryService 判为 `unsafe_agent_boundary`，证明“没有悬空调用”本身不足以自动续跑；
+- 领域服务负例证明仍有效的 Lease 和不匹配的旧 Lease 身份都不能使用过期接管入口；成功接管后
+  旧 token 被 epoch 围栏，事件 Trace 可重放；
 - 全程不联网、不调用真实模型、不产生外部费用。
 
 这些证据证明本地安全轮次的自动接力，以及父进程确认退出后对一个完整静止轮次的保守接管；

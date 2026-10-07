@@ -173,6 +173,72 @@ def test_expiry_does_not_imply_process_stopped_and_old_worker_is_fenced(
     )
 
 
+def test_reaped_worker_takeover_requires_expired_exact_lease(
+    store,
+    service,
+    running,
+    clock,
+):
+    run, old = running
+    with pytest.raises(LeaseConflict, match="still live"):
+        service.takeover_reaped_worker_lease(
+            run.run_id,
+            old,
+            "recovery-worker",
+            "reaped-live",
+            process_id=1234,
+            exit_code=37,
+            launch_event_seq=run.seq,
+        )
+
+    clock.advance(61)
+    stale = old.model_copy(update={"lease_id": "lease_stale"})
+    with pytest.raises(LeaseConflict, match="exact expired lease"):
+        service.takeover_reaped_worker_lease(
+            run.run_id,
+            stale,
+            "recovery-worker",
+            "reaped-stale",
+            process_id=1234,
+            exit_code=37,
+            launch_event_seq=run.seq,
+        )
+
+    takeover = service.takeover_reaped_worker_lease(
+        run.run_id,
+        old,
+        "recovery-worker",
+        "reaped-expired",
+        process_id=1234,
+        exit_code=37,
+        launch_event_seq=run.seq,
+    )
+    assert takeover.lease_epoch == old.epoch + 1
+    assert takeover.lease_id != old.lease_id
+    event = store.events(run.run_id)[-1]
+    assert event.event_type == "LEASE_ACQUIRED"
+    assert event.payload["takeover_reason"] == "confirmed_reaped_worker_expired"
+    assert event.payload["previous_lease_id"] == old.lease_id
+    assert event.payload["previous_epoch"] == old.epoch
+    assert event.payload["process_id"] == 1234
+    assert event.payload["exit_code"] == 37
+    retried = service.takeover_reaped_worker_lease(
+        run.run_id,
+        old,
+        "recovery-worker",
+        "reaped-expired",
+        process_id=1234,
+        exit_code=37,
+        launch_event_seq=run.seq,
+    )
+    assert retried.lease_id == takeover.lease_id
+    assert len(store.events(run.run_id)) == event.seq
+    with pytest.raises(LeaseConflict):
+        service.transition(run.run_id, RunStatus.VALIDATING, old, "old-reaped-worker")
+    replayed = SQLiteEventStore.replay_jsonl(store.export_jsonl(run.run_id))
+    assert replayed.as_dict() == takeover.as_dict()
+
+
 def test_cancel_prevents_subsequent_work(store, service, running):
     run, token = running
     cancelled = service.cancel(run.run_id, "cancel")
