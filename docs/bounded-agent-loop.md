@@ -65,7 +65,8 @@ Harness 最终 Docker 验证 → checkpoint → validation evidence
 
 执行入口接收 TaskSpec，以及二选一的计划来源：
 
-- `TaskSpec`：目标、源仓库、允许/禁止路径、验收命令、预算和 model policy；
+- `TaskSpec`：目标、源仓库、允许/禁止路径、可选任务级工具 allowlist、验收命令、预算和
+  model policy；
 - `PLAN_PATH`：人工编写的一个或多个 DAG WorkItem；或
 - `--auto-plan`：一次有预算的模型调用提出 1～8 个 WorkItem，再由控制器校验。
 
@@ -76,7 +77,8 @@ Harness 最终 Docker 验证 → checkpoint → validation evidence
 3. 人工或模型 Plan 均须无环、依赖有效并覆盖 required acceptance；当前按声明顺序串行选择
    ready item；
 4. CLI 显式提供 `--confirm-paid` 和已经存在的 Linux Docker image；
-5. 执行权限来自 TaskSpec、WorkItem 和 Gateway 的交集，模型响应不能扩大权限。
+5. 执行权限来自 execution mode、TaskSpec `constraints.allowed_tools`（若提供）、WorkItem 和
+   Gateway 的交集，模型响应不能扩大权限；`submit` 始终由控制器单独提供。
 
 CLI 先对源目录做内容寻址快照，再恢复到 `.horizon/staging/agent-<uuid>`。模型和容器都不
 操作源目录；成功首先只表示 staging 候选通过验收。之后可用只读 `agent diff` 检查候选，

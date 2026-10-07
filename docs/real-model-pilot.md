@@ -500,7 +500,57 @@ WorkItem 后再暴露；成功使用后仍永久移除。判定只依赖已保�
 跨 WorkItem 立即可用和成功后移除；本次没有联网、没有模型调用、没有新 Campaign，也没有改变
 保守 token 公式或历史 Trace。
 
-## 13. 后续付费 Pilot 的完成条件
+## 13. tqdm v3：任务级最小工具权限与零费用预检
+
+第六轮之后没有复用旧授权。2026-10-07 先完成两项不调用模型的通用收窄：
+
+1. 新 WorkItem 不再无条件携带大型 `revise_plan` Schema；只有持久会话已有至少两轮执行证据，
+   或前序 WorkItem 已通过时才暴露；
+2. TaskSpec 新增可选 `constraints.allowed_tools`。它只能从 execution mode 的工具上界中收窄，
+   Planner Schema、Plan 校验和执行 Gateway 依次取交集；`submit` 仍由控制器提供。省略该字段时
+   历史 TaskSpec 序列化与 hash 不变。
+
+用第六轮持久会话做同消息离线 A/B：原“全部 WorkItem 工具 + replan”请求为 9,197 bytes；只做
+replan 证据门后为 7,962 bytes；再应用 v3 的 `read_file / retrieve_code / replace_text` 任务级
+权限（加控制器 `submit`）后为 6,786 bytes。相对原请求减少 2,411 bytes，在未改动的生产上界
+公式下减少 4,822 input ceiling、`CNY 0.014466` 单次保守预留。把同一差额用于第六轮已投影的
+停止请求只得到 `CNY 0.043854` 的反事实估算；它是请求结构诊断，不是 Provider 回执，也不改写
+历史失败。
+
+新候选保持同一公开 tqdm-1 完整 checkout 和模型，但创建独立合同文件：
+
+- manifest：
+  [`real-model-pilot-v3.yaml`](../benchmarks/run_ab/full/tqdm-1-tenumerate-start/real-model-pilot-v3.yaml)；
+- Provider policy：
+  [`siliconflow-tqdm-pilot-v3.yaml`](../config/providers/siliconflow-tqdm-pilot-v3.yaml)；
+- Task 工具上界只有 `read_file`、`retrieve_code`、`replace_text`；模型不需要主动 `run_check`，
+  因为 `submit` 后的 required acceptance 始终由控制器执行；
+- Run cap 为 `CNY 0.049`。若完整占用，该 Campaign 最多为
+  `0.1302414 + 0.049 = CNY 0.1792414`，历史系列最多为
+  `0.1954812 + 0.049 = CNY 0.2444812`，都不超过既有冻结上限。
+
+本机已有 `python:3.12-alpine` 上的禁网 Docker preflight 结果为：
+
+- `ready=true`；82-file full checkout/Git HEAD、初始 required check 失败、source unchanged、
+  `.git` 排除和 solution isolation 全部通过；
+- planning request 为 3,965 bytes，input/output ceiling 为 8,954/768，保守预留
+  `CNY 0.033774`，同时低于 Run cap 与 Campaign remaining `CNY 0.0497586`；
+- prepared Task ref：
+  `ff59040de8a6357503c9c718753bd28acc8749cc04163d7f3141470876fa91c9`；
+- preflight report ref：
+  `8d493f7be6ee86aa8c2a37fbe5d690525f817ca0822ac7e7b44fdb14d164c683`；
+- Harness source digest：
+  `b5ee9da701392eaa4283620c5ef47ce78cf17520f3c7e31ac217e84d228fb477`；
+- Docker image digest：
+  `sha256:0687a6bc9716edc2a6ee0fbfb0f87e7ee358b262b67c9215de91bc9b2d38ba71`；
+- `credential_loaded=false`、`network_called=false`、`paid_model_called=false`，没有 reservation 或
+  unknown 用量。
+
+`ready=true` 只说明首次规划请求和静态启动绑定可通过，不保证后续动态请求或任务成功，也不
+构成付费授权。六次旧授权都已消费；启动 v3 仍需新的、逐字明确的外发范围、模型、单 Run
+`CNY 0.049`、系列累计 `CNY 0.25`、不重试和不 fallback 授权。
+
+## 14. 后续付费 Pilot 的完成条件
 
 正式运行时只接受 preflight 输出的 TaskSpec/report、同一镜像和专用 Provider policy。结果无论
 成功还是失败，都必须记录：

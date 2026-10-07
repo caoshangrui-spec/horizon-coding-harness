@@ -6,27 +6,20 @@ from pydantic import Field, model_validator
 
 from horizon.domain.common import Contract, digest
 from horizon.domain.errors import PolicyDenied
-from horizon.domain.task import Identifier, PositiveInt, TaskSpec, Text
+from horizon.domain.task import Identifier, PositiveInt, TaskSpec, Text, model_tools_for_mode
 
 MAX_EXECUTION_REPLANS = 1
 MAX_EXECUTION_REPLAN_ITEMS = 8
-READ_ONLY_PLAN_TOOLS = ("search_repo", "read_file", "retrieve_code")
-WORKSPACE_WRITE_PLAN_TOOLS = (
-    "search_repo",
-    "read_file",
-    "retrieve_code",
-    "replace_text",
-    "apply_patch",
-    "create_file",
-    "run_check",
-)
 Sha256 = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
 
 
 def permitted_plan_tools(task: TaskSpec) -> tuple[str, ...]:
-    if task.execution_mode == "workspace_write":
-        return WORKSPACE_WRITE_PLAN_TOOLS
-    return READ_ONLY_PLAN_TOOLS
+    mode_tools = model_tools_for_mode(task.execution_mode)
+    allowed_tools = task.constraints.allowed_tools
+    if allowed_tools is None:
+        return mode_tools
+    allowed = set(allowed_tools)
+    return tuple(tool for tool in mode_tools if tool in allowed)
 
 
 class WorkItem(Contract):

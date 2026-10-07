@@ -4,7 +4,7 @@ from decimal import Decimal
 from pathlib import PurePosixPath
 from typing import Annotated, Literal, Self
 
-from pydantic import Field, StrictInt, field_validator, model_validator
+from pydantic import Field, StrictInt, field_validator, model_serializer, model_validator
 
 from horizon.domain.common import Contract, digest
 
@@ -13,6 +13,22 @@ Text = Annotated[str, Field(min_length=1)]
 PositiveInt = Annotated[StrictInt, Field(gt=0)]
 NonNegativeInt = Annotated[StrictInt, Field(ge=0)]
 Mode = Literal["read_only", "plan_only", "workspace_write"]
+READ_ONLY_MODEL_TOOLS = ("search_repo", "read_file", "retrieve_code")
+WORKSPACE_WRITE_MODEL_TOOLS = (
+    "search_repo",
+    "read_file",
+    "retrieve_code",
+    "replace_text",
+    "apply_patch",
+    "create_file",
+    "run_check",
+)
+
+
+def model_tools_for_mode(mode: Mode) -> tuple[str, ...]:
+    if mode == "workspace_write":
+        return WORKSPACE_WRITE_MODEL_TOOLS
+    return READ_ONLY_MODEL_TOOLS
 
 
 def relative_pattern(value: str) -> str:
@@ -48,6 +64,7 @@ class Repository(Contract):
 class Constraints(Contract):
     allowed_paths: tuple[str, ...] = ("**",)
     denied_paths: tuple[str, ...] = (".git/**", ".env", ".env.*", "secrets/**")
+    allowed_tools: tuple[Identifier, ...] | None = None
     network: Literal["deny", "allow"] = "deny"
     requirements: tuple[str, ...] = ()
 
@@ -57,6 +74,25 @@ class Constraints(Contract):
         for value in values:
             relative_pattern(value)
         return values
+
+    @field_validator("allowed_tools")
+    @classmethod
+    def check_allowed_tools(
+        cls,
+        values: tuple[Identifier, ...] | None,
+    ) -> tuple[Identifier, ...] | None:
+        if values is not None and (not values or len(values) != len(set(values))):
+            raise ValueError("Tool allowlist must be nonempty and unique when provided")
+        return values
+
+    @model_serializer(mode="wrap")
+    def omit_legacy_tool_default(self, handler):
+        """Keep historical TaskSpec hashes stable when no tool allowlist was supplied."""
+
+        data = handler(self)
+        if self.allowed_tools is None:
+            data.pop("allowed_tools", None)
+        return data
 
 
 class AcceptanceCheck(Contract):
@@ -111,6 +147,11 @@ class TaskSpec(Contract):
             raise ValueError("Explanation and review tasks cannot implicitly grant writes")
         if self.execution_mode == "workspace_write" and not self.constraints.allowed_paths:
             raise ValueError("Write mode requires an explicit nonempty path scope")
+        allowed_tools = self.constraints.allowed_tools
+        if allowed_tools is not None and not set(allowed_tools) <= set(
+            model_tools_for_mode(self.execution_mode)
+        ):
+            raise ValueError("Tool allowlist exceeds the task execution mode")
         return self
 
     @property

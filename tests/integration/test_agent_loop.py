@@ -815,6 +815,47 @@ def test_agent_loop_recovers_from_one_sided_read_range_and_replays(tmp_path, tas
     assert projection_hash(replayed) == projection_hash(result)
 
 
+def test_agent_loop_exposes_only_task_and_work_item_allowed_tools(tmp_path, task_dict):
+    task_dict["constraints"]["allowed_tools"] = ["read_file", "replace_text"]
+    plan = Plan(
+        items=(
+            WorkItem(
+                work_item_id="narrow-fix",
+                title="Apply the bounded parser fix",
+                objective="Use only the task-authorized read and exact replacement tools",
+                expected_artifacts=("src/parser.py",),
+                acceptance_ids=("unit",),
+                allowed_tools=("read_file", "replace_text"),
+            ),
+        )
+    )
+    actions = [
+        (
+            "replace_text",
+            {
+                "path": "src/parser.py",
+                "old": "return [value]",
+                "new": "return [] if value == '' else [value]",
+            },
+        ),
+        ("submit", {"summary": "Completed within the narrow task tool authority."}),
+    ]
+    runner, _, run_id, token, _, model = setup_loop(
+        tmp_path,
+        task_dict,
+        actions,
+        plan=plan,
+    )
+
+    result = runner.run(run_id, token)
+
+    assert result.status == RunStatus.SUCCEEDED
+    assert [tuple(tool.name for tool in request.tools) for request in model.requests] == [
+        ("read_file", "replace_text", "submit"),
+        ("read_file", "replace_text", "submit"),
+    ]
+
+
 def test_agent_loop_terminalizes_pre_dispatch_run_budget_stop(tmp_path, task_dict):
     runner, store, run_id, token, _, model = setup_loop(
         tmp_path,

@@ -5,6 +5,18 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Prepared a zero-cost tqdm v3 real-model candidate that exercises task-level least privilege:
+  only bounded read, ranked retrieval, and exact replacement are model-visible, while protected
+  validation remains controller-owned. Its CNY 0.049 Run cap keeps the frozen series below CNY
+  0.25. The current-source, clean-full-checkout, network-disabled Docker preflight is `ready=true`
+  with a CNY 0.033774 initial planning reservation; it loaded no credential, made no network/model
+  call, and does not authorize paid execution.
+- Added an optional TaskSpec `constraints.allowed_tools` capability allowlist. Automatic planning
+  schemas and controller validation now use the intersection of execution mode and this task-level
+  ceiling; each WorkItem can narrow it again, and the gateway still adds only controller-owned
+  `submit`. Omitting the field preserves historical TaskSpec serialization and hashes. Unit,
+  planning, execution, and doctor coverage prove least-privilege schemas and reject empty,
+  duplicate, unknown, or mode-escalating lists.
 - Gated the large execution `revise_plan` tool schema on durable evidence instead of exposing it
   on every fresh WorkItem request. It now appears after at least two persisted execution turns (or
   a multi-tool evidence turn), or immediately when a previous WorkItem has passed; it still

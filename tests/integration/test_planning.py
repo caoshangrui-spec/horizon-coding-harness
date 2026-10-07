@@ -15,6 +15,7 @@ from horizon.application.model_probe import conservative_input_estimate
 from horizon.application.planning import (
     PlanGenerator,
     PlanGeneratorConfig,
+    build_plan_request,
     build_planning_context,
 )
 from horizon.application.recovery import RecoveryService
@@ -112,6 +113,43 @@ def valid_proposal():
             },
         ],
     }
+
+
+def test_planning_context_and_schema_honor_task_tool_allowlist(tmp_path):
+    proposal = valid_proposal()
+    generator, _, store, _, run_id, _, context, model, _ = setup_planner(
+        tmp_path,
+        [proposal],
+    )
+    task = store.get(run_id).task
+    narrowed_task = task.model_copy(
+        update={
+            "constraints": task.constraints.model_copy(
+                update={"allowed_tools": ("read_file", "replace_text")}
+            )
+        }
+    )
+    narrowed_context = build_planning_context(
+        narrowed_task,
+        workspace_revision=context.workspace_revision,
+        source_manifest_ref=context.source_manifest_ref,
+        repository_paths=context.repository_paths,
+    )
+
+    assert narrowed_context.permitted_tools == ("read_file", "replace_text")
+    request = build_plan_request(
+        generator.model_id,
+        narrowed_context,
+        max_output_tokens=generator.config.max_output_tokens,
+        enable_thinking=generator.config.enable_thinking,
+    )
+    plan_tool = next(tool for tool in request.tools if tool.name == "propose_plan")
+    item_schema = plan_tool.parameters["properties"]["items"]["items"]
+    assert item_schema["properties"]["allowed_tools"]["items"]["enum"] == [
+        "read_file",
+        "replace_text",
+    ]
+    assert model.requests == []
 
 
 def setup_planner(tmp_path: Path, proposals):

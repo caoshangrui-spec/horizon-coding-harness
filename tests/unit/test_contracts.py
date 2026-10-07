@@ -2,7 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from horizon.domain.errors import InvalidTransition, PolicyDenied
-from horizon.domain.plan import Plan, WorkItem
+from horizon.domain.plan import Plan, WorkItem, permitted_plan_tools
 from horizon.domain.states import TERMINAL, RunStatus, check_transition
 from horizon.domain.task import TaskSpec, relative_pattern
 
@@ -55,6 +55,47 @@ def test_duplicates_unknown_fields_and_authority(task_dict):
     task_dict["execution_mode"] = "read_only"
     task_dict["mystery"] = True
     with pytest.raises(ValidationError, match="Extra inputs"):
+        TaskSpec.model_validate(task_dict)
+
+
+def test_optional_task_tool_allowlist_is_least_privilege_and_legacy_stable(task_dict):
+    legacy = TaskSpec.model_validate(task_dict)
+    assert "allowed_tools" not in legacy.model_dump(mode="json")["constraints"]
+
+    task_dict["constraints"]["allowed_tools"] = [
+        "read_file",
+        "retrieve_code",
+        "replace_text",
+    ]
+    narrowed = TaskSpec.model_validate(task_dict)
+
+    assert permitted_plan_tools(narrowed) == (
+        "read_file",
+        "retrieve_code",
+        "replace_text",
+    )
+    assert narrowed.model_dump(mode="json")["constraints"]["allowed_tools"] == [
+        "read_file",
+        "retrieve_code",
+        "replace_text",
+    ]
+    with pytest.raises(PolicyDenied, match="execution authority"):
+        Plan(items=(item("a", tools=("apply_patch",)),)).check_task(narrowed)
+
+
+@pytest.mark.parametrize(
+    "allowed_tools",
+    [[], ["read_file", "read_file"], ["shell_exec"], ["create_file"]],
+)
+def test_task_tool_allowlist_rejects_empty_duplicate_unknown_or_mode_escape(
+    task_dict,
+    allowed_tools,
+):
+    task_dict["constraints"]["allowed_tools"] = allowed_tools
+    if allowed_tools == ["create_file"]:
+        task_dict["execution_mode"] = "read_only"
+        task_dict["authority_scope"] = "read_only"
+    with pytest.raises(ValidationError, match="allowlist"):
         TaskSpec.model_validate(task_dict)
 
 

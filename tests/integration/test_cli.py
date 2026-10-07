@@ -215,6 +215,8 @@ def test_doctor_checks_fts_without_model():
     data = json.loads(result.stdout)
     assert data["autonomous_execution"] is True
     assert data["execution_profile"] == "bounded_sequential_work_item_dag"
+    assert data["task_tool_allowlist"] is True
+    assert data["tool_authority_profile"] == "execution_mode_task_work_item_intersection"
     assert data["multi_work_item_execution"] is True
     assert data["work_item_scheduler"] == "deterministic_dependency_ready_plan_order"
     assert data["atomic_work_item_handoff"] is True

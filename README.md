@@ -238,6 +238,14 @@ uv run --locked --cache-dir .uv-cache horizon eval pilot-preflight `
   --image python:3.12-alpine `
   --config config/providers/siliconflow-tqdm-pilot-v2.yaml `
   --state-dir .horizon/real-model-pilot-tqdm-v3
+
+# 当前 v3 零费用候选：任务级最小工具权限，Run cap CNY 0.049。
+# 该命令仍不读取 Key/联网/调用模型；ready report 不等于付费授权。
+uv run --locked --cache-dir .uv-cache horizon eval pilot-preflight `
+  benchmarks/run_ab/full/tqdm-1-tenumerate-start/real-model-pilot-v3.yaml `
+  --image python:3.12-alpine `
+  --config config/providers/siliconflow-tqdm-pilot-v3.yaml `
+  --state-dir .horizon/real-model-pilot-tqdm-v5
 ```
 
 示例 TaskSpec 的仓库路径和 SHA 是占位值，仅验证控制面，不会执行示例测试命令。
@@ -276,8 +284,8 @@ uv run --locked --cache-dir .uv-cache horizon agent run `
   examples/agent-task.yaml --auto-plan `
   --image redis:7-alpine --confirm-paid
 
-# tqdm v2 历史 Run cap 为 CNY 0.062；当前 retry Campaign 余额为 CNY 0.0497586。
-# 当前没有可启动的付费候选。任何新 Run 都须重新预检并取得新的明确授权。
+# tqdm v3 已有与当前源码绑定的 ready preflight，Run cap 为 CNY 0.049。
+# 它仍未获付费授权；不得把本段或旧授权当作 --confirm-paid 同意。
 
 # 长任务可在完整模型—工具轮次后安全让出，再由新进程继续。
 $partial = uv run --locked --cache-dir .uv-cache horizon agent run `

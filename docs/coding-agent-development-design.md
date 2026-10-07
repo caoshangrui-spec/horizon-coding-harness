@@ -410,6 +410,7 @@ repository:
 constraints:
   allowed_paths: ["src/**", "tests/**"]
   denied_paths: [".git/**", "secrets/**"]
+  allowed_tools: ["retrieve_code", "read_file", "replace_text"] # 可选；只能收窄 execution_mode
   network: "deny"
 acceptance:
   - id: "accept_unit"

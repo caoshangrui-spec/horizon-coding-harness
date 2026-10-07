@@ -44,8 +44,9 @@ active = ready[0]
 且依赖仍满足，否则拒绝继续。没有会话时才按上面的规则选择。存在多个并行可就绪项时仍只选
 第一个，因此结果可重放，但不宣称并行执行。
 
-`WorkspaceToolGateway.activate_work_item()` 在每次启动/恢复及阶段切换时重置当前项。模型可见
-Tool Schema 只包含该项 `allowed_tools`（另加 `submit`）；模型主动 `run_check` 也只能选择该项
+`WorkspaceToolGateway.activate_work_item()` 在每次启动/恢复及阶段切换时重置当前项。Plan 已先
+保证 WorkItem `allowed_tools` 不超过 execution mode 与可选 TaskSpec 工具 allowlist 的交集；
+模型可见 Tool Schema 再只包含该项工具（另加 `submit`）。模型主动 `run_check` 也只能选择该项
 的 acceptance ID。Provider 请求的 tool schema hash 随项绑定到 MandatoryFactLedger，跨项错误
 恢复不会静默沿用旧权限。
 

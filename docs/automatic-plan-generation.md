@@ -51,7 +51,8 @@ PLAN_CREATED(source_model_call_id=...) → READY → RUNNING
 用量仍进入对账边界，不会被当作确定性费用耗尽。详见[确定性费用停止语义](budget-stop-semantics.md)。
 
 控制器先把源目录恢复到独立 staging workspace。规划模型看到的是 TaskSpec 的标题、目标、任务
-类型、执行模式、允许/禁止路径、非命令式 requirements、验收 ID/required 标记，以及最多
+类型、执行模式、任务级工具 allowlist、允许/禁止路径、非命令式 requirements、验收
+ID/required 标记，以及最多
 50 个经过 allow/deny 过滤并排序的文件路径。路径总数和截断标记仍保留；该清单只证明路径存在，
 不作为实现位置证据。验收命令正文不进入规划提示，禁止路径和范围外
 路径不进入清单。文件内容仍由后续执行阶段通过 `read_file`/`retrieve_code` 获取。
@@ -71,7 +72,7 @@ PLAN_CREATED(source_model_call_id=...) → READY → RUNNING
 | `repository_path_count` | 过滤后的总数，不能小于实际列表长度 |
 | `repository_paths_truncated` | 总数大于可见列表时必须为 true |
 | `max_work_items` | 当前固定为 8 |
-| `permitted_tools` | 由 execution mode 确定，模型不能自报权限 |
+| `permitted_tools` | execution mode 与可选 TaskSpec `constraints.allowed_tools` 的有序交集，模型不能自报权限 |
 
 完整 Context 使用 canonical JSON 计算 SHA-256。Artifact 引用、Context hash 和
 `ModelCallReservation` 三者必须相同；执行型模型调用不能携带 planning context，规划调用也
@@ -88,7 +89,7 @@ Schema 要求 Plan version 1、1～8 个 WorkItem，以及每项的 ID、标题�
 1. Pydantic Plan/WorkItem 严格字段合同；
 2. WorkItem ID 唯一，依赖存在、无自依赖、无环；
 3. 不得虚构验收 ID，所有 required acceptance 必须被覆盖；
-4. 每项工具必须是 execution mode 的允许子集；
+4. 每项工具必须是 execution mode 与 TaskSpec 工具 allowlist 的允许子集；
 5. Plan version 必须为 1，WorkItem 不超过 8 个；
 6. inventory 完整时，标题、目标和 expected artifacts 中出现的路径必须逐字存在于该清单；
    唯一例外是同一 WorkItem 显式授权 `create_file`，且新路径仍落在 TaskSpec allow/deny 范围内；
@@ -106,10 +107,12 @@ revision-bound retrieval/read 回执为准，不能把 Plan 中的路径假设�
 真实模型负例证明了这个区别：`tqdm/contrib/itertools.py` 确实存在，但 `tenumerate` 实际位于
 `tqdm/contrib/__init__.py`；后续 `retrieve_code("tenumerate")` 正确返回了后者 rank 1。
 
-写任务可分配 `search_repo`、`read_file`、`retrieve_code`、`replace_text`、`apply_patch`、
-`create_file` 和 `run_check`。只读/仅计划任务只允许前三个读取工具。`submit` 由执行循环统一
-提供，不需要写入 WorkItem 权限；Shell、任意 diff、多文件新增、删除/重命名和网络工具不会
-因模型提案而出现。
+写任务在未进一步收窄时可分配 `search_repo`、`read_file`、`retrieve_code`、`replace_text`、
+`apply_patch`、`create_file` 和 `run_check`；只读/仅计划任务只允许前三个读取工具。TaskSpec 可用
+`constraints.allowed_tools` 从这些 mode 工具中声明非空、无重复的子集，Planner Schema 只枚举
+该交集，WorkItem 还可继续收窄。字段省略时保持原有权限和历史 TaskSpec 序列化/hash。`submit`
+由执行循环统一提供，不需要写入 allowlist 或 WorkItem；Shell、任意 diff、多文件新增、删除/重命名
+和网络工具不会因模型提案而出现。
 
 ## 5. 预算与费用
 

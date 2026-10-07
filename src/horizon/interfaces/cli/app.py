@@ -2059,6 +2059,8 @@ def doctor():
                 "model_backend": "openai_compatible",
                 "autonomous_execution": True,
                 "execution_profile": "bounded_sequential_work_item_dag",
+                "task_tool_allowlist": True,
+                "tool_authority_profile": "execution_mode_task_work_item_intersection",
                 "multi_work_item_execution": True,
                 "work_item_scheduler": "deterministic_dependency_ready_plan_order",
                 "atomic_work_item_handoff": True,

@@ -58,6 +58,17 @@ TQDM_PILOT_MANIFEST = (
     ROOT / "benchmarks" / "run_ab" / "full" / "tqdm-1-tenumerate-start" / "real-model-pilot.yaml"
 )
 TQDM_PILOT_CONFIG = ROOT / "config" / "providers" / "siliconflow-tqdm-pilot.yaml"
+TQDM_NARROW_PILOT_MANIFEST = (
+    ROOT
+    / "benchmarks"
+    / "run_ab"
+    / "full"
+    / "tqdm-1-tenumerate-start"
+    / "real-model-pilot-v3.yaml"
+)
+TQDM_NARROW_PILOT_CONFIG = (
+    ROOT / "config" / "providers" / "siliconflow-tqdm-pilot-v3.yaml"
+)
 
 
 def load_manifest() -> RealModelPilotManifest:
@@ -154,6 +165,27 @@ def test_tqdm_pilot_is_narrow_and_fits_remaining_campaign_and_user_caps():
     assert provider.campaign.max_cost == Decimal("0.18")
     assert Decimal("0.1118334") + provider.run_budget.max_cost <= provider.campaign.max_cost
     assert Decimal("0.1770732") + provider.run_budget.max_cost <= Decimal("0.25")
+    assert provider.fallback_enabled is False
+
+
+def test_tqdm_v3_pilot_adds_task_tool_least_privilege_within_remaining_caps():
+    manifest = RealModelPilotManifest.model_validate(
+        yaml.safe_load(TQDM_NARROW_PILOT_MANIFEST.read_text(encoding="utf-8"))
+    )
+    provider = load_provider_config(TQDM_NARROW_PILOT_CONFIG)
+
+    assert manifest.provider_policy_id == provider.policy_id
+    assert manifest.max_paid_cost == Decimal("0.049")
+    assert manifest.task.constraints.allowed_tools == (
+        "read_file",
+        "retrieve_code",
+        "replace_text",
+    )
+    assert provider.run_budget.max_cost == Decimal("0.049")
+    assert provider.campaign.campaign_id == "siliconflow-pilot-retry-2026-10"
+    assert Decimal("0.1302414") + provider.run_budget.max_cost <= provider.campaign.max_cost
+    assert Decimal("0.1954812") + provider.run_budget.max_cost <= Decimal("0.25")
+    assert provider.request.max_attempts == 1
     assert provider.fallback_enabled is False
 
 
