@@ -5,6 +5,13 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Added an opt-in local sequential Supervisor for `agent run` and `agent resume`. It executes
+  bounded model-iteration slices, hands off only after a newer AgentSession is durable and the Run
+  is quiescent, reopens worker-owned persistence/retrieval/tool adapters, and acquires a new lease
+  epoch before continuing. Structured output reports slice and handoff counts. Terminal states,
+  human requests, explicit slice limits, and unexpected failures stop supervision; unknown effects
+  still require the existing reconciliation flow, and no retry, fallback, parallel queue, or budget
+  expansion was added.
 - Prepared a zero-cost tqdm v3 real-model candidate that exercises task-level least privilege:
   only bounded read, ranked retrieval, and exact replacement are model-visible, while protected
   validation remains controller-owned. Its CNY 0.049 Run cap keeps the frozen series below CNY

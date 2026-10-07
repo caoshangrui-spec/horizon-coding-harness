@@ -14,13 +14,13 @@ Horizon 是一个面向长程软件工程任务的**可恢复执行控制层**�
 
 > **当前状态：** v0.1.0 工程核心可运行。离线 Harness 主链路、来源绑定的完整 checkout A/B，
 > 以及三 WorkItem/两次 Worker 重启的恢复场景已有可重放证据；youtube-dl 与新加入的 Luigi
-> 独立案例均已通过本地可信执行和公开禁网 Docker。六次真实模型 Pilot 均为负结果，因此目前
+> 独立案例均已通过本地可信执行和公开禁网 Docker。七次真实模型 Pilot 均为负结果，因此目前
 > **不宣称真实 Issue 成功率或官方 benchmark 成绩**。
 
 ## 为什么值得看
 
-- **可恢复执行**：追加式事件、幂等命令、Worker Lease/epoch、内容寻址 checkpoint，以及模型、
-  工具和 promotion 提交窗口的保守恢复。
+- **可恢复执行**：追加式事件、幂等命令、Worker Lease/epoch、内容寻址 checkpoint、本地顺序
+  Supervisor 安全接力，以及模型、工具和 promotion 提交窗口的保守恢复。
 - **上下文与知识**：字符、保守 input-token 与剩余费用余量共同约束的确定性投影、不可丢失的
   Mandatory Facts、有来源的 Run Memory，以及绑定 workspace revision 的 SQLite FTS5 Code RAG。
 - **验证与治理**：有界工具权限、禁网 Docker 验收、Campaign/Run 双层费用门禁、持久化 HITL、
@@ -83,7 +83,8 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | Python 3.12/3.13 的测试、静态检查、演示和构建已通过 | CI 不读取 API Key、不运行付费模型 |
-| 离线回归 | `385 passed, 7 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `390 passed, 7 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| [本地顺序 Supervisor](docs/local-sequential-supervisor.md) | 完整轮次后自动释放 Lease、重开 Worker 适配器并取得新 epoch；离线 CLI 以 2 个 slice / 1 次 handoff 完成 | 仅接力已证明静止的边界；异常退出仍进入 reconcile，不是分布式队列或任意崩溃自动恢复 |
 | Docker 契约 | 7 项均已在本机已有镜像上单独通过 | 有限隔离合同，不是恶意代码安全认证 |
 | 一键崩溃恢复演示 | 子进程在 `replace_text` 生效后、receipt 前以退出码 86 硬退出；悬空调用先标 unknown，再按精确 manifest 接纳一次并恢复到 epoch 3 | 固定离线脚本与单一写入窗口，不代表任意进程/主机故障恢复 |
 | 有界恢复矩阵 v3 | 21/21；自动恢复 11/11、安全阻塞 10/10、incorrect resume 0、恢复重派/重复副作用 0；含 3 个真实硬退出和 Trace replay | 其余 18 例是生成 fixture 的状态/决策矩阵，不是完整 8 故障点或主机故障验收 |
@@ -287,6 +288,12 @@ uv run --locked --cache-dir .uv-cache horizon agent run `
 # tqdm v3 已按一次性授权运行并以 campaign_cost_limit 受控停止。
 # 不得把本段、历史 preflight 或已消费授权当作新的 --confirm-paid 同意。
 
+# Supervisor 会在每个持久化安全轮次后重开 Worker，并沿同一 Run/预算继续；
+# 遇到终态、人工请求或未知副作用时停止，不自动重试或 fallback。
+uv run --locked --cache-dir .uv-cache horizon agent run `
+  examples/agent-task.yaml examples/agent-plan.yaml `
+  --image redis:7-alpine --confirm-paid --supervise
+
 # 长任务可在完整模型—工具轮次后安全让出，再由新进程继续。
 $partial = uv run --locked --cache-dir .uv-cache horizon agent run `
   examples/agent-task.yaml examples/agent-plan.yaml `
@@ -355,7 +362,7 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **385 passed，7 skipped**；7 项 Docker 合同均已指定本机已有镜像
+当前离线全量回归为 **390 passed，7 skipped**；7 项 Docker 合同均已指定本机已有镜像
 单独复跑并通过。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实
 Issue 效果。新增真实模型 Pilot 单元测试覆盖私有答案拒绝、初始失败证据、内容寻址报告和
@@ -408,6 +415,7 @@ Horizon 原创代码和文档使用 [MIT License](LICENSE)。依赖裁剪的外�
 - [一次性自动计划生成与恢复合同](docs/automatic-plan-generation.md)
 - [确定性费用停止语义](docs/budget-stop-semantics.md)
 - [可恢复的顺序多 WorkItem 执行](docs/multi-work-item-execution.md)
+- [本地顺序 Supervisor：安全轮次自动接力](docs/local-sequential-supervisor.md)
 - [执行证据驱动的单次受限 Replan](docs/execution-replanning.md)
 - [确定性上下文投影与恢复合同](docs/context-projection.md)
 - [证据驱动的 Run Memory](docs/run-memory.md)

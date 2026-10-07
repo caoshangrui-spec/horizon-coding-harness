@@ -23,10 +23,11 @@
 | 追加事件、事务、幂等回执、历史合同、重放 | [sqlite.py](../src/horizon/adapters/persistence/sqlite.py) | SQLite 重启、投影损坏/删除、并发写、真实进程退出 |
 | Lease/epoch、取消、合同修订、预算账本 | [services.py](../src/horizon/application/services.py) | 旧 Worker 拒绝写入；Run 内模型/工具 intent、receipt、unknown 与硬预算事件化 |
 | 不可变内容寻址文件产物与新目录恢复 | [artifacts.py](../src/horizon/adapters/persistence/artifacts.py)、[snapshot.py](../src/horizon/adapters/workspace/snapshot.py) | 文本/二进制文件；同进程已完整验证且元数据未变化的 CAS 去重命中不重复读 blob，变化或重启后重新验 hash；不恢复 Git 对象、进程或网络状态 |
-| 检查点产物引用与事件原子提交 | [checkpoints.py](../src/horizon/application/checkpoints.py) | 产物校验、游标 CAS、拒绝未结算动作；调度静止由未来 supervisor 保证 |
+| 检查点产物引用与事件原子提交 | [checkpoints.py](../src/horizon/application/checkpoints.py) | 产物校验、游标 CAS、拒绝未结算动作；正常轮次的调度静止由本地顺序 Supervisor 校验，异常退出仍须 recovery 围栏 |
 | 临时副本 Docker 执行与受保护验收 | [docker.py](../src/horizon/adapters/sandbox/docker.py)、[validation.py](../src/horizon/adapters/sandbox/validation.py) | 非 root、禁网、只读根、超时、输出有界；模型只能选择控制器冻结的 check ID |
 | Typed Tool Gateway | [gateway.py](../src/horizon/tools/gateway.py) | 搜索、读取、单文件精确替换、最多 8 文件的结构化精确 patch、单个最多 64 KiB 的 UTF-8 新文件、受保护检查和 submit；路径/链接/大小受限，每次 intent/receipt 持久化；existing target 不覆盖、父目录不自动创建；exact search 饱和时显式标记截断并引导 ranked retrieval；`retrieve_code` 默认只返回 rank 1，需要时才显式扩大；大文件整读拒绝并要求最多 400 行、32 Ki 字符的范围读取 |
 | 顺序多 WorkItem Agent Loop | [agent_loop.py](../src/horizon/application/agent_loop.py) | dependency-ready 调度、逐项会话/权限/验收、原子交接、最终全量回归、有限 repair 与单次受限 replan；不支持并行或自动/多次 replan |
+| 本地顺序 Supervisor | [supervision.py](../src/horizon/application/supervision.py)、[设计与边界](local-sequential-supervisor.md) | `--supervise` 在新 AgentSession 已持久化后释放 Lease，重开 SQLite/CAS/Snapshot/RAG/Budget/Tool Gateway 并取得新 epoch；终态、WAITING、slice 上限和异常路径均停止；不自动处置 unknown，不是 daemon、分布式队列或任意崩溃恢复 |
 | 执行证据驱动的受限 Replan | [plan.py](../src/horizon/domain/plan.py)、[services.py](../src/horizon/application/services.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 模型显式 `revise_plan`，最多 1 次成功；大型动态 Schema 只在当前 WorkItem 已积累至少两轮执行证据或已有通过项后暴露，并用持久会话元数据保持崩溃恢复请求稳定；完成项逐字段不可变，工具 receipt、Plan vN+1、新 session 同事务；未做真实模型效果评测 |
 | 确定性 ContextProjection + MandatoryFactLedger | [context.py](../src/horizon/application/context.py)、[context.py](../src/horizon/domain/context.py) | 完整 transcript 留存；候选投影同时满足字符上限与覆盖工具 Schema 的完整请求保守 token 上界，执行期再按 Run/Campaign/单调用最小 CNY 余量收窄 effective cap，近期完整单元在任一硬上限需要时只折叠最少数量，incomplete 单元绝不折叠；新 Projection/Reservation 使用 Adapter 实际 OpenAI-compatible body 字节，绑定版本化 estimator、payload hash/字段分量、上界与 effective cap，并按 estimator ID 恢复 v1；Task/Plan/权限/验收/预算/策略/工具 Schema/workspace 另做内容寻址绑定；不是精确 tokenizer、语义压缩或 Project Memory |
 | 证据驱动的 Run Memory | [memory.py](../src/horizon/application/memory.py)、[memory.py](../src/horizon/domain/memory.py) | 从工具事件和内容寻址输出派生；保留失败/unknown，按 workspace revision 失效并绑定模型请求恢复边界；仅 run scope，不是 Project Memory |
@@ -42,7 +43,7 @@
 | 安全轮次续跑 | [agent.py](../src/horizon/domain/agent.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 消息 Artifact + event/revision 绑定；新 Worker 续跑；PLANNING/READY 也可恢复，任意崩溃窗口对账未完成 |
 | 悬空调用恢复与对账 | [recovery.py](../src/horizon/application/recovery.py)、[model_recovery.py](../src/horizon/application/model_recovery.py)、[tool_recovery.py](../src/horizon/application/tool_recovery.py) | Campaign-only 预留释放；response Artifact 跨 Worker 续跑；模型派发前持久化 client Trace ID，返回后普通落盘失败立即隔离，Artifact 前硬退出重启后保守 `unknown`；只读重试；精确 `replace_text` / `apply_patch` / 单文件 `create_file` accept/rollback；Docker `run_check` 自然退出且 request/workspace/隔离配置/完整小日志精确匹配时可恢复 success/error，其他路径可显式停止/删除后丢弃，missing 仍需人工确认；部分/漂移写入、信号/超时/OOM 验证仍阻塞 |
 | 受控候选提升 | [promotion.py](../src/horizon/application/promotion.py)、[promotion.py](../src/horizon/adapters/workspace/promotion.py)、[git.py](../src/horizon/adapters/vcs/git.py) | 只读 diff、源/候选 revision 与可选 Git HEAD 绑定、显式 1～8 个总变更且至多 1 个 64 KiB UTF-8 新文件、完整/部分 effect 崩溃恢复；不删除/重命名或创建 commit |
-| 任务准备、计划、状态、取消、执行、导出与重放 CLI | [app.py](../src/horizon/interfaces/cli/app.py) | `run` 保持 prepare-only；`agent run` 接受 PLAN_PATH 或 `--auto-plan` 且只操作 staging；`agent resume` 支持 PLANNING/READY/RUNNING；执行前 HorizonError 仅在无非 unknown 在途 reservation 时释放租约；promotion 需显式确认 |
+| 任务准备、计划、状态、取消、执行、导出与重放 CLI | [app.py](../src/horizon/interfaces/cli/app.py) | `run` 保持 prepare-only；`agent run` 接受 PLAN_PATH 或 `--auto-plan` 且只操作 staging；`agent run/resume --supervise` 可自动接力安全轮次；执行前 HorizonError 仅在无非 unknown 在途 reservation 时释放租约；promotion 需显式确认 |
 | SiliconFlow 严格配置与 OpenAI-compatible adapter | [config.py](../src/horizon/adapters/model/config.py)、[openai_compatible.py](../src/horizon/adapters/model/openai_compatible.py) | Adapter 与预算器共用 canonical wire encoder，实际 HTTP body 的 bytes/hash 可复算；真实 Tool Calling 探针和历史 fixture Agent Run 通过；完整 checkout Pilot 已真实调用并以受控终态失败，无隐式 retry/fallback |
 | CNY Campaign 与 Run 模型费用账本 | [campaign_budget.py](../src/horizon/adapters/persistence/campaign_budget.py)、[run.py](../src/horizon/domain/run.py)、[budget-stop-semantics.md](budget-stop-semantics.md) | Campaign 跨重启硬上限；Run 绑定 CNY policy 并事件化；执行请求先按三类最小余量确定性压缩可压缩历史，仍付不起则携带 reason/scope/required/available 及未派发请求 sizing evidence 原子进入 `FAILED` 并清除 Lease；unknown 用量仍保守对账；TaskSpec 旧 USD 字段尚未迁移 |
 | 一键离线作品集 EvidencePack | [portfolio_demo.py](../src/horizon/application/portfolio_demo.py)、[_portfolio_crash_worker.py](../src/horizon/application/_portfolio_crash_worker.py)、[portfolio_demo.py](../src/horizon/domain/portfolio_demo.py)、[portfolio-demo.md](portfolio-demo.md) | `horizon demo run` 复用真实事件/Lease/会话/RAG/Gateway/验证主链路：epoch 1 完成错误回执交接，epoch 2 子进程在 `replace_text` effect 后、receipt 前 `os._exit(86)`，Supervisor 先标 unknown、围栏旧 Lease，再由 epoch 3 精确接纳既有 effect 且不重放写入。v3 报告锚定崩溃标记、恢复 disposition 和可从 Trace 复算的检索→写入 lineage；兼容读取 v1/v2。零网络/零真实模型/零外部费用，不冒充任意故障窗口或模型能力证据 |
@@ -85,6 +86,20 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 仍是后续适配约束；不能以该文档代替本项目的实际联调。
 
 ## 验证结果
+
+### 2026-10-07 本地顺序 Supervisor 安全接力
+
+- 新增 `SequentialAgentSupervisor`，一次只执行有界模型 iteration；只有 Run 仍为 `RUNNING`、
+  无 reservation 且 `AgentSession.next_iteration` 严格前进时，才释放旧 Lease 并重开下一 Worker。
+- 每个新 Worker 从 SQLite EventLog、ArtifactStore、SnapshotManager、Code RAG、Campaign Ledger
+  和 Tool Gateway 重建状态，再取得新 lease epoch；不复用内存会话作为恢复依据。
+- `agent run` 与 `agent resume` 新增 `--supervise`；默认每个 Worker 一个 iteration，
+  `--slice-iterations` 可调整粒度。输出记录 slice/handoff 数和是否达到 Supervisor 上限。
+- 显式 slice 上限会返回无 Lease 的可续跑 `RUNNING`；`WAITING_FOR_USER`、终态、预算停止和异常
+  不会被越过。未预期异常仍保留原 Lease/intent 给 reconcile，不冒充安全恢复。
+- 离线 Scripted Model 集成测试覆盖三 Worker、epoch 1→3、两次释放与重开、上限后再次继续；
+  CLI E2E 覆盖 `agent run --supervise`，以及先显式让出再由 `agent resume --supervise` 以两个
+  slice 和一次 handoff 接续成功，源目录未变化。未联网、未调用真实模型或产生费用。
 
 ### 2026-10-07 预算估计证据按 byte basis 分层
 
@@ -246,7 +261,7 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
   验证器还会从最终 Trace 复核同一 call 只出现一次成功恢复记录。v1/v2 报告继续可读。
 - 该演示仍是固定 Scripted Model、固定 `replace_text` 提交窗和只读文本验收；它证明本演示的真实
   子进程硬退出恢复，不代表 OS reboot、主机宕机、磁盘损坏、任意工具或任意 crash window。
-- 最新离线全量回归为 **385 passed，7 skipped**；7 个 skip 均为需要显式本机镜像的 Docker
+- 最新离线全量回归为 **390 passed，7 skipped**；7 个 skip 均为需要显式本机镜像的 Docker
   合同，已使用本机已有镜像单独复跑并全部通过。
 
 ### 2026-10-05 Docker 检查停止结果恢复
@@ -756,7 +771,7 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 七轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新离线全量回归为 385 passed、7 个显式 Docker skip，
+当前主干继续补齐尚未统一覆盖的故障点；最新离线全量回归为 390 passed、7 个显式 Docker skip，
 7 个 Docker 合同已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以

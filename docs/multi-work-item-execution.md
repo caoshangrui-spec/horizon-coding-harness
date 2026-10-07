@@ -134,6 +134,18 @@ horizon agent run task.yaml plan.yaml --image <existing-image> `
 horizon agent resume <run-id> --image <existing-image> --confirm-paid
 ```
 
+若不希望人工逐次执行 `resume`，可启用本地顺序 Supervisor：
+
+```powershell
+horizon agent run task.yaml plan.yaml --image <existing-image> `
+  --confirm-paid --supervise --slice-iterations 1
+```
+
+它只在新 AgentSession 已持久化、Run 无未结算 reservation 的安全边界释放 Lease，随后重开
+Worker 所属 adapter 并取得新 epoch；终态、人工请求和异常恢复点会停止。它不增加模型调用、
+费用或权限预算，也不自动处置 unknown。完整合同见
+[本地顺序 Supervisor](local-sequential-supervisor.md)。
+
 如果切片正好落在工作项交接后，返回的 Run 保持 `RUNNING`，`passed_items` 已包含旧项，
 AgentSession 指向下一项。恢复会重新激活下一项 Tool Schema，重建 Fact Ledger、Run Memory 和
 ContextProjection 后才允许新的模型调用。

@@ -15,6 +15,10 @@ from horizon.application.human import OperatorGuidanceService
 from horizon.application.model_probe import conservative_input_estimate
 from horizon.application.recovery import RecoveryService
 from horizon.application.services import HarnessService, LeaseToken
+from horizon.application.supervision import (
+    SequentialAgentSupervisor,
+    SequentialSupervisorConfig,
+)
 from horizon.application.tool_recovery import ToolRecoveryService
 from horizon.domain.agent import AgentSession
 from horizon.domain.budget import Usage
@@ -2741,3 +2745,149 @@ def test_compacted_pending_model_response_recovers_without_rebilling(tmp_path, t
     assert len(second_model.requests) == 2
     assert len(final.model_calls) == 6
     assert "return [] if" in (workspace / "src/parser.py").read_text(encoding="utf-8")
+
+
+def test_sequential_supervisor_reopens_workers_and_respects_slice_limit(tmp_path, task_dict):
+    actions = [
+        ("read_file", {"path": "src/parser.py"}),
+        (
+            "replace_text",
+            {
+                "path": "src/parser.py",
+                "old": "return [value]",
+                "new": "return [] if value == '' else [value]",
+            },
+        ),
+        ("submit", {"summary": "Parser fix is ready."}),
+    ]
+    template, store, run_id, first_token, workspace, model = setup_loop(
+        tmp_path,
+        task_dict,
+        actions,
+    )
+    reopened_services = []
+    worker_gateways = []
+
+    def service_factory():
+        service = HarnessService(SQLiteEventStore(store.path))
+        reopened_services.append(service)
+        return service
+
+    def runner_factory(service):
+        current = service.store.get(run_id)
+        assert current.plan is not None
+        work_item_id = (
+            current.agent_session.work_item_id
+            if current.agent_session is not None
+            else current.plan.ready_items(current.passed_items)[0].work_item_id
+        )
+        item = next(
+            candidate
+            for candidate in current.plan.items
+            if candidate.work_item_id == work_item_id
+        )
+        artifacts = ArtifactStore(tmp_path / "artifacts")
+        snapshots = SnapshotManager(artifacts)
+        tools = WorkspaceToolGateway(
+            workspace,
+            current.task,
+            item,
+            snapshots,
+            ParserCheck(),
+            SQLiteCodeRetriever(tmp_path / "retrieval.sqlite3", snapshots),
+        )
+        worker_gateways.append(tools)
+        return CodingAgentRunner(
+            service,
+            model,
+            CampaignBudgetLedger(tmp_path / "campaign.sqlite3"),
+            tools,
+            artifacts,
+            provider_id=template.provider_id,
+            model_id=template.model_id,
+            pricing=template.pricing,
+            campaign=template.campaign,
+            config=template.config,
+        )
+
+    first = SequentialAgentSupervisor(
+        service_factory,
+        runner_factory,
+        config=SequentialSupervisorConfig(
+            slice_iterations=1,
+            max_worker_slices=2,
+        ),
+    ).run(run_id, template.service, first_token)
+
+    assert first.run.status == RunStatus.RUNNING
+    assert first.run.lease_id is None
+    assert first.run.agent_session is not None
+    assert first.run.agent_session.next_iteration == 3
+    assert first.worker_slices == 2
+    assert first.worker_handoffs == 1
+    assert first.slice_limit_reached is True
+    assert len(model.requests) == 2
+
+    final_service = service_factory()
+    leased = final_service.acquire_lease(run_id, "supervisor-resume", "supervisor-resume")
+    final = SequentialAgentSupervisor(
+        service_factory,
+        runner_factory,
+        config=SequentialSupervisorConfig(
+            slice_iterations=1,
+            max_worker_slices=8,
+        ),
+    ).run(run_id, final_service, LeaseToken.from_run(leased))
+
+    assert final.run.status == RunStatus.SUCCEEDED
+    assert final.run.lease_epoch == 3
+    assert final.worker_slices == 1
+    assert final.worker_handoffs == 0
+    assert final.slice_limit_reached is False
+    assert len(model.requests) == 3
+    assert len(worker_gateways) == 3
+    assert len(reopened_services) == 2
+    event_types = [event.event_type for event in store.events(run_id)]
+    assert event_types.count("LEASE_ACQUIRED") == 3
+    assert event_types.count("LEASE_RELEASED") == 2
+    assert "return [] if" in (workspace / "src/parser.py").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("error", "lease_released"),
+    [
+        (Conflict("handled controller failure"), True),
+        (RuntimeError("unexpected worker failure"), False),
+    ],
+)
+def test_sequential_supervisor_only_releases_lease_for_handled_controller_errors(
+    tmp_path,
+    task_dict,
+    error,
+    lease_released,
+):
+    _, store, run_id, token, _, _ = setup_loop(
+        tmp_path,
+        task_dict,
+        [("read_file", {"path": "src/parser.py"})],
+    )
+
+    class FailingRunner:
+        def run(self, run_id, token, *, max_iterations_this_invocation=None):
+            raise error
+
+    supervisor = SequentialAgentSupervisor(
+        lambda: HarnessService(SQLiteEventStore(store.path)),
+        lambda service: FailingRunner(),
+        config=SequentialSupervisorConfig(slice_iterations=1, max_worker_slices=2),
+    )
+    with pytest.raises(type(error), match=str(error)):
+        supervisor.run(run_id, HarnessService(store), token)
+
+    persisted = store.get(run_id)
+    assert (persisted.lease_id is None) is lease_released
+    assert persisted.lease_epoch == 1
+    releases = [
+        event for event in store.events(run_id) if event.event_type == "LEASE_RELEASED"
+    ]
+    assert len(releases) == int(lease_released)

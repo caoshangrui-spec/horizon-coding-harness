@@ -89,11 +89,18 @@ class CrashAfterToolEffect:
 
 
 class AutoPlanAndFixModel:
-    def __init__(self, *, invalid_plan: bool = False, repeat_read: bool = False):
+    def __init__(
+        self,
+        *,
+        invalid_plan: bool = False,
+        repeat_read: bool = False,
+        inspect_first: bool = False,
+    ):
         self.requests = []
         self.execution_index = 0
         self.invalid_plan = invalid_plan
         self.repeat_read = repeat_read
+        self.inspect_first = inspect_first
 
     def generate(self, request, trace_id):
         self.requests.append(request)
@@ -119,7 +126,7 @@ class AutoPlanAndFixModel:
             if self.repeat_read:
                 name, arguments = "read_file", {"path": "src/parser.py"}
             else:
-                actions = (
+                actions = [
                     (
                         "replace_text",
                         {
@@ -129,7 +136,9 @@ class AutoPlanAndFixModel:
                         },
                     ),
                     ("submit", {"summary": "Parser fix is ready for protected validation."}),
-                )
+                ]
+                if self.inspect_first:
+                    actions.insert(0, ("read_file", {"path": "src/parser.py"}))
                 name, arguments = actions[self.execution_index]
                 self.execution_index += 1
         index = len(self.requests)
@@ -273,6 +282,10 @@ def test_doctor_checks_fts_without_model():
     assert data["max_patch_files"] == 8
     assert data["patch_recovery"] == "exact_pre_or_expected_effect"
     assert data["safe_turn_continuation"] is True
+    assert data["local_sequential_supervisor"] is True
+    assert data["local_sequential_supervisor_profile"] == (
+        "quiescent_session_bound_worker_handoffs"
+    )
     assert data["response_receipt_continuation"] is True
     assert data["campaign_only_hold_recovery"] is True
     assert data["run_linked_call_reconciliation"] is True
@@ -494,6 +507,127 @@ def test_agent_run_auto_plan_executes_validated_plan_without_touching_source(
         "read_file",
         "read_file",
     ]
+
+
+def test_agent_run_supervisor_reopens_at_safe_turn_and_finishes(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    source, original, task_path, dotenv = write_auto_plan_cli_fixture(tmp_path)
+    model = AutoPlanAndFixModel()
+    monkeypatch.setattr(
+        cli_app_module,
+        "OpenAICompatibleModelGateway",
+        lambda *args, **kwargs: model,
+    )
+    monkeypatch.setattr(cli_app_module, "DockerSandbox", lambda *args, **kwargs: object())
+    monkeypatch.setattr(cli_app_module, "DockerAcceptanceExecutor", LocalParserAcceptance)
+
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "run",
+            str(task_path),
+            "--auto-plan",
+            "--image",
+            "offline-fixture",
+            "--config",
+            str(PROVIDER),
+            "--dotenv",
+            str(dotenv),
+            "--confirm-paid",
+            "--supervise",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.stdout)
+    assert data["status"] == "SUCCEEDED"
+    assert data["continuation_required"] is False
+    assert data["supervision"] == {
+        "enabled": True,
+        "slice_iterations": 1,
+        "worker_slices": 2,
+        "worker_handoffs": 1,
+        "slice_limit_reached": False,
+    }
+    persisted = SQLiteEventStore(tmp_path / ".horizon/control.sqlite3").get(data["run_id"])
+    assert persisted.lease_epoch == 2
+    assert persisted.lease_id is None
+    assert len(model.requests) == 3
+    assert (source / "src/parser.py").read_text(encoding="utf-8") == original
+
+
+def test_agent_resume_supervisor_continues_existing_safe_session(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    source, original, task_path, dotenv = write_auto_plan_cli_fixture(tmp_path)
+    model = AutoPlanAndFixModel(inspect_first=True)
+    monkeypatch.setattr(
+        cli_app_module,
+        "OpenAICompatibleModelGateway",
+        lambda *args, **kwargs: model,
+    )
+    monkeypatch.setattr(cli_app_module, "DockerSandbox", lambda *args, **kwargs: object())
+    monkeypatch.setattr(cli_app_module, "DockerAcceptanceExecutor", LocalParserAcceptance)
+
+    partial = runner.invoke(
+        app,
+        [
+            "agent",
+            "run",
+            str(task_path),
+            "--auto-plan",
+            "--image",
+            "offline-fixture",
+            "--config",
+            str(PROVIDER),
+            "--dotenv",
+            str(dotenv),
+            "--confirm-paid",
+            "--slice-iterations",
+            "1",
+        ],
+    )
+    assert partial.exit_code == 0, partial.output
+    partial_data = json.loads(partial.stdout)
+    assert partial_data["status"] == "RUNNING"
+    assert partial_data["continuation_required"] is True
+    assert partial_data["supervision"]["enabled"] is False
+    assert partial_data["supervision"]["slice_limit_reached"] is True
+
+    resumed = runner.invoke(
+        app,
+        [
+            "agent",
+            "resume",
+            partial_data["run_id"],
+            "--image",
+            "offline-fixture",
+            "--config",
+            str(PROVIDER),
+            "--dotenv",
+            str(dotenv),
+            "--confirm-paid",
+            "--supervise",
+        ],
+    )
+
+    assert resumed.exit_code == 0, resumed.output
+    resumed_data = json.loads(resumed.stdout)
+    assert resumed_data["status"] == "SUCCEEDED"
+    assert resumed_data["supervision"] == {
+        "enabled": True,
+        "slice_iterations": 1,
+        "worker_slices": 2,
+        "worker_handoffs": 1,
+        "slice_limit_reached": False,
+    }
+    persisted = SQLiteEventStore(tmp_path / ".horizon/control.sqlite3").get(
+        partial_data["run_id"]
+    )
+    assert persisted.lease_epoch == 3
+    assert persisted.lease_id is None
+    assert len(model.requests) == 4
+    assert (source / "src/parser.py").read_text(encoding="utf-8") == original
 
 
 def test_agent_run_invalid_auto_plan_persists_human_fallback_without_retry(

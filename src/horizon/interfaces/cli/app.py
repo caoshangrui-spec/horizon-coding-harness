@@ -56,6 +56,10 @@ from horizon.application.run_ab_eval import (
     store_run_ab_suite_report,
 )
 from horizon.application.services import HarnessService, LeaseToken
+from horizon.application.supervision import (
+    SequentialAgentSupervisor,
+    SequentialSupervisorConfig,
+)
 from horizon.application.tool_recovery import ToolRecoveryService
 from horizon.domain.common import canonical_json, digest
 from horizon.domain.errors import (
@@ -862,6 +866,16 @@ def agent_run(
             help="Yield at a safe persisted turn boundary after this many model iterations.",
         ),
     ] = None,
+    supervise: Annotated[
+        bool,
+        typer.Option(
+            "--supervise",
+            help=(
+                "Continue through safe worker handoffs until the Run stops; defaults to one "
+                "model iteration per worker slice."
+            ),
+        ),
+    ] = False,
 ):
     if not confirm_paid:
         raise ValueError("Agent execution requires --confirm-paid")
@@ -940,7 +954,6 @@ def agent_run(
         ),
         f"origin_{uuid4().hex}",
     )
-    gateway = OpenAICompatibleModelGateway(provider, credential)
     ledger = CampaignBudgetLedger(Path(provider.ledger_path))
     planning_response_reused = False
     if auto_plan:
@@ -966,7 +979,7 @@ def agent_run(
         try:
             generated = PlanGenerator(
                 service,
-                gateway,
+                OpenAICompatibleModelGateway(provider, credential),
                 ledger,
                 artifacts,
                 provider_id=provider.provider_id,
@@ -1070,44 +1083,74 @@ def agent_run(
         f"start_{uuid4().hex}",
     )
 
-    initial_item = plan.ready_items(set())[0]
-    if sandbox is None:
-        sandbox = DockerSandbox(staging_root, image)
-    checks = DockerAcceptanceExecutor(sandbox)
-    tools = WorkspaceToolGateway(
-        workspace,
-        task,
-        initial_item,
-        snapshots,
-        checks,
-        SQLiteCodeRetriever(control_root / "retrieval.sqlite3", snapshots),
-    )
     planning_calls = sum(record.purpose == "planning" for record in run.model_calls)
-    try:
-        result = CodingAgentRunner(
-            service,
-            gateway,
-            ledger,
-            tools,
-            artifacts,
+    runner_config = AgentLoopConfig(
+        max_model_iterations=min(8, task.budgets.max_model_calls - planning_calls),
+        max_output_tokens=min(512, provider.request.max_output_tokens),
+        max_run_cost=provider.run_budget.max_cost,
+        enable_thinking=provider.request.enable_thinking,
+        max_context_chars=provider.request.max_context_chars,
+        max_input_tokens=provider.request.max_input_tokens,
+        preserve_recent_context_units=provider.request.preserve_recent_context_units,
+    )
+    worker_tools: list[WorkspaceToolGateway] = []
+
+    def build_runner(active_service: HarnessService) -> CodingAgentRunner:
+        active_run = active_service.store.get(run.run_id)
+        active_artifacts = ArtifactStore(control_root / "artifacts")
+        active_snapshots = SnapshotManager(active_artifacts)
+        active_tools = WorkspaceToolGateway(
+            workspace,
+            active_run.task,
+            active_plan_item(active_run),
+            active_snapshots,
+            DockerAcceptanceExecutor(DockerSandbox(staging_root, image)),
+            SQLiteCodeRetriever(control_root / "retrieval.sqlite3", active_snapshots),
+        )
+        worker_tools.append(active_tools)
+        return CodingAgentRunner(
+            active_service,
+            OpenAICompatibleModelGateway(provider, credential),
+            CampaignBudgetLedger(Path(provider.ledger_path)),
+            active_tools,
+            active_artifacts,
             provider_id=provider.provider_id,
             model_id=provider.model.id,
             pricing=provider.pricing,
             campaign=provider.campaign,
-            config=AgentLoopConfig(
-                max_model_iterations=min(8, task.budgets.max_model_calls - planning_calls),
-                max_output_tokens=min(512, provider.request.max_output_tokens),
-                max_run_cost=provider.run_budget.max_cost,
-                enable_thinking=provider.request.enable_thinking,
-                max_context_chars=provider.request.max_context_chars,
-                max_input_tokens=provider.request.max_input_tokens,
-                preserve_recent_context_units=provider.request.preserve_recent_context_units,
-            ),
-        ).run(
-            run.run_id,
-            token,
-            max_iterations_this_invocation=slice_iterations,
+            config=runner_config,
         )
+
+    try:
+        if supervise:
+            supervised = SequentialAgentSupervisor(
+                lambda: HarnessService(SQLiteEventStore(ctx.obj["db"])),
+                build_runner,
+                config=SequentialSupervisorConfig(
+                    slice_iterations=slice_iterations or 1,
+                    max_worker_slices=min(50, runner_config.max_model_iterations + 1),
+                    lease_ttl_seconds=600,
+                ),
+            ).run(run.run_id, service, token)
+            result = supervised.run
+            worker_slices = supervised.worker_slices
+            worker_handoffs = supervised.worker_handoffs
+            slice_limit_reached = supervised.slice_limit_reached
+        else:
+            result = build_runner(service).run(
+                run.run_id,
+                token,
+                max_iterations_this_invocation=slice_iterations,
+            )
+            worker_slices = 1
+            worker_handoffs = 0
+            slice_limit_reached = result.status == RunStatus.RUNNING
+            if result.status == RunStatus.RUNNING:
+                result = service.release_lease(
+                    result.run_id,
+                    token,
+                    f"yield_{uuid4().hex}",
+                )
     except HorizonError:
         release_quiescent_lease(
             service,
@@ -1116,12 +1159,11 @@ def agent_run(
             f"execution_error_release_{uuid4().hex}",
         )
         raise
-    if result.status == RunStatus.RUNNING:
-        result = service.release_lease(
-            result.run_id,
-            token,
-            f"yield_{uuid4().hex}",
-        )
+    check_cleanup_failures = {
+        attempt_id: detail
+        for active_tools in worker_tools
+        for attempt_id, detail in active_tools.check_cleanup_failures.items()
+    }
     campaign = ledger.summary(provider.campaign.campaign_id)
     source_after, _ = snapshots.capture(
         source,
@@ -1157,12 +1199,19 @@ def agent_run(
                     record.model_dump(mode="json") for record in result.execution_replans
                 ],
                 "planning_response_reused": planning_response_reused,
+                "supervision": {
+                    "enabled": supervise,
+                    "slice_iterations": (slice_iterations or 1) if supervise else slice_iterations,
+                    "worker_slices": worker_slices,
+                    "worker_handoffs": worker_handoffs,
+                    "slice_limit_reached": slice_limit_reached,
+                },
                 "usage": result.usage.model_dump(mode="json"),
                 "model_cost": str(result.model_occupied_cost),
                 "model_currency": provider.pricing.currency,
                 "model_call_records": len(result.model_calls),
                 "tool_call_records": len(result.tool_calls),
-                "check_cleanup_failures": tools.check_cleanup_failures,
+                "check_cleanup_failures": check_cleanup_failures,
                 "validation": result.validation,
                 "checkpoint": result.last_checkpoint,
                 "agent_session": (
@@ -1219,6 +1268,16 @@ def agent_resume(
             help="Yield again after this many additional model iterations.",
         ),
     ] = None,
+    supervise: Annotated[
+        bool,
+        typer.Option(
+            "--supervise",
+            help=(
+                "Continue through safe worker handoffs until the Run stops; defaults to one "
+                "model iteration per worker slice."
+            ),
+        ),
+    ] = False,
 ):
     if not confirm_paid:
         raise ValueError("Agent continuation requires --confirm-paid")
@@ -1267,7 +1326,6 @@ def agent_resume(
         prior_worker_stopped=confirm_old_worker_stopped,
     )
     token = LeaseToken.from_run(leased)
-    gateway = OpenAICompatibleModelGateway(provider, credential)
     ledger = CampaignBudgetLedger(Path(provider.ledger_path))
     current = leased
     planning_response_reused = False
@@ -1297,7 +1355,7 @@ def agent_resume(
         try:
             generated = PlanGenerator(
                 service,
-                gateway,
+                OpenAICompatibleModelGateway(provider, credential),
                 ledger,
                 artifacts,
                 provider_id=provider.provider_id,
@@ -1391,45 +1449,77 @@ def agent_resume(
     if current.plan is None:
         raise ValueError("Agent continuation has no validated Plan")
 
-    sandbox = DockerSandbox(staging_root, image)
-    checks = DockerAcceptanceExecutor(sandbox)
-    tools = WorkspaceToolGateway(
-        workspace,
-        current.task,
-        active_plan_item(current),
-        snapshots,
-        checks,
-        SQLiteCodeRetriever(control_root / "retrieval.sqlite3", snapshots),
-    )
     planning_calls = sum(record.purpose == "planning" for record in current.model_calls)
-    try:
-        result = CodingAgentRunner(
-            service,
-            gateway,
-            ledger,
-            tools,
-            artifacts,
+    runner_config = AgentLoopConfig(
+        max_model_iterations=min(
+            8,
+            current.task.budgets.max_model_calls - planning_calls,
+        ),
+        max_output_tokens=min(512, provider.request.max_output_tokens),
+        max_run_cost=provider.run_budget.max_cost,
+        enable_thinking=provider.request.enable_thinking,
+        max_context_chars=provider.request.max_context_chars,
+        max_input_tokens=provider.request.max_input_tokens,
+        preserve_recent_context_units=provider.request.preserve_recent_context_units,
+    )
+    worker_tools: list[WorkspaceToolGateway] = []
+
+    def build_runner(active_service: HarnessService) -> CodingAgentRunner:
+        active_run = active_service.store.get(run_id)
+        active_artifacts = ArtifactStore(control_root / "artifacts")
+        active_snapshots = SnapshotManager(active_artifacts)
+        active_tools = WorkspaceToolGateway(
+            workspace,
+            active_run.task,
+            active_plan_item(active_run),
+            active_snapshots,
+            DockerAcceptanceExecutor(DockerSandbox(staging_root, image)),
+            SQLiteCodeRetriever(control_root / "retrieval.sqlite3", active_snapshots),
+        )
+        worker_tools.append(active_tools)
+        return CodingAgentRunner(
+            active_service,
+            OpenAICompatibleModelGateway(provider, credential),
+            CampaignBudgetLedger(Path(provider.ledger_path)),
+            active_tools,
+            active_artifacts,
             provider_id=provider.provider_id,
             model_id=provider.model.id,
             pricing=provider.pricing,
             campaign=provider.campaign,
-            config=AgentLoopConfig(
-                max_model_iterations=min(
-                    8,
-                    current.task.budgets.max_model_calls - planning_calls,
-                ),
-                max_output_tokens=min(512, provider.request.max_output_tokens),
-                max_run_cost=provider.run_budget.max_cost,
-                enable_thinking=provider.request.enable_thinking,
-                max_context_chars=provider.request.max_context_chars,
-                max_input_tokens=provider.request.max_input_tokens,
-                preserve_recent_context_units=provider.request.preserve_recent_context_units,
-            ),
-        ).run(
-            run_id,
-            token,
-            max_iterations_this_invocation=slice_iterations,
+            config=runner_config,
         )
+
+    try:
+        if supervise:
+            supervised = SequentialAgentSupervisor(
+                lambda: HarnessService(SQLiteEventStore(ctx.obj["db"])),
+                build_runner,
+                config=SequentialSupervisorConfig(
+                    slice_iterations=slice_iterations or 1,
+                    max_worker_slices=min(50, runner_config.max_model_iterations + 1),
+                    lease_ttl_seconds=600,
+                ),
+            ).run(run_id, service, token)
+            result = supervised.run
+            worker_slices = supervised.worker_slices
+            worker_handoffs = supervised.worker_handoffs
+            slice_limit_reached = supervised.slice_limit_reached
+        else:
+            result = build_runner(service).run(
+                run_id,
+                token,
+                max_iterations_this_invocation=slice_iterations,
+            )
+            worker_slices = 1
+            worker_handoffs = 0
+            slice_limit_reached = result.status == RunStatus.RUNNING
+            if result.status == RunStatus.RUNNING:
+                result = service.release_lease(
+                    run_id,
+                    token,
+                    f"yield_{uuid4().hex}",
+                )
     except HorizonError:
         release_quiescent_lease(
             service,
@@ -1438,12 +1528,11 @@ def agent_resume(
             f"resume_execution_error_release_{uuid4().hex}",
         )
         raise
-    if result.status == RunStatus.RUNNING:
-        result = service.release_lease(
-            run_id,
-            token,
-            f"yield_{uuid4().hex}",
-        )
+    check_cleanup_failures = {
+        attempt_id: detail
+        for active_tools in worker_tools
+        for attempt_id, detail in active_tools.check_cleanup_failures.items()
+    }
     campaign = ledger.summary(provider.campaign.campaign_id)
     typer.echo(
         canonical_json(
@@ -1472,12 +1561,19 @@ def agent_resume(
                     record.model_dump(mode="json") for record in result.execution_replans
                 ],
                 "planning_response_reused": planning_response_reused,
+                "supervision": {
+                    "enabled": supervise,
+                    "slice_iterations": (slice_iterations or 1) if supervise else slice_iterations,
+                    "worker_slices": worker_slices,
+                    "worker_handoffs": worker_handoffs,
+                    "slice_limit_reached": slice_limit_reached,
+                },
                 "usage": result.usage.model_dump(mode="json"),
                 "model_cost": str(result.model_occupied_cost),
                 "model_currency": provider.pricing.currency,
                 "model_call_records": len(result.model_calls),
                 "tool_call_records": len(result.tool_calls),
-                "check_cleanup_failures": tools.check_cleanup_failures,
+                "check_cleanup_failures": check_cleanup_failures,
                 "validation": result.validation,
                 "checkpoint": result.last_checkpoint,
                 "agent_session": (
@@ -2117,6 +2213,10 @@ def doctor():
                 "max_patch_files": 8,
                 "patch_recovery": "exact_pre_or_expected_effect",
                 "safe_turn_continuation": True,
+                "local_sequential_supervisor": True,
+                "local_sequential_supervisor_profile": (
+                    "quiescent_session_bound_worker_handoffs"
+                ),
                 "response_receipt_continuation": True,
                 "campaign_only_hold_recovery": True,
                 "run_linked_call_reconciliation": True,
