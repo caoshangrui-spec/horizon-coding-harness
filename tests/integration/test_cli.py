@@ -1092,7 +1092,7 @@ def test_agent_reconcile_is_offline_and_does_not_require_paid_ack(tmp_path, monk
     assert not (tmp_path / ".horizon").exists()
 
 
-def test_agent_reconcile_cli_marks_pending_model_unknown_without_credential(
+def test_agent_reconcile_cli_marks_pending_model_unknown_after_deadline_without_credential(
     tmp_path, monkeypatch, task_dict, plan
 ):
     monkeypatch.chdir(tmp_path)
@@ -1101,7 +1101,9 @@ def test_agent_reconcile_cli_marks_pending_model_unknown_without_credential(
     task_data = {**task_dict, "model_policy_id": provider.policy_id}
     task = TaskSpec.model_validate(task_data)
     db = tmp_path / "control.sqlite3"
-    past = datetime.now(UTC) - timedelta(seconds=5)
+    # Build the pending intent under its original clock, then reopen it with the CLI's current
+    # clock after both the worker lease and immutable Run deadline have elapsed.
+    past = datetime.now(UTC) - timedelta(hours=2)
     store = SQLiteEventStore(db, clock=lambda: past)
     service = HarnessService(store)
     run = store.create(task, "create-recovery-cli")
@@ -1167,7 +1169,10 @@ def test_agent_reconcile_cli_marks_pending_model_unknown_without_credential(
     assert data["safe_to_resume"] is False
     assert data["next_action"] == "manual_reconciliation"
     assert data["unknown_reservations"] == ["pending-model-call"]
+    assert data["run_status"] == "FAILED"
+    assert data["failure_reason"] == "wall_clock_limit"
     restored = SQLiteEventStore(db).get(run.run_id)
+    assert restored.status == RunStatus.FAILED
     assert restored.lease_id is None
     assert restored.unknown_model_calls == {"pending-model-call"}
 

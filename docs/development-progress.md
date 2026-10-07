@@ -99,7 +99,8 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 - `agent reconcile` 与 `agent resolve-tool` 可在 deadline 后取得专用 recovery Lease。前者保留仍可
   精确处置的 tool intent；后者 accept/rollback/discard 并清空 intent 后统一落到到期终态。
   Agent slice 若在模型回执之后才跨过 deadline，会先结算回执和保存会话，再在 yield 边界失败，
-  不发起下一次工具/模型调用。
+  不发起下一次工具/模型调用。CLI 回归以一个已过不可变 Run deadline 且旧 Lease 过期的 pending
+  model intent 验证：无凭据、零网络对账先标 unknown，再输出并重放 `FAILED / wall_clock_limit`。
 - 新增 3 个离线回归：静止 active command 自动终态、未分类 intent 拒绝提前终态且可在恢复
   Lease 下标 unknown、迟到回执先结算后终态；另有 Agent slice 级跨 deadline 用例验证模型
   receipt 已保存、工具调用为 0、最后事件为 `RUN_FAILED`；另验证 unknown tool intent 不会被到期
