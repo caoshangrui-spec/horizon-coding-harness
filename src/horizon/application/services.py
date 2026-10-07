@@ -498,6 +498,57 @@ class HarnessService:
 
         return self.store.command(run_id, key, request, decide)
 
+    def release_reaped_worker_lease(
+        self,
+        run_id: str,
+        token: LeaseToken,
+        key: str,
+        *,
+        process_id: int,
+        exit_code: int,
+        launch_event_seq: int,
+    ) -> Run:
+        """Fence an exact local worker after its parent synchronously reaped it.
+
+        Unlike the generic recovery release, this path requires a completely empty reservation
+        set. The caller is responsible for proving a safe Agent boundary before invoking it; the
+        process evidence is retained in the normal lease event for trace replay and audit.
+        """
+
+        if process_id < 1 or launch_event_seq < 1:
+            raise ValueError("Reaped worker evidence requires a process ID and launch event")
+        request = {
+            "operation": "release_reaped_worker_lease",
+            "token": token.model_dump(),
+            "process_id": process_id,
+            "exit_code": exit_code,
+            "launch_event_seq": launch_event_seq,
+        }
+
+        def decide(run):
+            self.check_worker(run, token)
+            if run.status != RunStatus.RUNNING or run.agent_session is None:
+                raise LeaseConflict("Reaped worker release requires a running Agent session")
+            if run.reservations:
+                raise LeaseConflict("Cannot auto-fence a reaped worker with pending operations")
+            if launch_event_seq > run.seq:
+                raise Conflict("Reaped worker launch boundary is ahead of the durable Run")
+            return [
+                NewEvent(
+                    event_type="LEASE_RELEASED",
+                    payload={
+                        **token.model_dump(),
+                        "release_reason": "confirmed_reaped_worker",
+                        "process_id": process_id,
+                        "exit_code": exit_code,
+                        "launch_event_seq": launch_event_seq,
+                        "safe_event_seq": run.seq,
+                    },
+                )
+            ]
+
+        return self.store.command(run_id, key, request, decide)
+
     def transition(self, run_id: str, target: RunStatus, token: LeaseToken, key: str) -> Run:
         request = {"operation": "transition", "to": target.value, "token": token.model_dump()}
 

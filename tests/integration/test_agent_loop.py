@@ -1,5 +1,7 @@
 import hashlib
 import json
+import subprocess
+import sys
 from decimal import Decimal
 from pathlib import Path
 
@@ -16,6 +18,7 @@ from horizon.application.model_probe import conservative_input_estimate
 from horizon.application.recovery import RecoveryService
 from horizon.application.services import HarnessService, LeaseToken
 from horizon.application.supervision import (
+    ReapedWorkerBoundary,
     SequentialAgentSupervisor,
     SequentialSupervisorConfig,
 )
@@ -2887,3 +2890,192 @@ def test_sequential_supervisor_only_releases_lease_for_handled_controller_errors
     assert persisted.lease_epoch == 1
     releases = [event for event in store.events(run_id) if event.event_type == "LEASE_RELEASED"]
     assert len(releases) == int(lease_released)
+
+
+def test_supervisor_continues_after_reaped_worker_at_safe_boundary(tmp_path, task_dict):
+    remaining_actions = [
+        (
+            "replace_text",
+            {
+                "path": "src/parser.py",
+                "old": "return [value]",
+                "new": "return [] if value == '' else [value]",
+            },
+        ),
+        ("submit", {"summary": "Parser fix survived the child Worker exit."}),
+    ]
+    template, store, run_id, token, workspace, model = setup_loop(
+        tmp_path,
+        task_dict,
+        remaining_actions,
+    )
+    boundary = ReapedWorkerBoundary.capture(store.get(run_id), token)
+    worker = Path(__file__).parents[1] / "fault_injection" / "_reaped_supervisor_worker.py"
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            str(worker),
+            "safe",
+            str(store.path),
+            run_id,
+            token.lease_id,
+            token.worker_id,
+            str(token.epoch),
+            str(tmp_path / "artifacts"),
+            str(workspace),
+            str(tmp_path / "campaign.sqlite3"),
+            str(tmp_path / "retrieval.sqlite3"),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    _, stderr = process.communicate(timeout=20)
+    assert process.returncode == 37, stderr.decode(errors="replace")
+
+    reopened_services = []
+
+    def service_factory():
+        service = HarnessService(SQLiteEventStore(store.path))
+        reopened_services.append(service)
+        return service
+
+    def runner_factory(service):
+        current = service.store.get(run_id)
+        assert current.plan is not None
+        assert current.agent_session is not None
+        item = next(
+            candidate
+            for candidate in current.plan.items
+            if candidate.work_item_id == current.agent_session.work_item_id
+        )
+        artifacts = ArtifactStore(tmp_path / "artifacts")
+        snapshots = SnapshotManager(artifacts)
+        return CodingAgentRunner(
+            service,
+            model,
+            CampaignBudgetLedger(tmp_path / "campaign.sqlite3"),
+            WorkspaceToolGateway(
+                workspace,
+                current.task,
+                item,
+                snapshots,
+                ParserCheck(),
+                SQLiteCodeRetriever(tmp_path / "retrieval.sqlite3", snapshots),
+            ),
+            artifacts,
+            provider_id=template.provider_id,
+            model_id=template.model_id,
+            pricing=template.pricing,
+            campaign=template.campaign,
+            config=template.config,
+        )
+
+    supervisor = SequentialAgentSupervisor(
+        service_factory,
+        runner_factory,
+        config=SequentialSupervisorConfig(slice_iterations=1, max_worker_slices=4),
+        recovery_factory=lambda service: RecoveryService(
+            service,
+            CampaignBudgetLedger(tmp_path / "campaign.sqlite3"),
+            ArtifactStore(tmp_path / "artifacts"),
+        ),
+    )
+    result = supervisor.continue_after_reaped_worker(
+        boundary,
+        HarnessService(SQLiteEventStore(store.path)),
+        process_id=process.pid,
+        exit_code=process.returncode,
+    )
+
+    assert result.disposition == "continued"
+    assert result.run.status == RunStatus.SUCCEEDED
+    assert result.run.lease_epoch == 3
+    assert result.recovery_report is not None
+    assert result.recovery_report.safe_to_resume is True
+    assert result.supervision is not None
+    assert result.supervision.worker_slices == 2
+    assert result.supervision.worker_handoffs == 1
+    assert len(reopened_services) == 2
+    assert len(model.requests) == 2
+    assert "return [] if" in (workspace / "src/parser.py").read_text(encoding="utf-8")
+
+    events = store.events(run_id)
+    reaped_release = next(
+        event
+        for event in events
+        if event.event_type == "LEASE_RELEASED"
+        and event.payload.get("release_reason") == "confirmed_reaped_worker"
+    )
+    assert reaped_release.payload["process_id"] == process.pid
+    assert reaped_release.payload["exit_code"] == 37
+    assert reaped_release.payload["launch_event_seq"] == boundary.launch_event_seq
+    assert reaped_release.payload["safe_event_seq"] > boundary.launch_event_seq
+    replayed = SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id))
+    assert replayed.as_dict() == result.run.as_dict()
+
+
+def test_supervisor_does_not_fence_reaped_worker_with_pending_intent(tmp_path, task_dict):
+    template, store, run_id, token, workspace, model = setup_loop(
+        tmp_path,
+        task_dict,
+        [("submit", {"summary": "must not be dispatched"})],
+    )
+    boundary = ReapedWorkerBoundary.capture(store.get(run_id), token)
+    worker = Path(__file__).parents[1] / "fault_injection" / "_reaped_supervisor_worker.py"
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            str(worker),
+            "pending",
+            str(store.path),
+            run_id,
+            token.lease_id,
+            token.worker_id,
+            str(token.epoch),
+            str(tmp_path / "artifacts"),
+            str(workspace),
+            str(tmp_path / "campaign.sqlite3"),
+            str(tmp_path / "retrieval.sqlite3"),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    _, stderr = process.communicate(timeout=20)
+    assert process.returncode == 38, stderr.decode(errors="replace")
+
+    recovery_called = False
+
+    def recovery_factory(service):
+        nonlocal recovery_called
+        recovery_called = True
+        return RecoveryService(
+            service,
+            CampaignBudgetLedger(tmp_path / "campaign.sqlite3"),
+            ArtifactStore(tmp_path / "artifacts"),
+        )
+
+    supervisor = SequentialAgentSupervisor(
+        lambda: pytest.fail("blocked handoff must not reopen a Worker"),
+        lambda service: pytest.fail("blocked handoff must not construct a runner"),
+        config=SequentialSupervisorConfig(slice_iterations=1, max_worker_slices=2),
+        recovery_factory=recovery_factory,
+    )
+    result = supervisor.continue_after_reaped_worker(
+        boundary,
+        HarnessService(SQLiteEventStore(store.path)),
+        process_id=process.pid,
+        exit_code=process.returncode,
+    )
+
+    persisted = store.get(run_id)
+    assert result.disposition == "reconciliation_required"
+    assert result.pending_reservation_ids == ("reaped-pending-read",)
+    assert result.recovery_report is None
+    assert result.supervision is None
+    assert recovery_called is False
+    assert persisted.lease_id == token.lease_id
+    assert persisted.lease_epoch == token.epoch
+    assert set(persisted.reservations) == {"reaped-pending-read"}
+    assert not model.requests
+    assert not any(event.event_type == "LEASE_RELEASED" for event in store.events(run_id))
+    assert template.service.store.get(run_id).lease_id == token.lease_id
