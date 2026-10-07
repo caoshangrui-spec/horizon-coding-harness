@@ -2782,9 +2782,7 @@ def test_sequential_supervisor_reopens_workers_and_respects_slice_limit(tmp_path
             else current.plan.ready_items(current.passed_items)[0].work_item_id
         )
         item = next(
-            candidate
-            for candidate in current.plan.items
-            if candidate.work_item_id == work_item_id
+            candidate for candidate in current.plan.items if candidate.work_item_id == work_item_id
         )
         artifacts = ArtifactStore(tmp_path / "artifacts")
         snapshots = SnapshotManager(artifacts)
@@ -2887,7 +2885,5 @@ def test_sequential_supervisor_only_releases_lease_for_handled_controller_errors
     persisted = store.get(run_id)
     assert (persisted.lease_id is None) is lease_released
     assert persisted.lease_epoch == 1
-    releases = [
-        event for event in store.events(run_id) if event.event_type == "LEASE_RELEASED"
-    ]
+    releases = [event for event in store.events(run_id) if event.event_type == "LEASE_RELEASED"]
     assert len(releases) == int(lease_released)

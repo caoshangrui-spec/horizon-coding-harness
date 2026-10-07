@@ -621,9 +621,7 @@ def test_agent_resume_supervisor_continues_existing_safe_session(tmp_path, monke
         "worker_handoffs": 1,
         "slice_limit_reached": False,
     }
-    persisted = SQLiteEventStore(tmp_path / ".horizon/control.sqlite3").get(
-        partial_data["run_id"]
-    )
+    persisted = SQLiteEventStore(tmp_path / ".horizon/control.sqlite3").get(partial_data["run_id"])
     assert persisted.lease_epoch == 3
     assert persisted.lease_id is None
     assert len(model.requests) == 4

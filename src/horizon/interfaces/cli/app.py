@@ -2214,9 +2214,7 @@ def doctor():
                 "patch_recovery": "exact_pre_or_expected_effect",
                 "safe_turn_continuation": True,
                 "local_sequential_supervisor": True,
-                "local_sequential_supervisor_profile": (
-                    "quiescent_session_bound_worker_handoffs"
-                ),
+                "local_sequential_supervisor_profile": ("quiescent_session_bound_worker_handoffs"),
                 "response_receipt_continuation": True,
                 "campaign_only_hold_recovery": True,
                 "run_linked_call_reconciliation": True,
