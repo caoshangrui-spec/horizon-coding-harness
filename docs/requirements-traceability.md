@@ -4,9 +4,8 @@
 
 本表是完整开发与验收导航。2026-09-30 已开始基础内核实现，实际证据列记录当前子范围与剩余缺口。目标路径相对 `src/horizon/`；计划测试路径相对 `tests/`；实际证据列的 `tests/` 路径相对仓库根。同一测试文件可验证多个 ID，但不能把子范围通过等同于整项通过。
 
-当前结果：2026-09-30 可靠性内核为 **92 项测试通过**；2026-10-06 的最新离线回归为
-**377 passed，7 skipped**。既有 **6 项真实 Docker 合同**曾单独补跑并全部通过；新增的停止结果
-恢复合同因本批 Docker daemon 未运行尚未实跑。另已完成一次 Tool Calling 探针和一次受预算
+当前结果：2026-09-30 可靠性内核为 **92 项测试通过**；2026-10-07 的最新离线回归为
+**385 passed，7 skipped**。**7 项真实 Docker 合同**已单独补跑并全部通过。另已完成一次 Tool Calling 探针和一次受预算
 保护的真实单 WorkItem Agent fixture Run。完整长程 Agent 未实现，未做独立安全复核。命令、环境、证据与限制见
 [开发进度](development-progress.md)。仍为“待填”的条目没有实现证据；“部分/初步”不代表
 完整需求通过。普通工作直接自检，关键风险及用户指定验收按需独立复核，
@@ -36,7 +35,7 @@
 | FR-301 | M3 | `domain/budget.py` | `unit/test_budget.py`：逐项验证 token/费用/调用/步骤/时间/返修上限 | 部分：Run 已同时约束模型/工具/step/token/repair，并用绑定 CNY policy 记录模型费用；Campaign 跨 Run 限额；`test_budget.py`、`test_campaign_budget.py`、`test_model_run_accounting.py`；TaskSpec 多币种迁移未完成 |
 | FR-302 | M3 | `domain/budget.py` | `unit/test_budget.py`：软阈与硬上限具有不同动作 | 部分：执行模型调用在硬停止前把可用 CNY 余量转换为 effective input cap，并确定性压缩完整历史；无法表达或压缩后仍超限才进入 BudgetStop。尚无用户可配置的通用软阈动作 |
 | FR-303 | M3 | `orchestration/policies.py` | `integration/test_budget_gate.py`：软阈动作可见，硬上限后新调用为 0 | 部分：模型/工具派发前执行 Run 与 Campaign 硬门禁，unknown 阻止后续调用；执行模型历史可先按余额压缩，集成测试证明字符上限宽裕时由 Campaign 余量触发压缩并成功，也证明 pending response 恢复不重派；其他软阈动作未实现 |
-| FR-304 | M3 | `trace/projector.py` | `integration/test_budget_replay.py`：重建账本与摘要完全一致 | 部分：`domain/run.py` 可重建通用、模型 CNY、工具和 unknown 账本；真实 Run JSONL 重放 projection hash 与 SQLite 一致；`trace reservation-report` 关联预留/结算/BudgetStop，显式区分历史 domain-JSON 与新 wire-payload byte basis。六轮 20 调用聚合预留/结算比为 6.861621；候选公式仅有 3 个 v1 历史样本，不自动修改生产公式；完整跨组件恢复仍待实现 |
+| FR-304 | M3 | `trace/projector.py` | `integration/test_budget_replay.py`：重建账本与摘要完全一致 | 部分：`domain/run.py` 可重建通用、模型 CNY、工具和 unknown 账本；真实 Run JSONL 重放 projection hash 与 SQLite 一致；`trace reservation-report` 关联预留/结算/BudgetStop，显式区分历史 domain-JSON 与新 wire-payload byte basis。七轮 22 调用聚合预留/结算比为 6.860516；候选公式有 5 个样本但仅 2 个使用当前 wire basis，不自动修改生产公式；完整跨组件恢复仍待实现 |
 | FR-305 | M3 | `domain/budget.py` | `fault_injection/test_unknown_cost.py`：未知费用不结算为 0 | 部分：Run 与 Campaign 均保留 unknown 占用；response 持久化普通失败即时双账隔离，硬退出重启后同样保守占用并暴露派发前 client Trace ID；reconciliation 可补齐已存在的可信 Run receipt，但供应商主动查询/迟到回执尚未接入 |
 | FR-401 | M4 | `tools/gateway.py`, `application/agent_loop.py` | `integration/test_agent_loop.py`：逐项验收与最终 required 全量回归，缺结构化结果拒绝 | 部分：中间项运行自身 acceptance，最后项重跑全部 required checks；控制器可执行注册检查而模型仍受当前项 ID 限制；多类型检查/环境分类未实现 |
 | FR-402 | M4 | `validation/engine.py` | `e2e/test_completion_gate.py`：submit 只触发验收，失败不能成功 | 已在首个闭环实现：自然语言完成不被接受，`submit` 只触发 protected validation；`test_agent_loop.py` 与真实 fixture Run |
@@ -104,7 +103,7 @@
 | FR-1302 | M3/M5 | `context/compactor.py` | `unit/test_compaction_contract.py` + 冻结事实 QA：hash 保留和语义结果分开记录 | 部分：控制器事实 ledger 和旧单元/content hash 均确定性保留，完整 transcript 独立留存；当前明确无模型语义摘要和语义 QA，不能宣称事实等价 |
 | FR-1303 | M1/M4 | `application/agent_loop.py`, `domain/plan.py` | `integration/test_agent_loop.py` + `benchmarks/reliability/horizon-controller-v1.yaml`：精确模式无进展反馈/等待，返修/replan 有界，合同验收不改动 | 部分：模型 iteration/repair 有硬上限；相同动作与 A/B period-2 先反馈、继续模式进入人工指导；模型可基于证据显式 replan 一次，完成项/合同/工具权限不变且原子恢复。冻结策略诊断 7 个 NoProgress Trace、5 个 replan 合同当前 41/41；没有 period-3+、语义检测、自动触发或多次修订 |
 | FR-1304 | M4/M5 | `validation/engine.py` | `e2e/test_protected_validation.py`：不可改验收/伪造 passed，gold 答案不可检索 | 部分：模型只能提交 check ID，实际命令来自 TaskSpec 并由 Docker executor 运行；模型文本不能直接通过。首个 youtube-dl Pilot 把 fixed commit/fix URL/solution marker 留在 controller-side manifest，检查它们不进入 acceptance-visible TaskSpec，并从 snapshot 排除 `.git`；启动时任务/source/image/policy 漂移均拒绝。尚非隐藏测试或独立泄漏审计 |
-| FR-1305 | M5 | `benchmarks/`（仓库根） | 固定长程/检索/Memory manifests、A/B/C/D 与单变量关闭报告、恢复/阻塞分别计数 | 部分：固定 5 案例、youtube-dl 命名变体、同名符号和两批各 3 个外部项目的检索诊断均保留；第二批独立 holdout v7 为 Hit@1/Hit@5 3/3。另有 12 案例/41 判断的控制器策略诊断、1 个内部完整 Run A/B、v2 的 5 个来源绑定 BugsInPy 依赖裁剪 A/B、3 个干净完整 checkout A/B（tqdm 82 files、youtube-dl 872 files、Luigi 382 files），以及 youtube-dl 与 Luigi 上各 3 WorkItem/2 Worker 重启的多阶段 A/B。前三个 v2 suite 由 test-only 本地执行器实际运行回归脚本并通过完整 Harness 合同，也由统一公开 CI 在禁网 Docker 中分别通过 5/5、3/3 与 1/1；多阶段 v3 同样由本地可信执行与公开禁网 Docker 通过 2/2。公开 run `37450253181` 上传统一内容寻址证据，artifact digest `sha256:dfa069250ec2ee85fff1e972ce35c348ad9b576736ae12e42189ccb23a61e1af`。六个真实模型 Run 均无编辑/验证：前四轮分别暴露迭代上限、122,665 字符无范围读取、Plan 错误路径假设和单边范围参数；第五轮 tqdm 只结算一次规划 `CNY 0.005574`，第一条执行请求因 Run 余额短缺 `CNY 0.000096` 停止；第六轮结算 2 次模型和 1 次 rank-1 检索，费用 `CNY 0.012834`，RAG 从 Plan 的错误 `itertools.py` 假设纠正到真实 `tqdm/contrib/__init__.py`，但下一请求需 `CNY 0.05832`、超过 Campaign `CNY 0.0497586` 余额而未派发。第六轮 Trace 23 事件、hash `804bd864...e921`，source 未变，无 reservation/unknown。系列累计实际费用 CNY 0.1954812；仍无真实模型成功、独立任务集合统计或总体收益结论，不构成官方 benchmark 验收 |
+| FR-1305 | M5 | `benchmarks/`（仓库根） | 固定长程/检索/Memory manifests、A/B/C/D 与单变量关闭报告、恢复/阻塞分别计数 | 部分：固定 5 案例、youtube-dl 命名变体、同名符号和两批各 3 个外部项目的检索诊断均保留；第二批独立 holdout v7 为 Hit@1/Hit@5 3/3。另有 12 案例/41 判断的控制器策略诊断、1 个内部完整 Run A/B、v2 的 5 个来源绑定 BugsInPy 依赖裁剪 A/B、3 个干净完整 checkout A/B（tqdm 82 files、youtube-dl 872 files、Luigi 382 files），以及 youtube-dl 与 Luigi 上各 3 WorkItem/2 Worker 重启的多阶段 A/B。前三个 v2 suite 由 test-only 本地执行器实际运行回归脚本并通过完整 Harness 合同，也由统一公开 CI 在禁网 Docker 中分别通过 5/5、3/3 与 1/1；多阶段 v3 同样由本地可信执行与公开禁网 Docker 通过 2/2。公开 run `37450253181` 上传统一内容寻址证据，artifact digest `sha256:dfa069250ec2ee85fff1e972ce35c348ad9b576736ae12e42189ccb23a61e1af`。七个真实模型 Run 均无编辑/验证：前四轮分别暴露迭代上限、122,665 字符无范围读取、Plan 错误路径假设和单边范围参数；第五轮 tqdm 只结算一次规划 `CNY 0.005574`，第一条执行请求因 Run 余额短缺 `CNY 0.000096` 停止；第六轮结算 2 次模型和 1 次 rank-1 检索，费用 `CNY 0.012834`，RAG 从 Plan 的错误 `itertools.py` 假设纠正到真实 `tqdm/contrib/__init__.py`，但下一请求需 `CNY 0.05832`、超过 Campaign `CNY 0.0497586` 余额而未派发；第七轮 Plan 已直接指向正确文件并再次取得 rank-1 证据，2 次模型调用结算 `CNY 0.010968`，但消费证据的下一请求需 `CNY 0.045012`、超过 Campaign `CNY 0.0387906` 余额而未派发。第七轮 Trace 23 事件、hash `278c7453...5283d`，source 未变，无 reservation/unknown。系列累计实际费用 CNY 0.2064492；仍无真实模型成功、独立任务集合统计或总体收益结论，不构成官方 benchmark 验收 |
 
 ## 验收记录合同
 

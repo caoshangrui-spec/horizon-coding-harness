@@ -28,32 +28,33 @@ horizon model sizing-report --config config/providers/siliconflow.yaml
 金额字段中的 `settled_price_card_cost` 是本地 PriceCard 对 Provider usage 的复算值，不冒充供应商
 最终账单。未派发的 budget stop 没有 Provider usage，不能虚构“如果派发会花多少钱”。
 
-## 六轮真实模型样本
+## 七轮真实模型样本
 
-2026-10-04 对六个 replayable Trace 的离线结果为：
+2026-10-07 对七个 replayable Trace 的离线结果为：
 
 | 指标 | 结果 |
 |---|---:|
-| Trace / Run | 6 / 6 |
-| 已结算模型调用 | 20 |
-| 派发时预留费用累计 | CNY 1.341318 |
-| 本地 PriceCard 结算累计 | CNY 0.1954812 |
-| 聚合预留/结算比 | 6.861621 |
+| Trace / Run | 7 / 7 |
+| 已结算模型调用 | 22 |
+| 派发时预留费用累计 | CNY 1.416348 |
+| 本地 PriceCard 结算累计 | CNY 0.2064492 |
+| 聚合预留/结算比 | 6.860516 |
 | 单调用预留/结算比中位数 | 6.847547 |
-| input token 上界/Provider input 中位数 | 7.100207 |
+| input token 上界/Provider input 中位数 | 7.122579 |
 | output token 上界/Provider output 中位数 | 4.491228 |
-| 类型化 pre-dispatch BudgetStop | 2 |
-| 可回放候选 estimator 的已结算调用 | 3 |
-| 候选 `request_bytes + 1024` 上界/Provider input 中位数 | 4.137869 |
+| 类型化 pre-dispatch BudgetStop | 3 |
+| 可回放候选 estimator 的已结算调用 | 5 |
+| 当前 wire basis 的已结算调用 | 2 |
+| 候选 `request_bytes + 1024` 上界/Provider input 中位数 | 4.201220 |
 | 候选公式在可观测样本中的低估次数 | 0 |
 
 这里的“预留费用累计”是各调用在派发瞬间的压力之和；每次结算后多余预留都会释放，不能把
-`CNY 1.341318` 解释成已消费费用。20 次调用都保存了 token 上界和实际 usage，但只有最新 3 次
-保存 `request_bytes`/estimator 元数据，而且它们使用历史 v1 领域请求 JSON byte basis，并非新
-v2 wire payload basis。因此当前证据足以确认**存在系统性预留放大**，不足以直接
-证明某个新估算公式是安全上界。候选公式在这 3 次调用中的上界/实际 input 比范围为
-`3.905058～4.201220`；这是历史观测，不是所有请求形态的硬上界证明。两个历史 BudgetStop
-都早于本字段，因此没有 request metadata；后续新停止会留下该证据。
+`CNY 1.416348` 解释成已消费费用。22 次调用都保存了 token 上界和实际 usage，但只有 5 次
+保存 `request_bytes`/estimator 元数据：3 次使用历史 v1 领域请求 JSON byte basis，最新 2 次使用
+Adapter 实际 canonical wire body。候选公式在混合 basis 样本中的上界/实际 input 比范围为
+`3.905058～4.256826`；这足以继续确认**存在系统性预留放大**，不足以证明新公式是所有请求形态
+的安全上界。三个类型化 BudgetStop 中只有最新一次保存完整 wire 请求元数据；未派发请求没有
+Provider usage，不能用它判断候选公式是否低估。
 
 ## 五类零费用 wire payload 边界
 

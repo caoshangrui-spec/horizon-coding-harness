@@ -1,9 +1,9 @@
-# 真实模型 Pilot：离线预检、六轮负结果与付费边界
+# 真实模型 Pilot：离线预检、七轮负结果与付费边界
 
-更新：2026-10-04。本 Pilot 的目标不是立即追求 benchmark 分数，而是在**完整真实仓库、
-模型自主计划、模型自主检索和编辑**的条件下观察 Harness 的真实失败分布。已执行六个
+更新：2026-10-07。本 Pilot 的目标不是立即追求 benchmark 分数，而是在**完整真实仓库、
+模型自主计划、模型自主检索和编辑**的条件下观察 Harness 的真实失败分布。已执行七个
 付费 Agent Run：分别暴露计划结构/检索反馈、无界读取/上下文投影、Plan 路径假设/请求预留
-过大、单边范围读取/单 Run 预留、路径存在与语义定位的区别，以及 Campaign 预留压力。六轮均没有修改代码或进入验收；结果可重放且
+过大、单边范围读取/单 Run 预留、路径存在与语义定位的区别，以及 Campaign 预留压力。七轮均没有修改代码或进入验收；结果可重放且
 费用可对账，但不是 Issue 成功证据，也不足以推出模型或 Harness 的总体能力结论。
 
 ## 1. 为什么复用现有主循环
@@ -547,10 +547,56 @@ replan 证据门后为 7,962 bytes；再应用 v3 的 `read_file / retrieve_code
   unknown 用量。
 
 `ready=true` 只说明首次规划请求和静态启动绑定可通过，不保证后续动态请求或任务成功，也不
-构成付费授权。六次旧授权都已消费；启动 v3 仍需新的、逐字明确的外发范围、模型、单 Run
-`CNY 0.049`、系列累计 `CNY 0.25`、不重试和不 fallback 授权。
+构成付费授权。用户随后另行明确授权第七轮；该次授权已经消费，旧 report 不能再次启动新的
+付费运行。
 
-## 14. 后续付费 Pilot 的完成条件
+## 14. tqdm 第七轮：Plan 定位正确，消费 RAG 前再次由 Campaign 停止
+
+用户明确授权只执行一次 v3 Run：允许向 SiliconFlow 发送公开 tqdm-1 上下文、允许路径内代码
+片段、候选修改和工具回执；模型为 `deepseek-ai/DeepSeek-V4-Flash`，单 Run 上限
+`CNY 0.049`、历史系列累计上限 `CNY 0.25`、最多 6 次调用、不重试、不 fallback。Run
+`run_fc9dd1ce39124f49b0081a4ed8ad2652` 的结果仍是受控失败：
+
+- 终态 `FAILED`，`failure_reason=campaign_cost_limit`，没有开放 reservation、unknown、Lease
+  或待人工决定；
+- planning 调用 1,172 input / 257 output tokens，费用 `CNY 0.005829`；execution 调用
+  1,575 input / 46 output tokens，费用 `CNY 0.005139`；本 Run 合计 `CNY 0.010968`；
+- 与第六轮不同，Planner 这次直接把实现位置写为正确的 `tqdm/contrib/__init__.py`，并生成单一
+  WorkItem，只申请 `read_file`、`retrieve_code`、`replace_text` 三种任务级工具；
+- execution 调用 `retrieve_code({"query":"tenumerate definition"})`。SQLite FTS5 在 3 个
+  允许文件中把 `tqdm/contrib/__init__.py` 1～40 行排为 rank 1，返回真实函数签名，0 skipped、
+  无 degraded reason；EvidencePack Artifact 为
+  `e6b46cabb2e914758b36258b7371df49b42166b891c647c2781b8fef05bc4645`；
+- 消费该 retrieval 回执的下一次 execution 请求为 6,222 bytes，生产公式给出 13,468 input
+  ceiling、512 output ceiling，需保守预留 `CNY 0.045012`。当时 Campaign 只余
+  `CNY 0.0387906`，短缺 `CNY 0.0062214`，控制器在 Provider 派发前原子写入
+  scope=`campaign` 的 `BudgetStop`；
+- 共 2 次模型调用、1 次只读工具、1 step；编辑、checkpoint、protected validation、repair、
+  replan 和 passed WorkItem 均为 0。source 与 staging workspace revision 都保持
+  `0facaee0ad34b048338c656cdbfc61dfc443229991d7b6573ccf0bcc8e9effc2`。
+
+两次模型回执分别绑定 response Artifact
+`00f171428d719057d7c2b1be99320af8f93a574d6418f521b883a34fcde8a593`、
+`db2de5d5c8edee41046939bfca0dcc5a6aed8243ea3dbfe092ee8cccb5795722`，Provider trace ID
+分别为 `ti_ryd21dbpbjs65bcbt5`、`ti_vut4ubeq42vf77efwd`。Trace 位于
+`.horizon/real-model-pilot-tqdm-v5/run_fc9dd1ce39124f49b0081a4ed8ad2652.trace.jsonl`，共 23 个
+事件，SHA-256 为
+`278c74530d5feda0289a19637f606175f56e69e73c8b5568e941df849685283d`；离线 replay 投影 hash 为
+`8d7a6b6480a0d39c2464530d5a98427eaf69040f368ae5e7901def38a3c28467`，与 SQLite 终态一致。
+
+第七轮首次留下完整 wire payload 尺寸的真实 settled/BudgetStop 组合。planning 与 execution 的
+预留/结算比分别为 `5.794133` 和 `8.028021`；`request_bytes + 1024` 候选公式在这 2 个 settled
+调用中没有观测低估，但样本远不足以替换生产硬门禁。七轮合并后共有 22 个 settled 调用，派发时
+预留累计 `CNY 1.416348`、本地 PriceCard 结算累计 `CNY 0.2064492`，聚合比 `6.860516`；其中
+只有 2 个调用使用当前 wire byte basis、3 个使用旧 byte basis、17 个没有 request-byte 元数据。
+
+retry Campaign 当前 occupied/settled 为 `CNY 0.1412094`、remaining 为 `CNY 0.0387906`，
+reserved/unknown 均为 0。连同首轮独立 Campaign 的 `CNY 0.0652398`，本系列实际累计为
+`CNY 0.2064492`，距离用户累计上限还剩 `CNY 0.0435508`。本次“一次”授权已经用完，没有重试、
+fallback、人工补丁或 candidate promotion。正确 Plan 与 rank-1 检索是局部正证据；模型没有获得
+消费检索结果、编辑或提交验收的机会，因此仍不能声称 Issue 修复、RAG 闭环成功或即将成功。
+
+## 15. 后续付费 Pilot 的完成条件
 
 正式运行时只接受 preflight 输出的 TaskSpec/report、同一镜像和专用 Provider policy。结果无论
 成功还是失败，都必须记录：
@@ -563,6 +609,6 @@ replan 证据门后为 7,962 bytes；再应用 v3 的 `read_file / retrieve_code
 - 失败分类，而不是人工补丁替模型完成任务。
 
 一次通过只能称为“真实模型 Pilot 个案”，不能称为 BugsInPy 分数、泛化能力或长程任务
-成功率。第六轮仍是失败个案。任何下一次付费 continuation 都需要
+成功率。七轮均是失败个案。任何下一次付费 continuation 都需要
 新的零费用 preflight、与剩余额度一致的新 Run cap，以及新的明确授权；仍不增加向量库、多
 Agent、Project Memory、自动 fallback 或第二次 replan。

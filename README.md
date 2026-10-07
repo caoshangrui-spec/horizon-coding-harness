@@ -83,16 +83,16 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | Python 3.12/3.13 的测试、静态检查、演示和构建已通过 | CI 不读取 API Key、不运行付费模型 |
-| 离线回归 | `377 passed, 7 skipped` | 跳过项是需要本机 Docker 的契约测试 |
-| Docker 契约 | 既有 6 项曾在 `redis:7-alpine` 上通过；新增停止结果恢复项待 daemon 可用后补跑 | 有限隔离合同，不是恶意代码安全认证 |
+| 离线回归 | `385 passed, 7 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| Docker 契约 | 7 项均已在本机已有镜像上单独通过 | 有限隔离合同，不是恶意代码安全认证 |
 | 一键崩溃恢复演示 | 子进程在 `replace_text` 生效后、receipt 前以退出码 86 硬退出；悬空调用先标 unknown，再按精确 manifest 接纳一次并恢复到 epoch 3 | 固定离线脚本与单一写入窗口，不代表任意进程/主机故障恢复 |
 | 有界恢复矩阵 v3 | 21/21；自动恢复 11/11、安全阻塞 10/10、incorrect resume 0、恢复重派/重复副作用 0；含 3 个真实硬退出和 Trace replay | 其余 18 例是生成 fixture 的状态/决策矩阵，不是完整 8 故障点或主机故障验收 |
 | 外部来源裁剪 A/B v2 | 5 个来源绑定案例的初始失败、Baseline 等待和 Treatment 修复均由本地可信与公开禁网 Docker 执行，证据已上传 | 使用 Scripted Model 和 dependency-reduced fixture，不是 BugsInPy 官方成绩 |
 | 完整 checkout A/B v2 | tqdm 82 files、youtube-dl 872 files、Luigi 382 files；本地可信与公开禁网 Docker 均为 3/3，RAG rank 1、Trace replay 和证据上传通过 | 使用 Scripted Model，不是模型能力或官方 BugsInPy 成绩 |
 | [三阶段恢复 A/B v3](docs/multi-stage-full-checkout-pilot.md) | youtube-dl 872 files + Luigi 382 files；两例均含 3 个依赖 WorkItem、2 次持久化 Worker 重启、final epoch 3 和一次只改未完成项的 replan；本地可信与[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/37450253181)均为 2/2 | 作者选择的两个案例与 Scripted Model；边界重启不等于任意指令处崩溃，不是模型能力或官方成绩 |
 | [源码绑定写入硬崩溃 A/B](docs/source-bound-hard-crash-recovery.md) | Luigi 382 files；两条 arm 都在首个生产写入 effect 后、receipt 前真实退出，先标 unknown，再由新 epoch 精确 `accept_replace`，随后跨两个 WorkItem 边界到 epoch 4；本地可信与[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/37569667246)均为 1/1 | 固定第 2 次调用、单个作者选择任务与 Scripted Model；不是任意崩溃、自动恢复策略或官方成绩 |
-| 真实模型 Pilot | 六轮均可重放、费用可核对、source 未变 | 六轮均未编辑或验证成功，保留为负结果 |
-| 预算预留诊断 | 6 Trace、20 个已结算调用；聚合预留/结算比 6.861621；候选公式仅有 3 个可回放样本 | 新 BudgetStop 保存请求尺寸；样本不足，不自动降低费用安全门槛 |
+| 真实模型 Pilot | 七轮均可重放、费用可核对、source 未变 | 七轮均未编辑或验证成功，保留为负结果 |
+| 预算预留诊断 | 7 Trace、22 个已结算调用；聚合预留/结算比 6.860516；候选公式有 5 个可回放样本，其中 2 个使用当前 wire basis | 新 BudgetStop 保存请求尺寸；样本不足，不自动降低费用安全门槛 |
 | 出站请求尺寸 | 5 类离线边界请求均复用 Adapter 的精确 wire encoder；167～9,061 bytes | 无 Provider usage，不证明候选公式安全或模型效果 |
 | 模型响应提交窗 | 普通落盘/receipt 失败立即双账 `unknown`；真实子进程在模型返回后、Artifact 前硬退出，重启后 Trace 可重放且不重派 | 无 Provider 查询接口时不能恢复丢失响应，仍需人工对账 |
 
@@ -239,8 +239,8 @@ uv run --locked --cache-dir .uv-cache horizon eval pilot-preflight `
   --config config/providers/siliconflow-tqdm-pilot-v2.yaml `
   --state-dir .horizon/real-model-pilot-tqdm-v3
 
-# 当前 v3 零费用候选：任务级最小工具权限，Run cap CNY 0.049。
-# 该命令仍不读取 Key/联网/调用模型；ready report 不等于付费授权。
+# v3 的历史零费用预检：任务级最小工具权限，Run cap CNY 0.049。
+# 第七轮授权已经消费；该命令仍不读取 Key/联网/调用模型，旧 report 不能复用为新授权。
 uv run --locked --cache-dir .uv-cache horizon eval pilot-preflight `
   benchmarks/run_ab/full/tqdm-1-tenumerate-start/real-model-pilot-v3.yaml `
   --image python:3.12-alpine `
@@ -284,8 +284,8 @@ uv run --locked --cache-dir .uv-cache horizon agent run `
   examples/agent-task.yaml --auto-plan `
   --image redis:7-alpine --confirm-paid
 
-# tqdm v3 已有与当前源码绑定的 ready preflight，Run cap 为 CNY 0.049。
-# 它仍未获付费授权；不得把本段或旧授权当作 --confirm-paid 同意。
+# tqdm v3 已按一次性授权运行并以 campaign_cost_limit 受控停止。
+# 不得把本段、历史 preflight 或已消费授权当作新的 --confirm-paid 同意。
 
 # 长任务可在完整模型—工具轮次后安全让出，再由新进程继续。
 $partial = uv run --locked --cache-dir .uv-cache horizon agent run `
@@ -355,19 +355,19 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **377 passed，7 skipped**。既有 6 项跳过项曾指定本机已有
-`redis:7-alpine` 单独复跑并通过；新增的第 7 项“自然退出、清理前恢复结果”合同因本批
-Docker daemon 未运行尚未实跑。另有一次真实
+当前离线全量回归为 **385 passed，7 skipped**；7 项 Docker 合同均已指定本机已有镜像
+单独复跑并通过。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实
 Issue 效果。新增真实模型 Pilot 单元测试覆盖私有答案拒绝、初始失败证据、内容寻址报告和
 启动时任务/源码/镜像/Provider/Harness 源码漂移拒绝；真实 checkout 的离线 Docker preflight
-已通过，tqdm 候选还把首次规划保守预留纳入 `ready` 门。六轮真实模型负结果均已导出并可重放，分别驱动 Plan/搜索反馈、有界行读取/
+已通过，tqdm 候选还把首次规划保守预留纳入 `ready` 门。七轮真实模型负结果均已导出并可重放，分别驱动 Plan/搜索反馈、有界行读取/
 近期完整单元应急压缩/异常租约释放、“不猜路径、优先 revision-bound 证据、默认 rank 1”，
 范围参数成对约束/规划输入收窄，以及完整 inventory 下的不存在路径准入。第五轮只完成规划，
 第一条执行请求在派发前因 Run 余额短缺 `CNY 0.000096` 被硬门禁终止。第六轮完成规划、一次
 execution 与一次 rank-1 检索，但下一请求需 `CNY 0.05832`，被 Campaign
-门禁在派发前终止。当前 Campaign 剩 `CNY 0.0497586`，本系列累计付费 `CNY 0.1954812`；
-没有自动重试或 fallback，也没有代码编辑或 protected validation。
+门禁在派发前终止。第七轮的 Planner 已直接定位正确文件，execution 再次取得 rank-1 检索，
+但消费回执的下一请求需 `CNY 0.045012`，Campaign 只余 `CNY 0.0387906`，仍在派发前停止。
+本系列累计付费 `CNY 0.2064492`；没有自动重试或 fallback，也没有代码编辑或 protected validation。
 未来确定性费用拒绝不再留下无 Lease 的 `RUNNING`：控制器会持久化类型化 `BudgetStop`、进入
 `FAILED` 并在 CLI/status 中报告所需与可用金额。新停止还会相邻保存未派发请求的 call/request
 标识、purpose、估算器、请求字节、input cap/ceiling 和 output ceiling，便于零费用回放；unknown
