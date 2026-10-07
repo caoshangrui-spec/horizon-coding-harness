@@ -13,7 +13,7 @@ horizon model sizing-report --config config/providers/siliconflow.yaml
 
 两个命令都不连接模型，也不执行仓库代码。`reservation-report` 只读取本地 Trace；每个输入都会
 先走完整 replay 和 hash-chain 校验，同一 Run 重复输入会被拒绝，避免累计值被重复计算。
-`sizing-report` 只读取无凭据 Provider 配置，并让五类固定请求通过生产 wire encoder。
+`sizing-report` 只读取无凭据 Provider 配置，并让六类固定请求通过生产 wire encoder。
 
 报告逐调用关联以下证据：
 
@@ -45,7 +45,7 @@ horizon model sizing-report --config config/providers/siliconflow.yaml
 | 类型化 pre-dispatch BudgetStop | 3 |
 | 可回放候选 estimator 的已结算调用 | 5 |
 | 当前 wire basis 的已结算调用 | 2 |
-| 候选 `request_bytes + 1024` 上界/Provider input 中位数 | 4.201220 |
+| 混合 basis 兼容统计：候选 `request_bytes + 1024` 上界/Provider input 中位数 | 4.201220 |
 | 候选公式在可观测样本中的低估次数 | 0 |
 
 这里的“预留费用累计”是各调用在派发瞬间的压力之和；每次结算后多余预留都会释放，不能把
@@ -56,20 +56,35 @@ Adapter 实际 canonical wire body。候选公式在混合 basis 样本中的上
 的安全上界。三个类型化 BudgetStop 中只有最新一次保存完整 wire 请求元数据；未派发请求没有
 Provider usage，不能用它判断候选公式是否低估。
 
-## 五类零费用 wire payload 边界
+为了避免把不可直接比较的 byte basis 合成一个“看似更大的样本”，报告同时输出
+`by_request_byte_basis`：
+
+| request byte basis | settled | purpose | candidate / Provider input | Provider input / request byte | observed underestimate |
+|---|---:|---|---|---|---:|
+| 历史领域 JSON v1 | 3 | planning 2 / execution 1 | 3.905058～4.201220；中位 4.137869 | 0.289792～0.310450；中位 0.302185 | 0 |
+| 当前 canonical wire v2 | 2 | planning 1 / execution 1 | 4.203175～4.256826；中位 4.230001 | 0.281451～0.295586；中位 0.288519 | 0 |
+
+混合口径总计仍为兼容性统计，不能用于 estimator promotion。当前真正相关的 wire v2 只有 2 个
+真实 settled 调用和 1 个无 Provider usage 的 BudgetStop；没有足够证据降低硬门禁。
+
+## 六类零费用 wire payload 边界
 
 `model sizing-report` 覆盖 minimal ASCII、中文/emoji、多层工具 Schema、带多字节嵌套参数的
-assistant tool call，以及 8 KiB tool result。默认 SiliconFlow 配置的确定性结果为：
+assistant tool call、复用真实四工具 Schema 的 Agent 检索轮次，以及 8 KiB tool result。默认
+SiliconFlow 配置的确定性结果为：
 
-| case | wire payload bytes | v1 domain bytes | wire - v1 | v2 token ceiling |
-|---|---:|---:|---:|---:|
-| minimal ASCII | 167 | 227 | -60 | 1,358 |
-| Unicode messages | 271 | 367 | -96 | 1,566 |
-| nested tool schema | 532 | 529 | +3 | 2,088 |
-| tool-call arguments | 916 | 973 | -57 | 2,856 |
-| 8 KiB tool result | 9,061 | 9,118 | -57 | 19,146 |
+| case | wire payload bytes | v1 domain bytes | wire - v1 | production ceiling | candidate ceiling |
+|---|---:|---:|---:|---:|---:|
+| minimal ASCII | 167 | 227 | -60 | 1,358 | 1,191 |
+| Unicode messages | 271 | 367 | -96 | 1,566 | 1,295 |
+| nested tool schema | 532 | 529 | +3 | 2,088 | 1,556 |
+| tool-call arguments | 916 | 973 | -57 | 2,856 | 1,940 |
+| Agent retrieval turn | 4,592 | 4,562 | +30 | 10,208 | 5,616 |
+| 8 KiB tool result | 9,061 | 9,118 | -57 | 19,146 | 10,085 |
 
-五类请求的字段 value 字节加 JSON 结构字节均精确等于 Adapter body，总范围为 167～9,061 bytes。
+六类请求的字段 value 字节加 JSON 结构字节均精确等于 Adapter body，总范围为 167～9,061 bytes。
+Agent retrieval case 直接读取生产 ToolDefinition，四个工具的 `tools` 字段为 1,873 bytes，与第七轮
+未派发请求记录的工具字段一致；它没有复刻完整 Agent prompt，因此只证明 Schema/wire 尺寸合同。
 正负 delta 都存在，说明不能用一个固定“领域对象开销”修正 wire size；生产路径因此直接测最终
 body。该诊断没有 Provider usage，不能证明 `request_bytes + 1024` 候选公式安全，也不是模型或
 真实任务效果证据。
@@ -79,6 +94,6 @@ body。该诊断没有 Provider usage，不能证明 `request_bytes + 1024` 候�
 报告不会自动调低安全系数、扩大 Campaign 或触发复跑。生产门禁的公式仍是
 `2 * request_bytes + 1024`，但新请求的 `request_bytes` 已由近似的领域对象 JSON 切换为 Adapter
 实际发送的 canonical wire body；`request_bytes + 1024` 仍只作为候选回放。历史报告新增
-`request_byte_basis_counts`，防止把 v1/v2 样本静默混合。下一步是积累带 v2 wire metadata 的
-settled call 与 BudgetStop，并明确验证 Provider token usage 覆盖边界；只有候选公式在足够样本
+`request_byte_basis_counts` 与 `by_request_byte_basis`，防止把 v1/v2 样本静默混合。下一步是积累
+带 v2 wire metadata 的 settled call 与 BudgetStop，并明确验证 Provider token usage 覆盖边界；只有候选公式在足够样本
 和边界测试中仍满足硬上界合同，才考虑替换生产公式。

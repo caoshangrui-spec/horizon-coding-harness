@@ -38,7 +38,7 @@
 | 完整 checkout 多阶段/重启 A/B | [bugsinpy-multi-stage-pilot-v3.yaml](../benchmarks/run_ab/bugsinpy-multi-stage-pilot-v3.yaml) | youtube-dl 872 files 与 Luigi 382 files 上各有三个依赖 WorkItem；四条 arm 均跨两个持久边界到 epoch 3，并覆盖跨 revision RAG、active/stale Run Memory、完成项保留 replan、最终三项 required checks 与 Trace replay。本地可信与公开禁网 Docker 均为 2/2，doctor 的 Docker 计数为 2。v1 的 CRLF 精确替换失败和 60 秒重启 Lease 到期负结果继续保留 |
 | 源码绑定的写入硬崩溃 A/B | [bugsinpy-multi-stage-hard-crash-v1.yaml](../benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v1.yaml)、[设计与证据](source-bound-hard-crash-recovery.md) | Luigi 382-file checkout 的两条 arm 都由真实子进程在第一个生产写入 effect 后、receipt 前退出；父进程先记录 unknown、围栏旧 lease，再按精确后态 `accept_replace`，不重派模型，并继续两个 WorkItem 边界到 epoch 4。本地可信与公开禁网 Docker 均为 1/1、Trace replay、source unchanged、unknown/open 0；doctor 的 Docker 计数为 1 |
 | 真实模型 Pilot | [pilot.py](../src/horizon/domain/pilot.py)、[pilot.py](../src/horizon/application/pilot.py)、[real-model-pilot.md](real-model-pilot.md) | 离线预检绑定完整干净 checkout、初始失败、source snapshot、Docker image、Provider policy、Harness 源码指纹、费用 cap 和首次规划保守预留。七个付费 Run 均无编辑/验证、Trace 可重放且 source 未变；第七轮 Planner 直接定位真实 `__init__.py`，execution 再次取得 rank-1 证据，但消费回执前因 Campaign 预留不足停止。当前实际累计为 `CNY 0.2064492`，没有自动复跑或真实 Issue 成功 |
-| 模型预留压力诊断 | [reservation_analysis.py](../src/horizon/application/reservation_analysis.py)、[reservation-diagnostics.md](reservation-diagnostics.md) | `trace reservation-report` 在 replay/hash-chain 校验后关联 reservation、settlement 和新 BudgetStop 请求尺寸；七轮 22 次调用的聚合预留/结算比为 6.860516。候选 `request_bytes + 1024` 可回放 5 次，0 次观测低估、中位比 4.201220；其中仅 2 次使用当前 wire basis，生产 estimator、费用门禁和付费预算均未改变 |
+| 模型预留压力诊断 | [reservation_analysis.py](../src/horizon/application/reservation_analysis.py)、[reservation-diagnostics.md](reservation-diagnostics.md) | `trace reservation-report` 在 replay/hash-chain 校验后关联 reservation、settlement 和新 BudgetStop 请求尺寸；七轮 22 次调用的聚合预留/结算比为 6.860516。候选 `request_bytes + 1024` 可回放 5 次，并按旧领域 JSON / 当前 wire basis 分层；当前口径仅 2 次、0 次观测低估、中位比 4.230001。生产 estimator、费用门禁和付费预算均未改变 |
 | 安全轮次续跑 | [agent.py](../src/horizon/domain/agent.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 消息 Artifact + event/revision 绑定；新 Worker 续跑；PLANNING/READY 也可恢复，任意崩溃窗口对账未完成 |
 | 悬空调用恢复与对账 | [recovery.py](../src/horizon/application/recovery.py)、[model_recovery.py](../src/horizon/application/model_recovery.py)、[tool_recovery.py](../src/horizon/application/tool_recovery.py) | Campaign-only 预留释放；response Artifact 跨 Worker 续跑；模型派发前持久化 client Trace ID，返回后普通落盘失败立即隔离，Artifact 前硬退出重启后保守 `unknown`；只读重试；精确 `replace_text` / `apply_patch` / 单文件 `create_file` accept/rollback；Docker `run_check` 自然退出且 request/workspace/隔离配置/完整小日志精确匹配时可恢复 success/error，其他路径可显式停止/删除后丢弃，missing 仍需人工确认；部分/漂移写入、信号/超时/OOM 验证仍阻塞 |
 | 受控候选提升 | [promotion.py](../src/horizon/application/promotion.py)、[promotion.py](../src/horizon/adapters/workspace/promotion.py)、[git.py](../src/horizon/adapters/vcs/git.py) | 只读 diff、源/候选 revision 与可选 Git HEAD 绑定、显式 1～8 个总变更且至多 1 个 64 KiB UTF-8 新文件、完整/部分 effect 崩溃恢复；不删除/重命名或创建 commit |
@@ -85,6 +85,21 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 仍是后续适配约束；不能以该文档代替本项目的实际联调。
 
 ## 验证结果
+
+### 2026-10-07 预算估计证据按 byte basis 分层
+
+- `trace reservation-report` 不再只给出混合 byte basis 的候选公式分布；新增确定性
+  `by_request_byte_basis`，逐口径记录 settled 数、planning/execution 数、观测低估数、候选上界/
+  Provider input 分布和 Provider input/request-byte 分布。旧 Trace 仍按原口径重放，不追溯改写。
+- 七轮真实 Trace 的 5 个可回放调用现被明确拆为：历史领域 JSON 3 个，候选比
+  3.905058～4.201220；当前 canonical wire body 2 个，候选比 4.203175～4.256826、中位
+  4.230001；两组观测低估均为 0。当前 wire 样本仍只有 planning/execution 各 1 个，不授权降低
+  生产门禁。
+- `model sizing-report` 新增 `agent_retrieval_turn`，直接复用生产 `read_file`、`retrieve_code`、
+  `replace_text`、`submit` Schema；其工具字段固定为 1,873 bytes，完整合成请求 4,592 bytes，
+  生产/候选 ceiling 分别为 10,208/5,616。它验证编码和 Schema 负担，不提供 Provider token usage。
+- 本批未读取凭据、联网、调用模型、创建 Campaign 或产生费用；生产公式仍为
+  `2 * request_bytes + 1024`。
 
 ### 2026-10-07 源码绑定的多阶段写入硬崩溃恢复
 
@@ -349,11 +364,12 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
   JSON 结构字节；领域校验要求分量精确加总，v2 estimate 与 payload bytes 必须一致。Adapter
   测试再核对 post body 的 bytes/hash，避免预算器与传输层各自序列化后漂移。
 - 新增零网络、零模型的 `model sizing-report`：minimal ASCII、Unicode、nested tool schema、
-  JSON-in-JSON tool arguments 和 8 KiB tool result 共 5 类，wire body 为 167～9,061 bytes；相对
+  JSON-in-JSON tool arguments、真实四工具 Agent 检索轮次和 8 KiB tool result 共 6 类，wire body
+  为 167～9,061 bytes；相对
   v1 domain JSON 的 delta 同时出现 -96 和 +3，不能用固定开销替代实际编码。
 - 历史 v1 Trace 按原 byte basis 展示，reservation report 显式给出 basis counts；第六轮 replay
   hash 仍为 `a3a9ff4b0067a6b323c14cc5f954ca1197d20b13099a63c96d5be97f1d66c4bc`。没有 Provider
-  usage、新 Campaign、费用、retry 或 fallback；五类合成请求不构成候选安全性或模型效果结论。
+  usage、新 Campaign、费用、retry 或 fallback；六类合成请求不构成候选安全性或模型效果结论。
 
 ### 2026-10-04 BudgetStop 请求证据与候选 estimator 回放
 

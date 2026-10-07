@@ -104,6 +104,44 @@ def _summarize_calls(calls: Sequence[dict[str, Any]], *, currency: str, purpose:
     }
 
 
+def _summarize_candidate_basis(
+    request_byte_basis: str,
+    calls: Sequence[dict[str, Any]],
+) -> dict[str, Any]:
+    candidate_ratios = [
+        value
+        for call in calls
+        if (
+            value := _ratio(
+                call["candidate_input_token_ceiling"],
+                call["actual_input_tokens"],
+            )
+        )
+        is not None
+    ]
+    reported_per_byte = [
+        value
+        for call in calls
+        if (
+            value := _ratio(
+                call["actual_input_tokens"],
+                call["request_bytes"],
+            )
+        )
+        is not None
+    ]
+    return {
+        "request_byte_basis": request_byte_basis,
+        "settled_call_count": len(calls),
+        "purpose_counts": dict(sorted(Counter(call["purpose"] for call in calls).items())),
+        "observed_underestimate_count": sum(
+            call["candidate_input_token_ceiling"] < call["actual_input_tokens"] for call in calls
+        ),
+        "candidate_input_to_reported_input_ratio": _distribution(candidate_ratios),
+        "reported_input_tokens_per_request_byte": _distribution(reported_per_byte),
+    }
+
+
 def analyze_reservation_traces(paths: Sequence[Path]) -> dict[str, Any]:
     """Measure reservation pressure from replay-verified traces without calling a provider."""
 
@@ -332,6 +370,13 @@ def analyze_reservation_traces(paths: Sequence[Path]) -> dict[str, Any]:
     candidate_basis_counts = dict(
         sorted(Counter(call["request_byte_basis"] for call in candidate_calls).items())
     )
+    candidate_calls_by_basis: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for call in candidate_calls:
+        candidate_calls_by_basis[call["request_byte_basis"]].append(call)
+    candidate_basis_summaries = [
+        _summarize_candidate_basis(basis, items)
+        for basis, items in sorted(candidate_calls_by_basis.items())
+    ]
     stop_basis_counts = dict(
         sorted(
             Counter(
@@ -368,6 +413,7 @@ def analyze_reservation_traces(paths: Sequence[Path]) -> dict[str, Any]:
                 "formula": "request_bytes + 1024",
                 "settled_call_count": len(candidate_calls),
                 "request_byte_basis_counts": candidate_basis_counts,
+                "by_request_byte_basis": candidate_basis_summaries,
                 "budget_stop_count_with_request_metadata": sum(
                     stop["request_bytes"] is not None for stop in budget_stops
                 ),

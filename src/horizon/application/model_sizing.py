@@ -11,6 +11,7 @@ from horizon.domain.model import (
     ToolCall,
     ToolDefinition,
 )
+from horizon.tools.gateway import tool_definitions
 
 
 def _boundary_requests(
@@ -47,6 +48,15 @@ def _boundary_requests(
         function=FunctionCall(
             name=lookup_tool.name,
             arguments={"symbol": "解析器", "paths": ["src/parser.py", "tests/test_parser.py"]},
+        ),
+    )
+    agent_tool_names = {"read_file", "retrieve_code", "replace_text", "submit"}
+    agent_tools = tuple(tool for tool in tool_definitions() if tool.name in agent_tool_names)
+    agent_retrieval_call = ToolCall(
+        id="call-agent-retrieval-1",
+        function=FunctionCall(
+            name="retrieve_code",
+            arguments={"query": "tenumerate definition"},
         ),
     )
     return (
@@ -99,6 +109,34 @@ def _boundary_requests(
             ),
         ),
         (
+            "agent_retrieval_turn",
+            "A multi-tool Coding Agent turn followed by a bounded retrieval observation.",
+            ModelRequest(
+                **shared,
+                messages=(
+                    ModelMessage(
+                        role="system",
+                        content="Use revision-bound repository evidence before editing.",
+                    ),
+                    ModelMessage(
+                        role="user",
+                        content="Make tenumerate honor a caller-provided start index.",
+                    ),
+                    ModelMessage(role="assistant", tool_calls=(agent_retrieval_call,)),
+                    ModelMessage(
+                        role="tool",
+                        tool_call_id=agent_retrieval_call.id,
+                        content=(
+                            '{"path":"tqdm/contrib/__init__.py","start_line":1,'
+                            '"end_line":40,"snippet":"' + "x" * 2_048 + '"}'
+                        ),
+                    ),
+                ),
+                tools=agent_tools,
+                tool_choice="auto",
+            ),
+        ),
+        (
             "large_tool_result",
             "A bounded 8 KiB tool result representing a large observation turn.",
             ModelRequest(
@@ -143,6 +181,7 @@ def analyze_model_request_sizing(
                 "request_hash": request.sha256,
                 "message_count": len(request.messages),
                 "tool_count": len(request.tools),
+                "tool_names": [tool.name for tool in request.tools],
                 "legacy_domain_request_bytes": legacy.request_bytes,
                 "wire_minus_legacy_bytes": payload.payload_bytes - legacy.request_bytes,
                 "request_payload": payload.model_dump(mode="json"),

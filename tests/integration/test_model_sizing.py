@@ -17,12 +17,13 @@ def test_request_sizing_boundary_cases_have_exact_byte_composition():
         enable_thinking=False,
     )
 
-    assert report["case_count"] == 5
+    assert report["case_count"] == 6
     assert [case["case_id"] for case in report["cases"]] == [
         "minimal_ascii",
         "unicode_messages",
         "nested_tool_schema",
         "tool_call_arguments",
+        "agent_retrieval_turn",
         "large_tool_result",
     ]
     for case in report["cases"]:
@@ -35,6 +36,19 @@ def test_request_sizing_boundary_cases_have_exact_byte_composition():
         assert estimate["request_bytes"] == payload["payload_bytes"]
         assert estimate["token_ceiling"] == 2 * payload["payload_bytes"] + 1024
         assert case["candidate_input_token_ceiling"] == payload["payload_bytes"] + 1024
+        assert len(case["tool_names"]) == case["tool_count"]
+    cases = {case["case_id"]: case for case in report["cases"]}
+    assert cases["agent_retrieval_turn"]["tool_names"] == [
+        "read_file",
+        "retrieve_code",
+        "replace_text",
+        "submit",
+    ]
+    assert cases["agent_retrieval_turn"]["request_payload"]["field_value_bytes"]["tools"] == 1_873
+    assert (
+        cases["agent_retrieval_turn"]["request_payload"]["field_value_bytes"]["tools"]
+        > cases["nested_tool_schema"]["request_payload"]["field_value_bytes"]["tools"]
+    )
     assert report["payload_bytes"]["max"] > report["payload_bytes"]["min"] + 8_000
     deltas = [case["wire_minus_legacy_bytes"] for case in report["cases"]]
     assert any(delta > 0 for delta in deltas)
@@ -53,7 +67,7 @@ def test_model_sizing_report_cli_is_offline_and_structured():
     assert result.exit_code == 0, result.output
     report = json.loads(result.stdout)
     assert report["model"] == MODEL
-    assert report["case_count"] == 5
+    assert report["case_count"] == 6
     assert report["production_change"] == {
         "request_byte_basis_changed": True,
         "token_ceiling_formula_changed": False,
