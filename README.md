@@ -107,7 +107,7 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 ```powershell
 uv sync --locked
 uv run --locked pytest
-uv run --locked ruff check .
+uv run --locked ruff check src tests
 uv run --locked horizon --help
 ```
 

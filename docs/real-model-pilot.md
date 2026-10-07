@@ -486,6 +486,20 @@ occupied/settled 为 `CNY 0.1302414`、remaining 为 `CNY 0.0497586`，reserved/
 但 17 个较早调用没有 request-byte estimator 元数据，因此仍不授权直接替换硬门禁公式。口径和
 限制见[模型预算预留诊断](reservation-diagnostics.md)。
 
+2026-10-07 的进一步零费用拆分发现，Workspace Tool Gateway 本来就只暴露当前 WorkItem 允许的
+工具，不能把压力误归因于“每轮发送全部工具”。真正可安全裁剪的是新会话中尚无结构性执行证据
+时的动态 `revise_plan` Schema。以第六轮保存的 4 条会话消息和同一组 WorkItem 工具重建请求，
+移除该 Schema 后 wire body 从 9,197 降为 7,962 bytes，减少 1,235 bytes；在未改变的生产公式
+下，input ceiling 减少 2,470 tokens，单次保守预留减少 `CNY 0.007410`。把相同差额应用到当时
+已投影的停止请求，预留会从 `CNY 0.058320` 降到 `CNY 0.050910`，仍高于旧 Campaign 余额
+`CNY 0.0497586`，所以该优化本身不能把历史失败改写成可派发或成功。
+
+实现现改为：新 WorkItem 先隐藏 `revise_plan`，在持久会话已有至少两轮执行证据，或已有通过
+WorkItem 后再暴露；成功使用后仍永久移除。判定只依赖已保存会话元数据与通过项，避免模型响应/
+只读工具恢复时因实时工具尾部变化而改变 request hash。集成回归覆盖证据前隐藏、证据后出现、
+跨 WorkItem 立即可用和成功后移除；本次没有联网、没有模型调用、没有新 Campaign，也没有改变
+保守 token 公式或历史 Trace。
+
 ## 13. 后续付费 Pilot 的完成条件
 
 正式运行时只接受 preflight 输出的 TaskSpec/report、同一镜像和专用 Provider policy。结果无论

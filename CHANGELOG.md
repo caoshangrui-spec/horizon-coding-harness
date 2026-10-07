@@ -5,6 +5,13 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Gated the large execution `revise_plan` tool schema on durable evidence instead of exposing it
+  on every fresh WorkItem request. It now appears after at least two persisted execution turns (or
+  a multi-tool evidence turn), or immediately when a previous WorkItem has passed; it still
+  disappears after the single successful revision. The gate uses AgentSession metadata so model
+  and read-only-tool crash recovery reconstruct the same request. An offline reconstruction of the
+  sixth paid pilot shows a 1,235-byte / 2,470-token-ceiling / CNY 0.007410 reservation reduction,
+  without changing the conservative estimator, spending money, or reinterpreting the failed Run.
 - Added source-bound write-effect-before-receipt recovery to the multi-stage Run A/B evaluator.
   Both arms execute the same first Luigi production write in a real child process that fsyncs a
   crash marker and exits before its tool receipt. The parent conservatively records the pending

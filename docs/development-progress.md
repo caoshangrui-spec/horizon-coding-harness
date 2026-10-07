@@ -1,6 +1,6 @@
 # 开发进度与验证记录
 
-更新：2026-10-06。已发布版本为 0.1.0，主干继续积累 Unreleased 改动；技术设计基线继续为
+更新：2026-10-07。已发布版本为 0.1.0，主干继续积累 Unreleased 改动；技术设计基线继续为
 0.2.0。2026-09-30 的
 可靠性内核证据保留，本次在其上增加 Provider 垂直切片和首个受控 Coding Agent 闭环。
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
@@ -27,7 +27,7 @@
 | 临时副本 Docker 执行与受保护验收 | [docker.py](../src/horizon/adapters/sandbox/docker.py)、[validation.py](../src/horizon/adapters/sandbox/validation.py) | 非 root、禁网、只读根、超时、输出有界；模型只能选择控制器冻结的 check ID |
 | Typed Tool Gateway | [gateway.py](../src/horizon/tools/gateway.py) | 搜索、读取、单文件精确替换、最多 8 文件的结构化精确 patch、单个最多 64 KiB 的 UTF-8 新文件、受保护检查和 submit；路径/链接/大小受限，每次 intent/receipt 持久化；existing target 不覆盖、父目录不自动创建；exact search 饱和时显式标记截断并引导 ranked retrieval；`retrieve_code` 默认只返回 rank 1，需要时才显式扩大；大文件整读拒绝并要求最多 400 行、32 Ki 字符的范围读取 |
 | 顺序多 WorkItem Agent Loop | [agent_loop.py](../src/horizon/application/agent_loop.py) | dependency-ready 调度、逐项会话/权限/验收、原子交接、最终全量回归、有限 repair 与单次受限 replan；不支持并行或自动/多次 replan |
-| 执行证据驱动的受限 Replan | [plan.py](../src/horizon/domain/plan.py)、[services.py](../src/horizon/application/services.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 模型显式 `revise_plan`，最多 1 次成功；完成项逐字段不可变，工具 receipt、Plan vN+1、新 session 同事务；NoProgress 后成功、跨项保留、非法提案回退和 Trace 重放已测；未做真实模型效果评测 |
+| 执行证据驱动的受限 Replan | [plan.py](../src/horizon/domain/plan.py)、[services.py](../src/horizon/application/services.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 模型显式 `revise_plan`，最多 1 次成功；大型动态 Schema 只在当前 WorkItem 已积累至少两轮执行证据或已有通过项后暴露，并用持久会话元数据保持崩溃恢复请求稳定；完成项逐字段不可变，工具 receipt、Plan vN+1、新 session 同事务；未做真实模型效果评测 |
 | 确定性 ContextProjection + MandatoryFactLedger | [context.py](../src/horizon/application/context.py)、[context.py](../src/horizon/domain/context.py) | 完整 transcript 留存；候选投影同时满足字符上限与覆盖工具 Schema 的完整请求保守 token 上界，执行期再按 Run/Campaign/单调用最小 CNY 余量收窄 effective cap，近期完整单元在任一硬上限需要时只折叠最少数量，incomplete 单元绝不折叠；新 Projection/Reservation 使用 Adapter 实际 OpenAI-compatible body 字节，绑定版本化 estimator、payload hash/字段分量、上界与 effective cap，并按 estimator ID 恢复 v1；Task/Plan/权限/验收/预算/策略/工具 Schema/workspace 另做内容寻址绑定；不是精确 tokenizer、语义压缩或 Project Memory |
 | 证据驱动的 Run Memory | [memory.py](../src/horizon/application/memory.py)、[memory.py](../src/horizon/domain/memory.py) | 从工具事件和内容寻址输出派生；保留失败/unknown，按 workspace revision 失效并绑定模型请求恢复边界；仅 run scope，不是 Project Memory |
 | 精确模式无进展保护 | [agent_loop.py](../src/horizon/application/agent_loop.py) | 同一 revision 下，相同精确动作第 3 次、A/B 精确循环第 5 步软阻断；继续模式分别在第 4/6 步进入可恢复人工等待；不是语义或任意周期检测 |

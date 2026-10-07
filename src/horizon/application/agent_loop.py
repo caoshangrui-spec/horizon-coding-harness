@@ -63,6 +63,7 @@ from horizon.domain.states import RunStatus
 from horizon.domain.tools import AcceptanceResult, ToolCallRecord, ToolCallReservation, ToolOutcome
 
 EXECUTION_REPLAN_TOOL_NAME = "revise_plan"
+MIN_EXECUTION_REPLAN_SESSION_MESSAGES = 5
 
 
 class AgentLoopConfig(Contract):
@@ -169,6 +170,29 @@ def _active_work_item(run: Run) -> WorkItem:
     return ready[0]
 
 
+def _execution_replan_available(run: Run) -> bool:
+    """Expose the large replan schema only after revision-bound execution evidence exists.
+
+    A fresh work-item session contains the two canonical task-prefix messages. One ordinary
+    tool turn raises that count to four, which is still too little evidence to justify replacing
+    the Plan. Five messages means either one response produced multiple tool receipts or at
+    least two execution turns have completed. A previously validated WorkItem is independently
+    sufficient evidence for revising the remaining Plan.
+
+    AgentSession metadata is used instead of the live tool-call count so the decision remains
+    stable while recovering a model response or a read-only tool receipt after a crash.
+    """
+
+    if run.plan is None or len(run.execution_replans) >= MAX_EXECUTION_REPLANS:
+        return False
+    if run.passed_items:
+        return True
+    return (
+        run.agent_session is not None
+        and run.agent_session.message_count >= MIN_EXECUTION_REPLAN_SESSION_MESSAGES
+    )
+
+
 def _initial_messages(
     run: Run,
     item: WorkItem,
@@ -249,7 +273,7 @@ class CodingAgentRunner:
 
     def _model_tools(self, run: Run) -> tuple[ToolDefinition, ...]:
         definitions = self.tools.definitions
-        if run.plan is not None and len(run.execution_replans) < MAX_EXECUTION_REPLANS:
+        if _execution_replan_available(run):
             return (*definitions, _execution_replan_tool(run))
         return definitions
 

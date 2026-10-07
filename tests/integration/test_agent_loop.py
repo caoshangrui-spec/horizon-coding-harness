@@ -1266,6 +1266,9 @@ def test_agent_replans_once_after_no_progress_evidence_and_finishes(tmp_path, ta
         "error",
         "success",
     ]
+    assert "revise_plan" not in {tool.name for tool in model.requests[0].tools}
+    assert "revise_plan" not in {tool.name for tool in model.requests[1].tools}
+    assert "revise_plan" in {tool.name for tool in model.requests[2].tools}
     assert "revise_plan" in {tool.name for tool in model.requests[3].tools}
     assert "revise_plan" not in {tool.name for tool in model.requests[4].tools}
     assert '"work_item_id":"fix-after-stall"' in (model.requests[4].messages[1].content or "")
@@ -1312,6 +1315,9 @@ def test_execution_replan_preserves_completed_work_item_and_replaces_remaining_p
     assert result.plan.items[1] == revised_second
     assert result.passed_items == {"guard-empty", "guard-none-replanned"}
     assert result.execution_replans[0].preserved_work_item_ids == ("guard-empty",)
+    assert "revise_plan" not in {tool.name for tool in model.requests[0].tools}
+    assert "revise_plan" not in {tool.name for tool in model.requests[1].tools}
+    assert "revise_plan" in {tool.name for tool in model.requests[2].tools}
     assert '"completed_work_items":["guard-empty"]' in (model.requests[3].messages[1].content or "")
     assert '"work_item_id":"guard-none-replanned"' in (model.requests[3].messages[1].content or "")
 

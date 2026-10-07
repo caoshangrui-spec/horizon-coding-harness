@@ -1,12 +1,19 @@
 # 执行证据驱动的单次受限 Replan
 
-更新：2026-10-02。Horizon 现支持一个刻意收窄的执行中计划修订切片：执行模型可基于本 Run
+更新：2026-10-07。Horizon 现支持一个刻意收窄的执行中计划修订切片：执行模型可基于本 Run
 已经获得的代码、工具错误、NoProgress 或验证证据，调用一次 `revise_plan`，把当前 Plan vN
 修订为 vN+1。该能力用于修正剩余工作结构，不是无限自我规划、额外 Planner 调用或权限扩张。
 
 ## 1. 触发与预算边界
 
-`revise_plan` 是控制器工具，只在尚未成功 replan 时出现在模型 Tool Schema 中。它要求：
+`revise_plan` 是控制器工具，不会在新 WorkItem 的首轮请求中无条件暴露。只有以下任一执行证据
+成立、且本 Run 尚未成功 replan 时，它才进入模型 Tool Schema：
+
+- 当前 WorkItem 的持久会话已经包含至少两个执行轮次，或一个产生多个工具回执的执行轮次；
+- 前序 WorkItem 已经通过保护性验收，模型可据此修订剩余结构。
+
+该门使用持久化 `AgentSession` 的消息计数和 `passed_items`，而不是可能落在会话边界之后的实时
+工具计数，因此模型响应或只读工具回执崩溃恢复时能重建相同请求。工具参数要求为：
 
 - `reason`：1～2000 字符，说明哪条执行证据使原计划不再合适；
 - `items`：1～8 个完整 WorkItem，字段与初始 Plan 相同；
@@ -69,9 +76,9 @@ Plan 修订、工具记账和 session 发布没有外部副作用，所以不需
 WorkItem 证据不会被误报为损坏；它仍带原 WorkItem ID 和 revision，可作为有来源观察进入当前
 有界 Memory。TaskSpec 修订则会清空旧任务 epoch 的 Memory 投影。
 
-MandatoryFactLedger 在 replan 前包含 `revise_plan` Tool Schema；成功次数达到 1 后，该工具从
-后续 schema 中消失，新的 tool-schema hash、Plan hash/version 和 active WorkItem 一起绑定每次
-模型请求。JSONL Trace 可重放 `ExecutionReplanRecord`，并重建相同 projection hash。
+MandatoryFactLedger 只在达到上述证据门后包含 `revise_plan` Tool Schema；成功次数达到 1 后，
+该工具从后续 schema 中消失。新的 tool-schema hash、Plan hash/version 和 active WorkItem 一起
+绑定每次模型请求。JSONL Trace 可重放 `ExecutionReplanRecord`，并重建相同 projection hash。
 
 ## 5. 拒绝与 fallback
 
@@ -88,6 +95,7 @@ observation，并按原 session 的下一 iteration 继续。包含 `revise_plan
 离线 Fake Model E2E 已覆盖：
 
 - 两次相同读取后第三次触发 NoProgress 软阻断，模型提交 Plan v2，随后编辑、submit 并成功；
+- 新 WorkItem 的前两个普通执行请求不携带 replan Schema，积累执行证据后才携带；
 - 双 WorkItem Run 完成第一项后，只替换剩余项，已完成项和 completed-memory 绑定保持不变；
 - 试图修改已完成项时返回 policy error，Plan v1 继续并最终成功；
 - 试图丢失 required check 或加入 `shell_exec` 等未知工具时在领域层拒绝；
