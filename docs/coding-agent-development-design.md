@@ -519,7 +519,9 @@ stateDiagram-v2
 - `RUNNING` 同一时刻最多有一个持有有效 Lease 的 Worker。
 - `CHECKPOINT_COMMITTED` 必须引用已经提交的最大事件序号。
 - `BUDGET_HARD_LIMIT_REACHED` 后不得出现新的 `MODEL_CALL_STARTED` 或 `TOOL_CALL_STARTED`。
-- `CANCEL_REQUESTED` 后允许结束正在进行且不可安全中断的动作，但不得启动新动作。
+- durable cancel fence（当前事件为 `CANCEL_PENDING`）后允许既有动作提交 receipt 或进入
+  recovery，但不得启动新动作；只有未分类 effect 和可恢复 tool intent 均闭合后才追加
+  recovery-safe `CANCEL_REQUESTED` 并进入 `CANCELLED`。
 - 未知副作用状态只能进入 `WAITING_FOR_USER` 或 `FAILED`，不能静默重试。
 
 图中展示主要路径；完整转换合同还包括：每个非终态均可因取消进入 CANCELLED、因错误/硬截止进入 FAILED；PLANNING/READY/COMPACTING/VALIDATING/CHECKPOINTING/REPAIRING 均可在需要时进入 WAITING_FOR_USER 或 RECOVERING。等待态和恢复态持久化 `resume_state`，回转前重新校验阶段前置条件，不无条件转 RUNNING。未列出的任意转换禁止。
@@ -944,7 +946,7 @@ LLM Judge 可作为补充分析，但不能替代：
 - `VALIDATION_STARTED`, `VALIDATION_FINISHED`
 - `CHECKPOINT_PREPARE_STARTED`, `CHECKPOINT_COMMITTED`
 - `RECOVERY_STARTED`, `RECOVERY_RECONCILED`, `RECOVERY_BLOCKED`
-- `CANCEL_REQUESTED`
+- `CANCEL_PENDING`, `CANCEL_SANDBOX_STOPPED`, `CANCEL_REQUESTED`
 - `RUN_SUCCEEDED`, `RUN_FAILED`, `RUN_CANCELLED`
 
 ### 19.3 输出脱敏与限流

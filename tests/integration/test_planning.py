@@ -26,6 +26,7 @@ from horizon.domain.errors import (
     BudgetStopReason,
     PlanProposalError,
     PolicyDenied,
+    RunCancellationRequested,
 )
 from horizon.domain.model import (
     CampaignBudget,
@@ -305,6 +306,36 @@ def test_generated_plan_is_budgeted_validated_and_trace_linked(tmp_path):
     replayed = SQLiteEventStore(store.path).get(run_id)
     assert replayed.plan == result.plan
     assert replayed.plan_source_model_call_id == result.model_call_id
+
+
+def test_planning_settles_late_response_without_publishing_plan_after_cancel(tmp_path):
+    generator, service, store, ledger, run_id, token, context, _, _ = setup_planner(
+        tmp_path,
+        [valid_proposal()],
+    )
+
+    class CancellingPlanner(ScriptedPlanner):
+        def generate(self, request, trace_id):
+            pending = service.cancel(run_id, "cancel-during-planning-call")
+            assert pending.cancel_requested is True
+            return super().generate(request, trace_id)
+
+    model = CancellingPlanner([valid_proposal()])
+    generator.model = model
+    with pytest.raises(RunCancellationRequested) as stopped:
+        generator.generate_and_set(run_id, token, context)
+
+    assert stopped.value.run_id == run_id
+    cancelled = store.get(run_id)
+    assert cancelled.status == RunStatus.CANCELLED
+    assert cancelled.plan is None
+    assert len(cancelled.model_calls) == 1
+    assert not cancelled.reservations
+    assert ledger.summary("planning-tests").settled_cost == cancelled.model_calls[0].estimated_cost
+    assert not any(event.event_type == "PLAN_CREATED" for event in store.events(run_id))
+    assert SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id)).as_dict() == (
+        cancelled.as_dict()
+    )
 
 
 def test_planning_response_artifact_failure_is_quarantined(tmp_path):

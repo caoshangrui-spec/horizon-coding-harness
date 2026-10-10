@@ -26,6 +26,7 @@ from horizon.domain.errors import (
     PlanProposalError,
     PolicyDenied,
     ProviderError,
+    RunCancellationRequested,
 )
 from horizon.domain.model import (
     CampaignBudget,
@@ -554,17 +555,19 @@ class PlanGenerator:
             try:
                 response = self.model.generate(request, trace_id)
             except ProviderError as exc:
-                self.service.mark_model_call_unknown(
-                    run_id,
-                    call_id,
-                    token,
-                    f"unknown_{call_id}",
-                )
                 self.campaign_ledger.mark_unknown(
                     self.campaign.campaign_id,
                     call_id,
                     type(exc).__name__,
                 )
+                classified = self.service.mark_model_call_unknown(
+                    run_id,
+                    call_id,
+                    token,
+                    f"unknown_{call_id}",
+                )
+                if classified.status == RunStatus.CANCELLED:
+                    raise RunCancellationRequested(run_id) from exc
                 raise
             try:
                 estimated_cost = self.pricing.cost_for(response.usage)
@@ -611,6 +614,8 @@ class PlanGenerator:
                 estimated_cost,
                 response.provider_trace_id,
             )
+            if run.status == RunStatus.CANCELLED:
+                raise RunCancellationRequested(run_id)
             if run.terminal:
                 raise Conflict("Planning usage exceeded the Run budget")
             reused_response = False

@@ -69,6 +69,7 @@ from horizon.domain.errors import (
     NotFound,
     PlanProposalError,
     PolicyDenied,
+    RunCancellationRequested,
     RunDeadlineExceeded,
 )
 from horizon.domain.evaluation import RetrievalEvalManifest
@@ -123,7 +124,10 @@ def guarded(function):
             raise typer.Exit(2) from None
         except (HorizonError, OSError, ValueError, yaml.YAMLError) as exc:
             message = "Invalid YAML" if isinstance(exc, yaml.YAMLError) else str(exc)
-            typer.echo(canonical_json({"error": type(exc).__name__, "message": message}), err=True)
+            payload = {"error": type(exc).__name__, "message": message}
+            if isinstance(exc, RunCancellationRequested):
+                payload["run_id"] = exc.run_id
+            typer.echo(canonical_json(payload), err=True)
             raise typer.Exit(2) from None
 
     return wrapped
@@ -596,8 +600,64 @@ def status(ctx: typer.Context, run_id: str | None = None):
 
 @app.command()
 @guarded
-def cancel(ctx: typer.Context, run_id: str, key: str | None = None):
-    run = HarnessService(store_for(ctx)).cancel(run_id, key or f"cancel_{uuid4().hex}")
+def cancel(
+    ctx: typer.Context,
+    run_id: str,
+    key: Annotated[str | None, typer.Option(help="Idempotency key for safe retries.")] = None,
+    check_image: Annotated[
+        str | None,
+        typer.Option(
+            "--image",
+            help=(
+                "Existing local image for the exact in-flight run_check; used only with "
+                "--stop-check-sandbox and never pulled."
+            ),
+        ),
+    ] = None,
+    stop_check_sandbox: Annotated[
+        bool,
+        typer.Option(
+            "--stop-check-sandbox",
+            help=(
+                "After persisting cancellation, stop the single labeled in-flight run_check "
+                "container and record replayable stop evidence."
+            ),
+        ),
+    ] = False,
+):
+    if stop_check_sandbox and check_image is None:
+        raise ValueError("--stop-check-sandbox requires --image")
+    if check_image is not None and not stop_check_sandbox:
+        raise ValueError("--image is valid only with --stop-check-sandbox")
+
+    service = HarnessService(store_for(ctx))
+    pending_check_id = None
+    if stop_check_sandbox:
+        current = service.store.get(run_id)
+        pending_checks = [
+            call_id
+            for call_id, reservation in current.tool_reservations.items()
+            if reservation.name == "run_check"
+        ]
+        if current.terminal or len(pending_checks) != 1 or len(current.tool_reservations) != 1:
+            raise ValueError(
+                "Sandbox stop requires exactly one nonterminal in-flight run_check intent"
+            )
+        pending_check_id = pending_checks[0]
+
+    control_key = key or f"cancel_{uuid4().hex}"
+    run = service.cancel(run_id, control_key)
+    if stop_check_sandbox and run.cancel_requested:
+        assert pending_check_id is not None and check_image is not None
+        staging_root = (Path(".horizon") / "staging").resolve(strict=True)
+        stopped = DockerSandbox(staging_root, check_image).stop_attempt(pending_check_id)
+        run = service.record_cancel_sandbox_stopped(
+            run_id,
+            pending_check_id,
+            stopped.container_name,
+            stopped.image_id,
+            f"cancel_stop_{digest({'cancel_key': control_key, 'call_id': pending_check_id})}",
+        )
     typer.echo(canonical_json(run.as_dict()))
 
 
@@ -2163,6 +2223,8 @@ def doctor():
                 "fts5": fts5,
                 "model_backend": "openai_compatible",
                 "autonomous_execution": True,
+                "recovery_safe_cancellation": True,
+                "controller_verified_check_cancellation": True,
                 "execution_profile": "bounded_sequential_work_item_dag",
                 "task_tool_allowlist": True,
                 "tool_authority_profile": "execution_mode_task_work_item_intersection",

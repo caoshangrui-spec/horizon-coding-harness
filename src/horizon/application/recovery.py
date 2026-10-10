@@ -183,8 +183,20 @@ class RecoveryService:
 
     def reconcile(self, run_id: str, token: LeaseToken) -> RecoveryReport:
         run = self.service.store.get(run_id)
-        self.service.check_recovery_worker(run, token)
         historical = self._historical_model_reservations(run)
+        if run.status == RunStatus.CANCELLED:
+            self._verify_linked_ledgers(run, historical)
+            return RecoveryReport(
+                run_id=run_id,
+                linked_ledgers_consistent=True,
+                safe_to_resume=False,
+                requires_human=False,
+                next_action="cancelled",
+                remaining_reservations=tuple(sorted(run.reservations)),
+                unknown_reservations=tuple(sorted(run.unknown_reservations)),
+                findings=(),
+            )
+        self.service.check_recovery_worker(run, token)
         if (run.model_reservations or run.model_calls) and run.model_policy is None:
             raise IntegrityError("Run-linked model attempts require a bound model policy")
 
@@ -232,9 +244,9 @@ class RecoveryService:
             self._validate_attempt(attempt, reservation, campaign_id)
             run_unknown = call_id in run.unknown_model_calls
             if attempt.status == "reserved":
+                actions.append(_RecoveryAction("mark_campaign_unknown", call_id))
                 if not run_unknown:
                     actions.append(_RecoveryAction("mark_model_unknown", call_id))
-                actions.append(_RecoveryAction("mark_campaign_unknown", call_id))
                 action = (
                     "campaign_marked_unknown" if run_unknown else "run_and_campaign_marked_unknown"
                 )
@@ -388,6 +400,17 @@ class RecoveryService:
 
         current = self.service.store.get(run_id)
         self._verify_linked_ledgers(current, historical)
+        if current.status == RunStatus.CANCELLED:
+            return RecoveryReport(
+                run_id=run_id,
+                linked_ledgers_consistent=True,
+                safe_to_resume=False,
+                requires_human=False,
+                next_action="cancelled",
+                remaining_reservations=tuple(sorted(current.reservations)),
+                unknown_reservations=tuple(sorted(current.unknown_reservations)),
+                findings=(),
+            )
         waiting_for_plan = (
             current.status == RunStatus.WAITING_FOR_USER
             and current.resume_state == RunStatus.PLANNING

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
@@ -84,6 +85,8 @@ class Run:
     failure_reason: str | None = None
     budget_stop: BudgetStop | None = None
     model_request_budget: ModelRequestBudgetEvidence | None = None
+    cancel_requested: bool = False
+    cancel_stop_receipts: list[dict[str, str]] = field(default_factory=list)
 
     @property
     def occupied(self) -> Usage:
@@ -178,6 +181,12 @@ class Run:
             result["budget_stop"] = self.budget_stop.model_dump(mode="json")
         if self.model_request_budget is not None:
             result["model_request_budget"] = self.model_request_budget.as_dict()
+        # Keep historical projection hashes stable: these keys exist only for traces using the
+        # recovery-safe cancellation protocol.
+        if self.cancel_requested:
+            result["cancel_requested"] = True
+        if self.cancel_stop_receipts:
+            result["cancel_stop_receipts"] = list(self.cancel_stop_receipts)
         return result
 
 
@@ -212,6 +221,7 @@ def _transition(run: Run, target: RunStatus) -> None:
         run.pending_human_request = None
         run.pending_human_plan_hash = None
         run.pending_human_session_ref = None
+        run.cancel_requested = False
 
 
 def apply(run: Run | None, event: Event) -> Run:
@@ -405,7 +415,41 @@ def apply(run: Run | None, event: Event) -> Run:
             run.no_progress_reset_tool_count = len(run.tool_calls)
         run.human_decisions.append(decision)
         run.pending_human_request = None
+    elif event.event_type == "CANCEL_PENDING":
+        if run.terminal or run.cancel_requested or not run.reservations:
+            raise IntegrityError("Pending cancellation requires an active in-flight operation")
+        if p.get("source") != "local_control":
+            raise IntegrityError("Cancellation must originate from the trusted control plane")
+        run.cancel_requested = True
+    elif event.event_type == "CANCEL_SANDBOX_STOPPED":
+        call_id = p.get("call_id")
+        reservation = run.tool_reservations.get(call_id)
+        receipt = {
+            "call_id": call_id,
+            "container_name": p.get("container_name"),
+            "image_id": p.get("image_id"),
+            "source": p.get("source"),
+        }
+        if (
+            not run.cancel_requested
+            or reservation is None
+            or reservation.name != "run_check"
+            or any(item["call_id"] == call_id for item in run.cancel_stop_receipts)
+            or not isinstance(receipt["container_name"], str)
+            or not receipt["container_name"]
+            or not isinstance(receipt["image_id"], str)
+            or re.fullmatch(r"sha256:[a-f0-9]{64}", receipt["image_id"]) is None
+            or receipt["source"] != "local_control"
+        ):
+            raise IntegrityError("Sandbox stop receipt does not match a pending cancellation")
+        run.cancel_stop_receipts.append(receipt)
     elif event.event_type == "CANCEL_REQUESTED":
+        if p.get("source") != "local_control":
+            raise IntegrityError("Cancellation must originate from the trusted control plane")
+        if p.get("recovery_safe") is True and (
+            set(run.reservations) - run.unknown_reservations or run.tool_reservations
+        ):
+            raise IntegrityError("Recovery-safe cancellation cannot hide an unsettled effect")
         _transition(run, RunStatus.CANCELLED)
     elif event.event_type == "RUN_FAILED":
         stop = None

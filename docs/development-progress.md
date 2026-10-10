@@ -1,6 +1,6 @@
 # 开发进度与验证记录
 
-更新：2026-10-08。已发布版本为 0.1.0，主干继续积累 Unreleased 改动；技术设计基线继续为
+更新：2026-10-10。已发布版本为 0.1.0，主干继续积累 Unreleased 改动；技术设计基线继续为
 0.2.0。2026-09-30 的
 可靠性内核证据保留，本次在其上增加 Provider 垂直切片和首个受控 Coding Agent 闭环。
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
@@ -21,7 +21,7 @@
 | NoProgress 人工指导恢复 | [human.py](../src/horizon/application/human.py)、[human.py](../src/horizon/domain/human.py) | 相同行为第 4 次或精确 A/B 循环第 6 步，将 pattern、工具证据、Task/Plan/WorkItem/workspace/session 绑定后进入 WAITING；本机指导写入新 session，新 Worker 续跑；不是通用审批或自动 replan |
 | Run 状态投影、终态和成功前置检查 | [run.py](../src/horizon/domain/run.py) | 状态规则；顺序 WorkItem DAG、单次 vN→vN+1 revision 和最终 required checks 全量回归已接入；无并行或多次 replan |
 | 追加事件、事务、幂等回执、历史合同、重放 | [sqlite.py](../src/horizon/adapters/persistence/sqlite.py) | SQLite 重启、投影损坏/删除、并发写、真实进程退出 |
-| Lease/epoch、取消、合同修订、预算账本 | [services.py](../src/horizon/application/services.py) | 旧 Worker 拒绝写入；Run 内模型/工具 intent、receipt、unknown 与硬预算事件化 |
+| Lease/epoch、取消、合同修订、预算账本 | [services.py](../src/horizon/application/services.py)、[恢复安全取消](recovery-safe-cancellation.md) | 旧 Worker 拒绝写入；无在途 effect 时直接取消，在途 effect 先写持久派发栅栏，迟到 receipt/unknown/工具处置闭合后再终态；Run 内模型/工具 intent、receipt、unknown 与硬预算事件化 |
 | wall-clock 到期与迟到回执 | [services.py](../src/horizon/application/services.py)、[agent_loop.py](../src/horizon/application/agent_loop.py)、[语义说明](budget-stop-semantics.md#21-wall-clock-到期边界) | 到期后禁止新派发并在安全边界记录 `FAILED / wall_clock_limit`；已派发调用可先结算/隔离，恢复 Lease 不扩展执行权限；待 HITL 的工具副作用保留非终态。当前无后台定时器，需由控制命令或 slice 边界观察到期 |
 | 不可变内容寻址文件产物与新目录恢复 | [artifacts.py](../src/horizon/adapters/persistence/artifacts.py)、[snapshot.py](../src/horizon/adapters/workspace/snapshot.py) | 文本/二进制文件；同进程已完整验证且元数据未变化的 CAS 去重命中不重复读 blob，变化或重启后重新验 hash；不恢复 Git 对象、进程或网络状态 |
 | 检查点产物引用与事件原子提交 | [checkpoints.py](../src/horizon/application/checkpoints.py) | 产物校验、游标 CAS、拒绝未结算动作；正常轮次的调度静止由本地顺序 Supervisor 校验，异常退出仍须 recovery 围栏 |
@@ -87,6 +87,23 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 仍是后续适配约束；不能以该文档代替本项目的实际联调。
 
 ## 验证结果
+
+### 2026-10-10 恢复安全取消与精确 check 终止
+
+- 取消从“立即终态”改为两阶段事件协议。静止 Run 仍直接进入 `CANCELLED`；存在未分类 effect
+  时追加 `CANCEL_PENDING` 并投影 `cancel_requested=true`。active gate 返回类型化
+  `RunCancellationRequested(run_id)`，recovery gate 仍可提交既有 receipt 或 unknown 证据。
+- 普通/模型 reservation 在结算或保守分类后自动追加 recovery-safe final cancel；unknown tool
+  reservation 继续阻塞终态，直到既有 `ToolRecoveryService` 完成 accept/rollback/discard。
+  Campaign unknown 先于 Run unknown 持久化，避免 Run 已取消而外部费用账本仍悬空。
+- Agent 在每个多工具调用和每个 protected check 后重读持久状态。定向测试验证：模型 response
+  在取消后仍先落 receipt、工具派发数为 0；两工具 response 在第一项触发取消后只派发 1 项；
+  计划阶段的迟到 response 结算后不发布 Plan。
+- `horizon cancel --image ... --stop-check-sandbox` 仅接受一个在途 `run_check`：先写取消栅栏，
+  再用持久 call ID 核验并停止 owner/attempt/image 完全一致的标签容器，最后写入
+  `CANCEL_SANDBOX_STOPPED`。它不拉镜像、不删除恢复证据、不终止任意宿主进程。
+- 新增 8 项离线回归并重放新 Trace；全量为 **409 passed，7 skipped**。本轮没有联网、没有
+  调用付费模型、没有重试或 fallback，也没有改变任何历史实验费用上限。
 
 ### 2026-10-08 wall-clock 安全终态与恢复边界
 
@@ -791,8 +808,9 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
    双门投影、run-scope 证据 Memory 和
    词法 FTS 是部分能力，不是上述完整闭环。
 5. **预算与隐私补全**：CNY Campaign 与 Run 模型账本现已同时工作，但 TaskSpec 的旧
-   `max_cost_usd` 尚未做版本化多币种迁移；也没有取消/截止后的迟到回执主动对账和生产级
-   全链路脱敏。当前 Trace 包含 TaskSpec；不应在其中嵌入凭据。
+   `max_cost_usd` 尚未做版本化多币种迁移；取消/截止后的迟到 receipt 已能在本地 recovery
+   gate 下结算或保守分类，但没有 Provider 主动 receipt 查询、后台定时协调和生产级全链路
+   脱敏。当前 Trace 包含 TaskSpec；不应在其中嵌入凭据。
 6. **真实效果与验收**：七个真实模型 Pilot Run 分别因迭代上限、上下文硬门限、三次 Campaign
    费用硬门限和两次单 Run 费用硬门限停止；它们证明了费用/Trace/source isolation 路径，也分别暴露
    并修复了 Plan/搜索反馈、大文件读取/上下文/租约、Plan 假设路径/请求膨胀，以及范围参数协议
@@ -801,7 +819,7 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 七轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新离线全量回归为 401 passed、7 个显式 Docker skip，
+当前主干继续补齐尚未统一覆盖的故障点；最新离线全量回归为 409 passed、7 个显式 Docker skip，
 7 个 Docker 合同已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以

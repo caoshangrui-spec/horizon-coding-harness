@@ -306,6 +306,21 @@ attempt 和 image 全部匹配的容器。若容器 missing，缺失本身不是
 当前 WorkItem acceptance scope、事件尾部和 workspace revision，并在提交处置时再次复核；任一
 不符继续保持 unknown。成功处置会原子写入 cancelled receipt 与下一 AgentSession。
 
+若目标不是继续 Run，而是取消整个 Run，可直接在 active check 上使用：
+
+```powershell
+uv run --locked --cache-dir .uv-cache horizon cancel <run-id> `
+  --image redis:7-alpine `
+  --stop-check-sandbox
+```
+
+这个入口先持久化 `CANCEL_PENDING` 派发栅栏，再停止唯一匹配的标签容器，并追加
+`CANCEL_SANDBOX_STOPPED`；它不会立即删除容器或伪造 check receipt。旧 Worker 若仍在，会提交
+实际退出 receipt 后自动进入 `CANCELLED`；Worker 已退出时，先 `agent reconcile`，再用上述
+`agent resolve-tool --discard-check --image ...` 完成精确结算。Run 在此期间仍显示原阶段并带
+`cancel_requested=true`，只为保留 recovery 能力，不能再派发模型或工具。完整状态与故障窗口见
+[恢复安全取消](recovery-safe-cancellation.md)。
+
 若查询到的是自然退出而非被停止/超时/OOM 的容器，可选择接纳其精确结果：
 
 ```powershell

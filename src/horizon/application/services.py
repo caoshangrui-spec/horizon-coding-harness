@@ -16,6 +16,7 @@ from horizon.domain.errors import (
     Conflict,
     InvalidTransition,
     LeaseConflict,
+    RunCancellationRequested,
     RunDeadlineExceeded,
 )
 from horizon.domain.events import NewEvent
@@ -65,6 +66,8 @@ class HarnessService:
         self.store = store
 
     def _active(self, run: Run) -> None:
+        if run.status == RunStatus.CANCELLED or run.cancel_requested:
+            raise RunCancellationRequested(run.run_id)
         if run.terminal:
             raise InvalidTransition(f"Run is terminal: {run.status}")
         if self.store.clock() >= datetime.fromisoformat(run.deadline_at):
@@ -90,7 +93,7 @@ class HarnessService:
         self._check_lease(run, token)
 
     def check_recovery_worker(self, run: Run, token: LeaseToken) -> None:
-        """Fence the worker without blocking receipt/recovery writes after the deadline."""
+        """Fence receipt/recovery writes without authorizing new work after a stop request."""
 
         self._nonterminal(run)
         self._check_lease(run, token)
@@ -102,13 +105,19 @@ class HarnessService:
         request: dict[str, Any],
         decide: Callable[[Run], Iterable[NewEvent]],
     ) -> Run:
-        """Persist a safe wall-clock terminal event when an active command observes expiry."""
+        """Close a deadline or cancellation only after the command leaves a safe boundary."""
 
         try:
-            return self.store.command(run_id, key, request, decide)
+            result = self.store.command(run_id, key, request, decide)
+        except RunCancellationRequested:
+            self.cancel_if_safe(run_id, f"cancel_{digest({'command_key': key})}")
+            raise
         except RunDeadlineExceeded:
             self.expire_if_safe(run_id, f"deadline_{digest({'command_key': key})}")
             raise
+        if result.cancel_requested:
+            return self.cancel_if_safe(run_id, f"cancel_{digest({'command_key': key})}")
+        return result
 
     def set_plan(
         self,
@@ -723,11 +732,97 @@ class HarnessService:
         def decide(run):
             if run.terminal:
                 return []
-            return [NewEvent(event_type="CANCEL_REQUESTED", payload={"source": "local_control"})]
+            if run.cancel_requested:
+                return []
+            if self._cancellation_blocked(run):
+                return [NewEvent(event_type="CANCEL_PENDING", payload={"source": "local_control"})]
+            return [
+                NewEvent(
+                    event_type="CANCEL_REQUESTED",
+                    payload={"source": "local_control", "recovery_safe": True},
+                )
+            ]
 
-        return self.store.command(run_id, key, {"operation": "cancel"}, decide)
+        requested = self.store.command(run_id, key, {"operation": "cancel"}, decide)
+        if requested.cancel_requested:
+            return self.cancel_if_safe(run_id, f"cancel_finalize_{digest({'command_key': key})}")
+        return requested
+
+    @staticmethod
+    def _cancellation_blocked(run: Run) -> bool:
+        return bool(set(run.reservations) - run.unknown_reservations or run.tool_reservations)
+
+    def cancel_if_safe(self, run_id: str, key: str) -> Run:
+        """Finish a durable cancellation only after external effects are classified."""
+
+        current = self.store.get(run_id)
+        if current.terminal or not current.cancel_requested:
+            return current
+        if self._cancellation_blocked(current):
+            return current
+
+        def decide(run):
+            if run.terminal or not run.cancel_requested:
+                return []
+            if self._cancellation_blocked(run):
+                return []
+            return [
+                NewEvent(
+                    event_type="CANCEL_REQUESTED",
+                    payload={"source": "local_control", "recovery_safe": True},
+                )
+            ]
+
+        return self.store.command(
+            run_id,
+            key,
+            {"operation": "cancel_if_safe"},
+            decide,
+        )
+
+    def record_cancel_sandbox_stopped(
+        self,
+        run_id: str,
+        call_id: str,
+        container_name: str,
+        image_id: str,
+        key: str,
+    ) -> Run:
+        request = {
+            "operation": "record_cancel_sandbox_stopped",
+            "call_id": call_id,
+            "container_name": container_name,
+            "image_id": image_id,
+        }
+
+        def decide(run):
+            if not run.cancel_requested:
+                raise Conflict("Run has no pending cancellation")
+            reservation = run.tool_reservations.get(call_id)
+            if reservation is None or reservation.name != "run_check":
+                raise Conflict("Cancellation stop receipt requires the exact pending run_check")
+            existing = next(
+                (item for item in run.cancel_stop_receipts if item["call_id"] == call_id),
+                None,
+            )
+            if existing is not None:
+                if existing["container_name"] != container_name or existing["image_id"] != image_id:
+                    raise Conflict("Cancellation stop receipt conflicts with prior evidence")
+                return []
+            return [
+                NewEvent(
+                    event_type="CANCEL_SANDBOX_STOPPED",
+                    payload={**request, "source": "local_control"},
+                )
+            ]
+
+        return self._command(run_id, key, request, decide)
 
     def expire(self, run_id: str, key: str) -> Run:
+        current = self.store.get(run_id)
+        if current.cancel_requested:
+            return self.cancel_if_safe(run_id, f"cancel_before_expire_{digest({'key': key})}")
+
         def decide(run):
             if run.terminal or self.store.clock() < datetime.fromisoformat(run.deadline_at):
                 return []
@@ -744,6 +839,8 @@ class HarnessService:
         """Terminalize an expired Run only when no remaining effect needs operator recovery."""
 
         current = self.store.get(run_id)
+        if current.cancel_requested:
+            return self.cancel_if_safe(run_id, f"cancel_before_expire_{digest({'key': key})}")
         if current.terminal or self.store.clock() < datetime.fromisoformat(current.deadline_at):
             return current
         if set(current.reservations) - current.unknown_reservations or current.tool_reservations:

@@ -5,6 +5,14 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Made cancellation recovery-safe instead of terminalizing over in-flight effects. A Run now
+  persists `CANCEL_PENDING` as a durable dispatch fence, accepts only late receipts, conservative
+  unknown classification, or explicit tool recovery, and enters `CANCELLED` automatically once no
+  unclassified or recoverable tool effect remains. Agent multi-tool and protected-validation loops
+  recheck the fence after every dispatch. The trusted CLI can additionally stop the single exact
+  labeled `run_check` container and record its call/container/image identity in the replayable
+  Trace. Historical projections remain compatible; no retry, fallback, network call, or paid model
+  use was added.
 - Made wall-clock expiry a replayable execution boundary. Active commands now raise a typed
   `RunDeadlineExceeded` and persist `FAILED / wall_clock_limit` whenever no external effect still
   needs classification. Model/tool receipts, conservative unknown classification, lease release,

@@ -423,6 +423,12 @@ Run 尚未建立时的澄清挂在 intake scope，intake_id/run_id 恰好一个�
 
 取消写 durable cancel flag，使所有待决请求 CANCELLED；Gateway 执行前最后一次检查。已运行命令终止进程组，无法确认终止时不得派发新命令。等待态记 `resume_state`，解决后回到原阶段，而非一律直接进入 RUNNING。
 
+当前有界实现把这条规则落为两阶段协议：无在途 effect 时直接 `CANCELLED`；否则先写
+`CANCEL_PENDING`/`cancel_requested`，active gate 停止新派发，recovery gate 仅接收迟到 receipt、
+unknown 分类或显式工具处置。单一 Docker `run_check` 可由可信 CLI 用持久 call ID 核验并停止
+标签容器，`CANCEL_SANDBOX_STOPPED` 保存容器名和 image digest；普通宿主进程组和 Provider
+主动取消仍未实现。完整边界见[恢复安全取消](recovery-safe-cancellation.md)。
+
 ## 9. Fallback、重试与熔断
 
 ### 9.1 四类行为不能混为一谈

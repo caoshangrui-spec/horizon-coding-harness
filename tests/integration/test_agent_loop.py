@@ -28,7 +28,7 @@ from horizon.domain.agent import AgentSession
 from horizon.domain.budget import Usage
 from horizon.domain.common import canonical_json, digest
 from horizon.domain.context import ContextProjection, MandatoryFactLedger
-from horizon.domain.errors import BudgetStopReason, Conflict
+from horizon.domain.errors import BudgetStopReason, Conflict, ProviderConnectionError
 from horizon.domain.human import HumanGuidanceRequest
 from horizon.domain.memory import RunMemorySnapshot
 from horizon.domain.model import (
@@ -2237,6 +2237,52 @@ def test_explicit_replace_acceptance_completes_turn_without_replaying_model(
     )
 
 
+def test_cancelled_unknown_write_stays_recoverable_then_terminalizes(
+    tmp_path,
+    task_dict,
+):
+    (
+        runner,
+        store,
+        run_id,
+        token,
+        _,
+        first_model,
+        real_tools,
+        call_id,
+    ) = interrupt_after_replace_effect(tmp_path, task_dict)
+    pending = runner.service.cancel(run_id, "cancel-unknown-write")
+    assert pending.status == RunStatus.RUNNING
+    assert pending.cancel_requested is True
+    assert pending.unknown_tool_calls == {call_id}
+
+    cancelled = ToolRecoveryService(
+        runner.service,
+        runner.session_store,
+        real_tools,
+    ).resolve_replace(
+        run_id,
+        call_id,
+        decision="accept",
+        token=token,
+    )
+
+    assert cancelled.status == RunStatus.CANCELLED
+    assert cancelled.tool_calls[-1].recovery_disposition == "accept_replace"
+    assert not cancelled.reservations
+    assert len(first_model.requests) == 1
+    report = RecoveryService(
+        runner.service,
+        runner.campaign_ledger,
+        runner.session_store,
+    ).reconcile(run_id, token)
+    assert report.next_action == "cancelled"
+    assert report.requires_human is False
+    assert SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id)).as_dict() == (
+        cancelled.as_dict()
+    )
+
+
 def test_explicit_replace_rollback_restores_pre_effect_and_continues(
     tmp_path,
     task_dict,
@@ -2890,6 +2936,143 @@ def test_agent_slice_persists_deadline_after_late_model_receipt(tmp_path, task_d
     assert not result.tool_calls
     assert not result.reservations
     assert store.events(run_id)[-1].event_type == "RUN_FAILED"
+
+
+def test_agent_slice_settles_late_model_receipt_before_cancellation(tmp_path, task_dict):
+    runner, store, run_id, token, _, _ = setup_loop(tmp_path, task_dict, [])
+
+    class CancellingModel:
+        def __init__(self):
+            self.requests = []
+
+        def generate(self, request, trace_id):
+            self.requests.append((request, trace_id))
+            pending = runner.service.cancel(run_id, "cancel-during-model-call")
+            assert pending.cancel_requested is True
+            return ModelResponse(
+                response_id="cancelled-late-response",
+                model=request.model,
+                message=ModelMessage(
+                    role="assistant",
+                    tool_calls=(
+                        ToolCall(
+                            id="must-not-dispatch",
+                            function=FunctionCall(
+                                name="read_file",
+                                arguments={"path": "src/parser.py"},
+                            ),
+                        ),
+                    ),
+                ),
+                finish_reason="tool_calls",
+                usage=ModelUsage(input_tokens=100, output_tokens=20),
+                provider_trace_id="cancelled-late-trace",
+            )
+
+    model = CancellingModel()
+    runner.model = model
+    result = runner.run(run_id, token)
+
+    assert result.status == RunStatus.CANCELLED
+    assert len(model.requests) == 1
+    assert len(result.model_calls) == 1
+    assert not result.tool_calls
+    assert not result.reservations
+    event_types = [event.event_type for event in store.events(run_id)]
+    assert event_types[-2:] == ["MODEL_CALL_SETTLED", "CANCEL_REQUESTED"]
+    assert SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id)).as_dict() == result.as_dict()
+
+
+def test_agent_cancellation_classifies_unknown_model_before_terminalizing(tmp_path, task_dict):
+    runner, store, run_id, token, _, _ = setup_loop(tmp_path, task_dict, [])
+
+    class CancellingFailedModel:
+        def generate(self, request, trace_id):
+            pending = runner.service.cancel(run_id, "cancel-during-failed-model-call")
+            assert pending.cancel_requested is True
+            raise ProviderConnectionError("simulated uncertain provider disconnect")
+
+    runner.model = CancellingFailedModel()
+    result = runner.run(run_id, token)
+
+    assert result.status == RunStatus.CANCELLED
+    assert len(result.model_reservations) == 1
+    call_id = next(iter(result.model_reservations))
+    assert result.unknown_model_calls == {call_id}
+    assert result.unknown_reservations == {call_id}
+    assert runner.campaign_ledger.attempt(result.model_policy.campaign_id, call_id).status == (
+        "unknown"
+    )
+    report = RecoveryService(
+        runner.service,
+        runner.campaign_ledger,
+        runner.session_store,
+    ).reconcile(run_id, token)
+    assert report.next_action == "cancelled"
+    assert report.requires_human is False
+    assert report.unknown_reservations == (call_id,)
+    assert SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id)).as_dict() == result.as_dict()
+
+
+def test_agent_cancellation_after_first_tool_blocks_remaining_dispatches(tmp_path, task_dict):
+    runner, store, run_id, token, _, _ = setup_loop(tmp_path, task_dict, [])
+
+    class TwoToolModel:
+        def generate(self, request, trace_id):
+            return ModelResponse(
+                response_id="two-tool-response",
+                model=request.model,
+                message=ModelMessage(
+                    role="assistant",
+                    tool_calls=(
+                        ToolCall(
+                            id="first-read",
+                            function=FunctionCall(
+                                name="read_file",
+                                arguments={"path": "src/parser.py"},
+                            ),
+                        ),
+                        ToolCall(
+                            id="second-read",
+                            function=FunctionCall(
+                                name="read_file",
+                                arguments={"path": "src/formatter.py"},
+                            ),
+                        ),
+                    ),
+                ),
+                finish_reason="tool_calls",
+                usage=ModelUsage(input_tokens=100, output_tokens=20),
+                provider_trace_id="two-tool-trace",
+            )
+
+    class CancelAfterFirstDispatch:
+        def __init__(self, delegate):
+            self.delegate = delegate
+            self.dispatches = 0
+
+        def __getattr__(self, name):
+            return getattr(self.delegate, name)
+
+        def dispatch_safe(self, name, arguments, attempt_id=None):
+            self.dispatches += 1
+            outcome = self.delegate.dispatch_safe(name, arguments, attempt_id)
+            pending = runner.service.cancel(run_id, "cancel-during-first-tool")
+            assert pending.cancel_requested is True
+            return outcome
+
+    tools = CancelAfterFirstDispatch(runner.tools)
+    runner.model = TwoToolModel()
+    runner.tools = tools
+    result = runner.run(run_id, token)
+
+    assert result.status == RunStatus.CANCELLED
+    assert tools.dispatches == 1
+    assert len(result.model_calls) == 1
+    assert len(result.tool_calls) == 1
+    assert result.tool_calls[0].name == "read_file"
+    assert not result.reservations
+    assert SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id)).as_dict() == result.as_dict()
 
 
 @pytest.mark.parametrize(

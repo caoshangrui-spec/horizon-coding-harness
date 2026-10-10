@@ -29,7 +29,13 @@ from horizon.domain.agent import AgentSession, AgentSessionRecord
 from horizon.domain.budget import Usage
 from horizon.domain.common import Contract, canonical_json, digest
 from horizon.domain.context import ContextProjection, MandatoryFactLedger
-from horizon.domain.errors import BudgetExceeded, Conflict, PolicyDenied, ProviderError
+from horizon.domain.errors import (
+    BudgetExceeded,
+    Conflict,
+    PolicyDenied,
+    ProviderError,
+    RunCancellationRequested,
+)
 from horizon.domain.human import NoProgressPattern, classify_no_progress
 from horizon.domain.memory import RunMemorySnapshot
 from horizon.domain.model import (
@@ -715,17 +721,19 @@ class CodingAgentRunner:
         try:
             response = self.model.generate(request, trace_id)
         except ProviderError as exc:
-            self.service.mark_model_call_unknown(
-                run_id,
-                call_id,
-                token,
-                f"unknown_{call_id}",
-            )
             self.campaign_ledger.mark_unknown(
                 self.campaign.campaign_id,
                 call_id,
                 type(exc).__name__,
             )
+            classified = self.service.mark_model_call_unknown(
+                run_id,
+                call_id,
+                token,
+                f"unknown_{call_id}",
+            )
+            if classified.status == RunStatus.CANCELLED:
+                raise RunCancellationRequested(run_id) from exc
             raise
         try:
             estimated_cost = self.pricing.cost_for(response.usage)
@@ -1061,6 +1069,9 @@ class CodingAgentRunner:
             results.append(result)
             if outcome.status == "unknown":
                 raise Conflict("Protected validation effect is unknown")
+            current = self.service.store.get(run_id)
+            if current.terminal:
+                return current, tuple(results)
         revision, manifest = self.tools.checkpoint()
         run = self.service.store.get(run_id)
         run = commit_checkpoint(
@@ -1205,6 +1216,8 @@ class CodingAgentRunner:
             else:
                 try:
                     run, response = self._model_call(run_id, token, messages, iteration)
+                except RunCancellationRequested:
+                    return self.service.store.get(run_id)
                 except BudgetExceeded as exc:
                     if exc.stop is None or self.service.store.get(run_id).reservations:
                         raise
@@ -1216,6 +1229,9 @@ class CodingAgentRunner:
                         model_request_budget=exc.model_request_budget,
                     )
                 except ProviderError as exc:
+                    latest = self.service.store.get(run_id)
+                    if latest.terminal:
+                        return latest
                     return self.service.fail(
                         run_id,
                         f"provider_{type(exc).__name__}",
@@ -1345,6 +1361,9 @@ class CodingAgentRunner:
                     call.function.arguments,
                     enforce_no_progress=len(response.message.tool_calls) == 1,
                 )
+                run = self.service.store.get(run_id)
+                if run.terminal:
+                    return run
                 messages.append(
                     ModelMessage(
                         role="tool",
@@ -1391,6 +1410,8 @@ class CodingAgentRunner:
                 active_item,
                 final_item=is_final_item,
             )
+            if run.terminal:
+                return run
             if all(result.passed for result in results):
                 if is_final_item:
                     return self.service.pass_work_item_and_succeed(

@@ -4,8 +4,8 @@
 
 本表是完整开发与验收导航。2026-09-30 已开始基础内核实现，实际证据列记录当前子范围与剩余缺口。目标路径相对 `src/horizon/`；计划测试路径相对 `tests/`；实际证据列的 `tests/` 路径相对仓库根。同一测试文件可验证多个 ID，但不能把子范围通过等同于整项通过。
 
-当前结果：2026-09-30 可靠性内核为 **92 项测试通过**；2026-10-07 的最新离线回归为
-**401 passed，7 skipped**。**7 项真实 Docker 合同**已单独补跑并全部通过。另已完成一次 Tool Calling 探针和一次受预算
+当前结果：2026-09-30 可靠性内核为 **92 项测试通过**；2026-10-10 的最新离线回归为
+**409 passed，7 skipped**。**7 项真实 Docker 合同**已单独补跑并全部通过。另已完成一次 Tool Calling 探针和一次受预算
 保护的真实单 WorkItem Agent fixture Run。完整长程 Agent 未实现，未做独立安全复核。命令、环境、证据与限制见
 [开发进度](development-progress.md)。仍为“待填”的条目没有实现证据；“部分/初步”不代表
 完整需求通过。普通工作直接自检，关键风险及用户指定验收按需独立复核，
@@ -51,7 +51,7 @@
 | FR-506 | M5 | `application/replay_run.py` | `e2e/test_execution_fork.py`：新 Run/预算/工作区；父事件产物 hash 不变 | 待填 / 未审核 |
 | FR-601 | M0/M4 | `adapters/sandbox/swerex.py` | `contract/test_sandbox.py`：默认容器执行，未授权无宿主执行路径 | 部分：`adapters/sandbox/docker.py` 无宿主 Shell 回退，已接入 `agent run` 保护验收；6 项真实 Docker 契约和一次真实 Agent fixture；SWE-ReX 未接入 |
 | FR-602 | M4 | `tools/gateway.py` | `integration/test_command_limits.py`：超时、超量输出、越界 cwd 被约束 | 部分：`adapters/sandbox/docker.py` 的超时、输出上限、临时目录边界；`tests/contract/test_docker.py`；非完整安全验收 |
-| FR-603 | M2/M4 | `application/cancel_run.py` | `e2e/test_cancel.py`：所有非终态取消，持久标记后派发为 0 | 部分：控制面取消使终态与 Lease 失效；`tests/integration/test_event_store.py`；在途工具联动未接入 |
+| FR-603 | M2/M4 | `domain/run.py`, `application/services.py`, `interfaces/cli/app.py` | `integration/test_budget.py`, `integration/test_agent_loop.py`, `integration/test_cli.py`：取消栅栏后新派发为 0，在途 receipt/unknown/工具恢复闭合后才终态 | 部分：静止 Run 立即取消；在途 effect 写 `CANCEL_PENDING` 并禁止新工作，迟到模型 receipt/unknown 和显式工具处置后自动终态；多工具 response 不再派发剩余调用；单一 `run_check` 可按持久 call ID 核验停止标签容器并记录 stop receipt。尚无通用宿主进程组终止、Provider 主动取消或后台 Worker 协调 |
 | FR-604 | M2/M4 | `approval/service.py` | `e2e/test_approval.py`：未批准高风险调用为 0，永久禁令不可审批绕过 | 待填 / 未审核 |
 | FR-605 | M5 | `trace/projector.py` | `e2e/test_terminal_artifacts.py`：成功/失败/取消均有摘要及现有证据引用 | 部分：成功 Agent Run 有 checkpoint、validation evidence、模型/工具 Artifact 和终态摘要；固定离线作品集成功路径已有自检 EvidencePack。失败/取消终态包仍未统一 |
 
@@ -94,11 +94,11 @@
 | FR-1101 | M2 | `approval/service.py` | `integration/test_approval_binding.py`：请求及参数/版本绑定在重启后保留 | 部分：`domain/human.py` + `application/services.py` 已把非法规划请求绑定 response/Task/version；NoProgress 请求绑定 tool evidence、Task/Plan/WorkItem/workspace/session，事件重放后保留；仍非通用请求模型 |
 | FR-1102 | M2 | `approval/service.py` | `fault_injection/test_approval_resume.py`：重复点击单次消费，变参变版本失效 | 部分：replacement Plan 与 operator guidance 均单事务消费；hash/version/session 不匹配拒绝。指导保持 iteration、重置 streak 并由新 Worker 续跑；尚无过期/stale 和通用重复决策矩阵 |
 | FR-1103 | M2/M4 | `approval/control_channel.py` | `e2e/test_approval_actor.py`：模型/仓库伪造决策拒绝，可信 CLI 可提交 | 部分：本机 `plan set` 与 `agent guide` 持久化 local_cli actor/decision/request；`agent resolve-tool` 与 promotion 仍是各自窄入口；无多用户身份或通用审批渠道 |
-| FR-1104 | M2/M3 | `approval/service.py`, `cancel_run.py` | `integration/test_wait_deadline.py`：等待零调用、超时/取消关闭、按 resume_state 回转 | 部分：规划失败与 NoProgress 均原子进入 WAITING、保存准确 resume_state 并释放 Lease，等待零模型调用；分别回转 READY/RUNNING；wall-clock 到期现可由下一控制命令在安全边界持久化终态，但尚无后台定时器或每类 HITL 的独立 timeout 策略 |
+| FR-1104 | M2/M3 | `approval/service.py`, `application/services.py` | `integration/test_wait_deadline.py`：等待零调用、超时/取消关闭、按 resume_state 回转 | 部分：规划失败与 NoProgress 均原子进入 WAITING、保存准确 resume_state 并释放 Lease，等待零模型调用；分别回转 READY/RUNNING；wall-clock 和 cancel 都在无未分类 effect 的安全边界持久化终态，pending cancel 的 recovery gate 不允许新派发。尚无后台定时器或每类 HITL 的独立 timeout 策略 |
 | FR-1201 | M3 | `reliability/retry.py`, `breaker.py` | `fault_injection/test_retry_breaker.py`：总次数有界，breaker 重启持续，隐藏重试不倍增 | 待填 / 未审核 |
 | FR-1202 | M3/M5 | `reliability/fallback.py` | `contract/test_model_fallback.py`：未授权/不兼容/超预算模型拒绝，正式比较不换模型 | 待填 / 未审核 |
 | FR-1203 | M3 | `reliability/fallback.py` | `integration/test_degraded_summary.py`：原错误、降级策略、质量标记存在且必需检查不变 | 待填 / 未审核 |
-| FR-1204 | M2/M3 | `reliability/classifier.py` | `fault_injection/test_conservative_failure.py`：未知费用和效果保守处理，存储失败/截止后停机 | 部分：恢复服务分类模型未知、模型响应缺失、工具未知和不安全会话边界；确定性的 Run/Campaign 派发前费用不足以结构化 `BudgetStop` 原子进入 `FAILED`；wall-clock 到期禁止新派发，并在无未分类 effect/可恢复 tool intent 时写入 `FAILED / wall_clock_limit`。迟到 receipt、unknown 分类和专用 recovery Lease 可越过时间门但不能扩大执行权限；工具副作用保留到 HITL 处置后再终态。不自动重试；Provider 主动查询和统一 retry/breaker 仍待实现 |
+| FR-1204 | M2/M3 | `reliability/classifier.py`, `application/services.py` | `fault_injection/test_conservative_failure.py`：未知费用和效果保守处理，存储失败/截止/取消后停机 | 部分：恢复服务分类模型未知、模型响应缺失、工具未知和不安全会话边界；确定性的 Run/Campaign 派发前费用不足以结构化 `BudgetStop` 原子进入 `FAILED`；wall-clock 与 cancel 都禁止新派发，并只在无未分类 effect/可恢复 tool intent 时终态化。迟到 receipt、unknown 分类和专用 recovery Lease 可越过停止门但不能扩大执行权限；工具副作用保留到 HITL 处置后再终态。不自动重试；Provider 主动查询和统一 retry/breaker 仍待实现 |
 | FR-1301 | M3 | `domain/context.py`, `domain/memory.py`, `application/context.py` | `unit/test_context.py` + `integration/test_agent_loop.py`：每次模型调用绑定 ledger、Run Memory、投影及恢复边界 | 部分：每次 reservation 绑定 schema-versioned ContextProjection、MandatoryFactLedger 和 RunMemorySnapshot Artifact；ledger 显式包含工具 Schema、Task/Plan/权限/验收/预算/策略/workspace hash，memory 绑定事件来源/revision/evidence；完整六层内容来源和逐层 token 预算仍未实现 |
 | FR-1302 | M3/M5 | `context/compactor.py` | `unit/test_compaction_contract.py` + 冻结事实 QA：hash 保留和语义结果分开记录 | 部分：控制器事实 ledger 和旧单元/content hash 均确定性保留，完整 transcript 独立留存；当前明确无模型语义摘要和语义 QA，不能宣称事实等价 |
 | FR-1303 | M1/M4 | `application/agent_loop.py`, `domain/plan.py` | `integration/test_agent_loop.py` + `benchmarks/reliability/horizon-controller-v1.yaml`：精确模式无进展反馈/等待，返修/replan 有界，合同验收不改动 | 部分：模型 iteration/repair 有硬上限；相同动作与 A/B period-2 先反馈、继续模式进入人工指导；模型可基于证据显式 replan 一次，完成项/合同/工具权限不变且原子恢复。冻结策略诊断 7 个 NoProgress Trace、5 个 replan 合同当前 41/41；没有 period-3+、语义检测、自动触发或多次修订 |

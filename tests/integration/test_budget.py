@@ -8,10 +8,11 @@ from horizon.domain.errors import (
     BudgetExceeded,
     Conflict,
     IntegrityError,
+    RunCancellationRequested,
     RunDeadlineExceeded,
 )
 from horizon.domain.states import RunStatus
-from horizon.domain.tools import ToolCallReservation
+from horizon.domain.tools import ToolCallRecord, ToolCallReservation
 
 
 def test_reservation_survives_restart_and_settles_decimal_exactly(store, service, running):
@@ -161,6 +162,126 @@ def test_late_receipt_settles_after_deadline_before_terminalization(store, servi
     result = service.release_lease(run.run_id, recovery_token, "release-after-receipt")
     assert result.status == RunStatus.FAILED
     assert result.failure_reason == "wall_clock_limit"
+
+
+def test_cancel_waits_for_late_receipt_and_fences_new_work(store, service, running):
+    run, token = running
+    service.reserve(
+        run.run_id,
+        "late-receipt",
+        Usage(model_calls=1, cost_usd="0.50"),
+        token,
+        "reserve-late-receipt",
+    )
+
+    pending = service.cancel(run.run_id, "cancel-with-inflight-call")
+    assert pending.status == RunStatus.RUNNING
+    assert pending.cancel_requested is True
+    assert pending.lease_id == token.lease_id
+    assert pending.as_dict()["cancel_requested"] is True
+    with pytest.raises(RunCancellationRequested) as stopped:
+        service.reserve(
+            run.run_id,
+            "forbidden-new-call",
+            Usage(model_calls=1),
+            token,
+            "reserve-after-cancel",
+        )
+    assert stopped.value.run_id == run.run_id
+
+    cancelled = service.settle(
+        run.run_id,
+        "late-receipt",
+        Usage(model_calls=1, cost_usd="0.25"),
+        token,
+        "settle-late-receipt-after-cancel",
+    )
+    assert cancelled.status == RunStatus.CANCELLED
+    assert cancelled.cancel_requested is False
+    assert cancelled.lease_id is None
+    assert cancelled.usage.cost_usd == Decimal("0.25")
+    assert not cancelled.reservations
+    assert "cancel_requested" not in cancelled.as_dict()
+    assert [event.event_type for event in store.events(run.run_id)[-2:]] == [
+        "BUDGET_SETTLED",
+        "CANCEL_REQUESTED",
+    ]
+    replayed = SQLiteEventStore.replay_jsonl(store.export_jsonl(run.run_id))
+    assert replayed.as_dict() == cancelled.as_dict()
+
+
+def test_cancel_records_exact_check_stop_and_waits_for_tool_recovery(
+    store,
+    service,
+    running,
+):
+    run, token = running
+    reservation = ToolCallReservation(
+        call_id="pending-check",
+        name="run_check",
+        arguments_hash="a" * 64,
+        workspace_revision="before",
+        workspace_manifest_ref="b" * 64,
+    )
+    service.reserve_tool_call(
+        run.run_id,
+        reservation,
+        token,
+        "reserve-pending-check",
+    )
+    pending = service.cancel(run.run_id, "cancel-pending-check")
+    assert pending.cancel_requested is True
+
+    stopped = service.record_cancel_sandbox_stopped(
+        run.run_id,
+        reservation.call_id,
+        "horizon-check-owned",
+        "sha256:" + "c" * 64,
+        "record-stopped-check",
+    )
+    assert stopped.cancel_requested is True
+    assert stopped.cancel_stop_receipts == [
+        {
+            "call_id": reservation.call_id,
+            "container_name": "horizon-check-owned",
+            "image_id": "sha256:" + "c" * 64,
+            "source": "local_control",
+        }
+    ]
+
+    unknown = service.mark_tool_call_unknown(
+        run.run_id,
+        reservation.call_id,
+        token,
+        "mark-cancelled-check-unknown",
+    )
+    assert unknown.status == RunStatus.RUNNING
+    assert unknown.cancel_requested is True
+    assert unknown.unknown_tool_calls == {reservation.call_id}
+
+    cancelled = service.settle_tool_call(
+        run.run_id,
+        ToolCallRecord(
+            call_id=reservation.call_id,
+            name=reservation.name,
+            arguments_hash=reservation.arguments_hash,
+            status="cancelled",
+            output_hash="d" * 64,
+            workspace_revision_before="before",
+            workspace_revision_after="before",
+            artifact_ref="d" * 64,
+            workspace_manifest_ref=reservation.workspace_manifest_ref,
+            recovery_disposition="discard_check",
+        ),
+        token,
+        "settle-cancelled-check",
+    )
+    assert cancelled.status == RunStatus.CANCELLED
+    assert cancelled.tool_calls[-1].status == "cancelled"
+    assert cancelled.cancel_stop_receipts == stopped.cancel_stop_receipts
+    assert SQLiteEventStore.replay_jsonl(store.export_jsonl(run.run_id)).as_dict() == (
+        cancelled.as_dict()
+    )
 
 
 def test_deadline_does_not_hide_recoverable_tool_effect(store, service, running, clock):

@@ -57,6 +57,7 @@ class RecoveryReport(Contract):
         "provide_replacement_plan",
         "provide_operator_guidance",
         "manual_reconciliation",
+        "cancelled",
     ]
     remaining_reservations: tuple[str, ...]
     unknown_reservations: tuple[str, ...]

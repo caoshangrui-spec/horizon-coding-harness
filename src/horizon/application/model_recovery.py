@@ -16,6 +16,7 @@ from horizon.domain.run import Run
 from horizon.domain.tools import ToolCallRecord, ToolCallReservation
 
 LEASE_EVENTS = {"LEASE_RELEASED", "LEASE_ACQUIRED", "LEASE_RENEWED"}
+RECOVERY_METADATA_EVENTS = LEASE_EVENTS | {"CANCEL_PENDING", "CANCEL_SANDBOX_STOPPED"}
 READONLY_RETRY_TOOLS = frozenset({"search_repo", "read_file", "retrieve_code"})
 _MODEL_RECEIPT_EVENTS = (
     "BUDGET_RESERVED",
@@ -85,14 +86,14 @@ def quarantine_unsettled_model_call(
         or attempt.reserved_cost != reservation.reserved_cost
     ):
         raise Conflict("Campaign attempt does not match the quarantined model reservation")
+    if attempt.status == "reserved":
+        campaign_ledger.mark_unknown(campaign_id, call_id, error_type)
     service.mark_model_call_unknown(
         run_id,
         call_id,
         token,
         f"quarantine_{call_id}",
     )
-    if attempt.status == "reserved":
-        campaign_ledger.mark_unknown(campaign_id, call_id, error_type)
     return True
 
 
@@ -113,7 +114,7 @@ def _operational_tail(run: Run, events: list[Event]) -> list[Event] | None:
     tail = events_after_agent_session(run, events)
     if tail is None:
         return None
-    return [event for event in tail if event.event_type not in LEASE_EVENTS]
+    return [event for event in tail if event.event_type not in RECOVERY_METADATA_EVENTS]
 
 
 def _model_turn_from_prefix(

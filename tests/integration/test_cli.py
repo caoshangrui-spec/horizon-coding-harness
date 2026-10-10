@@ -203,6 +203,85 @@ def test_cli_prepare_plan_cancel_trace_and_replay(tmp_path):
     assert json.loads(historical.stdout)["state"]["status"] == "CREATED"
 
 
+def test_cli_cancel_stops_exact_pending_check_and_records_evidence(
+    tmp_path,
+    monkeypatch,
+    task,
+    plan,
+):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".horizon" / "staging").mkdir(parents=True)
+    db = tmp_path / "cancel.sqlite3"
+    store = SQLiteEventStore(db)
+    service = HarnessService(store)
+    run = store.create(task, "create-cancel-check")
+    service.set_plan(run.run_id, plan, "plan-cancel-check")
+    leased = service.acquire_lease(run.run_id, "cancel-worker", "lease-cancel-check")
+    token = LeaseToken.from_run(leased)
+    service.transition(run.run_id, RunStatus.RUNNING, token, "start-cancel-check")
+    service.reserve_tool_call(
+        run.run_id,
+        ToolCallReservation(
+            call_id="tool-cancel-check",
+            name="run_check",
+            arguments_hash="a" * 64,
+            workspace_revision="before",
+            workspace_manifest_ref="b" * 64,
+        ),
+        token,
+        "reserve-cancel-check",
+    )
+
+    class FakeCancelSandbox:
+        def __init__(self, staging_root, image):
+            assert staging_root == (tmp_path / ".horizon" / "staging").resolve()
+            assert image == "local:test"
+
+        def stop_attempt(self, attempt_id):
+            assert attempt_id == "tool-cancel-check"
+            return SandboxAttemptStatus(
+                attempt_id=attempt_id,
+                container_name="horizon-check-owned",
+                state="stopped",
+                image_id="sha256:" + "c" * 64,
+            )
+
+    monkeypatch.setattr(cli_app_module, "DockerSandbox", FakeCancelSandbox)
+    result = runner.invoke(
+        app,
+        [
+            "--db",
+            str(db),
+            "cancel",
+            run.run_id,
+            "--key",
+            "cancel-check-cli",
+            "--image",
+            "local:test",
+            "--stop-check-sandbox",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "RUNNING"
+    assert payload["cancel_requested"] is True
+    assert payload["cancel_stop_receipts"] == [
+        {
+            "call_id": "tool-cancel-check",
+            "container_name": "horizon-check-owned",
+            "image_id": "sha256:" + "c" * 64,
+            "source": "local_control",
+        }
+    ]
+    persisted = store.get(run.run_id)
+    assert persisted.cancel_requested is True
+    assert store.events(run.run_id)[-1].event_type == "CANCEL_SANDBOX_STOPPED"
+    assert SQLiteEventStore.replay_jsonl(store.export_jsonl(run.run_id)).as_dict() == (
+        persisted.as_dict()
+    )
+
+
 def test_cli_does_not_pretend_to_execute(tmp_path):
     db = tmp_path / "db.sqlite3"
     result = runner.invoke(app, ["--db", str(db), "run", str(EXAMPLE)])
@@ -223,6 +302,8 @@ def test_doctor_checks_fts_without_model():
     assert result.exit_code == 0, result.output
     data = json.loads(result.stdout)
     assert data["autonomous_execution"] is True
+    assert data["recovery_safe_cancellation"] is True
+    assert data["controller_verified_check_cancellation"] is True
     assert data["execution_profile"] == "bounded_sequential_work_item_dag"
     assert data["task_tool_allowlist"] is True
     assert data["tool_authority_profile"] == "execution_mode_task_work_item_intersection"

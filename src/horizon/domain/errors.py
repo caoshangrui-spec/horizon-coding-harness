@@ -82,6 +82,14 @@ class RunDeadlineExceeded(BudgetExceeded):
         super().__init__(f"Run {run_id} wall-clock deadline has expired; downtime is not refunded")
 
 
+class RunCancellationRequested(InvalidTransition):
+    """A durable cancellation fence prevents any new Run work."""
+
+    def __init__(self, run_id: str):
+        self.run_id = run_id
+        super().__init__(f"Run {run_id} cancellation has been requested; no new work may start")
+
+
 class LeaseConflict(Conflict):
     pass
 
