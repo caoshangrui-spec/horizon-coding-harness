@@ -48,6 +48,7 @@
 | SiliconFlow 严格配置与 OpenAI-compatible adapter | [config.py](../src/horizon/adapters/model/config.py)、[openai_compatible.py](../src/horizon/adapters/model/openai_compatible.py) | Adapter 与预算器共用 canonical wire encoder，实际 HTTP body 的 bytes/hash 可复算；真实 Tool Calling 探针和历史 fixture Agent Run 通过；完整 checkout Pilot 已真实调用并以受控终态失败，无隐式 retry/fallback |
 | CNY Campaign 与 Run 模型费用账本 | [campaign_budget.py](../src/horizon/adapters/persistence/campaign_budget.py)、[run.py](../src/horizon/domain/run.py)、[budget-stop-semantics.md](budget-stop-semantics.md) | Campaign 跨重启硬上限；Run 绑定 CNY policy 并事件化；执行请求先按三类最小余量确定性压缩可压缩历史，仍付不起则携带 reason/scope/required/available 及未派发请求 sizing evidence 原子进入 `FAILED` 并清除 Lease；unknown 用量仍保守对账；TaskSpec 旧 USD 字段尚未迁移 |
 | 一键离线作品集 EvidencePack | [portfolio_demo.py](../src/horizon/application/portfolio_demo.py)、[_portfolio_crash_worker.py](../src/horizon/application/_portfolio_crash_worker.py)、[portfolio_demo.py](../src/horizon/domain/portfolio_demo.py)、[portfolio-demo.md](portfolio-demo.md) | `horizon demo run` 复用真实事件/Lease/会话/RAG/Gateway/验证主链路：epoch 1 完成错误回执交接，epoch 2 子进程在 `replace_text` effect 后、receipt 前 `os._exit(86)`，Supervisor 先标 unknown、围栏旧 Lease，再由 epoch 3 精确接纳既有 effect 且不重放写入。v3 报告锚定崩溃标记、恢复 disposition 和可从 Trace 复算的检索→写入 lineage；兼容读取 v1/v2。零网络/零真实模型/零外部费用，不冒充任意故障窗口或模型能力证据 |
+| 通用终态 EvidencePack | [terminal_evidence.py](../src/horizon/application/terminal_evidence.py)、[terminal_evidence.py](../src/horizon/domain/terminal_evidence.py)、[合同与边界](terminal-evidence-pack.md) | `trace bundle` 对成功、失败、取消统一导出 Trace、规范终态与确定性摘要；`verify-bundle` 无数据库离线重放并复算。unknown/open effect 不清洗，失败/取消不冒充任务成功；当前是自洽性清单，不是签名或来源认证 |
 
 2026-10-04 的零费用增量把原先仅用于费用预留的完整请求保守上界接入实际派发门禁。
 `ContextProjection` 升为 schema v2；`InputTokenEstimate` 固定记录算法 ID、规范请求 UTF-8
@@ -87,6 +88,20 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 仍是后续适配约束；不能以该文档代替本项目的实际联调。
 
 ## 验证结果
+
+### 2026-10-10 通用终态 EvidencePack
+
+- 新增 `trace bundle <run-id> --output <new-dir>`，只接受终态 Run，在创建目录前重放 SQLite
+  EventLog并核对当前投影。导出 `trace.jsonl`、`final-run.json`、`SUMMARY.md` 和 schema v1
+  `evidence-pack.json`，既有目标目录拒绝覆盖。
+- 新增独立 `trace verify-bundle <pack>`；逐文件核对字节数/SHA-256，再离线重放事件 hash 链，
+  复算终态元数据、规范 final state 和确定性摘要。摘要即使被篡改后同步重算文件哈希，仍会因
+  与 Trace 语义不一致而拒绝。
+- `SUCCEEDED` 仅在既有 validation/WorkItem 成功门禁后输出 `task_succeeded=true`；`FAILED` 和
+  `CANCELLED` 固定为 false。一个 `wall_clock_limit` 失败样本中的 unknown/open Provider 预算
+  占用被原样保留，没有为生成报告做结算或重新分类。
+- 新增 5 项离线回归，覆盖三种终态、unknown/open effect、非终态拒绝、不覆盖和重哈希假摘要
+  拒绝。全量为 **422 passed，7 skipped**；导出和验证均不调用模型、工具、Provider 或仓库代码。
 
 ### 2026-10-10 Supervisor 直接子 Worker 的恢复安全取消
 
@@ -844,7 +859,7 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 七轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新离线全量回归为 417 passed、7 个显式 Docker skip，
+当前主干继续补齐尚未统一覆盖的故障点；最新离线全量回归为 422 passed、7 个显式 Docker skip，
 7 个 Docker 合同已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以

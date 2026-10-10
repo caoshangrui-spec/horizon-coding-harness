@@ -60,6 +60,10 @@ from horizon.application.supervision import (
     SequentialAgentSupervisor,
     SequentialSupervisorConfig,
 )
+from horizon.application.terminal_evidence import (
+    export_terminal_evidence_pack,
+    verify_terminal_evidence_pack,
+)
 from horizon.application.tool_recovery import ToolRecoveryService
 from horizon.domain.common import canonical_json, digest
 from horizon.domain.errors import (
@@ -679,6 +683,70 @@ def trace_export(ctx: typer.Context, run_id: str, output: Path | None = None):
 def trace_replay(path: Path):
     run = SQLiteEventStore.replay_jsonl(path.read_text(encoding="utf-8"))
     typer.echo(canonical_json({"state": run.as_dict(), "projection_hash": projection_hash(run)}))
+
+
+@traces.command("bundle")
+@guarded
+def trace_bundle(
+    ctx: typer.Context,
+    run_id: str,
+    output: Annotated[
+        Path,
+        typer.Option(
+            "--output",
+            help="New directory for a replay-verified terminal EvidencePack.",
+        ),
+    ],
+):
+    result = export_terminal_evidence_pack(
+        store_for(ctx, read_only=True),
+        run_id,
+        output,
+    )
+    evidence = result.evidence_pack.evidence
+    typer.echo(
+        canonical_json(
+            {
+                "run_id": evidence.run_id,
+                "status": evidence.status,
+                "task_succeeded": evidence.task_succeeded,
+                "failure_reason": evidence.failure_reason,
+                "projection_hash": evidence.projection_hash,
+                "unknown_effects_present": evidence.unknown_effects_present,
+                "open_effects_present": evidence.open_effects_present,
+                "output_dir": str(result.output_dir),
+                "evidence_pack": str(result.evidence_pack_path),
+                "trace": str(result.trace_path),
+                "final_state": str(result.final_state_path),
+                "summary": str(result.summary_path),
+                "verification_mode": evidence.verification_mode,
+                "claim_scope": evidence.claim_scope,
+                "export_network_called": False,
+            }
+        )
+    )
+
+
+@traces.command("verify-bundle")
+@guarded
+def trace_verify_bundle(path: Path):
+    pack = verify_terminal_evidence_pack(path)
+    evidence = pack.evidence
+    typer.echo(
+        canonical_json(
+            {
+                "verified": True,
+                "run_id": evidence.run_id,
+                "status": evidence.status,
+                "task_succeeded": evidence.task_succeeded,
+                "projection_hash": evidence.projection_hash,
+                "unknown_effects_present": evidence.unknown_effects_present,
+                "open_effects_present": evidence.open_effects_present,
+                "verification_mode": evidence.verification_mode,
+                "claim_scope": evidence.claim_scope,
+            }
+        )
+    )
 
 
 @traces.command("reservation-report")

@@ -5,6 +5,12 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Added a generic terminal EvidencePack for `SUCCEEDED`, `FAILED`, and `CANCELLED` Runs. The
+  read-only `trace bundle` command exports the append-only Trace, canonical final projection, and a
+  deterministic human summary, while `trace verify-bundle` checks file hashes, replays the Trace,
+  and recomputes both state and summary. Unknown/open effects remain explicit, failed or cancelled
+  Runs never claim task success, existing destinations are not overwritten, and self-consistency is
+  explicitly not presented as origin authentication.
 - Bound parent-crash cancellation recovery to the exact PID already persisted in the Worker stop
   target. Recovery CLI calls now require both the explicit old-worker-stopped acknowledgement and
   `--confirm-old-worker-pid <pid>` before writing operator stop evidence; missing or mismatched PIDs

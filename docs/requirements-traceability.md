@@ -5,7 +5,7 @@
 本表是完整开发与验收导航。2026-09-30 已开始基础内核实现，实际证据列记录当前子范围与剩余缺口。目标路径相对 `src/horizon/`；计划测试路径相对 `tests/`；实际证据列的 `tests/` 路径相对仓库根。同一测试文件可验证多个 ID，但不能把子范围通过等同于整项通过。
 
 当前结果：2026-09-30 可靠性内核为 **92 项测试通过**；2026-10-10 的最新离线回归为
-**417 passed，7 skipped**。**7 项真实 Docker 合同**已单独补跑并全部通过。另已完成一次 Tool Calling 探针和一次受预算
+**422 passed，7 skipped**。**7 项真实 Docker 合同**已单独补跑并全部通过。另已完成一次 Tool Calling 探针和一次受预算
 保护的真实单 WorkItem Agent fixture Run。完整长程 Agent 未实现，未做独立安全复核。命令、环境、证据与限制见
 [开发进度](development-progress.md)。仍为“待填”的条目没有实现证据；“部分/初步”不代表
 完整需求通过。普通工作直接自检，关键风险及用户指定验收按需独立复核，
@@ -53,7 +53,7 @@
 | FR-602 | M4 | `tools/gateway.py` | `integration/test_command_limits.py`：超时、超量输出、越界 cwd 被约束 | 部分：`adapters/sandbox/docker.py` 的超时、输出上限、临时目录边界；`tests/contract/test_docker.py`；非完整安全验收 |
 | FR-603 | M2/M4 | `domain/run.py`, `application/services.py`, `interfaces/cli/app.py` | `integration/test_budget.py`, `integration/test_agent_loop.py`, `integration/test_cli.py`：取消栅栏后新派发为 0，在途 receipt/unknown/工具恢复闭合后才终态 | 部分：静止 Run 立即取消；在途 effect 写 `CANCEL_PENDING` 并禁止新工作，迟到模型 receipt/unknown 和显式工具处置后自动终态；多工具 response 不再派发剩余调用；单一 `run_check` 可按持久 call ID 核验停止标签容器并记录 stop receipt。单个直接子 Worker 可先写精确 PID/Lease/epoch blocker，再 terminate/wait、超时 kill/wait；pending effect 只进入 recovery，父 Supervisor 崩溃后必须显式确认旧 Worker 停止且回填同一 PID。尚无通用宿主进程组/后代进程终止、Provider 主动取消或后台 Worker 协调 |
 | FR-604 | M2/M4 | `approval/service.py` | `e2e/test_approval.py`：未批准高风险调用为 0，永久禁令不可审批绕过 | 待填 / 未审核 |
-| FR-605 | M5 | `trace/projector.py` | `e2e/test_terminal_artifacts.py`：成功/失败/取消均有摘要及现有证据引用 | 部分：成功 Agent Run 有 checkpoint、validation evidence、模型/工具 Artifact 和终态摘要；固定离线作品集成功路径已有自检 EvidencePack。失败/取消终态包仍未统一 |
+| FR-605 | M5 | `domain/terminal_evidence.py`, `application/terminal_evidence.py` | `integration/test_terminal_evidence.py`：成功/失败/取消均有摘要及现有证据引用 | 部分：`trace bundle` 已对三种终态统一导出 Trace、规范最终投影、确定性摘要和 SHA-256 清单；`verify-bundle` 无数据库重放并复算语义。unknown/open effect 保留，失败/取消不声称任务成功，非终态和覆盖被拒绝。当前仅证明包内自洽，无来源签名、可信时间戳、远端 receipt 或统一 Artifact blob 打包 |
 
 ## 原非功能需求：保留全部 10 项
 
