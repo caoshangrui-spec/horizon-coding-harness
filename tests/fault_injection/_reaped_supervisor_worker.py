@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from decimal import Decimal
 from pathlib import Path
 
@@ -105,8 +106,21 @@ def _pending_intent(service: HarnessService, run_id: str, token: LeaseToken) -> 
     os._exit(PENDING_INTENT_EXIT_CODE)
 
 
+def _wait_for_parent(*, mode: str) -> None:
+    ready = Path(sys.argv[7]).parent / f"{mode}.ready"
+    ready.write_text(str(os.getpid()), encoding="utf-8")
+    while True:
+        time.sleep(60)
+
+
 def main() -> None:
-    if len(sys.argv) != 11 or sys.argv[1] not in {"safe", "pending", "idle"}:
+    if len(sys.argv) != 11 or sys.argv[1] not in {
+        "safe",
+        "pending",
+        "idle",
+        "wait",
+        "pending_wait",
+    }:
         raise SystemExit(
             "usage: _reaped_supervisor_worker MODE STORE RUN LEASE WORKER EPOCH "
             "ARTIFACTS WORKSPACE CAMPAIGN RETRIEVAL"
@@ -119,6 +133,21 @@ def main() -> None:
         _safe_slice(service, run_id, token)
     if mode == "idle":
         os._exit(IDLE_EXIT_CODE)
+    if mode == "wait":
+        _wait_for_parent(mode=mode)
+    if mode == "pending_wait":
+        service.reserve_tool_call(
+            run_id,
+            ToolCallReservation(
+                call_id="reaped-pending-read",
+                name="read_file",
+                arguments_hash=digest({"path": "src/parser.py"}),
+                workspace_revision=None,
+            ),
+            token,
+            "reaped-pending-read",
+        )
+        _wait_for_parent(mode=mode)
     _pending_intent(service, run_id, token)
 
 

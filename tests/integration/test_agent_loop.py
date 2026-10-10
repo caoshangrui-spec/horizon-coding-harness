@@ -1,7 +1,9 @@
 import hashlib
 import json
+import os
 import subprocess
 import sys
+import time
 from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -28,7 +30,13 @@ from horizon.domain.agent import AgentSession
 from horizon.domain.budget import Usage
 from horizon.domain.common import canonical_json, digest
 from horizon.domain.context import ContextProjection, MandatoryFactLedger
-from horizon.domain.errors import BudgetStopReason, Conflict, ProviderConnectionError
+from horizon.domain.errors import (
+    BudgetStopReason,
+    Conflict,
+    LeaseConflict,
+    ProviderConnectionError,
+    RunCancellationRequested,
+)
 from horizon.domain.human import HumanGuidanceRequest
 from horizon.domain.memory import RunMemorySnapshot
 from horizon.domain.model import (
@@ -45,7 +53,7 @@ from horizon.domain.plan import Plan, WorkItem
 from horizon.domain.run import projection_hash
 from horizon.domain.states import RunStatus
 from horizon.domain.task import TaskSpec
-from horizon.domain.tools import AcceptanceResult, ToolCallReservation
+from horizon.domain.tools import AcceptanceResult, ToolCallRecord, ToolCallReservation
 from horizon.tools.gateway import WorkspaceToolGateway
 
 
@@ -3145,6 +3153,456 @@ def _run_reaped_supervisor_worker(
     _, stderr = process.communicate(timeout=20)
     assert process.returncode == expected_exit_code, stderr.decode(errors="replace")
     return process
+
+
+def _start_waiting_supervisor_worker(
+    tmp_path,
+    store,
+    run_id,
+    token,
+    workspace,
+    *,
+    mode,
+):
+    worker = Path(__file__).parents[1] / "fault_injection" / "_reaped_supervisor_worker.py"
+    ready = tmp_path / f"{mode}.ready"
+    ready.unlink(missing_ok=True)
+    child_env = os.environ.copy()
+    child_env["PYTHONPATH"] = os.pathsep.join(str(item) for item in sys.path if item)
+    process = subprocess.Popen(
+        [
+            getattr(sys, "_base_executable", sys.executable),
+            str(worker),
+            mode,
+            str(store.path),
+            run_id,
+            token.lease_id,
+            token.worker_id,
+            str(token.epoch),
+            str(tmp_path / "artifacts"),
+            str(workspace),
+            str(tmp_path / "campaign.sqlite3"),
+            str(tmp_path / "retrieval.sqlite3"),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=child_env,
+    )
+    deadline = time.monotonic() + 10
+    while not ready.exists() or ready.read_text(encoding="utf-8") != str(process.pid):
+        if process.poll() is not None:
+            _, stderr = process.communicate()
+            pytest.fail(
+                f"waiting Worker exited before its boundary: {stderr.decode(errors='replace')}"
+            )
+        if time.monotonic() >= deadline:
+            process.terminate()
+            process.communicate(timeout=5)
+            pytest.fail("waiting Worker did not publish its launch boundary")
+        time.sleep(0.01)
+    return process
+
+
+def _cancellation_supervisor(store):
+    return SequentialAgentSupervisor(
+        lambda: HarnessService(SQLiteEventStore(store.path)),
+        lambda service: pytest.fail("Worker cancellation must not start another Agent slice"),
+        config=SequentialSupervisorConfig(slice_iterations=1, max_worker_slices=2),
+    )
+
+
+def test_supervisor_persists_fence_before_stopping_and_reaping_worker(
+    tmp_path,
+    task_dict,
+):
+    _, store, run_id, token, workspace, model = setup_loop(tmp_path, task_dict, [])
+    boundary = ReapedWorkerBoundary.capture(store.get(run_id), token)
+    child = _start_waiting_supervisor_worker(
+        tmp_path,
+        store,
+        run_id,
+        token,
+        workspace,
+        mode="wait",
+    )
+
+    class FenceObservingProcess:
+        pid = child.pid
+
+        @staticmethod
+        def poll():
+            return child.poll()
+
+        @staticmethod
+        def terminate():
+            fenced = store.get(run_id)
+            assert fenced.cancel_requested is True
+            assert fenced.cancel_worker_stop == {
+                **token.model_dump(),
+                "process_id": child.pid,
+                "launch_event_seq": boundary.launch_event_seq,
+                "source": "local_control",
+            }
+            assert store.events(run_id)[-1].event_type == "CANCEL_WORKER_STOP_PENDING"
+            child.terminate()
+
+        @staticmethod
+        def kill():
+            child.kill()
+
+        @staticmethod
+        def wait(timeout=None):
+            return child.wait(timeout=timeout)
+
+    try:
+        result = _cancellation_supervisor(store).cancel_and_reap_worker(
+            boundary,
+            HarnessService(store),
+            FenceObservingProcess(),
+            key="cancel-waiting-worker",
+        )
+    finally:
+        if child.poll() is None:
+            child.kill()
+        child.communicate(timeout=5)
+
+    assert result.disposition == "cancelled"
+    assert result.run.status == RunStatus.CANCELLED
+    assert result.stop_method == "terminate"
+    assert result.exit_code == child.returncode
+    assert result.pending_reservation_ids == ()
+    assert result.run.cancel_worker_stop is None
+    assert result.run.cancel_worker_stop_receipts == [
+        {
+            **token.model_dump(),
+            "process_id": child.pid,
+            "launch_event_seq": boundary.launch_event_seq,
+            "exit_code": child.returncode,
+            "stop_method": "terminate",
+            "lease_release": "parent",
+            "source": "local_control",
+        }
+    ]
+    assert not model.requests
+
+    events = store.events(run_id)
+    assert [event.event_type for event in events[-4:]] == [
+        "CANCEL_WORKER_STOP_PENDING",
+        "CANCEL_WORKER_STOPPED",
+        "LEASE_RELEASED",
+        "CANCEL_REQUESTED",
+    ]
+    released = events[-2]
+    assert released.payload["release_reason"] == "cancelled_reaped_worker"
+    assert released.payload["process_id"] == child.pid
+    assert released.payload["exit_code"] == child.returncode
+    assert released.payload["safe_event_seq"] == events[-3].seq
+    replayed = SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id))
+    assert replayed.as_dict() == result.run.as_dict()
+
+
+def test_supervisor_reaps_cancelled_worker_but_preserves_pending_effect_for_recovery(
+    tmp_path,
+    task_dict,
+):
+    _, store, run_id, token, workspace, model = setup_loop(tmp_path, task_dict, [])
+    boundary = ReapedWorkerBoundary.capture(store.get(run_id), token)
+    child = _start_waiting_supervisor_worker(
+        tmp_path,
+        store,
+        run_id,
+        token,
+        workspace,
+        mode="pending_wait",
+    )
+
+    try:
+        result = _cancellation_supervisor(store).cancel_and_reap_worker(
+            boundary,
+            HarnessService(store),
+            child,
+            key="cancel-pending-worker",
+        )
+    finally:
+        if child.poll() is None:
+            child.kill()
+        child.communicate(timeout=5)
+
+    assert result.disposition == "reconciliation_required"
+    assert result.run.status == RunStatus.RUNNING
+    assert result.run.cancel_requested is True
+    assert result.run.lease_id is None
+    assert result.pending_reservation_ids == ("reaped-pending-read",)
+    assert set(result.run.tool_reservations) == {"reaped-pending-read"}
+    assert not model.requests
+    assert [event.event_type for event in store.events(run_id)[-3:]] == [
+        "CANCEL_WORKER_STOP_PENDING",
+        "CANCEL_WORKER_STOPPED",
+        "LEASE_RELEASED",
+    ]
+
+    service = HarnessService(store)
+    with pytest.raises(RunCancellationRequested):
+        service.acquire_lease(run_id, "must-not-resume", "active-after-cancel")
+    recovered = service.acquire_recovery_lease(
+        run_id,
+        "cancel-recovery",
+        "acquire-cancel-recovery",
+    )
+    recovery_token = LeaseToken.from_run(recovered)
+    cancelled = service.settle_tool_call(
+        run_id,
+        ToolCallRecord(
+            call_id="reaped-pending-read",
+            name="read_file",
+            arguments_hash=digest({"path": "src/parser.py"}),
+            status="cancelled",
+            output_hash=digest({"cancelled": "worker synchronously reaped before dispatch"}),
+        ),
+        recovery_token,
+        "settle-cancelled-reaped-read",
+    )
+    assert cancelled.status == RunStatus.CANCELLED
+    assert cancelled.tool_calls[-1].status == "cancelled"
+    assert cancelled.cancel_worker_stop_receipts == result.run.cancel_worker_stop_receipts
+    replayed = SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id))
+    assert replayed.as_dict() == cancelled.as_dict()
+
+
+def test_supervisor_forces_kill_only_after_terminate_timeout(tmp_path, task_dict):
+    _, store, run_id, token, _, model = setup_loop(tmp_path, task_dict, [])
+    boundary = ReapedWorkerBoundary.capture(store.get(run_id), token)
+
+    class TerminateIgnoringProcess:
+        pid = 4242
+        terminated = False
+        killed = False
+
+        @staticmethod
+        def poll():
+            return None
+
+        def terminate(self):
+            assert store.get(run_id).cancel_worker_stop is not None
+            self.terminated = True
+
+        def kill(self):
+            assert self.terminated is True
+            self.killed = True
+
+        def wait(self, timeout=None):
+            if not self.killed:
+                raise subprocess.TimeoutExpired("test-worker", timeout)
+            return 137
+
+    process = TerminateIgnoringProcess()
+    result = _cancellation_supervisor(store).cancel_and_reap_worker(
+        boundary,
+        HarnessService(store),
+        process,
+        key="cancel-force-kill-worker",
+        terminate_timeout_seconds=0.01,
+    )
+
+    assert process.terminated is True
+    assert process.killed is True
+    assert result.disposition == "cancelled"
+    assert result.stop_method == "kill"
+    assert result.exit_code == 137
+    assert result.run.cancel_worker_stop_receipts[-1]["stop_method"] == "kill"
+    assert not model.requests
+
+
+def test_supervisor_reaps_worker_that_exited_before_termination(tmp_path, task_dict):
+    _, store, run_id, token, _, _ = setup_loop(tmp_path, task_dict, [])
+    boundary = ReapedWorkerBoundary.capture(store.get(run_id), token)
+
+    class AlreadyExitedProcess:
+        pid = 4245
+
+        @staticmethod
+        def poll():
+            return 23
+
+        @staticmethod
+        def terminate():
+            pytest.fail("already-exited Worker must not be terminated")
+
+        @staticmethod
+        def kill():
+            pytest.fail("already-exited Worker must not be killed")
+
+        @staticmethod
+        def wait(timeout=None):
+            return 23
+
+    result = _cancellation_supervisor(store).cancel_and_reap_worker(
+        boundary,
+        HarnessService(store),
+        AlreadyExitedProcess(),
+        key="cancel-already-exited-worker",
+    )
+
+    assert result.disposition == "cancelled"
+    assert result.stop_method == "already_exited"
+    assert result.exit_code == 23
+    assert result.run.cancel_worker_stop_receipts[-1]["stop_method"] == "already_exited"
+    assert result.run.cancel_worker_stop_receipts[-1]["lease_release"] == "parent"
+
+
+def test_supervisor_records_worker_that_cooperatively_released_lease_after_fence(
+    tmp_path,
+    task_dict,
+):
+    _, store, run_id, token, _, _ = setup_loop(tmp_path, task_dict, [])
+    boundary = ReapedWorkerBoundary.capture(store.get(run_id), token)
+    service = HarnessService(store)
+
+    class CooperativelyStoppingProcess:
+        pid = 4244
+        stopped = False
+
+        @staticmethod
+        def poll():
+            return None
+
+        def terminate(self):
+            released = service.release_lease(
+                run_id,
+                token,
+                "worker-release-after-cancel-fence",
+            )
+            assert released.cancel_requested is True
+            assert released.cancel_worker_stop is not None
+            assert released.lease_id is None
+            with pytest.raises(LeaseConflict, match="must be stopped"):
+                service.acquire_recovery_lease(
+                    run_id,
+                    "too-early-recovery",
+                    "too-early-recovery",
+                )
+            self.stopped = True
+
+        @staticmethod
+        def kill():
+            pytest.fail("cooperative Worker must not require kill")
+
+        def wait(self, timeout=None):
+            assert self.stopped is True
+            return 0
+
+    result = _cancellation_supervisor(store).cancel_and_reap_worker(
+        boundary,
+        service,
+        CooperativelyStoppingProcess(),
+        key="cancel-cooperative-worker",
+    )
+
+    assert result.disposition == "cancelled"
+    assert result.stop_method == "terminate"
+    assert result.run.cancel_worker_stop_receipts[-1]["lease_release"] == "already_released"
+    assert [event.event_type for event in store.events(run_id)[-4:]] == [
+        "CANCEL_WORKER_STOP_PENDING",
+        "LEASE_RELEASED",
+        "CANCEL_WORKER_STOPPED",
+        "CANCEL_REQUESTED",
+    ]
+    replayed = SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id))
+    assert replayed.as_dict() == result.run.as_dict()
+
+
+def test_explicit_old_worker_confirmation_recovers_parent_crash_during_cancellation(
+    tmp_path,
+    task_dict,
+):
+    _, store, run_id, token, _, _ = setup_loop(tmp_path, task_dict, [])
+    boundary = ReapedWorkerBoundary.capture(store.get(run_id), token)
+    service = HarnessService(store)
+    pending = service.request_cancel_worker_stop(
+        run_id,
+        token,
+        "cancel-before-parent-crash",
+        process_id=4246,
+        launch_event_seq=boundary.launch_event_seq,
+    )
+    assert pending.cancel_worker_stop is not None
+
+    lease_expires_at = pending.lease_expires_at
+    assert lease_expires_at is not None
+    after_expiry = datetime.fromisoformat(lease_expires_at) + timedelta(seconds=1)
+    recovery_store = SQLiteEventStore(store.path, clock=lambda: after_expiry)
+    recovery = HarnessService(recovery_store)
+    with pytest.raises(LeaseConflict, match="must be stopped"):
+        recovery.acquire_recovery_lease(
+            run_id,
+            "unconfirmed-recovery",
+            "unconfirmed-recovery",
+        )
+
+    cancelled = recovery.acquire_recovery_lease(
+        run_id,
+        "confirmed-recovery",
+        "confirmed-recovery",
+        prior_worker_stopped=True,
+    )
+    assert cancelled.status == RunStatus.CANCELLED
+    assert cancelled.lease_epoch == token.epoch + 1
+    assert cancelled.cancel_worker_stop is None
+    assert cancelled.cancel_worker_stop_receipts[-1] == {
+        **token.model_dump(),
+        "process_id": 4246,
+        "launch_event_seq": boundary.launch_event_seq,
+        "exit_code": None,
+        "stop_method": "operator_confirmed",
+        "lease_release": "takeover",
+        "source": "local_control",
+    }
+    assert [event.event_type for event in store.events(run_id)[-4:]] == [
+        "CANCEL_WORKER_STOP_PENDING",
+        "CANCEL_WORKER_STOPPED",
+        "LEASE_ACQUIRED",
+        "CANCEL_REQUESTED",
+    ]
+    replayed = SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id))
+    assert replayed.as_dict() == cancelled.as_dict()
+
+
+def test_supervisor_does_not_touch_process_for_mismatched_launch_lease(tmp_path, task_dict):
+    _, store, run_id, token, _, _ = setup_loop(tmp_path, task_dict, [])
+    boundary = ReapedWorkerBoundary.capture(store.get(run_id), token).model_copy(
+        update={"lease": token.model_copy(update={"lease_id": "lease_stale"})}
+    )
+
+    class UntouchedProcess:
+        pid = 4243
+        touched = False
+
+        def poll(self):
+            self.touched = True
+            return None
+
+        def terminate(self):
+            self.touched = True
+
+        def kill(self):
+            self.touched = True
+
+        def wait(self, timeout=None):
+            self.touched = True
+            return 0
+
+    process = UntouchedProcess()
+    with pytest.raises(Conflict, match="exact live Worker launch lease"):
+        _cancellation_supervisor(store).cancel_and_reap_worker(
+            boundary,
+            HarnessService(store),
+            process,
+            key="cancel-stale-worker",
+        )
+
+    assert process.touched is False
+    assert store.get(run_id).cancel_requested is False
+    assert not any(event.event_type.startswith("CANCEL_WORKER") for event in store.events(run_id))
 
 
 @pytest.mark.parametrize("expire_original_lease", [False, True], ids=["live", "expired"])

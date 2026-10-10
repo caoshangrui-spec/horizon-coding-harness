@@ -87,6 +87,8 @@ class Run:
     model_request_budget: ModelRequestBudgetEvidence | None = None
     cancel_requested: bool = False
     cancel_stop_receipts: list[dict[str, str]] = field(default_factory=list)
+    cancel_worker_stop: dict[str, Any] | None = None
+    cancel_worker_stop_receipts: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def occupied(self) -> Usage:
@@ -187,6 +189,10 @@ class Run:
             result["cancel_requested"] = True
         if self.cancel_stop_receipts:
             result["cancel_stop_receipts"] = list(self.cancel_stop_receipts)
+        if self.cancel_worker_stop is not None:
+            result["cancel_worker_stop"] = dict(self.cancel_worker_stop)
+        if self.cancel_worker_stop_receipts:
+            result["cancel_worker_stop_receipts"] = list(self.cancel_worker_stop_receipts)
         return result
 
 
@@ -208,6 +214,8 @@ def _transition(run: Run, target: RunStatus) -> None:
             or run.reservations
         ):
             raise InvalidTransition("Success needs current verification and all work items passed")
+    if target in TERMINAL and run.cancel_worker_stop is not None:
+        raise InvalidTransition("A bound Worker must be stopped before terminalizing the Run")
     if target in {RunStatus.RECOVERING, RunStatus.WAITING_FOR_USER}:
         if run.status not in {RunStatus.RECOVERING, RunStatus.WAITING_FOR_USER}:
             run.resume_state = run.status
@@ -421,6 +429,90 @@ def apply(run: Run | None, event: Event) -> Run:
         if p.get("source") != "local_control":
             raise IntegrityError("Cancellation must originate from the trusted control plane")
         run.cancel_requested = True
+    elif event.event_type == "CANCEL_WORKER_STOP_PENDING":
+        target = {
+            "lease_id": p.get("lease_id"),
+            "worker_id": p.get("worker_id"),
+            "epoch": p.get("epoch"),
+            "process_id": p.get("process_id"),
+            "launch_event_seq": p.get("launch_event_seq"),
+            "source": p.get("source"),
+        }
+        if (
+            run.terminal
+            or run.status != RunStatus.RUNNING
+            or run.plan is None
+            or run.cancel_worker_stop is not None
+            or target["source"] != "local_control"
+            or (target["lease_id"], target["worker_id"], target["epoch"])
+            != (run.lease_id, run.worker_id, run.lease_epoch)
+            or not isinstance(target["process_id"], int)
+            or isinstance(target["process_id"], bool)
+            or target["process_id"] < 1
+            or not isinstance(target["launch_event_seq"], int)
+            or isinstance(target["launch_event_seq"], bool)
+            or not 1 <= target["launch_event_seq"] <= run.seq
+        ):
+            raise IntegrityError("Worker stop target does not match the active cancellation lease")
+        run.cancel_requested = True
+        run.cancel_worker_stop = target
+    elif event.event_type == "CANCEL_WORKER_STOPPED":
+        receipt = {
+            "lease_id": p.get("lease_id"),
+            "worker_id": p.get("worker_id"),
+            "epoch": p.get("epoch"),
+            "process_id": p.get("process_id"),
+            "launch_event_seq": p.get("launch_event_seq"),
+            "exit_code": p.get("exit_code"),
+            "stop_method": p.get("stop_method"),
+            "lease_release": p.get("lease_release"),
+            "source": p.get("source"),
+        }
+        target = {
+            key: receipt[key]
+            for key in (
+                "lease_id",
+                "worker_id",
+                "epoch",
+                "process_id",
+                "launch_event_seq",
+                "source",
+            )
+        }
+        synchronous_stop = (
+            receipt["stop_method"] in {"already_exited", "terminate", "kill"}
+            and isinstance(receipt["exit_code"], int)
+            and not isinstance(receipt["exit_code"], bool)
+            and receipt["lease_release"] in {"parent", "already_released"}
+        )
+        operator_stop = (
+            receipt["stop_method"] == "operator_confirmed"
+            and receipt["exit_code"] is None
+            and receipt["lease_release"] in {"takeover", "already_released"}
+        )
+        lease_active = (receipt["lease_id"], receipt["worker_id"], receipt["epoch"]) == (
+            run.lease_id,
+            run.worker_id,
+            run.lease_epoch,
+        )
+        lease_released = (
+            run.lease_id is None
+            and run.worker_id is None
+            and run.lease_expires_at is None
+            and receipt["epoch"] == run.lease_epoch
+        )
+        if (
+            not run.cancel_requested
+            or run.cancel_worker_stop is None
+            or target != run.cancel_worker_stop
+            or receipt["source"] != "local_control"
+            or not (synchronous_stop or operator_stop)
+            or (receipt["lease_release"] in {"parent", "takeover"} and not lease_active)
+            or (receipt["lease_release"] == "already_released" and not lease_released)
+        ):
+            raise IntegrityError("Worker stop receipt does not match the pending cancellation")
+        run.cancel_worker_stop_receipts.append(receipt)
+        run.cancel_worker_stop = None
     elif event.event_type == "CANCEL_SANDBOX_STOPPED":
         call_id = p.get("call_id")
         reservation = run.tool_reservations.get(call_id)
@@ -447,7 +539,9 @@ def apply(run: Run | None, event: Event) -> Run:
         if p.get("source") != "local_control":
             raise IntegrityError("Cancellation must originate from the trusted control plane")
         if p.get("recovery_safe") is True and (
-            set(run.reservations) - run.unknown_reservations or run.tool_reservations
+            set(run.reservations) - run.unknown_reservations
+            or run.tool_reservations
+            or run.cancel_worker_stop is not None
         ):
             raise IntegrityError("Recovery-safe cancellation cannot hide an unsettled effect")
         _transition(run, RunStatus.CANCELLED)

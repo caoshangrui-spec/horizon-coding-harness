@@ -5,6 +5,17 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Added recovery-safe cancellation for one directly supervised local Worker. The trusted parent
+  now persists an exact PID/lease/epoch/launch-cursor stop target before touching the process,
+  then performs bounded terminate/wait, kill/wait fallback, or synchronous reap of an already
+  exited child. Only a matching stop receipt releases the lease or closes cancellation; pending
+  effects remain intact for the existing recovery path and never redispatch. A cancellation-bound
+  Worker blocks every new lease, including after cooperative lease release. If the parent itself
+  crashes, the existing explicit old-worker-stopped confirmation can clear the target only after
+  lease expiry and records distinct operator evidence. Real subprocess and deterministic fault
+  tests cover fence ordering, pending intent, forced kill, early exit, cooperative release,
+  mismatched identity, parent-crash recovery, CLI terminal handling, and Trace replay. This is an
+  application API for a single direct child, not process-tree control, a daemon, or a queue.
 - Made cancellation recovery-safe instead of terminalizing over in-flight effects. A Run now
   persists `CANCEL_PENDING` as a durable dispatch fence, accepts only late receipts, conservative
   unknown classification, or explicit tool recovery, and enters `CANCELLED` automatically once no

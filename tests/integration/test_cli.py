@@ -1173,6 +1173,73 @@ def test_agent_reconcile_is_offline_and_does_not_require_paid_ack(tmp_path, monk
     assert not (tmp_path / ".horizon").exists()
 
 
+def test_agent_reconcile_confirms_stopped_cancellation_worker_without_requiring_a_lease(
+    tmp_path,
+    monkeypatch,
+    task_dict,
+    plan,
+):
+    monkeypatch.chdir(tmp_path)
+    provider = load_provider_config(PROVIDER)
+    ledger = CampaignBudgetLedger(Path(provider.ledger_path))
+    ledger.initialize(
+        provider.campaign,
+        provider_id=provider.provider_id,
+        model_id=provider.model.id,
+    )
+    db = tmp_path / "control.sqlite3"
+    past = datetime.now(UTC) - timedelta(hours=2)
+    store = SQLiteEventStore(db, clock=lambda: past)
+    service = HarnessService(store)
+    run = store.create(TaskSpec.model_validate(task_dict), "create-cancel-worker-cli")
+    service.set_plan(run.run_id, plan, "plan-cancel-worker-cli")
+    leased = service.acquire_lease(
+        run.run_id,
+        "cancelled-worker",
+        "lease-cancel-worker-cli",
+        ttl_seconds=1,
+    )
+    token = LeaseToken.from_run(leased)
+    running = service.transition(
+        run.run_id,
+        RunStatus.RUNNING,
+        token,
+        "start-cancel-worker-cli",
+    )
+    service.request_cancel_worker_stop(
+        run.run_id,
+        token,
+        "request-cancel-worker-cli",
+        process_id=4247,
+        launch_event_seq=running.seq,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "--db",
+            str(db),
+            "agent",
+            "reconcile",
+            run.run_id,
+            "--config",
+            str(PROVIDER),
+            "--confirm-old-worker-stopped",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.stdout)
+    assert data["run_id"] == run.run_id
+    assert data["run_status"] == "CANCELLED"
+    assert data["network_called"] is False
+    assert data["reconciliation_skipped"] == "cancellation_closed_after_worker_stop_confirmation"
+    restored = SQLiteEventStore(db).get(run.run_id)
+    assert restored.status == RunStatus.CANCELLED
+    assert restored.cancel_worker_stop_receipts[-1]["stop_method"] == "operator_confirmed"
+    assert restored.lease_id is None
+
+
 def test_agent_reconcile_cli_marks_pending_model_unknown_after_deadline_without_credential(
     tmp_path, monkeypatch, task_dict, plan
 ):

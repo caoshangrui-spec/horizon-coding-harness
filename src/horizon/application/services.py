@@ -527,13 +527,44 @@ class HarnessService:
                 self._nonterminal(run)
             else:
                 self._active(run)
+            cancel_target = run.cancel_worker_stop
+            if cancel_target is not None and (not recovery or not prior_worker_stopped):
+                raise LeaseConflict("A cancellation-bound Worker must be stopped before takeover")
             now = self.store.clock()
             if run.lease_id:
                 if now < datetime.fromisoformat(run.lease_expires_at):
                     raise LeaseConflict("Another live worker owns this run")
                 if not prior_worker_stopped:
                     raise LeaseConflict("TTL expiry is not proof that the old process stopped")
-            return [
+            events = []
+            if cancel_target is not None:
+                target_matches_live_lease = (
+                    cancel_target["lease_id"],
+                    cancel_target["worker_id"],
+                    cancel_target["epoch"],
+                ) == (run.lease_id, run.worker_id, run.lease_epoch)
+                target_matches_released_lease = (
+                    run.lease_id is None
+                    and run.worker_id is None
+                    and run.lease_expires_at is None
+                    and cancel_target["epoch"] == run.lease_epoch
+                )
+                if not target_matches_live_lease and not target_matches_released_lease:
+                    raise LeaseConflict("Cancellation target no longer matches the stopped Worker")
+                events.append(
+                    NewEvent(
+                        event_type="CANCEL_WORKER_STOPPED",
+                        payload={
+                            **cancel_target,
+                            "exit_code": None,
+                            "stop_method": "operator_confirmed",
+                            "lease_release": (
+                                "takeover" if target_matches_live_lease else "already_released"
+                            ),
+                        },
+                    )
+                )
+            events.append(
                 NewEvent(
                     event_type="LEASE_ACQUIRED",
                     payload={
@@ -544,7 +575,8 @@ class HarnessService:
                     },
                     occurred_at=now,
                 )
-            ]
+            )
+            return events
 
         return self._command(run_id, key, request, decide)
 
@@ -583,6 +615,8 @@ class HarnessService:
             now = self.store.clock()
             if run.status != RunStatus.RUNNING or run.plan is None:
                 raise LeaseConflict("Expired reaped-worker takeover requires a RUNNING Run")
+            if run.cancel_worker_stop is not None:
+                raise LeaseConflict("A cancellation-bound Worker cannot use reaped takeover")
             if (
                 run.lease_id != previous_token.lease_id
                 or run.worker_id != previous_token.worker_id
@@ -750,7 +784,152 @@ class HarnessService:
 
     @staticmethod
     def _cancellation_blocked(run: Run) -> bool:
-        return bool(set(run.reservations) - run.unknown_reservations or run.tool_reservations)
+        return bool(
+            set(run.reservations) - run.unknown_reservations
+            or run.tool_reservations
+            or run.cancel_worker_stop is not None
+        )
+
+    def request_cancel_worker_stop(
+        self,
+        run_id: str,
+        token: LeaseToken,
+        key: str,
+        *,
+        process_id: int,
+        launch_event_seq: int,
+    ) -> Run:
+        """Persist a cancellation fence for one exact local Worker process.
+
+        The caller must publish this fence before asking the operating system to stop the
+        process. The bound Worker then becomes a cancellation blocker in its own right, even
+        when it has not reserved a model or tool effect yet.
+        """
+
+        if (
+            not isinstance(process_id, int)
+            or isinstance(process_id, bool)
+            or process_id < 1
+            or not isinstance(launch_event_seq, int)
+            or isinstance(launch_event_seq, bool)
+            or launch_event_seq < 1
+        ):
+            raise ValueError("Worker cancellation requires a process ID and launch event")
+        request = {
+            "operation": "request_cancel_worker_stop",
+            "token": token.model_dump(),
+            "process_id": process_id,
+            "launch_event_seq": launch_event_seq,
+        }
+        target = {
+            **token.model_dump(),
+            "process_id": process_id,
+            "launch_event_seq": launch_event_seq,
+            "source": "local_control",
+        }
+
+        def decide(run):
+            self._nonterminal(run)
+            if run.status != RunStatus.RUNNING or run.plan is None:
+                raise Conflict("Worker cancellation requires an active planned Run")
+            if (
+                run.lease_id != token.lease_id
+                or run.worker_id != token.worker_id
+                or run.lease_epoch != token.epoch
+            ):
+                raise LeaseConflict("Worker cancellation target no longer owns the exact lease")
+            if launch_event_seq > run.seq:
+                raise Conflict("Worker cancellation launch boundary is ahead of the durable Run")
+            if run.cancel_worker_stop is not None:
+                if run.cancel_worker_stop != target:
+                    raise Conflict("A different Worker process is already bound to cancellation")
+                return []
+            return [NewEvent(event_type="CANCEL_WORKER_STOP_PENDING", payload=target)]
+
+        return self._command(run_id, key, request, decide)
+
+    def record_cancel_worker_stopped(
+        self,
+        run_id: str,
+        token: LeaseToken,
+        key: str,
+        *,
+        process_id: int,
+        launch_event_seq: int,
+        exit_code: int,
+        stop_method: str,
+    ) -> Run:
+        """Record synchronous reap evidence and fence the exact stopped Worker lease."""
+
+        if (
+            not isinstance(process_id, int)
+            or isinstance(process_id, bool)
+            or process_id < 1
+            or not isinstance(launch_event_seq, int)
+            or isinstance(launch_event_seq, bool)
+            or launch_event_seq < 1
+            or not isinstance(exit_code, int)
+            or isinstance(exit_code, bool)
+            or stop_method not in {"already_exited", "terminate", "kill"}
+        ):
+            raise ValueError("Worker stop receipt requires exact process and exit evidence")
+        request = {
+            "operation": "record_cancel_worker_stopped",
+            "token": token.model_dump(),
+            "process_id": process_id,
+            "launch_event_seq": launch_event_seq,
+            "exit_code": exit_code,
+            "stop_method": stop_method,
+        }
+        target = {
+            **token.model_dump(),
+            "process_id": process_id,
+            "launch_event_seq": launch_event_seq,
+            "source": "local_control",
+        }
+
+        def decide(run):
+            self._nonterminal(run)
+            if not run.cancel_requested or run.cancel_worker_stop != target:
+                raise Conflict("Worker stop receipt does not match the pending cancellation")
+            lease_active = (run.lease_id, run.worker_id, run.lease_epoch) == (
+                token.lease_id,
+                token.worker_id,
+                token.epoch,
+            )
+            lease_released = (
+                run.lease_id is None
+                and run.worker_id is None
+                and run.lease_expires_at is None
+                and run.lease_epoch == token.epoch
+            )
+            if not lease_active and not lease_released:
+                raise LeaseConflict("Stopped Worker no longer owns the exact cancellation lease")
+            receipt = {
+                **target,
+                "exit_code": exit_code,
+                "stop_method": stop_method,
+                "lease_release": "parent" if lease_active else "already_released",
+            }
+            events = [NewEvent(event_type="CANCEL_WORKER_STOPPED", payload=receipt)]
+            if lease_active:
+                events.append(
+                    NewEvent(
+                        event_type="LEASE_RELEASED",
+                        payload={
+                            **token.model_dump(),
+                            "release_reason": "cancelled_reaped_worker",
+                            "process_id": process_id,
+                            "exit_code": exit_code,
+                            "stop_method": stop_method,
+                            "launch_event_seq": launch_event_seq,
+                            "safe_event_seq": run.seq + 1,
+                        },
+                    )
+                )
+            return events
+
+        return self._command(run_id, key, request, decide)
 
     def cancel_if_safe(self, run_id: str, key: str) -> Run:
         """Finish a durable cancellation only after external effects are classified."""

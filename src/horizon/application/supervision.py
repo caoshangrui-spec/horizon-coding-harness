@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -25,6 +26,20 @@ class AgentSliceRunner(Protocol):
         *,
         max_iterations_this_invocation: int | None = None,
     ) -> Run: ...
+
+
+class LocalWorkerProcess(Protocol):
+    """Minimal trusted-parent handle needed to stop and synchronously reap one child."""
+
+    pid: int
+
+    def poll(self) -> int | None: ...
+
+    def terminate(self) -> None: ...
+
+    def kill(self) -> None: ...
+
+    def wait(self, timeout: float | None = None) -> int: ...
 
 
 class SequentialSupervisorConfig(Contract):
@@ -83,6 +98,16 @@ class ReapedWorkerSupervisionResult:
     lease_transition: Literal["none", "live_release", "expired_takeover"] = "none"
     recovery_report: RecoveryReport | None = None
     supervision: AgentSupervisionResult | None = None
+
+
+@dataclass(frozen=True)
+class CancelledWorkerSupervisionResult:
+    run: Run
+    disposition: Literal["cancelled", "reconciliation_required"]
+    process_id: int
+    exit_code: int
+    stop_method: Literal["already_exited", "terminate", "kill"]
+    pending_reservation_ids: tuple[str, ...]
 
 
 class SequentialAgentSupervisor:
@@ -225,6 +250,122 @@ class SequentialAgentSupervisor:
 
         raise AssertionError("Supervisor slice loop exhausted without returning")
 
+    @staticmethod
+    def _validate_launch_boundary(current: Run, boundary: ReapedWorkerBoundary) -> None:
+        token = boundary.lease
+        if current.seq < boundary.launch_event_seq or current.lease_epoch != token.epoch:
+            raise Conflict("Worker evidence does not match the durable lease epoch")
+        if (boundary.agent_session_artifact_ref is None) != (boundary.next_iteration == 0):
+            raise Conflict("Worker launch boundary has inconsistent Agent session evidence")
+        if boundary.agent_session_artifact_ref is not None:
+            session = current.agent_session
+            if (
+                session is None
+                or session.next_iteration < boundary.next_iteration
+                or (
+                    session.next_iteration == boundary.next_iteration
+                    and session.artifact_ref != boundary.agent_session_artifact_ref
+                )
+            ):
+                raise Conflict("Durable Agent session regressed after the Worker launch boundary")
+
+    def cancel_and_reap_worker(
+        self,
+        boundary: ReapedWorkerBoundary,
+        service: HarnessService,
+        process: LocalWorkerProcess,
+        *,
+        key: str,
+        terminate_timeout_seconds: float = 5.0,
+    ) -> CancelledWorkerSupervisionResult:
+        """Fence cancellation, stop only the bound child, then persist synchronous reap evidence.
+
+        No receipt is written unless ``wait`` returned. If a reserved effect survives the child,
+        its exact intent remains untouched and the stopped lease is released for the existing
+        recovery path; otherwise the normal cancellation gate closes the Run.
+        """
+
+        if (
+            isinstance(terminate_timeout_seconds, bool)
+            or not isinstance(terminate_timeout_seconds, int | float)
+            or not 0 < terminate_timeout_seconds <= 30
+        ):
+            raise ValueError("Worker termination timeout must be in (0, 30] seconds")
+        if not isinstance(process.pid, int) or isinstance(process.pid, bool) or process.pid < 1:
+            raise ValueError("Worker process must expose a positive process ID")
+
+        current = service.store.get(boundary.run_id)
+        self._validate_launch_boundary(current, boundary)
+        token = boundary.lease
+        if (
+            current.status != RunStatus.RUNNING
+            or current.plan is None
+            or current.lease_id != token.lease_id
+            or current.worker_id != token.worker_id
+            or current.lease_epoch != token.epoch
+        ):
+            raise Conflict("Cancellation requires the exact live Worker launch lease")
+
+        service.request_cancel_worker_stop(
+            boundary.run_id,
+            token,
+            f"{key}-request",
+            process_id=process.pid,
+            launch_event_seq=boundary.launch_event_seq,
+        )
+
+        stop_method: Literal["already_exited", "terminate", "kill"]
+        if process.poll() is not None:
+            stop_method = "already_exited"
+        else:
+            stop_method = "terminate"
+            try:
+                process.terminate()
+            except OSError:
+                if process.poll() is None:
+                    raise
+                stop_method = "already_exited"
+
+        try:
+            exit_code = process.wait(timeout=terminate_timeout_seconds)
+        except subprocess.TimeoutExpired:
+            stop_method = "kill"
+            try:
+                process.kill()
+            except OSError:
+                if process.poll() is None:
+                    raise
+                stop_method = "terminate"
+            try:
+                exit_code = process.wait(timeout=terminate_timeout_seconds)
+            except subprocess.TimeoutExpired as exc:
+                raise Conflict("Cancelled Worker did not exit after forced termination") from exc
+
+        result = service.record_cancel_worker_stopped(
+            boundary.run_id,
+            token,
+            f"{key}-stopped",
+            process_id=process.pid,
+            launch_event_seq=boundary.launch_event_seq,
+            exit_code=exit_code,
+            stop_method=stop_method,
+        )
+        pending = tuple(sorted(result.reservations))
+        if result.status == RunStatus.CANCELLED:
+            disposition: Literal["cancelled", "reconciliation_required"] = "cancelled"
+        elif result.status == RunStatus.RUNNING and result.cancel_requested and pending:
+            disposition = "reconciliation_required"
+        else:
+            raise Conflict("Stopped Worker cancellation ended outside a recovery-safe boundary")
+        return CancelledWorkerSupervisionResult(
+            run=result,
+            disposition=disposition,
+            process_id=process.pid,
+            exit_code=exit_code,
+            stop_method=stop_method,
+            pending_reservation_ids=pending,
+        )
+
     def continue_after_reaped_worker(
         self,
         boundary: ReapedWorkerBoundary,
@@ -245,21 +386,7 @@ class SequentialAgentSupervisor:
             raise ValueError("Reaped worker process ID must be positive")
         current = service.store.get(boundary.run_id)
         token = boundary.lease
-        if current.seq < boundary.launch_event_seq or current.lease_epoch != token.epoch:
-            raise Conflict("Reaped worker evidence does not match the durable lease epoch")
-        if (boundary.agent_session_artifact_ref is None) != (boundary.next_iteration == 0):
-            raise Conflict("Reaped worker launch boundary has inconsistent Agent session evidence")
-        if boundary.agent_session_artifact_ref is not None:
-            session = current.agent_session
-            if (
-                session is None
-                or session.next_iteration < boundary.next_iteration
-                or (
-                    session.next_iteration == boundary.next_iteration
-                    and session.artifact_ref != boundary.agent_session_artifact_ref
-                )
-            ):
-                raise Conflict("Durable Agent session regressed after the Worker launch boundary")
+        self._validate_launch_boundary(current, boundary)
 
         if current.terminal or current.status == RunStatus.WAITING_FOR_USER:
             if current.lease_id is not None:

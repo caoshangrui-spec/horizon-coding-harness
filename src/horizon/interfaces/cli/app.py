@@ -1760,6 +1760,22 @@ def agent_reconcile(
         ttl_seconds=60,
         prior_worker_stopped=confirm_old_worker_stopped,
     )
+    if leased.terminal:
+        typer.echo(
+            canonical_json(
+                {
+                    "run_id": leased.run_id,
+                    "run_status": leased.status,
+                    "failure_reason": leased.failure_reason,
+                    "reconciliation_skipped": "cancellation_closed_after_worker_stop_confirmation",
+                    "campaign": ledger.summary(provider.campaign.campaign_id).model_dump(
+                        mode="json"
+                    ),
+                    "network_called": False,
+                }
+            )
+        )
+        return
     token = LeaseToken.from_run(leased)
     report = RecoveryService(
         service,
