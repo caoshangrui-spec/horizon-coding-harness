@@ -18,7 +18,7 @@
 | 工作项 DAG、required 验收覆盖、候选调度 | [plan.py](../src/horizon/domain/plan.py) | 人工、one-shot 模型计划和单次执行期 revision 都经过领域层验收/工具权限复核；新计划还要求每个 acceptance ID 只有一个 owning WorkItem，历史 Trace 投影保留旧合同兼容；无自动触发或多次 replan |
 | 一次性自动计划与恢复 | [planning.py](../src/horizon/application/planning.py)、[planning.py](../src/horizon/domain/planning.py) | 内容寻址 PlanningContext、1～8 项 DAG、任务级工具 allowlist、权限/验收唯一归属校验、费用记账、settled response 复用；完整 inventory 下拒绝模型猜测的不存在路径，只对同项已授权 `create_file` 且仍在 TaskSpec 范围内的新路径放行，截断 inventory 保持未知；仍无计划成功率评测 |
 | 计划阶段持久人工 fallback | [human.py](../src/horizon/domain/human.py)、[services.py](../src/horizon/application/services.py) | 非法模型 Plan 绑定原 response/Task/version 后进入 WAITING 并释放 Lease；本机人工计划原子记录决定并回到 READY；仅此窄场景，不是通用 HITL |
-| NoProgress 人工指导恢复 | [human.py](../src/horizon/application/human.py)、[human.py](../src/horizon/domain/human.py) | 相同行为第 4 次或精确 A/B 循环第 6 步，将 pattern、工具证据、Task/Plan/WorkItem/workspace/session 绑定后进入 WAITING；本机指导写入新 session，新 Worker 续跑；不是通用审批或自动 replan |
+| NoProgress 人工指导恢复 | [human.py](../src/horizon/application/human.py)、[human.py](../src/horizon/domain/human.py) | 相同行为第 4 次、period-2 第 6 步或 period-3/4 第 3p 步，将 pattern、精确周期、工具证据、Task/Plan/WorkItem/workspace/session 绑定后进入 WAITING；本机指导写入新 session，新 Worker 续跑；不是通用审批或自动 replan |
 | Run 状态投影、终态和成功前置检查 | [run.py](../src/horizon/domain/run.py) | 状态规则；顺序 WorkItem DAG、单次 vN→vN+1 revision 和最终 required checks 全量回归已接入；无并行或多次 replan |
 | 追加事件、事务、幂等回执、历史合同、重放 | [sqlite.py](../src/horizon/adapters/persistence/sqlite.py) | SQLite 重启、投影损坏/删除、并发写、真实进程退出 |
 | Lease/epoch、取消、合同修订、预算账本 | [services.py](../src/horizon/application/services.py)、[恢复安全取消](recovery-safe-cancellation.md) | 旧 Worker 拒绝写入；无在途 effect 时直接取消，在途 effect 先写持久派发栅栏，迟到 receipt/unknown/工具处置闭合后再终态；Run 内模型/工具 intent、receipt、unknown 与硬预算事件化 |
@@ -32,9 +32,9 @@
 | 执行证据驱动的受限 Replan | [plan.py](../src/horizon/domain/plan.py)、[services.py](../src/horizon/application/services.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 模型显式 `revise_plan`，最多 1 次成功；大型动态 Schema 只在当前 WorkItem 已积累至少两轮执行证据或已有通过项后暴露，并用持久会话元数据保持崩溃恢复请求稳定；完成项逐字段不可变，工具 receipt、Plan vN+1、新 session 同事务；未做真实模型效果评测 |
 | 确定性 ContextProjection + MandatoryFactLedger | [context.py](../src/horizon/application/context.py)、[context.py](../src/horizon/domain/context.py) | 完整 transcript 留存；候选投影同时满足字符上限与覆盖工具 Schema 的完整请求保守 token 上界，执行期再按 Run/Campaign/单调用最小 CNY 余量收窄 effective cap，近期完整单元在任一硬上限需要时只折叠最少数量，incomplete 单元绝不折叠；新 Projection/Reservation 使用 Adapter 实际 OpenAI-compatible body 字节，绑定版本化 estimator、payload hash/字段分量、上界与 effective cap，并按 estimator ID 恢复 v1；Task/Plan/权限/验收/预算/策略/工具 Schema/workspace 另做内容寻址绑定；不是精确 tokenizer、语义压缩或 Project Memory |
 | 证据驱动的 Run Memory | [memory.py](../src/horizon/application/memory.py)、[memory.py](../src/horizon/domain/memory.py) | 从工具事件和内容寻址输出派生；保留失败/unknown，按 workspace revision 失效并绑定模型请求恢复边界；仅 run scope，不是 Project Memory |
-| 精确模式无进展保护 | [agent_loop.py](../src/horizon/application/agent_loop.py) | 同一 revision 下，相同精确动作第 3 次、A/B 精确循环第 5 步软阻断；继续模式分别在第 4/6 步进入可恢复人工等待；不是语义或任意周期检测 |
+| 精确模式无进展保护 | [agent_loop.py](../src/horizon/application/agent_loop.py) | 同一 revision 下，相同精确动作第 3 次、period-2 第 5 步、period-3/4 第 3p-1 步软阻断；继续模式分别在第 4/6/3p 步进入可恢复人工等待；最小周期校验防止短周期重复冒充长周期；不是语义或任意周期检测 |
 | Revision-aware 词法 Code RAG | [retrieval.py](../src/horizon/domain/retrieval.py)、[sqlite_fts.py](../src/horizon/adapters/retrieval/sqlite_fts.py)、[retrieval_eval.py](../src/horizon/application/retrieval_eval.py) | SQLite FTS5/BM25、有界 EvidencePack、权限/revision/hash 回查、显式 scan fallback；camelCase/snake_case、同名定义路径语境和不同文件优先已测，内部 5+2+2 与外部 3 案例的成功/负结果均记录；dirty revision 可重建新排名并重放旧证据；外部盲测仍为 Hit@1 0/3，且无 AST/向量/symbol 图或真实模型收益结论 |
-| 冻结控制器策略评测 | [reliability.py](../src/horizon/domain/reliability.py)、[reliability_eval.py](../src/horizon/application/reliability_eval.py) | 12 案例/41 判断覆盖精确 NoProgress 与单次 replan 接受/拒绝；生产路径共享判定函数、报告内容寻址、零外部调用；不是模型或真实 Issue 效果评测 |
+| 冻结控制器策略评测 | [reliability.py](../src/horizon/domain/reliability.py)、[reliability_eval.py](../src/horizon/application/reliability_eval.py) | 14 案例/62 判断覆盖精确 period-1/2/3/4 NoProgress 与单次 replan 接受/拒绝；生产路径共享判定函数、报告内容寻址、零外部调用；不是模型或真实 Issue 效果评测 |
 | 有界恢复矩阵 v3 | [recovery_evaluation.py](../src/horizon/domain/recovery_evaluation.py)、[recovery_eval.py](../src/horizon/application/recovery_eval.py)、[horizon-recovery-matrix-v3.yaml](../benchmarks/recovery/horizon-recovery-matrix-v3.yaml)、[recovery-matrix-evaluation.md](recovery-matrix-evaluation.md) | 保留 v1/v2 digest；新增 promotion effect→receipt 前真实硬退出，与既有写入/模型响应硬退出及 18 个三工具状态/决策组合合计 21/21。自动恢复 11/11、安全阻塞 10/10、incorrect resume/redispatch/重复副作用均 0；三条 Trace replay。仍非完整设计故障矩阵、主机故障或 exactly-once 验收 |
 | 完整 Run A/B 与来源绑定 Suite | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[scripted.py](../src/horizon/adapters/model/scripted.py) | 同一 Task/Plan/workspace 的 baseline 与单次 replan arm；先真实确认初始失败，再检查 EventLog/预算/Gateway/Trace；1 个内部、v2 的 5 个 BugsInPy 依赖裁剪案例，以及 tqdm 82 files、youtube-dl 872 files、Luigi 382 files 三个完整 checkout。两个 v2 suite 均有 test-only 本地真实回归，并由统一公开 CI 在禁网 Docker 中通过 5/5 与 3/3、上传内容寻址证据。完整案例还验证干净 Git HEAD 与 Code RAG，仍是脚本模型 |
 | 完整 checkout 多阶段/重启 A/B | [bugsinpy-multi-stage-pilot-v3.yaml](../benchmarks/run_ab/bugsinpy-multi-stage-pilot-v3.yaml) | youtube-dl 872 files 与 Luigi 382 files 上各有三个依赖 WorkItem；四条 arm 均跨两个持久边界到 epoch 3，并覆盖跨 revision RAG、active/stale Run Memory、完成项保留 replan、最终三项 required checks 与 Trace replay。本地可信与公开禁网 Docker 均为 2/2，doctor 的 Docker 计数为 2。v1 的 CRLF 精确替换失败和 60 秒重启 Lease 到期负结果继续保留 |
@@ -101,7 +101,7 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
   `CANCELLED` 固定为 false。一个 `wall_clock_limit` 失败样本中的 unknown/open Provider 预算
   占用被原样保留，没有为生成报告做结算或重新分类。
 - 新增 5 项离线回归，覆盖三种终态、unknown/open effect、非终态拒绝、不覆盖和重哈希假摘要
-  拒绝。全量为 **422 passed，7 skipped**；导出和验证均不调用模型、工具、Provider 或仓库代码。
+  拒绝。当前累计全量为 **424 passed，7 skipped**；导出和验证均不调用模型、工具、Provider 或仓库代码。
 
 ### 2026-10-10 Supervisor 直接子 Worker 的恢复安全取消
 
@@ -595,9 +595,10 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
   同一事务写入 `HUMAN_DECISION_RECORDED`、人工 Plan 与 READY 状态。重启重放、非法替换不消费
   请求、reconcile 明确返回 `provide_replacement_plan`，以及 CLI WAITING 输出均有离线测试。
 - 扩展确定性 NoProgressPolicy：对单 tool-call 响应中的 read/search/retrieve/replace/patch/create，以
-  `tool_name + arguments_hash + same revision` 识别完全相同行为及精确 `A,B,A,B` 循环。相同行为
-  第 3 次、A/B 循环第 5 步产生有 Artifact/receipt 的 error observation；模型收到反馈后仍继续
-  模式，则分别在第 4/6 步保存完整会话，持久化带 pattern 的 `HumanGuidanceRequest`，并原子进入
+  `tool_name + arguments_hash + same revision` 识别完全相同行为及最小周期为 2～4 的精确循环。
+  相同行为第 3 次、period-2 第 5 步、period-3/4 第 `3p-1` 步产生有 Artifact/receipt 的 error
+  observation；模型收到反馈后仍继续模式，则分别在第 4/6/`3p` 步保存完整会话，持久化带
+  pattern 和可选精确周期的 `HumanGuidanceRequest`，并原子进入
   WAITING/释放 Lease。领域校验同时绑定 receipt 形状、policy 文本 hash、Task/Plan/WorkItem/
   workspace/session。本机 `agent guide` 写入新 session，由新 Worker 从相同 iteration 续跑；
   不自动重试、不换模型、不退还工具预算。详见[人工指导恢复](operator-guidance.md)。
@@ -629,11 +630,11 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
   token 优先的两版仍 Hit@5=0，对应 ref `52922a0aaf100589f6a84faa547b3094966c24718bd79e3b6702c05d3ae242e6`
   和 `79676ed48a4f0a7ea01aad3b377198598e1793681044333b235b717e5a201f6d`，负结果保留。该清单由
   实现者选题，不是盲测，也没有真实模型或 Agent 成功率增益结论。
-- 新增 `horizon eval reliability`：冻结 7 个 NoProgress Trace 和 5 个执行期 replan 合同，共
-  41 个逐步策略判断；当前 12/12 案例、41/41 判断通过，false positive/negative 均为 0。
-  生产 Agent Loop 与 evaluator 共用领域判定函数，故意标错的负例会保留 11/12 和一次 false
-  negative。Manifest digest 为 `4d27b02f9254bfe792dbd8a782cb1ba67f4b5f83a420ab96f437870a81d4a66f`，
-  report ref 为 `debc94da6a00cd26419d6f9b450e81b3f23a8c132e71687513a013c41893e5fe`。
+- `horizon eval reliability` 现冻结 9 个 NoProgress Trace 和 5 个执行期 replan 合同，共
+  62 个逐步策略判断；当前 14/14 案例、62/62 判断通过，false positive/negative 均为 0。
+  生产 Agent Loop 与 evaluator 共用领域判定函数，故意标错的负例会保留 13/14 和一次 false
+  negative。Manifest digest 为 `806469bc77fe2a73be7df62cb6385caf9a31d8acfedc64bbc6bcca069264283e`，
+  report ref 为 `05f5dbfa168ca00f8a3e37554dad53fd040f1ece25b5d3106e8a9681da293c96`。
 - 构造 replan 扩权负例时发现写模式 Plan 只在模型 Tool Schema 层枚举工具的缺口；现已把工具
   白名单校验下沉到 `Plan.check_task()`，人工、自动计划和执行期 revision 均不能写入未知工具。
   该结果是本轮风险修复及自检，尚无独立安全复核。
@@ -827,8 +828,8 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 1. **上游与通用主循环**：当前闭环是自研、确定性顺序 WorkItem DAG 适配，不是完整
    mini-SWE-agent/SWE-ReX Spike；已有受控 one-shot 自动分解，但还要支持基于执行证据的有限
-   自动 replan 触发、第二次/失败升级策略、任意 diff/edit、period-3+／语义无进展检测；当前不
-   并行执行工作项。完全相同动作和精确 period-2 循环已有窄保护，执行模型有一次受限 Plan
+   自动 replan 触发、第二次/失败升级策略、任意 diff/edit、period-5+／语义无进展检测；当前不
+   并行执行工作项。完全相同动作和精确 period-2/3/4 循环已有窄保护，执行模型有一次受限 Plan
    revision，但不能扩展宣称为通用自治规划或无进展检测。
 2. **完整恢复**：安全轮次和已持久化 response receipt 边界现可续跑，模型/工具悬空 intent
    和 Run/Campaign 提交窗口可分类；单一只读工具支持显式重试，精确 `replace_text` 与有界
@@ -859,7 +860,7 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 七轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新离线全量回归为 422 passed、7 个显式 Docker skip，
+当前主干继续补齐尚未统一覆盖的故障点；最新离线全量回归为 424 passed、7 个显式 Docker skip，
 7 个 Docker 合同已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
@@ -875,7 +876,7 @@ source 未变。第六轮 Run `run_7fab106a71174c77bb0a82a8a054d3ed` 使用该 v
 费用为 `CNY 0.2064492`，第七轮授权已消费。剩余 Campaign 或用户总额度
 都不能自动扩权，任何新付费 Run 仍须取得明确授权。当前优先继续零费用可靠性验证，现有证据不支持立即引入 symbol/vector
 索引、模型摘要或自动 replan。Run Memory 已形成最小垂直切片，
-精确 NoProgress/replan 的冻结策略 Trace 已建立 12 案例基线；内部 A/B、五个来源绑定的依赖裁剪
+精确 NoProgress/replan 的冻结策略 Trace 已建立 14 案例基线；内部 A/B、五个来源绑定的依赖裁剪
 案例和三个不同项目的完整 checkout 均已执行初始负例、Trace、验收、调用数和合成费用合同；
 两个 v2 suite 均已有公开禁网 Docker 5/5 与 3/3 报告和统一证据 artifact。完整 suite 给出三个
 Code RAG rank 1，以及 9/2/55 个文件跳过的显式降级证据；重复 CAS blob 校验的

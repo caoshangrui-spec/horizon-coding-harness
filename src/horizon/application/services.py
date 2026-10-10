@@ -302,6 +302,8 @@ class HarnessService:
         pattern: NoProgressPattern,
         token: LeaseToken,
         key: str,
+        *,
+        cycle_period: int | None = None,
     ) -> Run:
         detail = detail.strip()[:2000]
         if not detail:
@@ -311,6 +313,7 @@ class HarnessService:
             "source_tool_call_id": source_tool_call_id,
             "detail": detail,
             "pattern": pattern,
+            "cycle_period": cycle_period,
             "token": token.model_dump(),
         }
 
@@ -339,12 +342,14 @@ class HarnessService:
                     record.artifact_ref,
                     session.workspace_revision,
                     detail,
+                    cycle_period,
                 )
             ):
                 raise Conflict("Operator guidance requires the latest no-progress evidence")
             request = HumanGuidanceRequest(
                 request_id=f"hgr_{digest((run_id, source_tool_call_id))[:32]}",
                 pattern=pattern,
+                cycle_period=cycle_period,
                 detail=detail,
                 source_tool_call_id=source_tool_call_id,
                 evidence_artifact_ref=record.artifact_ref,

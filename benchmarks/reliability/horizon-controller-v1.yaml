@@ -108,6 +108,65 @@ cases:
         expected_decision: allow
 
   - kind: no_progress
+    case_id: period-three-soft-then-hard
+    description: A/B/C repeated three times is bounded one step before the third full cycle.
+    actions:
+      - &period_a
+        tool: read_file
+        arguments: {path: src/parser.py}
+        expected_decision: allow
+      - &period_b
+        tool: search_repo
+        arguments: {query: parser}
+        expected_decision: allow
+      - &period_c
+        tool: retrieve_code
+        arguments: {query: empty input normalization}
+        expected_decision: allow
+      - *period_a
+      - *period_b
+      - *period_c
+      - *period_a
+      - tool: search_repo
+        arguments: {query: parser}
+        expected_decision: soft_block
+        expected_pattern: periodic_action_cycle
+        expected_cycle_period: 3
+      - tool: retrieve_code
+        arguments: {query: empty input normalization}
+        expected_decision: hard_stop
+        expected_pattern: periodic_action_cycle
+        expected_cycle_period: 3
+
+  - kind: no_progress
+    case_id: period-four-soft-then-hard
+    description: A/B/C/D repetition remains exact and does not collapse into a shorter cycle.
+    actions:
+      - *period_a
+      - *period_b
+      - *period_c
+      - &period_d
+        tool: read_file
+        arguments: {path: src/formatter.py}
+        expected_decision: allow
+      - *period_a
+      - *period_b
+      - *period_c
+      - *period_d
+      - *period_a
+      - *period_b
+      - tool: retrieve_code
+        arguments: {query: empty input normalization}
+        expected_decision: soft_block
+        expected_pattern: periodic_action_cycle
+        expected_cycle_period: 4
+      - tool: read_file
+        arguments: {path: src/formatter.py}
+        expected_decision: hard_stop
+        expected_pattern: periodic_action_cycle
+        expected_cycle_period: 4
+
+  - kind: no_progress
     case_id: workspace-revision-breaks-repeat
     description: An otherwise identical signature at a new revision starts a fresh streak.
     actions:

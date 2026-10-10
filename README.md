@@ -83,7 +83,7 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | Python 3.12/3.13 的测试、静态检查、演示和构建已通过 | CI 不读取 API Key、不运行付费模型 |
-| 离线回归 | `422 passed, 7 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `424 passed, 7 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | [通用终态 EvidencePack](docs/terminal-evidence-pack.md) | `SUCCEEDED`、`FAILED`、`CANCELLED` 均可导出并离线复核 Trace、最终投影和摘要；unknown/open effect 原样列出 | 自洽哈希不是来源签名，也不证明外部 Provider 或副作用已结清 |
 | [本地顺序 Supervisor](docs/local-sequential-supervisor.md) | 完整轮次后自动释放 Lease并重开 Worker；真实子 Worker 退出后可按精确身份接管；应用层可信父进程还能先落取消栅栏，再 terminate/wait/kill 一个直接子 Worker，保留 pending intent 且零重派 | 子进程取消目前是 Python application API，不是 `agent run --supervise` 的常驻进程平台；不覆盖任意后代进程、跨主机 Worker、分布式队列或任意崩溃自动恢复 |
 | Docker 契约 | 7 项均已在本机已有镜像上单独通过 | 有限隔离合同，不是恶意代码安全认证 |
@@ -156,9 +156,10 @@ Task/Plan/权限/验收/预算/模型策略/工具 Schema/workspace 绑定为内
 Run Memory；失败结果保留为失败，未知副作用保持 unresolved，旧 workspace revision 的观察
 标为 stale 且不向模型暴露旧片段。每个模型请求绑定对应 Memory Artifact 和事件边界，恢复时
 按历史边界重建，模型 `submit` 声明不能直接写入事实。
-同一 revision 下完全相同的读取/检索/编辑重复两次，或精确动作形成 `A→B→A→B` 时，
-NoProgressPolicy 会在下一步拒绝实际执行并回送证据；模型收到反馈后仍继续同一模式，则持久化
-完整轮次，进入 `WAITING_FOR_USER` 并原子释放 Lease。
+同一 revision 下完全相同的读取/检索/编辑重复两次，或精确动作形成 period-2/3/4 循环时，
+NoProgressPolicy 会在第三轮循环闭合前拒绝实际执行并回送证据；模型收到反馈后仍继续同一模式，
+则持久化完整轮次，进入 `WAITING_FOR_USER` 并原子释放 Lease。检测只比较工具名、参数 hash 和
+不变 workspace revision，不把语义相似动作猜成循环。
 在软阻断后，模型也可选择单次 `revise_plan` 调整尚未通过的工作结构；无效提案只生成 error
 observation，不能改写完成项或扩大合同。详细合同见
 [执行证据驱动的单次受限 Replan](docs/execution-replanning.md)。
@@ -383,7 +384,7 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **422 passed，7 skipped**；7 项 Docker 合同均已指定本机已有镜像
+当前离线全量回归为 **424 passed，7 skipped**；7 项 Docker 合同均已指定本机已有镜像
 单独复跑并通过。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实
 Issue 效果。新增真实模型 Pilot 单元测试覆盖私有答案拒绝、初始失败证据、内容寻址报告和

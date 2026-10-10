@@ -1,6 +1,6 @@
 # 精确模式无进展保护
 
-更新：2026-10-02。该策略用于阻止长程 Agent 在 workspace 没有变化时反复执行可证明的
+更新：2026-10-10。该策略用于阻止长程 Agent 在 workspace 没有变化时反复执行可证明的
 无进展动作，持续消耗模型与工具预算。它是确定性的窄 circuit breaker，不是通用重试、
 fallback、语义级停滞判断或自动 replan。
 
@@ -34,7 +34,7 @@ workspace_revision_after  == 当前 revision
 WorkItem 切换都会形成边界，不会与更早历史拼成循环。普通进程重启不会清零，因为 receipt 和
 reset 边界都由 EventLog 重建。
 
-## 2. 当前两个精确模式
+## 2. 当前三个精确模式族
 
 ### 2.1 完全相同动作
 
@@ -58,6 +58,18 @@ A、B 可以是不同工具，也可以是同一工具的两组不同参数。�
 不同，就不是这个模式。固定窗口而非任意循环图，是为了先覆盖常见浪费模式，同时限制误拦截
 面和实现复杂度。
 
+### 2.3 period-3 / period-4 精确循环
+
+控制器还检测最小周期为 3 或 4 的精确序列。设周期为 `p`：
+
+1. 前两轮和第三轮的前 `p-2` 个动作正常派发；
+2. 第 `3p-1` 步仍沿同一精确序列时写入软阻断 receipt；
+3. 模型收到反馈后，第 `3p` 步仍闭合第三轮时写入硬阻断 receipt 并进入人工等待。
+
+因此 period-3 在第 8/9 步软/硬阻断，period-4 在第 11/12 步软/硬阻断。分类器要求最小精确
+周期确实为 `p`：例如 `A,B,A,B,...` 始终保留历史 `alternating_two_action_cycle`，不会同时冒充
+period-4。人工请求使用 `pattern=periodic_action_cycle`，并单独持久化 `cycle_period=3|4`。
+
 ## 3. 阻断、证据和人工等待
 
 软阻断不会伪装成 Gateway 成功，也不会把工具用量退回为零。每条拒绝仍经过 tool reservation
@@ -70,6 +82,8 @@ error observation 会进入 Run Memory，使压缩后的上下文仍能看到近
 - `identical_action`：最近两条都是相同精确签名、同一不变 revision 的拒绝 receipt；
 - `alternating_two_action_cycle`：最近六条签名严格为 `A,B,A,B,A,B`，A 与 B 不同，全部位于
   同一不变 revision，且最后两条是拒绝 receipt；
+- `periodic_action_cycle`：按请求中的 `cycle_period` 取最近 `3p` 条，必须是最小周期为 p 的三次
+  完整重复、位于同一不变 revision，且最后两条是拒绝 receipt；
 - 最后一条 call ID、Artifact 引用、请求中的 policy 文本及其 SHA-256 内容地址一致；
 - 所有动作均属于受保护集合，请求绑定当前 Task、Plan、WorkItem、workspace 和 AgentSession。
 
@@ -83,7 +97,7 @@ error observation 会进入 Run Memory，使压缩后的上下文仍能看到近
 当前实现不会：
 
 - 判断两个不同参数是否语义等价；
-- 检测 period-3 或更长循环、跨 revision 循环或多 tool-call 响应内的图模式；
+- 检测 period-5 或更长循环、跨 revision 循环或多 tool-call 响应内的图模式；
 - 根据错误类型自动改参数、切换工具或切换模型；
 - 自动重试、提高预算或修改 Plan；
 - 覆盖现有 model-iteration、tool/step、repair-cycle 和费用硬上限。
@@ -99,18 +113,18 @@ Provider 的 `retryable` 标签同样不会绕过这条边界：没有服务端�
 - 第四个 A 继续重复时，请求记录 `pattern=identical_action` 并进入可重放 WAITING；
 - `A,B,A,B` 正常执行，第五个 A 软阻断，第六个 B 触发
   `pattern=alternating_two_action_cycle`；
+- period-3 的第 8/9 步与 period-4 的第 11/12 步分别软/硬阻断，人工请求同时绑定精确周期；
 - `A,B,A,B,C` 不被误拦截；
 - 篡改 policy 文本、模式或任一 workspace revision 后，证据校验失败；
 - 指导决定重置检测边界，新 Worker 可从原 iteration 续跑并完成保护验收；
 - CLI Fake E2E 完成 `run → WAITING → guide → resume → SUCCEEDED`，指导步骤零模型调用。
 
 另有一份与生产 Agent Loop 共用 `classify_no_progress` 的冻结策略清单，覆盖 revision、mutation、
-非受保护 receipt 和 reset 等负例；当前 7 个 NoProgress 案例的逐步判断无 false positive/negative。
+非受保护 receipt 和 reset 等负例；当前 9 个 NoProgress 案例的逐步判断无 false positive/negative。
 完整输入、公式和内容寻址报告见[控制器可靠性策略离线评测](reliability-evaluation.md)。
 
 这些结果证明确定性合同和恢复路径可工作，不证明真实模型上的误拦截率、成本收益或任务成功率
 提升。执行模型现在可在软阻断后显式提交一次受限 replan；五个来源绑定的依赖裁剪案例已在
 本地可信与公开禁网 Docker 路径形成完整 Run Trace 5/5；三个不同项目的完整 checkout 也已有
-本地可信 Trace 和公开禁网 Docker 3/3，但仍缺真实模型决策。是否增加
-period-3、语义
-检测、自动 replan 触发或第二次修订，继续由真实模型失败分布和对照收益决定。
+本地可信 Trace 和公开禁网 Docker 3/3，但仍缺真实模型决策。是否增加 period-5+、语义检测、
+自动 replan 触发或第二次修订，继续由真实模型失败分布和对照收益决定。

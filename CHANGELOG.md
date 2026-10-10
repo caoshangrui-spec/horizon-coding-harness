@@ -5,6 +5,13 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Extended the exact, revision-bound NoProgress policy from identical and period-2 actions to
+  primitive period-3 and period-4 cycles. The controller soft-blocks one action before a third
+  complete cycle, requires the next exact continuation before entering recoverable operator
+  guidance, persists the exact cycle period, and revalidates the full receipt window during Trace
+  replay. The frozen offline policy suite now covers 14 cases and 62 decisions with explicit
+  period-3/4 positives and shorter-period false-positive protection; no semantic matching,
+  automatic replan, retry, provider call, or budget expansion was added.
 - Added a generic terminal EvidencePack for `SUCCEEDED`, `FAILED`, and `CANCELLED` Runs. The
   read-only `trace bundle` command exports the append-only Trace, canonical final projection, and a
   deterministic human summary, while `trace verify-bundle` checks file hashes, replays the Trace,

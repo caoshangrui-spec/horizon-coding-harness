@@ -31,9 +31,9 @@ def test_reliability_eval_cli_is_offline_and_persists_immutable_report(tmp_path)
     assert result.exit_code == 0, result.output
     payload = json.loads(result.stdout)
     report = payload["report"]
-    assert report["case_count"] == 12
-    assert report["passed_case_count"] == 12
-    assert report["policy_decision_count"] == 41
+    assert report["case_count"] == 14
+    assert report["passed_case_count"] == 14
+    assert report["policy_decision_count"] == 62
     assert report["false_positive_count"] == 0
     assert report["false_negative_count"] == 0
     assert report["paid_model_called"] is False

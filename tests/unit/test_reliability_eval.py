@@ -23,12 +23,12 @@ def test_frozen_controller_reliability_manifest_passes_without_external_calls():
 
     report = ReliabilityEvaluator().evaluate(manifest)
 
-    assert manifest.sha256 == "4d27b02f9254bfe792dbd8a782cb1ba67f4b5f83a420ab96f437870a81d4a66f"
-    assert report.case_count == 12
-    assert report.passed_case_count == 12
+    assert manifest.sha256 == "806469bc77fe2a73be7df62cb6385caf9a31d8acfedc64bbc6bcca069264283e"
+    assert report.case_count == 14
+    assert report.passed_case_count == 14
     assert report.case_pass_rate == 1.0
-    assert report.policy_decision_count == 41
-    assert report.correct_policy_decision_count == 41
+    assert report.policy_decision_count == 62
+    assert report.correct_policy_decision_count == 62
     assert report.policy_decision_accuracy == 1.0
     assert report.false_positive_count == 0
     assert report.false_negative_count == 0
@@ -55,7 +55,7 @@ def test_reliability_evaluator_preserves_a_mislabeled_negative_result():
 
     report = ReliabilityEvaluator().evaluate(manifest)
 
-    assert report.passed_case_count == 11
+    assert report.passed_case_count == 13
     assert report.case_pass_rate < 1.0
     assert report.policy_decision_accuracy < 1.0
     assert report.false_negative_count == 1

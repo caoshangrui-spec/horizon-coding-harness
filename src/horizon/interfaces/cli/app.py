@@ -2364,9 +2364,11 @@ def doctor():
                 "no_progress_patterns": [
                     "identical_action",
                     "alternating_two_action_cycle",
+                    "periodic_action_cycle",
                 ],
                 "no_progress_repeat_limit": 2,
                 "no_progress_alternating_cycle_limit": 2,
+                "no_progress_max_exact_cycle_period": 4,
                 "semantic_no_progress_detection": False,
                 "controller_policy_evaluation": True,
                 "controller_policy_evaluation_profile": "frozen_offline_exact_policy_traces",

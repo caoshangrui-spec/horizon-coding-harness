@@ -232,12 +232,12 @@ Horizon 的可配置请求策略，不冒充模型官方窗口或 tokenizer 精�
   压缩 pending response 能跨 Worker 恢复而不重复计费；
 - MandatoryFactLedger 和证据驱动的 Run Memory 均按内容寻址绑定到每次模型请求；Memory 只从
   工具事件/输出派生，区分 active/stale/unresolved，并按原事件边界恢复；
-- 同一 revision 下，相同精确 read/search/retrieve/replace/patch/create 的第 3 次或精确 A/B 循环的
-  第 5 步会被 NoProgressPolicy 拒绝实际执行；若模型收到反馈后仍延续模式，则进入有证据的
-  可恢复人工等待；该策略尚无真实模型误拦截/收益证据；
+- 同一 revision 下，相同精确 read/search/retrieve/replace/patch/create 的第 3 次，或最小周期
+  2/3/4 循环的第 5/8/11 步会被 NoProgressPolicy 拒绝实际执行；若模型收到反馈后仍延续模式，
+  则进入有证据的可恢复人工等待；该策略尚无真实模型误拦截/收益证据；
 - `retrieve_code` 从当前 immutable manifest 生成 path/range/hash 证据，每个 FTS 命中回查源
   Artifact；dirty revision、权限 scope、索引篡改、empty/degraded 和 scan fallback 有离线测试；
-- 6 项真实 Docker 合同，以及一次真实 SiliconFlow + Docker fixture Run；
+- 7 项真实 Docker 合同，以及一次真实 SiliconFlow + Docker fixture Run；
 - 模型/工具/验证/checkpoint 事件导出后无需模型和 Docker即可重建相同 projection hash。
 
 尚未实现或尚未验证：

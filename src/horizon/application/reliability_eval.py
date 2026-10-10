@@ -86,7 +86,9 @@ class ReliabilityEvaluator:
                 else "allow"
             )
             correct = (
-                observed == action.expected_decision and decision.pattern == action.expected_pattern
+                observed == action.expected_decision
+                and decision.pattern == action.expected_pattern
+                and decision.cycle_period == action.expected_cycle_period
             )
             steps.append(
                 NoProgressStepResult(
@@ -96,6 +98,8 @@ class ReliabilityEvaluator:
                     observed_decision=observed,
                     expected_pattern=action.expected_pattern,
                     observed_pattern=decision.pattern,
+                    expected_cycle_period=action.expected_cycle_period,
+                    observed_cycle_period=decision.cycle_period,
                     correct=correct,
                 )
             )

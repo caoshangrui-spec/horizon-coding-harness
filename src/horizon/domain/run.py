@@ -376,6 +376,7 @@ def apply(run: Run | None, event: Event) -> Run:
                     request.evidence_artifact_ref,
                     request.workspace_revision,
                     request.detail,
+                    request.cycle_period,
                 )
                 or request.task_spec_hash != run.task.sha256
                 or request.plan_version != run.plan.version

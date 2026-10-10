@@ -14,6 +14,7 @@ ReplanDecision = Literal["accept", "reject"]
 Ratio = Annotated[float, Field(ge=0.0, le=1.0)]
 Count = Annotated[StrictInt, Field(ge=0)]
 PositiveIndex = Annotated[StrictInt, Field(gt=0)]
+CyclePeriod = Annotated[StrictInt, Field(ge=3, le=4)]
 Sha256 = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
 
 
@@ -25,11 +26,16 @@ class NoProgressEvalAction(Contract):
     reset_before: bool = False
     expected_decision: ReliabilityDecision
     expected_pattern: NoProgressPattern | None = None
+    expected_cycle_period: CyclePeriod | None = None
 
     @model_validator(mode="after")
     def validate_expectation(self) -> Self:
         if (self.expected_decision == "allow") != (self.expected_pattern is None):
             raise ValueError("Allowed actions must omit a pattern; blocked actions must name one")
+        if (self.expected_pattern == "periodic_action_cycle") != (
+            self.expected_cycle_period is not None
+        ):
+            raise ValueError("Only periodic-cycle expectations carry an exact cycle period")
         return self
 
     @property
@@ -104,6 +110,8 @@ class NoProgressStepResult(Contract):
     observed_decision: ReliabilityDecision
     expected_pattern: NoProgressPattern | None = None
     observed_pattern: NoProgressPattern | None = None
+    expected_cycle_period: CyclePeriod | None = None
+    observed_cycle_period: CyclePeriod | None = None
     correct: bool
 
 

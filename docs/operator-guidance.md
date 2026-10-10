@@ -1,8 +1,8 @@
 # 执行停滞后的可恢复人工指导
 
-更新：2026-10-02。本文描述已经实现的窄 Human-in-the-loop 路径：当确定性
+更新：2026-10-10。本文描述已经实现的窄 Human-in-the-loop 路径：当确定性
 NoProgressPolicy 证明 Agent 在同一 workspace revision 上持续重复完全相同动作，或陷入精确
-`A→B→A→B` 双动作循环时，Run 不直接失败，而是持久化一个人工指导请求。它不是通用审批
+period-2/3/4 动作循环时，Run 不直接失败，而是持久化一个人工指导请求。它不是通用审批
 平台，也不允许人类扩大原任务权限、验收或预算。
 
 ## 1. 触发条件
@@ -14,6 +14,7 @@ NoProgressPolicy 证明 Agent 在同一 workspace revision 上持续重复完全
 |---|---|---|
 | `identical_action` | 第三个相同精确动作 | 第四个仍相同 |
 | `alternating_two_action_cycle` | `A,B,A,B` 后继续提交 A | 下一轮继续提交 B，形成 `A,B,A,B,A,B` |
+| `periodic_action_cycle` | 第 `3p-1` 步仍延续最小周期 3/4 | 第 `3p` 步闭合第三轮；请求绑定 `cycle_period=p` |
 
 精确动作由 `tool_name + arguments_hash` 定义；窗口内所有 receipt 都必须具有相同且不变的
 workspace revision。当前仅覆盖 `search_repo`、`read_file`、`retrieve_code`、`replace_text` 和
@@ -32,7 +33,8 @@ Task/Plan/WorkItem/workspace/session 绑定。普通工具错误、被篡改的�
 | 字段 | 约束 |
 |---|---|
 | `reason_code` | 固定为 `repeated_action_no_progress` |
-| `pattern` | `identical_action` 或 `alternating_two_action_cycle` |
+| `pattern` | `identical_action`、`alternating_two_action_cycle` 或 `periodic_action_cycle` |
+| `cycle_period` | 仅 periodic 模式存在，固定为 3 或 4；其他模式必须为空 |
 | `source_tool_call_id` / `evidence_artifact_ref` | 指向最后一条拒绝 receipt 及其内容寻址证据 |
 | `detail` | 必须与证据 Artifact 的 SHA-256 一致，并包含对应 policy 模式标记 |
 | `task_spec_hash` | 人工指导不能修改任务合同 |
@@ -95,7 +97,7 @@ uv run --locked horizon agent resume <run-id> `
 
 ## 5. 重置与恢复语义
 
-成功消费指导时，Run 把 `no_progress_reset_tool_count` 移到当前 receipt 尾部，后续两种模式都
+成功消费指导时，Run 把 `no_progress_reset_tool_count` 移到当前 receipt 尾部，后续三种模式都
 只检查新边界之后的工具历史。否则 Agent 恢复后的第一个动作可能被旧循环立即误拦截。Plan
 变化和 WorkItem 切换也重置该边界；普通进程重启不会重置。
 
@@ -105,10 +107,10 @@ Memory、JSONL Trace 导出、重放和 projection hash。取消或硬截止进�
 
 ## 6. 已验证与未完成
 
-离线测试已覆盖两种 pattern 的精确触发、非循环负例、证据文本/revision 篡改拒绝、请求原子
+离线测试已覆盖三种 pattern 的精确触发、最小周期与非循环负例、证据文本/revision 篡改拒绝、请求原子
 提交、Lease 释放、重启 reconciliation、人工决定、新 session、新 Worker 恢复，以及 CLI
 `run → WAITING → guide → resume → SUCCEEDED`。这些测试不产生网络或模型费用。
 
 仍未实现：自由文本澄清、多选审批、审批 TTL/过期、多用户身份、通用高风险工具批准、
-period-3+ 或语义等价循环、自动 replan，以及真实模型上指导的成功率/成本收益评测。因此准确
+period-5+ 或语义等价循环、自动 replan，以及真实模型上指导的成功率/成本收益评测。因此准确
 表述是“一个由可重放 NoProgress 证据触发的可恢复人工指导通道”，不是“通用 HITL 系统”。

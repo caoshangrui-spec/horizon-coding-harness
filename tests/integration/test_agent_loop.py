@@ -1241,6 +1241,34 @@ def test_no_progress_guard_waits_on_exact_alternating_two_action_cycle(
     assert projection_hash(replayed) == projection_hash(waiting)
 
 
+def test_no_progress_guard_waits_on_exact_period_three_cycle(tmp_path, task_dict):
+    cycle = [
+        ("read_file", {"path": "src/parser.py"}),
+        ("search_repo", {"query": "return [value]"}),
+        ("retrieve_code", {"query": "parse empty input"}),
+    ]
+    runner, store, run_id, token, _, model = setup_loop(tmp_path, task_dict, cycle * 3)
+    runner.config = AgentLoopConfig(max_model_iterations=10, max_output_tokens=256)
+
+    waiting = runner.run(run_id, token)
+
+    assert waiting.status == RunStatus.WAITING_FOR_USER
+    assert isinstance(waiting.pending_human_request, HumanGuidanceRequest)
+    assert waiting.pending_human_request.pattern == "periodic_action_cycle"
+    assert waiting.pending_human_request.cycle_period == 3
+    assert len(model.requests) == 9
+    assert [record.status for record in waiting.tool_calls] == ["success"] * 7 + [
+        "error",
+        "error",
+    ]
+    denial = runner.session_store.read(waiting.tool_calls[-1].artifact_ref).decode("utf-8")
+    assert "exact period-3 action cycle" in denial
+    assert "9 consecutive unchanged-revision receipts" in denial
+    replayed = SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id))
+    assert replayed.as_dict() == waiting.as_dict()
+    assert projection_hash(replayed) == projection_hash(waiting)
+
+
 def test_no_progress_guard_does_not_block_a_b_a_b_c_sequence(tmp_path, task_dict):
     actions = [
         ("read_file", {"path": "src/parser.py"}),

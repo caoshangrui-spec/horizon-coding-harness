@@ -331,9 +331,11 @@ def test_doctor_checks_fts_without_model():
     assert data["no_progress_patterns"] == [
         "identical_action",
         "alternating_two_action_cycle",
+        "periodic_action_cycle",
     ]
     assert data["no_progress_repeat_limit"] == 2
     assert data["no_progress_alternating_cycle_limit"] == 2
+    assert data["no_progress_max_exact_cycle_period"] == 4
     assert data["semantic_no_progress_detection"] is False
     assert data["controller_policy_evaluation"] is True
     assert data["controller_policy_evaluation_profile"] == ("frozen_offline_exact_policy_traces")

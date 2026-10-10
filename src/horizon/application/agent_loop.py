@@ -36,7 +36,7 @@ from horizon.domain.errors import (
     ProviderError,
     RunCancellationRequested,
 )
-from horizon.domain.human import NoProgressPattern, classify_no_progress
+from horizon.domain.human import NoProgressDecision, classify_no_progress
 from horizon.domain.memory import RunMemorySnapshot
 from horizon.domain.model import (
     CONSERVATIVE_INPUT_TOKEN_ESTIMATOR,
@@ -790,7 +790,7 @@ class CodingAgentRunner:
         *,
         protected_check: bool = False,
         enforce_no_progress: bool = False,
-    ) -> tuple[ToolOutcome, NoProgressPattern | None]:
+    ) -> tuple[ToolOutcome, NoProgressDecision | None]:
         local_id = f"tool_{uuid4().hex}"
         arguments_hash = digest(arguments)
         workspace_revision, workspace_manifest_ref = self.tools.checkpoint()
@@ -808,8 +808,8 @@ class CodingAgentRunner:
                 max_identical_actions=self.config.max_identical_no_progress_actions,
             )
         no_progress_pattern = decision.pattern if decision is not None else None
-        hard_no_progress_pattern = (
-            no_progress_pattern if decision is not None and decision.hard_stop else None
+        hard_no_progress_decision = (
+            decision if decision is not None and decision.hard_stop else None
         )
         reservation = ToolCallReservation(
             call_id=local_id,
@@ -831,7 +831,7 @@ class CodingAgentRunner:
                     f"{decision.identical_prior_count} consecutive times at workspace revision "
                     f"{workspace_revision}. Choose different evidence or a different action."
                 )
-            else:
+            elif no_progress_pattern == "alternating_two_action_cycle":
                 first_name = decision.alternating_window[0][0]
                 second_name = decision.alternating_window[1][0]
                 content = (
@@ -839,6 +839,19 @@ class CodingAgentRunner:
                     f"{len(decision.alternating_window)} consecutive unchanged-revision receipts "
                     f"({first_name} <-> {second_name}) at workspace revision "
                     f"{workspace_revision}. Choose evidence or an action outside this cycle."
+                )
+            else:
+                period = decision.cycle_period
+                if period is None:
+                    raise Conflict("Periodic no-progress evidence omitted its exact period")
+                action_names = " -> ".join(
+                    signature[0] for signature in decision.cycle_window[:period]
+                )
+                content = (
+                    f"NoProgressPolicy: an exact period-{period} action cycle reached "
+                    f"{len(decision.cycle_window)} consecutive unchanged-revision receipts "
+                    f"({action_names}) at workspace revision {workspace_revision}. Choose "
+                    "evidence or an action outside this cycle."
                 )
             payload = content.encode("utf-8")
             artifact_ref = self.session_store.put(payload)
@@ -889,7 +902,7 @@ class CodingAgentRunner:
             # receipt exists. Cleanup is best-effort after settlement; a failure leaves the
             # labeled stopped attempt available for deterministic operator cleanup.
             self.tools.cleanup_check_attempt(local_id)
-        return outcome, hard_no_progress_pattern
+        return outcome, hard_no_progress_decision
 
     def _record_controller_error(
         self,
@@ -1354,7 +1367,7 @@ class CodingAgentRunner:
                 )
             submitted = False
             for call in response.message.tool_calls:
-                outcome, hard_no_progress_pattern = self._tool_call(
+                outcome, hard_no_progress_decision = self._tool_call(
                     run_id,
                     token,
                     call.function.name,
@@ -1374,7 +1387,7 @@ class CodingAgentRunner:
                 submitted = submitted or (
                     call.function.name == "submit" and outcome.status == "success"
                 )
-                if hard_no_progress_pattern is not None:
+                if hard_no_progress_decision is not None:
                     run = self._save_session(
                         self.service.store.get(run_id),
                         token,
@@ -1386,9 +1399,10 @@ class CodingAgentRunner:
                         run_id,
                         source.call_id,
                         outcome.content,
-                        hard_no_progress_pattern,
+                        hard_no_progress_decision.pattern,
                         token,
                         f"guidance_{uuid4().hex}",
+                        cycle_period=hard_no_progress_decision.cycle_period,
                     )
             if not submitted:
                 run = self._save_session(run, token, messages, iteration + 1)

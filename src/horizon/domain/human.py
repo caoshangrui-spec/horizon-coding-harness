@@ -3,16 +3,20 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import Field, TypeAdapter
+from pydantic import Field, TypeAdapter, model_validator
 
 from horizon.domain.common import Contract
 from horizon.domain.promotion import Sha256
 from horizon.domain.task import Identifier, PositiveInt
 from horizon.domain.tools import ToolCallRecord
 
-NoProgressPattern = Literal["identical_action", "alternating_two_action_cycle"]
+NoProgressPattern = Literal[
+    "identical_action",
+    "alternating_two_action_cycle",
+    "periodic_action_cycle",
+]
 
 NO_PROGRESS_GUARDED_TOOLS = frozenset(
     {
@@ -26,6 +30,9 @@ NO_PROGRESS_GUARDED_TOOLS = frozenset(
 )
 ALTERNATING_SOFT_BLOCK_LENGTH = 5
 ALTERNATING_HARD_STOP_LENGTH = 6
+MIN_PERIODIC_CYCLE_PERIOD = 3
+MAX_EXACT_CYCLE_PERIOD = 4
+EXACT_CYCLE_REPETITIONS = 3
 
 
 @dataclass(frozen=True)
@@ -36,6 +43,29 @@ class NoProgressDecision:
     hard_stop: bool = False
     identical_prior_count: int = 0
     alternating_window: tuple[tuple[str, str], ...] = ()
+    cycle_period: int | None = None
+    cycle_window: tuple[tuple[str, str], ...] = ()
+
+
+def _exact_cycle_window(
+    signatures: tuple[tuple[str, str], ...],
+    period: int,
+    size: int,
+) -> tuple[tuple[str, str], ...] | None:
+    if len(signatures) < size:
+        return None
+    window = signatures[-size:]
+    seed = window[:period]
+    expected = (seed * ((size + period - 1) // period))[:size]
+    if window != expected:
+        return None
+    # Report the smallest exact period only. This keeps A/B repetition classified as the
+    # historical period-2 pattern instead of also labelling it period 4.
+    for smaller in range(1, period):
+        smaller_expected = (window[:smaller] * ((size + smaller - 1) // smaller))[:size]
+        if window == smaller_expected:
+            return None
+    return window
 
 
 def classify_no_progress(
@@ -83,21 +113,29 @@ def classify_no_progress(
         [(record.name, record.arguments_hash) for record in unchanged_tail]
         + [(name, arguments_hash)]
     )
-    for size, hard_stop in (
-        (ALTERNATING_HARD_STOP_LENGTH, True),
-        (ALTERNATING_SOFT_BLOCK_LENGTH, False),
-    ):
-        if len(signatures) < size:
-            continue
-        window = signatures[-size:]
-        first, second = window[:2]
-        expected = (first, second) * (size // 2) + ((first,) if size % 2 else ())
-        if first != second and window == expected:
+    for period in range(2, MAX_EXACT_CYCLE_PERIOD + 1):
+        hard_length = (
+            ALTERNATING_HARD_STOP_LENGTH if period == 2 else period * EXACT_CYCLE_REPETITIONS
+        )
+        soft_length = ALTERNATING_SOFT_BLOCK_LENGTH if period == 2 else hard_length - 1
+        for size, hard_stop in ((hard_length, True), (soft_length, False)):
+            window = _exact_cycle_window(signatures, period, size)
+            if window is None:
+                continue
+            if period == 2:
+                return NoProgressDecision(
+                    pattern="alternating_two_action_cycle",
+                    hard_stop=hard_stop,
+                    identical_prior_count=identical_prior_count,
+                    alternating_window=window,
+                    cycle_window=window,
+                )
             return NoProgressDecision(
-                pattern="alternating_two_action_cycle",
+                pattern="periodic_action_cycle",
                 hard_stop=hard_stop,
                 identical_prior_count=identical_prior_count,
-                alternating_window=window,
+                cycle_period=period,
+                cycle_window=window,
             )
     return NoProgressDecision(identical_prior_count=identical_prior_count)
 
@@ -134,6 +172,13 @@ class HumanGuidanceRequest(Contract):
     kind: Literal["operator_guidance_required"] = "operator_guidance_required"
     reason_code: Literal["repeated_action_no_progress"] = "repeated_action_no_progress"
     pattern: NoProgressPattern = "identical_action"
+    cycle_period: (
+        Annotated[
+            int,
+            Field(ge=MIN_PERIODIC_CYCLE_PERIOD, le=MAX_EXACT_CYCLE_PERIOD),
+        ]
+        | None
+    ) = None
     detail: Annotated[str, Field(min_length=1, max_length=2000)]
     source_tool_call_id: Identifier
     evidence_artifact_ref: Sha256
@@ -145,6 +190,12 @@ class HumanGuidanceRequest(Contract):
     agent_session_artifact_ref: Sha256
     next_iteration: PositiveInt
     resume_state: Literal["RUNNING"] = "RUNNING"
+
+    @model_validator(mode="after")
+    def validate_cycle_period(self) -> Self:
+        if (self.pattern == "periodic_action_cycle") != (self.cycle_period is not None):
+            raise ValueError("Only a periodic action-cycle request carries its exact period")
+        return self
 
 
 class HumanGuidanceDecision(Contract):
@@ -184,6 +235,7 @@ def matches_no_progress_evidence(
     evidence_artifact_ref: str | None,
     expected_workspace_revision: str,
     detail: str,
+    cycle_period: int | None = None,
 ) -> bool:
     """Verify the exact receipt shape that can justify operator guidance."""
 
@@ -203,6 +255,8 @@ def matches_no_progress_evidence(
         return False
 
     if pattern == "identical_action":
+        if cycle_period is not None:
+            return False
         if "identical tool name and arguments" not in detail:
             return False
         window = recent[-2:]
@@ -212,6 +266,8 @@ def matches_no_progress_evidence(
         if len(signatures) != 1:
             return False
     elif pattern == "alternating_two_action_cycle":
+        if cycle_period is not None:
+            return False
         if "exact alternating two-action cycle" not in detail:
             return False
         window = recent[-6:]
@@ -222,6 +278,29 @@ def matches_no_progress_evidence(
         if first == second or signatures_in_order != [first, second] * 3:
             return False
         signatures = {first, second}
+    elif pattern == "periodic_action_cycle":
+        if (
+            cycle_period is None
+            or not MIN_PERIODIC_CYCLE_PERIOD <= cycle_period <= MAX_EXACT_CYCLE_PERIOD
+            or f"exact period-{cycle_period} action cycle" not in detail
+        ):
+            return False
+        window = recent[-cycle_period * EXACT_CYCLE_REPETITIONS :]
+        if len(window) != cycle_period * EXACT_CYCLE_REPETITIONS or any(
+            record.status != "error" for record in window[-2:]
+        ):
+            return False
+        signatures_in_order = tuple((record.name, record.arguments_hash) for record in window)
+        if (
+            _exact_cycle_window(
+                signatures_in_order,
+                cycle_period,
+                cycle_period * EXACT_CYCLE_REPETITIONS,
+            )
+            != signatures_in_order
+        ):
+            return False
+        signatures = set(signatures_in_order[:cycle_period])
     else:
         return False
 
