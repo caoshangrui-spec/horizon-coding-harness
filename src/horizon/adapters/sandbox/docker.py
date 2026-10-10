@@ -100,6 +100,18 @@ class DockerSandbox:
             raise SandboxError("Stopped sandbox logs could not be read")
         return result.stdout
 
+    def _launch_attached_start(self, name: str) -> subprocess.Popen[bytes]:
+        """Start one previously created container and attach to its combined output."""
+
+        try:
+            return subprocess.Popen(
+                [self.docker, "start", "--attach", name],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+        except OSError as exc:
+            raise SandboxError("Docker start process could not launch") from exc
+
     def _owned(self, name: str, owner: str) -> bool:
         result = self._command(
             [
@@ -392,9 +404,8 @@ class DockerSandbox:
                 "--label",
                 f"horizon.request={self._request_digest(workspace, request)}",
             ]
-        args = [
-            self.docker,
-            "run",
+        create_args = [
+            "create",
             "--pull",
             "never",
             "--name",
@@ -436,10 +447,8 @@ class DockerSandbox:
             self.image_id,
             *request.argv[1:],
         ]
-        try:
-            process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        except OSError as exc:
-            raise SandboxError("Docker process could not start") from exc
+        process: subprocess.Popen[bytes] | None = None
+        reader: threading.Thread | None = None
         retained = bytearray()
         total = 0
         output_hash = hashlib.sha256()
@@ -447,6 +456,7 @@ class DockerSandbox:
 
         def drain():
             nonlocal total
+            assert process is not None
             assert process.stdout is not None
             try:
                 with process.stdout:
@@ -459,10 +469,23 @@ class DockerSandbox:
             except Exception as exc:
                 read_errors.append(exc)
 
-        reader = threading.Thread(target=drain, daemon=True)
-        reader.start()
         timed_out = False
         try:
+            created = self._command(create_args)
+            if created.returncode != 0:
+                raise SandboxError("Docker container could not be created")
+            if attempt_id is not None:
+                if self.attempt_status(attempt_id).state != "created":
+                    raise SandboxError("New sandbox attempt did not remain in created state")
+            elif not self._owned(name, owner):
+                raise SandboxError("New sandbox container identity is unconfirmed")
+
+            # Keeping create and start as two explicit operations makes the never-started
+            # recovery state observable after a controller crash. A durable attempt remains
+            # labeled in Docker until its tool receipt is settled or explicitly reconciled.
+            process = self._launch_attached_start(name)
+            reader = threading.Thread(target=drain, daemon=True)
+            reader.start()
             try:
                 process.wait(timeout=request.timeout_seconds)
             except subprocess.TimeoutExpired:
@@ -477,6 +500,13 @@ class DockerSandbox:
                 raise SandboxError("Output stream did not close cleanly; result is incomplete")
             if not self._owned(name, owner):
                 raise SandboxError("Container was not created or its identity is unconfirmed")
+            completed = self._command(
+                ["inspect", name, "--format", "{{.State.Status}}|{{.State.Running}}"]
+            )
+            if completed.returncode != 0 or completed.stdout.strip() != "exited|false":
+                raise SandboxError(
+                    "Docker start did not produce a completed container; result is incomplete"
+                )
             return CommandResult(
                 exit_code=process.returncode,
                 timed_out=timed_out,
@@ -503,7 +533,8 @@ class DockerSandbox:
                         if removed.returncode != 0:
                             raise SandboxError(f"Owned test container could not be removed: {name}")
             finally:
-                if process.poll() is None:
+                if process is not None and process.poll() is None:
                     process.kill()
                     process.wait(timeout=5)
-                reader.join(timeout=5)
+                if reader is not None:
+                    reader.join(timeout=5)

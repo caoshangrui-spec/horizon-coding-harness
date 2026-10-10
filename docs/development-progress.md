@@ -92,6 +92,11 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 ### 2026-10-10 Docker created 检查恢复与删除后 revision 门禁
 
+- `DockerSandbox.execute` 从单条 `docker run` 改为显式 `docker create` → 状态核验 →
+  `docker start --attach`，保留原有禁网、只读根、资源限制、输出截断、超时和停止结果恢复合同。
+  fault worker 在生产 create 完成、start 调用前直接 `os._exit(34)`；真实 Docker 观察到精确
+  attempt 保持 `created`，写文件命令的 marker 不存在，删除后仍不存在。原来的 created 合同不再
+  由测试代码手工拼装容器。
 - Docker attempt 状态不再只看 `State.Running`。适配器同时读取 `State.Status`，只接受一致的
   `created + Running=false`、`running + Running=true`、`exited|dead + Running=false`；paused、
   restarting、removing 和不一致组合均拒绝自动分类。Docker 官方把
@@ -106,8 +111,9 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
   runtime mounts。修复后只要求 HostConfig 中唯一显式 mount 是精确 `/workspace` bind，并允许与
   `Config.Volumes` 完全一致的镜像声明匿名卷；任何额外显式 bind/volume 仍拒绝。该负结果与修复
   均保留，不把首轮失败改写成通过。
-- 新增/扩展离线用例覆盖 created 删除、状态变化、三种 transitional 状态、删除后 revision drift、
-  镜像声明卷允许和额外 bind 拒绝。最终离线全量为 **438 passed，8 skipped**；8 项真实 Docker
+- 新增/扩展离线用例覆盖 create/start 顺序与清理语义、created 删除、状态变化、三种 transitional
+  状态、删除后 revision drift、镜像声明卷允许和额外 bind 拒绝；所有成功的 CLI 对账案例还会
+  导出 JSONL 并要求 Trace 重放到同一最终投影。最终离线全量为 **442 passed，8 skipped**；8 项真实 Docker
   合同使用本机已有 `redis:7-alpine` 为 **8 passed**。现有公开 Source-bound Docker evidence
   workflow 也在拉取固定验证镜像后运行同一组合同，并把 JUnit/日志加入统一 artifact；Harness 本身
   未调用网络或真实模型，费用为 0。
@@ -896,7 +902,7 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 七轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新离线全量回归为 438 passed、8 个显式 Docker skip，
+当前主干继续补齐尚未统一覆盖的故障点；最新离线全量回归为 442 passed、8 个显式 Docker skip，
 8 个 Docker 合同已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
@@ -918,7 +924,7 @@ source 未变。第六轮 Run `run_7fab106a71174c77bb0a82a8a054d3ed` 使用该 v
 Code RAG rank 1，以及 9/2/55 个文件跳过的显式降级证据；重复 CAS blob 校验的
 规模开销已完成前后对照优化。完整 checkout 的两阶段 production → regression-test 任务及其
 WorkItem 边界 epoch 1 → 2 Worker 恢复也已通过。`run_check` 已有不自动重派的窄丢弃合同、
-可查询标签 attempt、created 状态的窄丢弃路径与自然退出结果恢复；正常主路径把停止容器保留到
+可查询标签 attempt、显式 create/start 边界、created 状态的窄丢弃路径与自然退出结果恢复；正常主路径把停止容器保留到
 tool receipt 提交后再清理。真实子进程覆盖 running/pre-create/created，并保留“外部删除后 missing
 不足以证明未执行”的负证据。
 首轮失败已经提供一个真实样本，但尚无分布

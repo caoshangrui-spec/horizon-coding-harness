@@ -18,6 +18,8 @@ on:
       - "src/horizon/application/_run_ab_crash_worker.py"
       - "src/horizon/domain/run_evaluation.py"
       - "src/horizon/interfaces/cli/app.py"
+      - "tests/contract/test_docker.py"
+      - "tests/fault_injection/_docker_check_worker.py"
 
 permissions:
   contents: read
@@ -189,6 +191,16 @@ jobs:
           contract_passed = (
               contract_total - contract_failures - contract_errors - contract_skipped
           )
+          contract_names = {
+              case.attrib["name"]
+              for suite in suites
+              for case in suite.findall("testcase")
+          }
+          created_crash_case = (
+              "test_created_attempt_survives_executor_crash_and_is_removed_without_starting"
+          )
+          if created_crash_case not in contract_names:
+              raise SystemExit("Docker create-to-start hard-crash contract is missing")
           reduced = json.loads(
               Path(".horizon/reduced-docker-v2/cli-result.json").read_text(encoding="utf-8")
           )
@@ -237,6 +249,10 @@ jobs:
               (
                   "- Docker sandbox contracts: "
                   f"`{contract_passed}/{contract_total}`; skipped `{contract_skipped}`"
+              ),
+              (
+                  "- Docker create-to-start hard crash: child exit `34`; exact attempt remains "
+                  "`created`; command marker absent; inactive container removed"
               ),
               (
                   "- Dependency-reduced suite: "

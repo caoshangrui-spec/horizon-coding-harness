@@ -2518,6 +2518,11 @@ def doctor():
                 "run_check_created_attempt_recovery_profile": (
                     "docker_created_observe_remove_then_revision_recheck"
                 ),
+                "run_check_create_start_boundary": "explicit_docker_create_then_start_attach",
+                "run_check_created_hard_crash_fault_injection": True,
+                "run_check_created_hard_crash_evidence_profile": (
+                    "production_create_child_exit_before_start_plus_resolution_trace_replay"
+                ),
                 "run_check_missing_attempt_proof": False,
                 "run_check_signal_timeout_result_recovery": False,
                 "portfolio_hard_crash_demo": True,

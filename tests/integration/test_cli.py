@@ -386,6 +386,11 @@ def test_doctor_checks_fts_without_model():
     assert data["run_check_created_attempt_recovery_profile"] == (
         "docker_created_observe_remove_then_revision_recheck"
     )
+    assert data["run_check_create_start_boundary"] == "explicit_docker_create_then_start_attach"
+    assert data["run_check_created_hard_crash_fault_injection"] is True
+    assert data["run_check_created_hard_crash_evidence_profile"] == (
+        "production_create_child_exit_before_start_plus_resolution_trace_replay"
+    )
     assert data["portfolio_hard_crash_demo"] is True
     assert data["portfolio_hard_crash_demo_profile"] == (
         "replace_effect_before_receipt_exact_accept"
@@ -1785,6 +1790,12 @@ def test_agent_resolve_tool_cli_applies_explicit_offline_recovery_decision(
     assert not restored.reservations
     assert restored.tool_calls[-1].status == expected_status
     assert restored.tool_calls[-1].recovery_disposition == expected_disposition
+    replayed = SQLiteEventStore.replay_jsonl(SQLiteEventStore(db).export_jsonl(run.run_id))
+    assert replayed.as_dict() == restored.as_dict()
+    if expected_sandbox_resolution == "controller_observed_created_and_removed":
+        recovery_artifact = artifacts.read(restored.tool_calls[-1].artifact_ref).decode("utf-8")
+        assert "State.Status=created" in recovery_artifact
+        assert "without inferring pass or failure" in recovery_artifact
     if expected_disposition == "accept_check_result":
         assert data["recovered_check_result"]["passed"] is True
         assert data["recovered_check_result"]["output"] == "recovered check passed\n"

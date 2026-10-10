@@ -16,12 +16,20 @@ def main() -> None:
     sandbox = DockerSandbox(staging_root, image)
     if mode == "before-create":
         os._exit(31)
+    if mode == "created-before-start":
+
+        def crash_before_start(_name: str):
+            os._exit(34)
+
+        sandbox._launch_attached_start = crash_before_start
     command = "sleep 60"
-    if mode == "after-external-removal":
+    if mode == "created-before-start":
+        command = "touch /workspace/never-started.txt"
+    elif mode == "after-external-removal":
         command = "printf executed > /workspace/after-external-removal.txt"
     elif mode == "stopped-before-cleanup":
         command = "printf 'recoverable failure\\n'; exit 1"
-    sandbox.execute(
+    result = sandbox.execute(
         workspace,
         CommandRequest(
             argv=("/bin/sh", "-c", command),
@@ -33,6 +41,8 @@ def main() -> None:
         sandbox.remove_attempt(attempt_id)
         os._exit(32)
     if mode == "stopped-before-cleanup":
+        if result.exit_code != 1 or result.output != "recoverable failure\n":
+            os._exit(35)
         os._exit(33)
 
 

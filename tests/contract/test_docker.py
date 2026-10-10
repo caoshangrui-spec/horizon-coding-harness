@@ -101,49 +101,27 @@ def test_real_container_restrictions_and_disposable_write(sandbox):
         )
 
 
-def test_created_attempt_is_identified_and_removed_without_starting(sandbox):
+def test_created_attempt_survives_executor_crash_and_is_removed_without_starting(sandbox):
     workspace = stage(sandbox)
     attempt_id = "tool_contract_created_only"
-    owner, name = sandbox._attempt_identity(attempt_id)
+    _, name = sandbox._attempt_identity(attempt_id)
     marker = workspace / "never-started.txt"
-    request = CommandRequest(
-        argv=("/bin/sh", "-c", "touch /workspace/never-started.txt"),
-        timeout_seconds=30,
-    )
-    created = subprocess.run(
-        [
-            "docker",
-            "create",
-            "--name",
-            name,
-            "--label",
-            f"horizon.owner={owner}",
-            "--label",
-            f"horizon.attempt={attempt_id}",
-            "--label",
-            f"horizon.image={sandbox.image_id}",
-            "--label",
-            f"horizon.recovery={sandbox._RECOVERY_SCHEMA}",
-            "--label",
-            f"horizon.request={sandbox._request_digest(workspace.resolve(), request)}",
-            "--network",
-            "none",
-            "--read-only",
-            "--user",
-            "65534:65534",
-            "--mount",
-            f"type=bind,source={workspace.resolve()},target=/workspace",
-            "--entrypoint",
-            request.argv[0],
-            sandbox.image_id,
-            *request.argv[1:],
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    helper = Path(__file__).parents[1] / "fault_injection" / "_docker_check_worker.py"
     try:
-        assert created.returncode == 0, created.stderr
+        worker = subprocess.run(
+            [
+                sys.executable,
+                str(helper),
+                str(sandbox.staging_root),
+                str(workspace),
+                os.environ["HORIZON_TEST_DOCKER_IMAGE"],
+                attempt_id,
+                "created-before-start",
+            ],
+            capture_output=True,
+            timeout=30,
+        )
+        assert worker.returncode == 34, worker.stderr.decode(errors="replace")
         assert sandbox.attempt_status(attempt_id).state == "created"
         assert not marker.exists()
 
