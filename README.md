@@ -1,6 +1,7 @@
 # Horizon — Recoverable Coding Agent Harness
 
 [![CI](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/ci.yml)
+[![Docker evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/full-checkout-evidence.yml/badge.svg)](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/full-checkout-evidence.yml)
 ![Python](https://img.shields.io/badge/Python-3.12%20%7C%203.13-3776AB?logo=python&logoColor=white)
 [![Version](https://img.shields.io/badge/version-v0.1.0-2563EB)](https://github.com/caoshangrui-spec/horizon-coding-harness/releases/tag/v0.1.0)
 ![License](https://img.shields.io/badge/license-MIT-16A34A)
@@ -87,7 +88,7 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | [通用终态 EvidencePack](docs/terminal-evidence-pack.md) | `SUCCEEDED`、`FAILED`、`CANCELLED` 均可导出并离线复核 Trace、最终投影和摘要；unknown/open effect 原样列出 | 自洽哈希不是来源签名，也不证明外部 Provider 或副作用已结清 |
 | [终态 Run 顺序汇总](docs/terminal-suite-evaluation.md) | 有序聚合已有终态 Run；递归验证每个子 EvidencePack，分列成功、失败、取消、预算停止与 unknown/open effect | 不执行任务，不是 batch scheduler，也没有并发性能声明 |
 | [本地顺序 Supervisor](docs/local-sequential-supervisor.md) | 完整轮次后自动释放 Lease并重开 Worker；真实子 Worker 退出后可按精确身份接管；应用层可信父进程还能先落取消栅栏，再 terminate/wait/kill 一个直接子 Worker，保留 pending intent 且零重派 | 子进程取消目前是 Python application API，不是 `agent run --supervise` 的常驻进程平台；不覆盖任意后代进程、跨主机 Worker、分布式队列或任意崩溃自动恢复 |
-| Docker 契约 | 8 项均已在本机已有镜像上单独通过 | 有限隔离合同，不是恶意代码安全认证 |
+| Docker 契约 | 8 项已在本机已有镜像上单独通过，并纳入公开 Docker evidence workflow | 有限隔离合同，不是恶意代码安全认证 |
 | 一键崩溃恢复演示 | 子进程在 `replace_text` 生效后、receipt 前以退出码 86 硬退出；悬空调用先标 unknown，再按精确 manifest 接纳一次并恢复到 epoch 3 | 固定离线脚本与单一写入窗口，不代表任意进程/主机故障恢复 |
 | 有界恢复矩阵 v3 | 21/21；自动恢复 11/11、安全阻塞 10/10、incorrect resume 0、恢复重派/重复副作用 0；含 3 个真实硬退出和 Trace replay | 其余 18 例是生成 fixture 的状态/决策矩阵，不是完整 8 故障点或主机故障验收 |
 | 外部来源裁剪 A/B v2 | 5 个来源绑定案例的初始失败、Baseline 等待和 Treatment 修复均由本地可信与公开禁网 Docker 执行，证据已上传 | 使用 Scripted Model 和 dependency-reduced fixture，不是 BugsInPy 官方成绩 |

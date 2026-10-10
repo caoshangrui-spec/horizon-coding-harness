@@ -108,7 +108,9 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
   均保留，不把首轮失败改写成通过。
 - 新增/扩展离线用例覆盖 created 删除、状态变化、三种 transitional 状态、删除后 revision drift、
   镜像声明卷允许和额外 bind 拒绝。最终离线全量为 **438 passed，8 skipped**；8 项真实 Docker
-  合同使用本机已有 `redis:7-alpine` 为 **8 passed**。本批未调用网络或真实模型，费用为 0。
+  合同使用本机已有 `redis:7-alpine` 为 **8 passed**。现有公开 Source-bound Docker evidence
+  workflow 也在拉取固定验证镜像后运行同一组合同，并把 JUnit/日志加入统一 artifact；Harness 本身
+  未调用网络或真实模型，费用为 0。
 
 ### 2026-10-10 终态 Run 顺序汇总评测
 

@@ -90,6 +90,20 @@ jobs:
       - name: Pull the validation image
         run: docker pull python:3.12-alpine
 
+      - name: Run the Docker sandbox contracts
+        shell: bash
+        env:
+          HORIZON_TEST_DOCKER_IMAGE: python:3.12-alpine
+        run: |
+          set -euo pipefail
+          state_dir=.horizon/docker-contracts
+          mkdir -p "$state_dir"
+          uv run --locked pytest -q -p no:cacheprovider \
+            tests/contract/test_agent_validation.py \
+            tests/contract/test_docker.py \
+            --junitxml="$state_dir/junit.xml" \
+            | tee "$state_dir/pytest.txt"
+
       - name: Run the frozen five-case reduced suite
         shell: bash
         run: |
@@ -146,6 +160,7 @@ jobs:
         with:
           name: source-bound-docker-evidence
           path: |
+            .horizon/docker-contracts
             .horizon/reduced-docker-v2
             .horizon/full-checkout-docker-v2
             .horizon/multi-stage-docker-v3
@@ -162,8 +177,18 @@ jobs:
           uv run --locked python - <<'PY'
           import json
           import os
+          import xml.etree.ElementTree as ET
           from pathlib import Path
 
+          junit = ET.parse(".horizon/docker-contracts/junit.xml").getroot()
+          suites = [junit] if junit.tag == "testsuite" else list(junit.findall("testsuite"))
+          contract_total = sum(int(suite.attrib["tests"]) for suite in suites)
+          contract_failures = sum(int(suite.attrib["failures"]) for suite in suites)
+          contract_errors = sum(int(suite.attrib["errors"]) for suite in suites)
+          contract_skipped = sum(int(suite.attrib["skipped"]) for suite in suites)
+          contract_passed = (
+              contract_total - contract_failures - contract_errors - contract_skipped
+          )
           reduced = json.loads(
               Path(".horizon/reduced-docker-v2/cli-result.json").read_text(encoding="utf-8")
           )
@@ -209,6 +234,10 @@ jobs:
               "## Frozen source-bound Docker evidence",
               "",
               f"- Docker image ID: `{full_report['validation_backend_ref']}`",
+              (
+                  "- Docker sandbox contracts: "
+                  f"`{contract_passed}/{contract_total}`; skipped `{contract_skipped}`"
+              ),
               (
                   "- Dependency-reduced suite: "
                   f"`{reduced_report['passed_case_count']}/{reduced_report['case_count']}`; "

@@ -11,7 +11,9 @@ for public releases; unreleased work must not be presented as a published releas
   before writing the recovery receipt. Transitional states, missing attempts, concurrent state
   changes, and post-removal workspace drift remain blocked. Exact stopped-result recovery now also
   permits anonymous volumes declared by the image while continuing to reject every additional
-  explicit bind or volume. This adds no retry, fallback, network call, or paid model use.
+  explicit bind or volume. The existing public Docker evidence workflow now runs these sandbox
+  contracts and uploads their JUnit/log evidence before the frozen source-bound suites. This adds
+  no retry, fallback, network call from the harness, or paid model use.
 - Added an offline terminal Run suite that takes an ordered manifest of existing terminal Run IDs,
   exports one replay-verified EvidencePack per Run, and builds a deterministic aggregate report for
   successes, failures, cancellations, budget-stop reasons, and unknown/open effects. The standalone
