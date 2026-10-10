@@ -91,8 +91,10 @@ image 任一不符都拒绝。控制命令不会猜测或终止任意宿主进�
 闭合；在 receipt 前，任何新 Lease 都被拒绝。
 
 父 Supervisor 若在栅栏后崩溃，不能从数据库重建 `wait` 事实。旧 Lease 过期后，只有操作者从
-操作系统确认旧 Worker 已停止并显式使用 `agent reconcile --confirm-old-worker-stopped`，才会
-写入 `operator_confirmed` receipt 并进入 recovery。普通 `agent resume` 不能越过取消栅栏。
+操作系统确认旧 Worker 已停止，并同时使用 `agent reconcile --confirm-old-worker-stopped`
+与 `--confirm-old-worker-pid <cancel_worker_stop.process_id>`，才会写入 `operator_confirmed`
+receipt 并进入 recovery。缺少或不匹配的 PID 保持原栅栏不变；普通 `agent resume` 不能越过
+取消栅栏。
 
 该入口不按进程名扫描，不终止任意 Python 进程，也不覆盖进程树、Job Object、跨主机 Worker
 或 Provider 侧取消。调用方必须保证句柄 PID 就是实际 Worker，而非会再派生解释器的 launcher。

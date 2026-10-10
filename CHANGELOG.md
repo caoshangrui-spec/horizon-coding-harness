@@ -5,6 +5,11 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Bound parent-crash cancellation recovery to the exact PID already persisted in the Worker stop
+  target. Recovery CLI calls now require both the explicit old-worker-stopped acknowledgement and
+  `--confirm-old-worker-pid <pid>` before writing operator stop evidence; missing or mismatched PIDs
+  leave the fence unchanged. Ordinary expired-lease recovery without a cancellation target remains
+  backward compatible.
 - Fixed the operator-confirmed cancellation takeover to timestamp its stop receipt and replacement
   lease from the same decision clock. This prevents a faster clock from making the second event
   appear older than the first within one SQLite append; the regression test now advances by one

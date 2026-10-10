@@ -176,6 +176,10 @@ uv run --locked horizon agent resume <run-id> `
   --image redis:7-alpine --confirm-paid
 ```
 
+普通过期 Lease 仍使用上述布尔确认；若 `status` 中存在 `cancel_worker_stop`，reconcile 还要求
+`--confirm-old-worker-pid <cancel_worker_stop.process_id>`，以免把另一个进程的停止误当成当前
+取消目标的证据。
+
 `resume` 支持安全的 PLANNING、READY 和已有会话的 RUNNING 三种边界。旧 Lease 尚未过期时不会
 仅凭调用方声明强行接管；必须等 TTL 到期且确认旧进程已停止。
 

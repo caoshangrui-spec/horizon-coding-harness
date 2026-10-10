@@ -316,6 +316,8 @@ uv run --locked --cache-dir .uv-cache horizon agent resume $partial.run_id `
 
 # 异常退出后先对账；不调用模型、不联网、不产生新费用。
 # 旧 Lease 曾存在时，必须等它过期并确认旧进程已停止。
+# 若 status.cancel_worker_stop 不为空，还必须追加该对象中保存的精确 process_id：
+# --confirm-old-worker-pid <cancel_worker_stop.process_id>
 uv run --locked --cache-dir .uv-cache horizon agent reconcile $partial.run_id `
   --confirm-old-worker-stopped
 

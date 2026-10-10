@@ -473,6 +473,7 @@ class HarnessService:
         ttl_seconds: int = 60,
         *,
         prior_worker_stopped: bool = False,
+        confirmed_stopped_process_id: int | None = None,
     ) -> Run:
         return self._acquire_lease(
             run_id,
@@ -480,6 +481,7 @@ class HarnessService:
             key,
             ttl_seconds,
             prior_worker_stopped=prior_worker_stopped,
+            confirmed_stopped_process_id=confirmed_stopped_process_id,
             recovery=False,
         )
 
@@ -491,6 +493,7 @@ class HarnessService:
         ttl_seconds: int = 60,
         *,
         prior_worker_stopped: bool = False,
+        confirmed_stopped_process_id: int | None = None,
     ) -> Run:
         """Acquire a fenced lease for reconciliation without authorizing new work."""
 
@@ -500,6 +503,7 @@ class HarnessService:
             key,
             ttl_seconds,
             prior_worker_stopped=prior_worker_stopped,
+            confirmed_stopped_process_id=confirmed_stopped_process_id,
             recovery=True,
         )
 
@@ -511,16 +515,28 @@ class HarnessService:
         ttl_seconds: int,
         *,
         prior_worker_stopped: bool,
+        confirmed_stopped_process_id: int | None,
         recovery: bool,
     ) -> Run:
         if not worker_id or not 1 <= ttl_seconds <= 600:
             raise ValueError("Worker ID and a lease TTL in [1, 600] are required")
+        if confirmed_stopped_process_id is not None and (
+            not prior_worker_stopped
+            or not isinstance(confirmed_stopped_process_id, int)
+            or isinstance(confirmed_stopped_process_id, bool)
+            or confirmed_stopped_process_id < 1
+        ):
+            raise ValueError(
+                "A confirmed stopped process ID requires prior-worker-stopped evidence"
+            )
         request = {
             "operation": "acquire_recovery_lease" if recovery else "acquire_lease",
             "worker_id": worker_id,
             "ttl": ttl_seconds,
             "prior_worker_stopped": prior_worker_stopped,
         }
+        if confirmed_stopped_process_id is not None:
+            request["confirmed_stopped_process_id"] = confirmed_stopped_process_id
 
         def decide(run):
             if recovery:
@@ -530,6 +546,16 @@ class HarnessService:
             cancel_target = run.cancel_worker_stop
             if cancel_target is not None and (not recovery or not prior_worker_stopped):
                 raise LeaseConflict("A cancellation-bound Worker must be stopped before takeover")
+            if cancel_target is not None and (
+                confirmed_stopped_process_id != cancel_target["process_id"]
+            ):
+                raise LeaseConflict(
+                    "Old Worker stop confirmation must match the cancellation target PID"
+                )
+            if cancel_target is None and confirmed_stopped_process_id is not None:
+                raise LeaseConflict(
+                    "A stopped process ID can confirm only a cancellation-bound Worker"
+                )
             now = self.store.clock()
             if run.lease_id:
                 if now < datetime.fromisoformat(run.lease_expires_at):

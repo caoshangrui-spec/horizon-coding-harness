@@ -95,8 +95,9 @@ ID、Worker ID、epoch、事件序号和当时的 AgentSession。只有父进程
 
 若子 Worker 已提交终态或持久化人工等待并按原协议清除 Lease，则返回 `stopped`，不会重新启动。
 这个入口只接受同一个可信父进程同步回收的子进程；父进程自身重启后无法从数据库重建该操作
-系统事实，仍使用显式 `--confirm-old-worker-stopped` 的既有恢复路径。它是 Python
-application API，尚未把 CLI Supervisor 改造成常驻进程管理器。
+系统事实，仍使用显式旧 Worker 停止确认的既有恢复路径。若 Run 保存了取消目标，该路径还要
+回填 Trace 中的精确 PID。它是 Python application API，尚未把 CLI Supervisor 改造成常驻进程
+管理器。
 
 ## 5. 取消一个仍在运行的直接子 Worker
 
@@ -134,8 +135,10 @@ result = supervisor.cancel_and_reap_worker(
 
 如果父 Supervisor 在步骤 2 后崩溃，数据库只保存“应停止哪个 PID”，不会伪造进程已退出。
 旧 Lease 过期且操作者从操作系统确认旧 Worker 已停止后，现有
-`agent reconcile --confirm-old-worker-stopped` 可写入 `operator_confirmed` receipt，提升恢复 epoch；
-没有未决 effect 时会直接安全取消，有未决 effect 时继续原 recovery。未确认时始终拒绝接管。
+`agent reconcile --confirm-old-worker-stopped --confirm-old-worker-pid <pid>` 只在 `<pid>` 等于
+`cancel_worker_stop.process_id` 时写入 `operator_confirmed` receipt 并提升恢复 epoch；没有未决
+effect 时会直接安全取消，有未决 effect 时继续原 recovery。缺失或错误 PID 始终拒绝接管且不
+改变 Trace。
 
 当前边界只覆盖一个直接子进程，不覆盖其任意后代进程或跨主机 Worker；没有进程组/Job Object、
 后台 watcher、Provider 主动取消或 daemon。父进程在强制 `kill` 后仍收不到退出结果时，不写

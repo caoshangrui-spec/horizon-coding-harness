@@ -101,8 +101,9 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
   resume，显式 recovery settlement 后才终态，模型派发为 0。
 - 处理了两个竞态：Worker 在取消栅栏后协作释放 Lease时，父进程仍能补同步 reap receipt；父
   Supervisor 在栅栏后崩溃时，不会把 TTL 当停止证明，旧 Lease 过期后必须通过既有
-  `--confirm-old-worker-stopped` 写入 `operator_confirmed` receipt。无 effect 时 reconcile CLI
-  直接安全取消，有 effect 时保留恢复 Lease。
+  `--confirm-old-worker-stopped` 并回填 `--confirm-old-worker-pid` 与持久取消目标精确匹配，才写入
+  `operator_confirmed` receipt。无 effect 时 reconcile CLI 直接安全取消，有 effect 时保留恢复
+  Lease；缺失或错误 PID 不改变 Trace。
 - Windows 故障注入发现虚拟环境 `python.exe` 可能是 launcher，`Popen.pid` 与实际解释器 PID
   不同。测试改为直接基础解释器并传递受控 Python path，使用 PID marker 握手；产品合同明确
   要求调用方持有实际直接子进程句柄，不把 launcher PID 当 Worker 证明。

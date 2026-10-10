@@ -1730,7 +1730,20 @@ def agent_reconcile(
             ),
         ),
     ] = False,
+    confirm_old_worker_pid: Annotated[
+        int | None,
+        typer.Option(
+            "--confirm-old-worker-pid",
+            min=1,
+            help=(
+                "Exact PID persisted in the cancellation target; required with "
+                "--confirm-old-worker-stopped for that recovery path."
+            ),
+        ),
+    ] = None,
 ):
+    if confirm_old_worker_pid is not None and not confirm_old_worker_stopped:
+        raise ValueError("--confirm-old-worker-pid requires --confirm-old-worker-stopped")
     provider = load_provider_config(config_path)
     store = store_for(ctx)
     service = HarnessService(store)
@@ -1759,6 +1772,7 @@ def agent_reconcile(
         f"recovery_lease_{uuid4().hex}",
         ttl_seconds=60,
         prior_worker_stopped=confirm_old_worker_stopped,
+        confirmed_stopped_process_id=confirm_old_worker_pid,
     )
     if leased.terminal:
         typer.echo(
@@ -1983,7 +1997,20 @@ def agent_resolve_tool(
             ),
         ),
     ] = False,
+    confirm_old_worker_pid: Annotated[
+        int | None,
+        typer.Option(
+            "--confirm-old-worker-pid",
+            min=1,
+            help=(
+                "Exact PID persisted in the cancellation target; required with "
+                "--confirm-old-worker-stopped for that recovery path."
+            ),
+        ),
+    ] = None,
 ):
+    if confirm_old_worker_pid is not None and not confirm_old_worker_stopped:
+        raise ValueError("--confirm-old-worker-pid requires --confirm-old-worker-stopped")
     decisions = sum(
         (retry_readonly, accept_write, rollback_write, discard_check, accept_check_result)
     )
@@ -2046,6 +2073,7 @@ def agent_resolve_tool(
         f"tool_resolution_lease_{uuid4().hex}",
         ttl_seconds=600,
         prior_worker_stopped=confirm_old_worker_stopped,
+        confirmed_stopped_process_id=confirm_old_worker_pid,
     )
     token = LeaseToken.from_run(leased)
     released = False

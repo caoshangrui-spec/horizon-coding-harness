@@ -3546,12 +3546,28 @@ def test_explicit_old_worker_confirmation_recovers_parent_crash_during_cancellat
             "unconfirmed-recovery",
             "unconfirmed-recovery",
         )
+    with pytest.raises(LeaseConflict, match="target PID"):
+        recovery.acquire_recovery_lease(
+            run_id,
+            "missing-pid-recovery",
+            "missing-pid-recovery",
+            prior_worker_stopped=True,
+        )
+    with pytest.raises(LeaseConflict, match="target PID"):
+        recovery.acquire_recovery_lease(
+            run_id,
+            "wrong-pid-recovery",
+            "wrong-pid-recovery",
+            prior_worker_stopped=True,
+            confirmed_stopped_process_id=4247,
+        )
 
     cancelled = recovery.acquire_recovery_lease(
         run_id,
         "confirmed-recovery",
         "confirmed-recovery",
         prior_worker_stopped=True,
+        confirmed_stopped_process_id=4246,
     )
     assert cancelled.status == RunStatus.CANCELLED
     assert cancelled.lease_epoch == token.epoch + 1

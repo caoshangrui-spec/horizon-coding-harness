@@ -1173,7 +1173,7 @@ def test_agent_reconcile_is_offline_and_does_not_require_paid_ack(tmp_path, monk
     assert not (tmp_path / ".horizon").exists()
 
 
-def test_agent_reconcile_confirms_stopped_cancellation_worker_without_requiring_a_lease(
+def test_agent_reconcile_confirms_exact_stopped_cancellation_worker_without_requiring_a_lease(
     tmp_path,
     monkeypatch,
     task_dict,
@@ -1224,7 +1224,66 @@ def test_agent_reconcile_confirms_stopped_cancellation_worker_without_requiring_
             run.run_id,
             "--config",
             str(PROVIDER),
+            "--confirm-old-worker-pid",
+            "4247",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "requires --confirm-old-worker-stopped" in result.output
+
+    result = runner.invoke(
+        app,
+        [
+            "--db",
+            str(db),
+            "agent",
+            "reconcile",
+            run.run_id,
+            "--config",
+            str(PROVIDER),
             "--confirm-old-worker-stopped",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "cancellation target PID" in result.output
+    unchanged = SQLiteEventStore(db).get(run.run_id)
+    assert unchanged.cancel_worker_stop is not None
+    assert unchanged.cancel_worker_stop_receipts == []
+
+    result = runner.invoke(
+        app,
+        [
+            "--db",
+            str(db),
+            "agent",
+            "reconcile",
+            run.run_id,
+            "--config",
+            str(PROVIDER),
+            "--confirm-old-worker-stopped",
+            "--confirm-old-worker-pid",
+            "4248",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "cancellation target PID" in result.output
+
+    result = runner.invoke(
+        app,
+        [
+            "--db",
+            str(db),
+            "agent",
+            "reconcile",
+            run.run_id,
+            "--config",
+            str(PROVIDER),
+            "--confirm-old-worker-stopped",
+            "--confirm-old-worker-pid",
+            "4247",
         ],
     )
 

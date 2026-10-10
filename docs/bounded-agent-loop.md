@@ -270,6 +270,9 @@ uv run --locked --cache-dir .uv-cache horizon agent resume $partial.run_id `
 
 正常切片会主动释放 Lease。若旧进程异常退出，必须等 Lease 过期并确认旧进程确实停止，才可
 额外提供 `--confirm-old-worker-stopped`；该参数不会绕过仍存活的 Lease 或悬空操作检查。
+若 `horizon status <run-id>` 返回了 `cancel_worker_stop`，这是父 Supervisor 在取消栅栏后崩溃的
+更严格路径，还必须同时提供
+`--confirm-old-worker-pid <cancel_worker_stop.process_id>`；缺少或不匹配的 PID 不写任何事件。
 
 异常退出后的离线对账不需要 API Key、Docker 或付费确认：
 
