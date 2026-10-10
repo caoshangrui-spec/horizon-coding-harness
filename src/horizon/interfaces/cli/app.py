@@ -64,6 +64,10 @@ from horizon.application.terminal_evidence import (
     export_terminal_evidence_pack,
     verify_terminal_evidence_pack,
 )
+from horizon.application.terminal_suite import (
+    export_terminal_suite,
+    verify_terminal_suite_pack,
+)
 from horizon.application.tool_recovery import ToolRecoveryService
 from horizon.domain.common import canonical_json, digest
 from horizon.domain.errors import (
@@ -88,6 +92,7 @@ from horizon.domain.run import projection_hash
 from horizon.domain.run_evaluation import RunABEvalManifest, RunABSuiteManifest
 from horizon.domain.states import RunStatus
 from horizon.domain.task import TaskSpec
+from horizon.domain.terminal_suite import TerminalSuiteManifest
 from horizon.tools.gateway import WorkspaceToolGateway
 
 app = typer.Typer(no_args_is_help=True, help="Horizon durable control plane (development preview).")
@@ -353,6 +358,85 @@ def evaluate_recovery_matrix(
     )
     if result.report.passed_case_count != result.report.case_count:
         raise typer.Exit(3)
+
+
+@evaluations.command("terminal-suite")
+@guarded
+def evaluate_terminal_suite(
+    ctx: typer.Context,
+    path: Path,
+    output: Annotated[
+        Path,
+        typer.Option(
+            "--output",
+            help="New directory for replay-verified EvidencePacks and an aggregate report.",
+        ),
+    ],
+):
+    """Aggregate an ordered manifest of existing terminal Runs without executing them."""
+    manifest = TerminalSuiteManifest.model_validate(read_yaml(path))
+    result = export_terminal_suite(
+        store_for(ctx, read_only=True),
+        manifest,
+        output,
+    )
+    report = result.suite_pack.report
+    typer.echo(
+        canonical_json(
+            {
+                "suite_id": report.suite_id,
+                "case_count": report.case_count,
+                "succeeded_run_count": report.succeeded_run_count,
+                "failed_run_count": report.failed_run_count,
+                "cancelled_run_count": report.cancelled_run_count,
+                "task_success_rate": report.task_success_rate,
+                "terminal_capture_verified_count": report.terminal_capture_verified_count,
+                "unknown_effect_run_count": report.unknown_effect_run_count,
+                "open_effect_run_count": report.open_effect_run_count,
+                "failure_reason_counts": [
+                    item.model_dump(mode="json") for item in report.failure_reason_counts
+                ],
+                "budget_stop_reason_counts": [
+                    item.model_dump(mode="json") for item in report.budget_stop_reason_counts
+                ],
+                "runs_executed": report.runs_executed,
+                "paid_model_called": report.paid_model_called,
+                "network_called": report.network_called,
+                "repository_code_executed": report.repository_code_executed,
+                "output_dir": str(result.output_dir),
+                "suite_pack": str(result.suite_pack_path),
+                "report": str(result.report_path),
+                "summary": str(result.summary_path),
+                "claim_scope": report.claim_scope,
+            }
+        )
+    )
+
+
+@evaluations.command("verify-terminal-suite")
+@guarded
+def verify_terminal_suite(path: Path):
+    """Verify a terminal suite and all child EvidencePacks without its SQLite database."""
+    pack = verify_terminal_suite_pack(path)
+    report = pack.report
+    typer.echo(
+        canonical_json(
+            {
+                "verified": True,
+                "suite_id": report.suite_id,
+                "case_count": report.case_count,
+                "succeeded_run_count": report.succeeded_run_count,
+                "failed_run_count": report.failed_run_count,
+                "cancelled_run_count": report.cancelled_run_count,
+                "task_success_rate": report.task_success_rate,
+                "terminal_capture_verified_count": report.terminal_capture_verified_count,
+                "unknown_effect_run_count": report.unknown_effect_run_count,
+                "open_effect_run_count": report.open_effect_run_count,
+                "runs_executed": report.runs_executed,
+                "claim_scope": report.claim_scope,
+            }
+        )
+    )
 
 
 @evaluations.command("pilot-preflight")

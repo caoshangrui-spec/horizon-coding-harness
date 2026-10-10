@@ -83,8 +83,9 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | Python 3.12/3.13 的测试、静态检查、演示和构建已通过 | CI 不读取 API Key、不运行付费模型 |
-| 离线回归 | `424 passed, 7 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `428 passed, 7 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | [通用终态 EvidencePack](docs/terminal-evidence-pack.md) | `SUCCEEDED`、`FAILED`、`CANCELLED` 均可导出并离线复核 Trace、最终投影和摘要；unknown/open effect 原样列出 | 自洽哈希不是来源签名，也不证明外部 Provider 或副作用已结清 |
+| [终态 Run 顺序汇总](docs/terminal-suite-evaluation.md) | 有序聚合已有终态 Run；递归验证每个子 EvidencePack，分列成功、失败、取消、预算停止与 unknown/open effect | 不执行任务，不是 batch scheduler，也没有并发性能声明 |
 | [本地顺序 Supervisor](docs/local-sequential-supervisor.md) | 完整轮次后自动释放 Lease并重开 Worker；真实子 Worker 退出后可按精确身份接管；应用层可信父进程还能先落取消栅栏，再 terminate/wait/kill 一个直接子 Worker，保留 pending intent 且零重派 | 子进程取消目前是 Python application API，不是 `agent run --supervise` 的常驻进程平台；不覆盖任意后代进程、跨主机 Worker、分布式队列或任意崩溃自动恢复 |
 | Docker 契约 | 7 项均已在本机已有镜像上单独通过 | 有限隔离合同，不是恶意代码安全认证 |
 | 一键崩溃恢复演示 | 子进程在 `replace_text` 生效后、receipt 前以退出码 86 硬退出；悬空调用先标 unknown，再按精确 manifest 接纳一次并恢复到 epoch 3 | 固定离线脚本与单一写入窗口，不代表任意进程/主机故障恢复 |
@@ -133,6 +134,9 @@ Trace 导出及离线重放，以及 `read → edit → test → submit → prot
 任一终态 Run 还可用 `trace bundle` 输出通用 EvidencePack；失败和取消会明确
 `task_succeeded=false`，并保留 unknown/open effect。文件合同与边界见
 [通用终态 EvidencePack](docs/terminal-evidence-pack.md)。
+多个已有终态 Run 可写入有序清单，再用 `eval terminal-suite --output <new-dir>` 生成逐 Run
+EvidencePack 与聚合报告；`eval verify-terminal-suite` 可在没有控制数据库时递归复核。它不会
+运行任务或重试失败，详细合同见[终态 Run 顺序汇总](docs/terminal-suite-evaluation.md)。
 人工给定的 Plan DAG 可按 dependency-ready/声明顺序执行多个 WorkItem；每项隔离会话和工具
 权限，中间交接与最终成功均原子提交，最后一项重跑全部 required checks。模型和工具的
 intent/receipt、用量、费用、工作区版本、检查点和验证证据
@@ -384,7 +388,7 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **424 passed，7 skipped**；7 项 Docker 合同均已指定本机已有镜像
+当前离线全量回归为 **428 passed，7 skipped**；7 项 Docker 合同均已指定本机已有镜像
 单独复跑并通过。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实
 Issue 效果。新增真实模型 Pilot 单元测试覆盖私有答案拒绝、初始失败证据、内容寻址报告和

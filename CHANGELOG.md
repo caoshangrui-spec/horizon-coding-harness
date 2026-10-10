@@ -5,6 +5,12 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Added an offline terminal Run suite that takes an ordered manifest of existing terminal Run IDs,
+  exports one replay-verified EvidencePack per Run, and builds a deterministic aggregate report for
+  successes, failures, cancellations, budget-stop reasons, and unknown/open effects. The standalone
+  verifier recursively checks every child Trace and recomputes the report without a database. It
+  never executes tasks, models, tools, network calls, or repository code, so this is evidence
+  aggregation rather than a new batch execution engine.
 - Extended the exact, revision-bound NoProgress policy from identical and period-2 actions to
   primitive period-3 and period-4 cycles. The controller soft-blocks one action before a third
   complete cycle, requires the next exact continuation before entering recoverable operator
