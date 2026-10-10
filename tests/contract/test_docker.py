@@ -168,9 +168,7 @@ def test_created_attempt_recovery_exports_offline_verifiable_evidence(tmp_path, 
     forged = canonical_json(artifact).encode("utf-8")
     artifact_path.write_bytes(forged)
     pack = json.loads(result.evidence_pack_path.read_text(encoding="utf-8"))
-    artifact_record = next(
-        item for item in pack["files"] if item["role"] == "recovery_artifact"
-    )
+    artifact_record = next(item for item in pack["files"] if item["role"] == "recovery_artifact")
     artifact_record["bytes"] = len(forged)
     artifact_record["sha256"] = hashlib.sha256(forged).hexdigest()
     result.evidence_pack_path.write_text(

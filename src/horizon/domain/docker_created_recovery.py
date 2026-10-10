@@ -104,9 +104,7 @@ class DockerCreatedRecoveryFile(Contract):
 
 class DockerCreatedRecoveryPack(Contract):
     schema_version: Literal[1] = 1
-    pack_type: Literal["horizon.docker-created-recovery"] = (
-        "horizon.docker-created-recovery"
-    )
+    pack_type: Literal["horizon.docker-created-recovery"] = "horizon.docker-created-recovery"
     evidence: DockerCreatedRecoveryEvidence
     files: Annotated[
         tuple[DockerCreatedRecoveryFile, ...],

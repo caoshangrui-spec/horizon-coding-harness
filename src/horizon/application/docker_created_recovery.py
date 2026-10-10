@@ -205,8 +205,7 @@ def _event_sequence(events: tuple[Event, ...], call_id: str) -> tuple[int, int, 
     unknown = [
         event.seq
         for event in events
-        if event.event_type == "TOOL_CALL_UNKNOWN"
-        and event.payload.get("call_id") == call_id
+        if event.event_type == "TOOL_CALL_UNKNOWN" and event.payload.get("call_id") == call_id
     ]
     settled = [
         event.seq
@@ -271,9 +270,8 @@ def _derive_evidence(
     ):
         raise ValueError("Docker recovery artifacts do not match the Trace receipt")
     manifest = FileSnapshot.model_validate_json(manifest_content)
-    if (
-        manifest.workspace_revision != record.workspace_revision_after
-        or any(entry.path == crash.command_marker_path for entry in manifest.files)
+    if manifest.workspace_revision != record.workspace_revision_after or any(
+        entry.path == crash.command_marker_path for entry in manifest.files
     ):
         raise ValueError("Docker recovery manifest contains an executed marker or wrong revision")
     try:
@@ -282,8 +280,7 @@ def _derive_evidence(
         raise ValueError("Docker recovery artifact is not valid JSON") from exc
     if (
         not isinstance(artifact, dict)
-        or set(artifact)
-        != {"decision", "effect", "original_call_id", "tool", "workspace_revision"}
+        or set(artifact) != {"decision", "effect", "original_call_id", "tool", "workspace_revision"}
         or artifact.get("decision") != "discard_check"
         or artifact.get("original_call_id") != crash.call_id
         or artifact.get("tool") != "run_check"
@@ -364,9 +361,7 @@ def verify_docker_created_recovery_pack(path: Path) -> DockerCreatedRecoveryPack
 
     pack_path = path.resolve(strict=True)
     root = pack_path.parent
-    pack = DockerCreatedRecoveryPack.model_validate_json(
-        pack_path.read_text(encoding="utf-8")
-    )
+    pack = DockerCreatedRecoveryPack.model_validate_json(pack_path.read_text(encoding="utf-8"))
     contents: dict[str, bytes] = {}
     for item in pack.files:
         candidate = (root / item.path).resolve(strict=True)
@@ -476,9 +471,7 @@ class DockerCreatedRecoveryRunner:
                 ModelMessage(role="user", content="Verify the fixture without network access."),
             ),
         )
-        session_ref = artifacts.put(
-            canonical_json(session.model_dump(mode="json")).encode("utf-8")
-        )
+        session_ref = artifacts.put(canonical_json(session.model_dump(mode="json")).encode("utf-8"))
         run = service.save_agent_session(
             run.run_id,
             AgentSessionRecord(
