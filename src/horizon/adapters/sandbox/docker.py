@@ -41,7 +41,7 @@ class CommandResult(Contract):
 class SandboxAttemptStatus(Contract):
     attempt_id: str
     container_name: str
-    state: Literal["missing", "running", "stopped"]
+    state: Literal["missing", "created", "running", "stopped"]
     image_id: str
 
 
@@ -162,6 +162,7 @@ class DockerSandbox:
             documents = json.loads(result.stdout)
             document = documents[0]
             labels = document["Config"]["Labels"] or {}
+            engine_state = document["State"]["Status"]
             running = document["State"]["Running"]
             image_id = document["Image"]
         except (IndexError, KeyError, TypeError, json.JSONDecodeError) as exc:
@@ -172,14 +173,23 @@ class DockerSandbox:
             or labels.get("horizon.attempt") != attempt_id
             or labels.get("horizon.image") != self.image_id
             or image_id != self.image_id
+            or not isinstance(engine_state, str)
             or not isinstance(running, bool)
         ):
             raise SandboxError("Docker attempt identity does not match the persisted operation")
+        if not running and engine_state == "created":
+            attempt_state = "created"
+        elif running and engine_state == "running":
+            attempt_state = "running"
+        elif not running and engine_state in {"exited", "dead"}:
+            attempt_state = "stopped"
+        else:
+            raise SandboxError("Docker attempt state is transitional or unsupported")
         return (
             SandboxAttemptStatus(
                 attempt_id=attempt_id,
                 container_name=name,
-                state="running" if running else "stopped",
+                state=attempt_state,
                 image_id=self.image_id,
             ),
             document,
@@ -218,9 +228,44 @@ class DockerSandbox:
             mounts = document["Mounts"]
             container_id = document["Id"]
             exit_code = state["ExitCode"]
-            mount = next(item for item in mounts if item.get("Destination") == "/workspace")
         except (KeyError, StopIteration, TypeError) as exc:
             raise SandboxError("Stopped sandbox result metadata is incomplete") from exc
+
+        declared_volumes = config.get("Volumes") or {}
+        configured_mounts = host.get("Mounts")
+        configured_binds = host.get("Binds")
+        if (
+            not isinstance(mounts, list)
+            or not all(isinstance(item, dict) for item in mounts)
+            or not all(
+                isinstance(item.get("Destination"), str) and item["Destination"] for item in mounts
+            )
+            or not isinstance(declared_volumes, dict)
+            or not all(isinstance(path, str) and path for path in declared_volumes)
+            or not isinstance(configured_mounts, list)
+            or len(configured_mounts) != 1
+            or not isinstance(configured_mounts[0], dict)
+        ):
+            raise SandboxError("Stopped sandbox result metadata is incomplete")
+        workspace_mounts = [item for item in mounts if item.get("Destination") == "/workspace"]
+        image_volume_mounts = [item for item in mounts if item.get("Destination") != "/workspace"]
+        configured_workspace_mount = configured_mounts[0]
+        exact_mount_contract = (
+            configured_binds in (None, [])
+            and configured_workspace_mount.get("Type") == "bind"
+            and configured_workspace_mount.get("Source") == str(workspace)
+            and configured_workspace_mount.get("Target") == "/workspace"
+            and configured_workspace_mount.get("ReadOnly") in {None, False}
+            and len(workspace_mounts) == 1
+            and workspace_mounts[0].get("Type") == "bind"
+            and workspace_mounts[0].get("Source") == str(workspace)
+            and workspace_mounts[0].get("RW") is True
+            and {item.get("Destination") for item in image_volume_mounts} == set(declared_volumes)
+            and all(
+                item.get("Type") == "volume" and item.get("RW") is True
+                for item in image_volume_mounts
+            )
+        )
 
         expected_request = self._request_digest(workspace, request)
         exact_log_config = {
@@ -252,11 +297,7 @@ class DockerSandbox:
             or host.get("Init") is not True
             or log_config.get("Type") != self._RECOVERY_LOG_DRIVER
             or log_config.get("Config") != exact_log_config
-            or len(mounts) != 1
-            or mount.get("Type") != "bind"
-            or mount.get("RW") is not True
-            or not isinstance(mount.get("Source"), str)
-            or not mount["Source"]
+            or not exact_mount_contract
             or not isinstance(container_id, str)
             or not container_id
         ):
@@ -299,13 +340,20 @@ class DockerSandbox:
             raise SandboxError("Sandbox attempt termination is unconfirmed")
         return status
 
-    def remove_attempt(self, attempt_id: str) -> SandboxAttemptStatus:
+    def remove_attempt(
+        self,
+        attempt_id: str,
+        *,
+        expected_state: Literal["created", "stopped"] | None = None,
+    ) -> SandboxAttemptStatus:
         status = self.attempt_status(attempt_id)
-        if status.state != "stopped":
-            raise SandboxError("Only a verified stopped sandbox attempt may be removed")
+        if expected_state is not None and status.state != expected_state:
+            raise SandboxError("Sandbox attempt state changed before removal")
+        if status.state not in {"created", "stopped"}:
+            raise SandboxError("Only a verified inactive sandbox attempt may be removed")
         removed = self._command(["rm", "--volumes", status.container_name])
         if removed.returncode != 0:
-            raise SandboxError("Stopped sandbox attempt could not be removed")
+            raise SandboxError("Inactive sandbox attempt could not be removed")
         final = self.attempt_status(attempt_id)
         if final.state != "missing":
             raise SandboxError("Sandbox attempt removal is unconfirmed")

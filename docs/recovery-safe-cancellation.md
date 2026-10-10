@@ -82,6 +82,11 @@ uv run --locked --cache-dir .uv-cache horizon cancel <run-id> `
 image 任一不符都拒绝。控制命令不会猜测或终止任意宿主进程，也不会把被信号杀死的 check
 结果伪装成通过。
 
+若 Worker 已崩溃、操作者随后使用 `agent resolve-tool --discard-check --image ...`，恢复端还会
+区分 Docker `created` 与 stopped：观察到 created 时不发送 kill，只在删除前二次确认状态仍为
+created，并在删除后重取 workspace revision。状态变化、revision 漂移或 transitional 状态都不写
+discard receipt。该路径处理 tool intent，不替代本节 cancel 的先栅栏协议。
+
 ## 5. 精确停止 Supervisor 子 Worker
 
 `SequentialAgentSupervisor.cancel_and_reap_worker(...)` 只接受可信父进程持有的直接子进程句柄。

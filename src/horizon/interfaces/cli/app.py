@@ -2295,7 +2295,7 @@ def agent_resolve_tool(
                     token=token,
                 )
                 try:
-                    sandbox.remove_attempt(call_id)
+                    sandbox.remove_attempt(call_id, expected_state="stopped")
                     check_sandbox_resolution = "result_recorded_and_removed"
                 except HorizonError as exc:
                     check_sandbox_resolution = "result_recorded_cleanup_required"
@@ -2314,15 +2314,24 @@ def agent_resolve_tool(
                     sandbox = DockerSandbox(staging_root, check_image)
                     attempt = sandbox.attempt_status(call_id)
                     check_sandbox_container_name = attempt.container_name
-                    if attempt.state == "running":
+                    if attempt.state == "created":
+                        sandbox.remove_attempt(call_id, expected_state="created")
+                        sandbox_stopped = True
+                        sandbox_stop_evidence = "controller_observed_created"
+                        check_sandbox_resolution = "controller_observed_created_and_removed"
+                    elif attempt.state == "running":
                         if not stop_check_sandbox:
                             raise ValueError(
                                 "The labeled check sandbox is still running; use "
                                 "--stop-check-sandbox to stop this exact attempt"
                             )
                         attempt = sandbox.stop_attempt(call_id)
-                    if attempt.state == "stopped":
-                        sandbox.remove_attempt(call_id)
+                        sandbox.remove_attempt(call_id, expected_state="stopped")
+                        sandbox_stopped = True
+                        sandbox_stop_evidence = "controller_verified"
+                        check_sandbox_resolution = "controller_verified_and_removed"
+                    elif attempt.state == "stopped":
+                        sandbox.remove_attempt(call_id, expected_state="stopped")
                         sandbox_stopped = True
                         sandbox_stop_evidence = "controller_verified"
                         check_sandbox_resolution = "controller_verified_and_removed"
@@ -2336,11 +2345,18 @@ def agent_resolve_tool(
                         check_sandbox_resolution = "operator_confirmed_missing_attempt"
                 else:
                     check_sandbox_resolution = "operator_confirmed"
+                settled_snapshot, settled_manifest_ref = snapshots.capture(
+                    workspace,
+                    allowed_paths=current.task.constraints.allowed_paths,
+                    denied_paths=current.task.constraints.denied_paths,
+                )
+                if settled_snapshot.workspace_revision != snapshot.workspace_revision:
+                    raise Conflict("Workspace changed while the check sandbox was being resolved")
                 resolved = tool_recovery.discard_check_result(
                     run_id,
                     call_id,
-                    current_workspace_revision=snapshot.workspace_revision,
-                    current_workspace_manifest_ref=manifest_ref,
+                    current_workspace_revision=settled_snapshot.workspace_revision,
+                    current_workspace_manifest_ref=settled_manifest_ref,
                     sandbox_stopped=sandbox_stopped,
                     token=token,
                     sandbox_stop_evidence=sandbox_stop_evidence,
@@ -2498,6 +2514,10 @@ def doctor():
                 ),
                 "run_check_receipt_before_cleanup": True,
                 "run_check_running_attempt_stop_requires_explicit": True,
+                "run_check_created_attempt_recovery": True,
+                "run_check_created_attempt_recovery_profile": (
+                    "docker_created_observe_remove_then_revision_recheck"
+                ),
                 "run_check_missing_attempt_proof": False,
                 "run_check_signal_timeout_result_recovery": False,
                 "portfolio_hard_crash_demo": True,

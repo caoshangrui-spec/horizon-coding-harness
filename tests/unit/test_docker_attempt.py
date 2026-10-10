@@ -7,12 +7,17 @@ from horizon.adapters.sandbox.docker import DockerSandbox, SandboxError
 from horizon.domain.errors import PolicyDenied
 
 
-def fake_sandbox(*, attempt_id: str, running: bool = True, owner_override: str | None = None):
+def fake_sandbox(
+    *,
+    attempt_id: str,
+    attempt_state: str = "running",
+    owner_override: str | None = None,
+):
     sandbox = object.__new__(DockerSandbox)
     sandbox.image_id = "sha256:" + "a" * 64
     sandbox.docker = "docker"
     owner, name = sandbox._attempt_identity(attempt_id)
-    state = {"exists": True, "running": running}
+    state = {"exists": True, "status": attempt_state}
     commands = []
 
     def command(args, timeout=15):
@@ -30,7 +35,7 @@ def fake_sandbox(*, attempt_id: str, running: bool = True, owner_override: str |
                 if "horizon.owner" in template:
                     output = owner_override or owner
                 else:
-                    output = str(state["running"]).lower()
+                    output = str(state["status"] == "running").lower()
                 return subprocess.CompletedProcess(args, 0, stdout=output + "\n", stderr="")
             document = [
                 {
@@ -41,7 +46,10 @@ def fake_sandbox(*, attempt_id: str, running: bool = True, owner_override: str |
                             "horizon.image": sandbox.image_id,
                         }
                     },
-                    "State": {"Running": state["running"]},
+                    "State": {
+                        "Running": state["status"] == "running",
+                        "Status": state["status"],
+                    },
                     "Image": sandbox.image_id,
                 }
             ]
@@ -52,7 +60,7 @@ def fake_sandbox(*, attempt_id: str, running: bool = True, owner_override: str |
                 stderr="",
             )
         if args[0] == "kill":
-            state["running"] = False
+            state["status"] = "exited"
             return subprocess.CompletedProcess(args, 0, stdout=name + "\n", stderr="")
         if args[0] == "rm":
             state["exists"] = False
@@ -70,9 +78,47 @@ def test_labeled_attempt_can_be_verified_stopped_and_removed():
     assert sandbox.stop_attempt("tool_check_123").state == "stopped"
     assert sandbox.remove_attempt("tool_check_123").state == "missing"
 
-    assert state == {"exists": False, "running": False}
+    assert state == {"exists": False, "status": "exited"}
     assert any(command[0][0] == "kill" for command in commands)
     assert any(command[0][0] == "rm" for command in commands)
+
+
+def test_labeled_created_attempt_can_be_removed_without_kill():
+    sandbox, state, commands = fake_sandbox(
+        attempt_id="tool_check_created",
+        attempt_state="created",
+    )
+
+    assert sandbox.attempt_status("tool_check_created").state == "created"
+    assert sandbox.remove_attempt("tool_check_created", expected_state="created").state == "missing"
+
+    assert state == {"exists": False, "status": "created"}
+    assert not any(command[0][0] == "kill" for command in commands)
+    assert any(command[0][0] == "rm" for command in commands)
+
+
+def test_attempt_removal_rejects_state_change_from_expected_created():
+    sandbox, state, commands = fake_sandbox(
+        attempt_id="tool_check_changed",
+        attempt_state="exited",
+    )
+
+    with pytest.raises(SandboxError, match="state changed"):
+        sandbox.remove_attempt("tool_check_changed", expected_state="created")
+
+    assert state["exists"] is True
+    assert not any(command[0][0] == "rm" for command in commands)
+
+
+@pytest.mark.parametrize("attempt_state", ["paused", "restarting", "removing"])
+def test_labeled_attempt_rejects_transitional_engine_state(attempt_state):
+    sandbox, _, _ = fake_sandbox(
+        attempt_id="tool_check_transitional",
+        attempt_state=attempt_state,
+    )
+
+    with pytest.raises(SandboxError, match="transitional or unsupported"):
+        sandbox.attempt_status("tool_check_transitional")
 
 
 def test_labeled_attempt_rejects_mismatched_owner_and_invalid_id():

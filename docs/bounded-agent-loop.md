@@ -173,9 +173,12 @@ workspace 的 request digest；恢复端可用同一镜像精确查询。新 att
 workspace/隔离配置完全匹配、非 OOM、exit code 小于 128、日志完整且不超过 64 KiB，同时 live
 workspace 仍等于派发前 revision，才可显式写入 `success|error/accept_check_result`。该 receipt 与
 下一 AgentSession 先持久化，容器随后删除；清理失败只留下可识别的停止容器，不撤销已持久回执。
-运行中或信号退出的 attempt 不可接纳；前者只有显式 `--stop-check-sandbox` 才会终止。停止后可
-写入 `cancelled/discard_check`，下一会话只看到“未推断 pass/fail”的处置证据。missing 不能证明
-“从未运行/已经停止”，仍要求操作者确认。其他无法唯一证明的副作用继续阻塞。详见
+运行中或信号退出的 attempt 不可接纳；前者只有显式 `--stop-check-sandbox` 才会终止。Docker
+[把 `created` 定义为尚未启动的容器状态](https://docs.docker.com/reference/cli/docker/container/ls/)；
+若恢复端观察到精确 attempt 仍为 created，可不发送 kill，二次核验相同状态后删除，再重取
+workspace snapshot。只有 revision 未变才写入 `cancelled/discard_check`。paused/restarting/removing、
+状态变化或 snapshot 漂移都保持 unknown。missing 不能证明“从未运行/已经停止”，仍要求操作者
+确认。下一会话只看到“未推断 pass/fail”的处置证据；其他无法唯一证明的副作用继续阻塞。详见
 [有界多文件精确 Patch](bounded-multi-file-patch.md)。
 单文件创建的规划、字节限制和故障语义见[受限单文件创建](bounded-create-file.md)。
 
@@ -304,7 +307,9 @@ uv run --locked --cache-dir .uv-cache horizon agent resolve-tool `
 ```
 
 若容器仍运行，命令拒绝；只有操作者追加 `--stop-check-sandbox` 才终止并删除这个名称、owner、
-attempt 和 image 全部匹配的容器。若容器 missing，缺失本身不是停止证明，人工核实旧进程后改用
+attempt 和 image 全部匹配的容器。若容器仍处于 `docker create` 产生的
+[created 初始状态](https://docs.docker.com/reference/cli/docker/container/create/)，控制器会核验状态未变、
+直接删除并在提交前重取 workspace revision，不需要停止一个尚未启动的进程。若容器 missing，缺失本身不是停止证明，人工核实旧进程后改用
 `--confirm-check-sandbox-stopped`。控制器还会在任何 Docker 操作前复核原模型响应、check ID、
 当前 WorkItem acceptance scope、事件尾部和 workspace revision，并在提交处置时再次复核；任一
 不符继续保持 unknown。成功处置会原子写入 cancelled receipt 与下一 AgentSession。
@@ -332,7 +337,8 @@ uv run --locked --cache-dir .uv-cache horizon agent resolve-tool `
 ```
 
 该路径复核 request digest、Docker entrypoint/argv、非 root 用户、禁网/只读根、日志配置和唯一
-workspace bind，再读取 exit code 与完整有界日志。成功与失败都作为真实 observation 进入下一
+显式 workspace bind；镜像自身声明的匿名 volume 可以存在，但额外显式 bind/volume 一律拒绝。
+随后读取 exit code 与完整有界日志。成功与失败都作为真实 observation 进入下一
 session；日志超限、信号退出、容器仍运行或配置漂移时拒绝，必须继续保留 unknown 或显式丢弃。
 
 精确写入（`replace_text` / `apply_patch` / `create_file`）可选择一种处置：
@@ -376,6 +382,10 @@ uv run --locked --cache-dir .uv-cache horizon trace replay `
 Trace 文件拒绝覆盖已有文件。重放不会调用模型、工具或 Docker。
 
 ## 9. 当前验证证据
+
+2026-10-10 增量：离线全量回归为 438 passed、8 skipped；8 项 Docker 合同已用本机已有
+`redis:7-alpine` 单独通过。新增真实合同证明 created 容器在删除前未执行其 marker 命令；这只
+证明受控本机路径，不是对并发外部 Docker 操作者的原子性或恶意代码安全认证。
 
 2026-10-05 当前环境：
 

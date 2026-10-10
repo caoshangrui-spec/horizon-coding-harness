@@ -40,6 +40,7 @@ def stopped_sandbox(tmp_path: Path, request: CommandRequest):
             "Cmd": list(request.argv[1:]),
             "User": "65534:65534",
             "WorkingDir": "/workspace",
+            "Volumes": None,
         },
         "State": {
             "Running": False,
@@ -58,6 +59,14 @@ def stopped_sandbox(tmp_path: Path, request: CommandRequest):
             "Memory": 128 * 1024 * 1024,
             "NanoCpus": 1_000_000_000,
             "Init": True,
+            "Binds": None,
+            "Mounts": [
+                {
+                    "Type": "bind",
+                    "Source": str(workspace.resolve()),
+                    "Target": "/workspace",
+                }
+            ],
             "LogConfig": {
                 "Type": sandbox._RECOVERY_LOG_DRIVER,
                 "Config": {
@@ -93,14 +102,53 @@ def test_recovers_exact_naturally_stopped_result(tmp_path):
     assert result.output_truncated is False
 
 
+def test_recovers_exact_result_with_only_image_declared_anonymous_volume(tmp_path):
+    request = CommandRequest(argv=("sh", "tests/check.sh"), timeout_seconds=30)
+    sandbox, workspace, attempt_id, document = stopped_sandbox(tmp_path, request)
+    document["Config"]["Volumes"] = {"/data": {}}
+    document["Mounts"].insert(
+        0,
+        {
+            "Type": "volume",
+            "Source": "/var/lib/docker/volumes/anonymous/_data",
+            "Destination": "/data",
+            "RW": True,
+        },
+    )
+
+    result = sandbox.recover_stopped_attempt(workspace, request, attempt_id)
+
+    assert result.exit_code == 1
+
+
 @pytest.mark.parametrize(
     "unsafe_state",
-    ["signal", "oom", "request_mismatch", "isolation_mismatch", "large_output"],
+    [
+        "created",
+        "signal",
+        "oom",
+        "request_mismatch",
+        "isolation_mismatch",
+        "extra_bind_mount",
+        "large_output",
+    ],
 )
 def test_recovery_rejects_ambiguous_or_inexact_stopped_result(tmp_path, unsafe_state):
     request = CommandRequest(argv=("sh", "tests/check.sh"), timeout_seconds=30)
     sandbox, workspace, attempt_id, document = stopped_sandbox(tmp_path, request)
-    if unsafe_state == "signal":
+    if unsafe_state == "created":
+        document["State"]["Status"] = "created"
+        document["State"]["ExitCode"] = 0
+        sandbox._inspect_attempt = lambda _attempt_id: (
+            SandboxAttemptStatus(
+                attempt_id=attempt_id,
+                container_name=sandbox._attempt_identity(attempt_id)[1],
+                state="created",
+                image_id=sandbox.image_id,
+            ),
+            document,
+        )
+    elif unsafe_state == "signal":
         document["State"]["ExitCode"] = 137
     elif unsafe_state == "oom":
         document["State"]["OOMKilled"] = True
@@ -108,6 +156,18 @@ def test_recovery_rejects_ambiguous_or_inexact_stopped_result(tmp_path, unsafe_s
         request = CommandRequest(argv=("sh", "tests/other.sh"), timeout_seconds=30)
     elif unsafe_state == "isolation_mismatch":
         document["HostConfig"]["NetworkMode"] = "default"
+    elif unsafe_state == "extra_bind_mount":
+        document["HostConfig"]["Mounts"].append(
+            {"Type": "bind", "Source": str(tmp_path), "Target": "/host"}
+        )
+        document["Mounts"].append(
+            {
+                "Type": "bind",
+                "Source": str(tmp_path),
+                "Destination": "/host",
+                "RW": True,
+            }
+        )
     else:
         sandbox._logs = lambda _name: b"x" * (request.output_limit_bytes + 1)
 

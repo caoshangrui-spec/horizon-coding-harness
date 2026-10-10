@@ -237,13 +237,14 @@ Horizon 的可配置请求策略，不冒充模型官方窗口或 tokenizer 精�
   则进入有证据的可恢复人工等待；该策略尚无真实模型误拦截/收益证据；
 - `retrieve_code` 从当前 immutable manifest 生成 path/range/hash 证据，每个 FTS 命中回查源
   Artifact；dirty revision、权限 scope、索引篡改、empty/degraded 和 scan fallback 有离线测试；
-- 7 项真实 Docker 合同，以及一次真实 SiliconFlow + Docker fixture Run；
+- 8 项真实 Docker 合同，以及一次真实 SiliconFlow + Docker fixture Run；
 - 模型/工具/验证/checkpoint 事件导出后无需模型和 Docker即可重建相同 projection hash。
 
 尚未实现或尚未验证：
 
-- 任意崩溃点的可继续恢复；`run_check` 已覆盖 running 窗口及自然退出、清理前的精确结果恢复，
-  仍缺容器创建前的持久启动回执、missing attempt 启动证明，以及超时/信号结果恢复；
+- 任意崩溃点的可继续恢复；`run_check` 已覆盖 running、Docker created 状态观察与自然退出、
+  清理前的精确结果恢复，仍缺容器创建前的持久启动回执、missing attempt 启动证明，以及超时/
+  信号结果恢复；
   `create_file` 仍不接纳部分/漂移后态，另缺多文件新增、
   删除/重命名或任意 diff 的写工具副作用处置；
 - retry/backoff、Circuit Breaker、迟到回执主动对账；

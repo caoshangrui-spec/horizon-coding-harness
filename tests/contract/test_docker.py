@@ -89,11 +89,67 @@ def test_real_container_restrictions_and_disposable_write(sandbox):
         assert worker.returncode != 0
         assert sandbox.attempt_status(attempt_id).state == "running"
         assert sandbox.stop_attempt(attempt_id).state == "stopped"
-        assert sandbox.remove_attempt(attempt_id).state == "missing"
+        assert sandbox.remove_attempt(attempt_id, expected_state="stopped").state == "missing"
     finally:
         if worker.poll() is None:
             worker.kill()
             worker.wait(timeout=10)
+        subprocess.run(
+            ["docker", "rm", "--force", "--volumes", name],
+            capture_output=True,
+            check=False,
+        )
+
+
+def test_created_attempt_is_identified_and_removed_without_starting(sandbox):
+    workspace = stage(sandbox)
+    attempt_id = "tool_contract_created_only"
+    owner, name = sandbox._attempt_identity(attempt_id)
+    marker = workspace / "never-started.txt"
+    request = CommandRequest(
+        argv=("/bin/sh", "-c", "touch /workspace/never-started.txt"),
+        timeout_seconds=30,
+    )
+    created = subprocess.run(
+        [
+            "docker",
+            "create",
+            "--name",
+            name,
+            "--label",
+            f"horizon.owner={owner}",
+            "--label",
+            f"horizon.attempt={attempt_id}",
+            "--label",
+            f"horizon.image={sandbox.image_id}",
+            "--label",
+            f"horizon.recovery={sandbox._RECOVERY_SCHEMA}",
+            "--label",
+            f"horizon.request={sandbox._request_digest(workspace.resolve(), request)}",
+            "--network",
+            "none",
+            "--read-only",
+            "--user",
+            "65534:65534",
+            "--mount",
+            f"type=bind,source={workspace.resolve()},target=/workspace",
+            "--entrypoint",
+            request.argv[0],
+            sandbox.image_id,
+            *request.argv[1:],
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    try:
+        assert created.returncode == 0, created.stderr
+        assert sandbox.attempt_status(attempt_id).state == "created"
+        assert not marker.exists()
+
+        assert sandbox.remove_attempt(attempt_id, expected_state="created").state == "missing"
+        assert not marker.exists()
+    finally:
         subprocess.run(
             ["docker", "rm", "--force", "--volumes", name],
             capture_output=True,

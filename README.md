@@ -83,11 +83,11 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | Python 3.12/3.13 的测试、静态检查、演示和构建已通过 | CI 不读取 API Key、不运行付费模型 |
-| 离线回归 | `428 passed, 7 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `438 passed, 8 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | [通用终态 EvidencePack](docs/terminal-evidence-pack.md) | `SUCCEEDED`、`FAILED`、`CANCELLED` 均可导出并离线复核 Trace、最终投影和摘要；unknown/open effect 原样列出 | 自洽哈希不是来源签名，也不证明外部 Provider 或副作用已结清 |
 | [终态 Run 顺序汇总](docs/terminal-suite-evaluation.md) | 有序聚合已有终态 Run；递归验证每个子 EvidencePack，分列成功、失败、取消、预算停止与 unknown/open effect | 不执行任务，不是 batch scheduler，也没有并发性能声明 |
 | [本地顺序 Supervisor](docs/local-sequential-supervisor.md) | 完整轮次后自动释放 Lease并重开 Worker；真实子 Worker 退出后可按精确身份接管；应用层可信父进程还能先落取消栅栏，再 terminate/wait/kill 一个直接子 Worker，保留 pending intent 且零重派 | 子进程取消目前是 Python application API，不是 `agent run --supervise` 的常驻进程平台；不覆盖任意后代进程、跨主机 Worker、分布式队列或任意崩溃自动恢复 |
-| Docker 契约 | 7 项均已在本机已有镜像上单独通过 | 有限隔离合同，不是恶意代码安全认证 |
+| Docker 契约 | 8 项均已在本机已有镜像上单独通过 | 有限隔离合同，不是恶意代码安全认证 |
 | 一键崩溃恢复演示 | 子进程在 `replace_text` 生效后、receipt 前以退出码 86 硬退出；悬空调用先标 unknown，再按精确 manifest 接纳一次并恢复到 epoch 3 | 固定离线脚本与单一写入窗口，不代表任意进程/主机故障恢复 |
 | 有界恢复矩阵 v3 | 21/21；自动恢复 11/11、安全阻塞 10/10、incorrect resume 0、恢复重派/重复副作用 0；含 3 个真实硬退出和 Trace replay | 其余 18 例是生成 fixture 的状态/决策矩阵，不是完整 8 故障点或主机故障验收 |
 | 外部来源裁剪 A/B v2 | 5 个来源绑定案例的初始失败、Baseline 等待和 Treatment 修复均由本地可信与公开禁网 Docker 执行，证据已上传 | 使用 Scripted Model 和 dependency-reduced fixture，不是 BugsInPy 官方成绩 |
@@ -189,8 +189,10 @@ owner/attempt/image/request/recovery 标签。悬空检查可用原镜像精确�
 staging 路径、镜像与受限运行配置对应的容器已自然退出，且完整日志未超过 64 KiB，可信 CLI
 可从 Docker exit code 与日志恢复原 success/error receipt。receipt 和下一 AgentSession 先原子
 持久化，之后才删除容器。信号退出、超时/OOM、仍运行、日志超限或任一身份不一致时不采信
-结果；仍可显式停止并丢弃，missing 也仍需操作者确认。所有路径都要求工作区等于派发前
-revision，且不会重放原检查或模型调用。
+结果；仍可显式停止并丢弃。若清理时观察到 Docker `State.Status=created`，控制器可在不发送
+kill 的情况下删除仍为 created 的精确标签容器；删除后必须再次取得同一 workspace revision 才
+写入 discard receipt。paused/restarting/removing、状态竞态和 missing 都保持 unknown，missing 仍需
+操作者确认。所有路径都不会重放原检查或模型调用。
 若自动 Plan 未通过 Schema、DAG、权限或验收覆盖校验，Run 会保持为
 `WAITING_FOR_USER`；使用输出中的 `horizon plan set <run-id> <plan.yaml>` 提交人工计划后，
 再用 `horizon agent resume` 继续。这个入口只处理计划阶段的人工替换，不代表通用审批系统。
@@ -388,7 +390,7 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **428 passed，7 skipped**；7 项 Docker 合同均已指定本机已有镜像
+当前离线全量回归为 **438 passed，8 skipped**；8 项 Docker 合同均已指定本机已有镜像
 单独复跑并通过。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实
 Issue 效果。新增真实模型 Pilot 单元测试覆盖私有答案拒绝、初始失败证据、内容寻址报告和

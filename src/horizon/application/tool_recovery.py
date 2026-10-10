@@ -346,7 +346,9 @@ class ToolRecoveryService:
         sandbox_stopped: bool,
         token: LeaseToken,
         sandbox_stop_evidence: Literal[
-            "operator_confirmation", "controller_verified"
+            "operator_confirmation",
+            "controller_verified",
+            "controller_observed_created",
         ] = "operator_confirmation",
     ) -> Run:
         if not sandbox_stopped:
@@ -360,7 +362,12 @@ class ToolRecoveryService:
             current_workspace_manifest_ref=current_workspace_manifest_ref,
             token=token,
         )
-        if sandbox_stop_evidence == "controller_verified":
+        if sandbox_stop_evidence == "controller_observed_created":
+            stop_statement = (
+                "The controller observed Docker State.Status=created for the exact labeled "
+                "attempt, removed the inactive container, and rechecked the workspace revision."
+            )
+        elif sandbox_stop_evidence == "controller_verified":
             stop_statement = (
                 "The controller verified and removed the labeled Docker attempt after it stopped."
             )

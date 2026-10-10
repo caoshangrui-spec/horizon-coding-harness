@@ -382,6 +382,10 @@ def test_doctor_checks_fts_without_model():
         "exact_natural_exit_bounded_complete_log"
     )
     assert data["run_check_receipt_before_cleanup"] is True
+    assert data["run_check_created_attempt_recovery"] is True
+    assert data["run_check_created_attempt_recovery_profile"] == (
+        "docker_created_observe_remove_then_revision_recheck"
+    )
     assert data["portfolio_hard_crash_demo"] is True
     assert data["portfolio_hard_crash_demo_profile"] == (
         "replace_effect_before_receipt_exact_accept"
@@ -1395,6 +1399,7 @@ def test_agent_reconcile_cli_marks_pending_model_unknown_after_deadline_without_
         "expected_status",
         "sandbox_mode",
         "expected_sandbox_resolution",
+        "expected_error",
     ),
     [
         (
@@ -1403,6 +1408,7 @@ def test_agent_reconcile_cli_marks_pending_model_unknown_after_deadline_without_
             ["--retry-readonly"],
             "retry_readonly",
             "cancelled",
+            None,
             None,
             None,
         ),
@@ -1414,6 +1420,7 @@ def test_agent_reconcile_cli_marks_pending_model_unknown_after_deadline_without_
             "cancelled",
             None,
             "operator_confirmed",
+            None,
         ),
         (
             "run_check",
@@ -1423,6 +1430,7 @@ def test_agent_reconcile_cli_marks_pending_model_unknown_after_deadline_without_
             "cancelled",
             "stopped",
             "controller_verified_and_removed",
+            None,
         ),
         (
             "run_check",
@@ -1437,6 +1445,27 @@ def test_agent_reconcile_cli_marks_pending_model_unknown_after_deadline_without_
             "cancelled",
             "running",
             "controller_verified_and_removed",
+            None,
+        ),
+        (
+            "run_check",
+            {"check_id": "unit"},
+            ["--discard-check", "--image", "local:test"],
+            "discard_check",
+            "cancelled",
+            "created",
+            "controller_observed_created_and_removed",
+            None,
+        ),
+        (
+            "run_check",
+            {"check_id": "unit"},
+            ["--discard-check", "--image", "local:test"],
+            "discard_check",
+            "cancelled",
+            "created_drift",
+            None,
+            "Workspace changed while the check sandbox was being resolved",
         ),
         (
             "run_check",
@@ -1446,6 +1475,7 @@ def test_agent_reconcile_cli_marks_pending_model_unknown_after_deadline_without_
             "success",
             "stopped",
             "result_recorded_and_removed",
+            None,
         ),
         (
             "run_check",
@@ -1455,6 +1485,7 @@ def test_agent_reconcile_cli_marks_pending_model_unknown_after_deadline_without_
             "success",
             "cleanup_error",
             "result_recorded_cleanup_required",
+            None,
         ),
     ],
 )
@@ -1470,6 +1501,7 @@ def test_agent_resolve_tool_cli_applies_explicit_offline_recovery_decision(
     expected_status,
     sandbox_mode,
     expected_sandbox_resolution,
+    expected_error,
 ):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("SILICONFLOW_API_KEY", raising=False)
@@ -1488,7 +1520,14 @@ def test_agent_resolve_tool_cli_applies_explicit_offline_recovery_decision(
         class FakeRecoverySandbox:
             def __init__(self, *_args, **_kwargs):
                 self.cleanup_error = sandbox_mode == "cleanup_error"
-                self.state = "stopped" if self.cleanup_error else sandbox_mode
+                self.workspace_drift = sandbox_mode == "created_drift"
+                self.state = (
+                    "stopped"
+                    if self.cleanup_error
+                    else "created"
+                    if self.workspace_drift
+                    else sandbox_mode
+                )
                 self.image_id = "sha256:" + "a" * 64
 
             def _status(self, attempt_id):
@@ -1507,11 +1546,18 @@ def test_agent_resolve_tool_cli_applies_explicit_offline_recovery_decision(
                 self.state = "stopped"
                 return self._status(attempt_id)
 
-            def remove_attempt(self, attempt_id):
-                assert self.state == "stopped"
+            def remove_attempt(self, attempt_id, *, expected_state=None):
+                assert self.state in {"created", "stopped"}
+                if expected_state is not None:
+                    assert self.state == expected_state
                 if self.cleanup_error:
                     raise Conflict("simulated stopped-container cleanup failure")
                 self.state = "missing"
+                if self.workspace_drift:
+                    (workspace / "src/parser.py").write_text(
+                        "def parse(value):\n    return ['drifted']\n",
+                        encoding="utf-8",
+                    )
                 return self._status(attempt_id)
 
             def recover_stopped_attempt(self, workspace, request, attempt_id):
@@ -1718,6 +1764,14 @@ def test_agent_resolve_tool_cli_applies_explicit_offline_recovery_decision(
             str(PROVIDER),
         ],
     )
+
+    if expected_error is not None:
+        assert result.exit_code == 2
+        assert expected_error in result.output
+        restored = SQLiteEventStore(db).get(run.run_id)
+        assert restored.lease_id is None
+        assert restored.unknown_tool_calls == {tool_call.call_id}
+        return
 
     assert result.exit_code == 0, result.output
     data = json.loads(result.stdout)
