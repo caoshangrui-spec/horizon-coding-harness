@@ -24,6 +24,10 @@ from horizon.adapters.vcs.git import read_git_head, verify_clean_git_checkout
 from horizon.adapters.workspace.promotion import WorkspacePromoter, workspace_path_hash
 from horizon.adapters.workspace.snapshot import SnapshotManager
 from horizon.application.agent_loop import AgentLoopConfig, CodingAgentRunner
+from horizon.application.docker_created_recovery import (
+    DockerCreatedRecoveryRunner,
+    verify_docker_created_recovery_pack,
+)
 from horizon.application.human import OperatorGuidanceService
 from horizon.application.model_probe import (
     ModelProbeService,
@@ -901,6 +905,91 @@ def portfolio_demo_run(
     )
     if not result.report.verification.all_checks_passed:
         raise typer.Exit(3)
+
+
+@demos.command("docker-created-recovery")
+@guarded
+def docker_created_recovery_demo(
+    image: Annotated[
+        str,
+        typer.Option(
+            "--image",
+            help="Existing local shell-capable Linux image; Horizon never pulls it.",
+        ),
+    ],
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            help="New evidence directory; defaults to a unique path below .horizon/demos.",
+        ),
+    ] = None,
+):
+    """Crash after Docker create, reconcile the exact attempt, and export evidence."""
+
+    destination = output or (
+        Path(".horizon") / "demos" / f"docker-created-recovery-{uuid4().hex[:12]}"
+    )
+    result = DockerCreatedRecoveryRunner().run(destination, image)
+    evidence = result.evidence_pack.evidence
+    typer.echo(
+        canonical_json(
+            {
+                "verified": True,
+                "run_id": evidence.run_id,
+                "status": evidence.run_status,
+                "worker_exit_code": evidence.worker_exit_code,
+                "docker_image_id": evidence.image_id,
+                "attempt_state_before": evidence.state_before_recovery,
+                "attempt_state_after": evidence.state_after_recovery,
+                "command_marker_absent": evidence.command_marker_absent,
+                "recovery_disposition": evidence.recovery_disposition,
+                "tool_status": evidence.tool_status,
+                "workspace_revision_unchanged": (
+                    evidence.workspace_revision_before == evidence.workspace_revision_after
+                ),
+                "trace_replay_verified": evidence.trace_replay_verified,
+                "safe_to_resume": evidence.safe_to_resume,
+                "paid_model_called": evidence.paid_model_called,
+                "network_called": evidence.network_called,
+                "repository_code_executed": evidence.repository_code_executed,
+                "external_cost_cny": evidence.external_cost_cny,
+                "claim_scope": evidence.claim_scope,
+                "output_dir": str(result.output_dir),
+                "evidence_pack": str(result.evidence_pack_path),
+                "summary": str(result.summary_path),
+                "trace": str(result.trace_path),
+                "final_state": str(result.final_state_path),
+                "boundaries": evidence.boundaries,
+            }
+        )
+    )
+
+
+@demos.command("verify-docker-created-recovery")
+@guarded
+def verify_docker_created_recovery_demo(path: Path):
+    """Verify a Docker created-state EvidencePack without Docker or its database."""
+
+    pack = verify_docker_created_recovery_pack(path)
+    evidence = pack.evidence
+    typer.echo(
+        canonical_json(
+            {
+                "verified": True,
+                "run_id": evidence.run_id,
+                "status": evidence.run_status,
+                "worker_exit_code": evidence.worker_exit_code,
+                "attempt_transition": (
+                    f"{evidence.state_before_recovery}->{evidence.state_after_recovery}"
+                ),
+                "recovery_disposition": evidence.recovery_disposition,
+                "trace_replay_verified": evidence.trace_replay_verified,
+                "safe_to_resume": evidence.safe_to_resume,
+                "claim_scope": evidence.claim_scope,
+            }
+        )
+    )
 
 
 @models.command("check")

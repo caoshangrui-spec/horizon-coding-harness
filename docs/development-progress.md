@@ -43,6 +43,7 @@
 | 模型预留压力诊断 | [reservation_analysis.py](../src/horizon/application/reservation_analysis.py)、[reservation-diagnostics.md](reservation-diagnostics.md) | `trace reservation-report` 在 replay/hash-chain 校验后关联 reservation、settlement 和新 BudgetStop 请求尺寸；七轮 22 次调用的聚合预留/结算比为 6.860516。候选 `request_bytes + 1024` 可回放 5 次，并按旧领域 JSON / 当前 wire basis 分层；当前口径仅 2 次、0 次观测低估、中位比 4.230001。生产 estimator、费用门禁和付费预算均未改变 |
 | 安全轮次续跑 | [agent.py](../src/horizon/domain/agent.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 消息 Artifact + event/revision 绑定；新 Worker 续跑；PLANNING/READY 也可恢复，任意崩溃窗口对账未完成 |
 | 悬空调用恢复与对账 | [recovery.py](../src/horizon/application/recovery.py)、[model_recovery.py](../src/horizon/application/model_recovery.py)、[tool_recovery.py](../src/horizon/application/tool_recovery.py) | Campaign-only 预留释放；response Artifact 跨 Worker 续跑；模型派发前持久化 client Trace ID，返回后普通落盘失败立即隔离，Artifact 前硬退出重启后保守 `unknown`；只读重试；精确 `replace_text` / `apply_patch` / 单文件 `create_file` accept/rollback；Docker `run_check` 自然退出且 request/workspace/隔离配置/完整小日志精确匹配时可恢复 success/error；created attempt 可在状态二次核验后删除并重取 revision，stopped/running 仍走原窄路径，missing 仍需人工确认；部分/漂移写入、transitional、信号/超时/OOM 验证仍阻塞 |
+| Docker `created` 窗口一键 EvidencePack | [docker_created_recovery.py](../src/horizon/application/docker_created_recovery.py)、[_docker_created_crash_worker.py](../src/horizon/application/_docker_created_crash_worker.py)、[领域合同](../src/horizon/domain/docker_created_recovery.py)、[文档](docker-created-recovery-evidence.md) | `horizon demo docker-created-recovery` 在生产 `docker create` 完成、`docker start` 调用前真实 `os._exit(34)`，先保守标 unknown，再调用生产 `agent resolve-tool` 核验 `created`、删除精确 attempt、复核 revision、持久化 `cancelled / discard_check` receipt。7 文件包可无 Docker/数据库离线重放并拒绝重哈希语义篡改；只证明这一确定性窗口，不是任意崩溃或 exactly-once |
 | 受控候选提升 | [promotion.py](../src/horizon/application/promotion.py)、[promotion.py](../src/horizon/adapters/workspace/promotion.py)、[git.py](../src/horizon/adapters/vcs/git.py) | 只读 diff、源/候选 revision 与可选 Git HEAD 绑定、显式 1～8 个总变更且至多 1 个 64 KiB UTF-8 新文件、完整/部分 effect 崩溃恢复；不删除/重命名或创建 commit |
 | 任务准备、计划、状态、取消、执行、导出与重放 CLI | [app.py](../src/horizon/interfaces/cli/app.py) | `run` 保持 prepare-only；`agent run` 接受 PLAN_PATH 或 `--auto-plan` 且只操作 staging；`agent run/resume --supervise` 可自动接力安全轮次；执行前 HorizonError 仅在无非 unknown 在途 reservation 时释放租约；promotion 需显式确认 |
 | SiliconFlow 严格配置与 OpenAI-compatible adapter | [config.py](../src/horizon/adapters/model/config.py)、[openai_compatible.py](../src/horizon/adapters/model/openai_compatible.py) | Adapter 与预算器共用 canonical wire encoder，实际 HTTP body 的 bytes/hash 可复算；真实 Tool Calling 探针和历史 fixture Agent Run 通过；完整 checkout Pilot 已真实调用并以受控终态失败，无隐式 retry/fallback |
@@ -113,8 +114,11 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
   均保留，不把首轮失败改写成通过。
 - 新增/扩展离线用例覆盖 create/start 顺序与清理语义、created 删除、状态变化、三种 transitional
   状态、删除后 revision drift、镜像声明卷允许和额外 bind 拒绝；所有成功的 CLI 对账案例还会
-  导出 JSONL 并要求 Trace 重放到同一最终投影。最终离线全量为 **442 passed，8 skipped**；8 项真实 Docker
-  合同使用本机已有 `redis:7-alpine` 为 **8 passed**。现有公开 Source-bound Docker evidence
+  导出 JSONL 并要求 Trace 重放到同一最终投影。随后增加的一键 EvidencePack 把真实 exit 34、
+  `created → missing`、marker 缺失、生产 CLI receipt、workspace manifest 与 Trace 绑定为 7 文件
+  离线可复核包，并验证修改恢复叙述后即使重新计算文件 hash 仍会被语义校验拒绝。最终无 Docker
+  主套件为 **442 passed**；9 项真实 Docker 合同使用本机已有 `python:3.12-alpine` 为
+  **9 passed**。无 Docker 的全量入口对应 **442 passed，9 skipped**。现有公开 Source-bound Docker evidence
   workflow 也在拉取固定验证镜像后运行同一组合同，并把 JUnit/日志加入统一 artifact；Harness 本身
   未调用网络或真实模型，费用为 0。
 
@@ -879,7 +883,8 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
    可核验/显式停止后丢弃未知结果，missing 时仍需人工确认。Provider 返回到 response Artifact
    提交之间已有 client Trace、普通异常即时隔离和硬退出保守恢复证据，但没有 Provider receipt
    查询时仍只能人工对账，不能恢复丢失响应。单个直接子 Worker 已有栅栏优先取消和显式停止
-   确认，但尚无通用进程树/Job Object 或后台 watcher。仍需容器创建前持久启动证明/结果恢复、
+   确认，但尚无通用进程树/Job Object 或后台 watcher。`run_check` 已有 intent-before-create 和
+   create-after/start-before 的真实窄证据，但仍需其余创建/启动竞态与不完整结果恢复、
    任意 diff、多文件新增/删除写入、旧容器隔离和 Execution Fork。`create_file` 已覆盖一个新文件的正常路径、普通异常清理、硬退出
    unknown/no-replay 及精确前/后态显式处置，但不代表部分创建、恶意并发、多文件新增或删除已实现。
 3. **安全边界**：首个 Gateway 已阻止任意 shell，并把模型工具 intent/receipt 与 Run 预算
@@ -902,8 +907,8 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 七轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新离线全量回归为 442 passed、8 个显式 Docker skip，
-8 个 Docker 合同已单独通过。
+当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 442 passed；全量入口对应
+442 passed、9 个显式 Docker skip，9 个 Docker 合同已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
 `run_model_cost_limit` 进入 `FAILED`。没有工具、编辑、checkpoint 或验证，Trace 14 事件可重放，

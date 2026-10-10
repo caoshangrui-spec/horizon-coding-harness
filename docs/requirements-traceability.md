@@ -5,7 +5,7 @@
 本表是完整开发与验收导航。2026-09-30 已开始基础内核实现，实际证据列记录当前子范围与剩余缺口。目标路径相对 `src/horizon/`；计划测试路径相对 `tests/`；实际证据列的 `tests/` 路径相对仓库根。同一测试文件可验证多个 ID，但不能把子范围通过等同于整项通过。
 
 当前结果：2026-09-30 可靠性内核为 **92 项测试通过**；2026-10-10 的最新离线回归为
-**442 passed，8 skipped**。**8 项真实 Docker 合同**已单独补跑并全部通过。另已完成一次 Tool Calling 探针和一次受预算
+**442 passed，9 skipped**。**9 项真实 Docker 合同**已单独补跑并全部通过。另已完成一次 Tool Calling 探针和一次受预算
 保护的真实单 WorkItem Agent fixture Run。完整长程 Agent 未实现，未做独立安全复核。命令、环境、证据与限制见
 [开发进度](development-progress.md)。仍为“待填”的条目没有实现证据；“部分/初步”不代表
 完整需求通过。普通工作直接自检，关键风险及用户指定验收按需独立复核，
@@ -49,7 +49,7 @@
 | FR-504 | M5 | `trace/exporter.py` | `integration/test_trace_export.py`：JSONL 可逐行校验并重读 | 当前控制面已实现 JSONL 导出；`horizon demo run` 还把 Trace、最终投影、schema v3 报告和摘要写入带大小/SHA-256 的 EvidencePack，并在返回前重读文件、验证硬退出 marker/恢复 call、复算 evidence→write lineage 和重放 Trace：`application/portfolio_demo.py`、`tests/integration/test_portfolio_demo.py` |
 | FR-505 | M5 | `trace/replay.py` | `e2e/test_projection_replay.py`：禁止模型/执行依赖仍能重建状态和账本 | 部分：控制面及模型/工具/验证/checkpoint 事件可在无模型、无 Docker下重放；真实 fixture JSONL 与 SQLite projection hash 一致；Execution Fork 未实现 |
 | FR-506 | M5 | `application/replay_run.py` | `e2e/test_execution_fork.py`：新 Run/预算/工作区；父事件产物 hash 不变 | 待填 / 未审核 |
-| FR-601 | M0/M4 | `adapters/sandbox/swerex.py` | `contract/test_sandbox.py`：默认容器执行，未授权无宿主执行路径 | 部分：`adapters/sandbox/docker.py` 无宿主 Shell 回退，已接入 `agent run` 保护验收；8 项真实 Docker 契约和一次真实 Agent fixture；SWE-ReX 未接入 |
+| FR-601 | M0/M4 | `adapters/sandbox/swerex.py` | `contract/test_sandbox.py`：默认容器执行，未授权无宿主执行路径 | 部分：`adapters/sandbox/docker.py` 无宿主 Shell 回退，已接入 `agent run` 保护验收；9 项真实 Docker 契约和一次真实 Agent fixture；SWE-ReX 未接入 |
 | FR-602 | M4 | `tools/gateway.py` | `integration/test_command_limits.py`：超时、超量输出、越界 cwd 被约束 | 部分：`adapters/sandbox/docker.py` 的超时、输出上限、临时目录边界；`tests/contract/test_docker.py`；非完整安全验收 |
 | FR-603 | M2/M4 | `domain/run.py`, `application/services.py`, `interfaces/cli/app.py` | `integration/test_budget.py`, `integration/test_agent_loop.py`, `integration/test_cli.py`：取消栅栏后新派发为 0，在途 receipt/unknown/工具恢复闭合后才终态 | 部分：静止 Run 立即取消；在途 effect 写 `CANCEL_PENDING` 并禁止新工作，迟到模型 receipt/unknown 和显式工具处置后自动终态；多工具 response 不再派发剩余调用；单一 `run_check` 可按持久 call ID 核验停止标签容器并记录 stop receipt。单个直接子 Worker 可先写精确 PID/Lease/epoch blocker，再 terminate/wait、超时 kill/wait；pending effect 只进入 recovery，父 Supervisor 崩溃后必须显式确认旧 Worker 停止且回填同一 PID。尚无通用宿主进程组/后代进程终止、Provider 主动取消或后台 Worker 协调 |
 | FR-604 | M2/M4 | `approval/service.py` | `e2e/test_approval.py`：未批准高风险调用为 0，永久禁令不可审批绕过 | 待填 / 未审核 |

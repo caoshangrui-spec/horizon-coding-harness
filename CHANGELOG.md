@@ -5,6 +5,15 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Added a single-command, zero-provider Docker create-to-start crash recovery demonstration. A
+  real child process exits with code 34 after the production sandbox creates its labeled container
+  but before `docker start`; the normal recovery CLI observes the exact `created` attempt, removes
+  it without execution, rechecks the workspace revision, and persists a `cancelled / discard_check`
+  receipt. The seven-file EvidencePack includes its Trace, final projection, crash observation,
+  CLI receipt, workspace manifest, recovery artifact, and deterministic summary. Its standalone
+  verifier needs neither Docker nor the control database, replays the Trace, and rejects semantic
+  forgery even if file hashes are recomputed. The public Docker workflow now publishes this pack;
+  the claim remains limited to this exact crash window and makes no exactly-once assertion.
 - Distinguished Docker `created` attempts from running and naturally stopped `run_check`
   containers. An explicitly discarded attempt observed in `created` can now be removed without a
   kill, but removal rechecks that exact state and the controller recaptures the workspace revision

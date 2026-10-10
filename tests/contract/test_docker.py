@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 import subprocess
 import sys
@@ -8,6 +9,11 @@ from pathlib import Path
 import pytest
 
 from horizon.adapters.sandbox.docker import CommandRequest, DockerSandbox
+from horizon.application.docker_created_recovery import (
+    DockerCreatedRecoveryRunner,
+    verify_docker_created_recovery_pack,
+)
+from horizon.domain.common import canonical_json
 from horizon.domain.errors import PolicyDenied
 
 pytestmark = pytest.mark.docker
@@ -133,6 +139,47 @@ def test_created_attempt_survives_executor_crash_and_is_removed_without_starting
             capture_output=True,
             check=False,
         )
+
+
+def test_created_attempt_recovery_exports_offline_verifiable_evidence(tmp_path, sandbox):
+    image = os.environ["HORIZON_TEST_DOCKER_IMAGE"]
+    result = DockerCreatedRecoveryRunner().run(
+        tmp_path / "docker-created-recovery",
+        image,
+    )
+
+    evidence = result.evidence_pack.evidence
+    assert evidence.worker_exit_code == 34
+    assert evidence.state_before_recovery == "created"
+    assert evidence.state_after_recovery == "missing"
+    assert evidence.recovery_disposition == "discard_check"
+    assert evidence.tool_status == "cancelled"
+    assert evidence.workspace_revision_before == evidence.workspace_revision_after
+    assert evidence.trace_replay_verified is True
+    assert evidence.safe_to_resume is True
+    assert evidence.paid_model_called is False
+    assert evidence.network_called is False
+    assert verify_docker_created_recovery_pack(result.evidence_pack_path) == result.evidence_pack
+
+    # Rehashing a forged recovery narrative must not bypass semantic verification.
+    artifact_path = result.evidence_dir / "recovery-artifact.json"
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    artifact["effect"] = "forged generic success"
+    forged = canonical_json(artifact).encode("utf-8")
+    artifact_path.write_bytes(forged)
+    pack = json.loads(result.evidence_pack_path.read_text(encoding="utf-8"))
+    artifact_record = next(
+        item for item in pack["files"] if item["role"] == "recovery_artifact"
+    )
+    artifact_record["bytes"] = len(forged)
+    artifact_record["sha256"] = hashlib.sha256(forged).hexdigest()
+    result.evidence_pack_path.write_text(
+        canonical_json(pack) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    with pytest.raises(ValueError, match="artifacts do not match the Trace receipt"):
+        verify_docker_created_recovery_pack(result.evidence_pack_path)
 
 
 def test_missing_attempt_cannot_prove_non_execution_after_external_removal(sandbox):

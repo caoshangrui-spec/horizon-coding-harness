@@ -16,6 +16,9 @@ on:
       - "src/horizon/adapters/sandbox/**"
       - "src/horizon/application/run_ab_eval.py"
       - "src/horizon/application/_run_ab_crash_worker.py"
+      - "src/horizon/application/docker_created_recovery.py"
+      - "src/horizon/application/_docker_created_crash_worker.py"
+      - "src/horizon/domain/docker_created_recovery.py"
       - "src/horizon/domain/run_evaluation.py"
       - "src/horizon/interfaces/cli/app.py"
       - "tests/contract/test_docker.py"
@@ -106,6 +109,19 @@ jobs:
             --junitxml="$state_dir/junit.xml" \
             | tee "$state_dir/pytest.txt"
 
+      - name: Export the create-to-start crash recovery EvidencePack
+        shell: bash
+        run: |
+          set -euo pipefail
+          output=.horizon/docker-created-recovery-evidence
+          uv run --locked horizon demo docker-created-recovery \
+            --image python:3.12-alpine \
+            --output "$output" \
+            | tee .horizon/docker-created-recovery-cli.json
+          uv run --locked horizon demo verify-docker-created-recovery \
+            "$output/evidence/evidence-pack.json" \
+            | tee "$output/offline-verification.json"
+
       - name: Run the frozen five-case reduced suite
         shell: bash
         run: |
@@ -163,6 +179,8 @@ jobs:
           name: source-bound-docker-evidence
           path: |
             .horizon/docker-contracts
+            .horizon/docker-created-recovery-evidence
+            .horizon/docker-created-recovery-cli.json
             .horizon/reduced-docker-v2
             .horizon/full-checkout-docker-v2
             .horizon/multi-stage-docker-v3
@@ -219,6 +237,11 @@ jobs:
                   ".horizon/multi-stage-hard-crash-docker-v1/cli-result.json"
               ).read_text(encoding="utf-8")
           )
+          created_recovery = json.loads(
+              Path(".horizon/docker-created-recovery-cli.json").read_text(
+                  encoding="utf-8"
+              )
+          )
           reduced_report = reduced["report"]
           full_report = full["report"]
           multi_report = multi["report"]
@@ -242,6 +265,20 @@ jobs:
                   / hard_crash_case_ref
               ).read_text(encoding="utf-8")
           )
+          suite_reports = (reduced_report, full_report, multi_report, hard_crash_report)
+          all_expectations_met = (
+              all(report["all_expectations_met"] for report in suite_reports)
+              and created_recovery["verified"]
+              and created_recovery["safe_to_resume"]
+          )
+          paid_model_called = (
+              any(report["paid_model_called"] for report in suite_reports)
+              or created_recovery["paid_model_called"]
+          )
+          network_called = (
+              any(report["network_called"] for report in suite_reports)
+              or created_recovery["network_called"]
+          )
           lines = [
               "## Frozen source-bound Docker evidence",
               "",
@@ -253,6 +290,14 @@ jobs:
               (
                   "- Docker create-to-start hard crash: child exit `34`; exact attempt remains "
                   "`created`; command marker absent; inactive container removed"
+              ),
+              (
+                  "- Replayable create-to-start EvidencePack: transition `"
+                  f"{created_recovery['attempt_state_before']}->"
+                  f"{created_recovery['attempt_state_after']}`; disposition `"
+                  f"{created_recovery['recovery_disposition']}`; Trace replay `"
+                  f"{created_recovery['trace_replay_verified']}`; safe to resume `"
+                  f"{created_recovery['safe_to_resume']}`"
               ),
               (
                   "- Dependency-reduced suite: "
@@ -323,12 +368,11 @@ jobs:
               ),
               (
                   "- All expectations met: "
-                  f"`{reduced_report['all_expectations_met'] and full_report['all_expectations_met'] and multi_report['all_expectations_met'] and hard_crash_report['all_expectations_met']}`"
+                  f"`{all_expectations_met}`"
               ),
               (
                   "- Paid model / model network calls: "
-                  f"`{any(report['paid_model_called'] for report in (reduced_report, full_report, multi_report, hard_crash_report))}` / "
-                  f"`{any(report['network_called'] for report in (reduced_report, full_report, multi_report, hard_crash_report))}`"
+                  f"`{paid_model_called}` / `{network_called}`"
               ),
               f"- Uploaded artifact digest: `{os.environ['ARTIFACT_DIGEST']}`",
           ]
