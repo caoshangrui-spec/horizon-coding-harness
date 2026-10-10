@@ -3530,7 +3530,15 @@ def test_explicit_old_worker_confirmation_recovers_parent_crash_during_cancellat
     lease_expires_at = pending.lease_expires_at
     assert lease_expires_at is not None
     after_expiry = datetime.fromisoformat(lease_expires_at) + timedelta(seconds=1)
-    recovery_store = SQLiteEventStore(store.path, clock=lambda: after_expiry)
+    recovery_now = after_expiry
+
+    def ticking_recovery_clock():
+        nonlocal recovery_now
+        observed = recovery_now
+        recovery_now += timedelta(microseconds=1)
+        return observed
+
+    recovery_store = SQLiteEventStore(store.path, clock=ticking_recovery_clock)
     recovery = HarnessService(recovery_store)
     with pytest.raises(LeaseConflict, match="must be stopped"):
         recovery.acquire_recovery_lease(

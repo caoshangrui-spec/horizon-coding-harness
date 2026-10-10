@@ -5,6 +5,10 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Fixed the operator-confirmed cancellation takeover to timestamp its stop receipt and replacement
+  lease from the same decision clock. This prevents a faster clock from making the second event
+  appear older than the first within one SQLite append; the regression test now advances by one
+  microsecond on every clock read so the ordering guarantee is platform-independent.
 - Added recovery-safe cancellation for one directly supervised local Worker. The trusted parent
   now persists an exact PID/lease/epoch/launch-cursor stop target before touching the process,
   then performs bounded terminate/wait, kill/wait fallback, or synchronous reap of an already

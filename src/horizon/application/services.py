@@ -562,6 +562,7 @@ class HarnessService:
                                 "takeover" if target_matches_live_lease else "already_released"
                             ),
                         },
+                        occurred_at=now,
                     )
                 )
             events.append(
