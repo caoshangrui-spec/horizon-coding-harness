@@ -51,6 +51,9 @@ uv run --locked --cache-dir .uv-cache horizon demo docker-created-resume `
   --output .horizon/demos/docker-created-resume-local
 ```
 
+演示只把新建的一次性 staging workspace 设为可由容器固定 UID `65534` 写入；父目录和源仓库不
+在该挂载范围内。这也保证 Docker Desktop 与原生 Linux bind mount 使用同一执行条件。
+
 命令不读取 Provider API Key，不调用网络或付费模型。恢复后的模型轮次使用确定性
 `ScriptedModelGateway`；正数离线价格卡只用于走通与生产一致的费用预留合同，外部费用仍为
 `0 CNY`。其中 `paid_model_called=false` 与 `network_called=false` 是固定 Runner 构造及适配器配置

@@ -13,7 +13,9 @@ for public releases; unreleased work must not be presented as a published releas
   JSONL Trace to be an exact byte prefix of the terminal Trace, and binds the passing check receipt
   to the final workspace manifest and synthetic execution marker. Resume now refuses Docker image
   ID drift and records the resumed image, Worker, epoch, and call identities for offline comparison
-  with the boundary pack and terminal Trace. The deterministic scripted model makes no
+  with the boundary pack and terminal Trace. The disposable staging workspace is explicitly
+  writable by the sandbox's fixed uid 65534, including on native Linux bind mounts. The
+  deterministic scripted model makes no
   provider/network call. The exited process is the Docker effect executor while the lease-owning
   controller survives; this is not Agent Worker crash takeover, real-model efficacy, or an
   exactly-once claim.

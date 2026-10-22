@@ -440,6 +440,9 @@ class DockerCreatedRecoveryRunner:
         staging_root = control_root / "staging"
         workspace = staging_root / "docker-created-recovery"
         workspace.mkdir(parents=True)
+        # The sandbox deliberately runs as uid 65534. This disposable staging child must
+        # therefore be writable on native Linux as well as through Docker Desktop mounts.
+        workspace.chmod(0o777)
         _write_new(workspace / "fixture.txt", b"bounded docker recovery fixture\n")
 
         artifacts = ArtifactStore(control_root / "artifacts")
