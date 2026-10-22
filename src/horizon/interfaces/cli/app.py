@@ -26,7 +26,9 @@ from horizon.adapters.workspace.snapshot import SnapshotManager
 from horizon.application.agent_loop import AgentLoopConfig, CodingAgentRunner
 from horizon.application.docker_created_recovery import (
     DockerCreatedRecoveryRunner,
+    DockerCreatedResumeRunner,
     verify_docker_created_recovery_pack,
+    verify_docker_created_resume_pack,
 )
 from horizon.application.human import OperatorGuidanceService
 from horizon.application.model_probe import (
@@ -925,7 +927,7 @@ def docker_created_recovery_demo(
         ),
     ] = None,
 ):
-    """Crash after Docker create, reconcile the exact attempt, and export evidence."""
+    """Exit an executor after Docker create, reconcile the attempt, and export evidence."""
 
     destination = output or (
         Path(".horizon") / "demos" / f"docker-created-recovery-{uuid4().hex[:12]}"
@@ -938,7 +940,7 @@ def docker_created_recovery_demo(
                 "verified": True,
                 "run_id": evidence.run_id,
                 "status": evidence.run_status,
-                "worker_exit_code": evidence.worker_exit_code,
+                "executor_exit_code": evidence.executor_exit_code,
                 "docker_image_id": evidence.image_id,
                 "attempt_state_before": evidence.state_before_recovery,
                 "attempt_state_after": evidence.state_after_recovery,
@@ -966,6 +968,75 @@ def docker_created_recovery_demo(
     )
 
 
+@demos.command("docker-created-resume")
+@guarded
+def docker_created_resume_demo(
+    image: Annotated[
+        str,
+        typer.Option(
+            "--image",
+            help="Existing local shell-capable Linux image; Horizon never pulls it.",
+        ),
+    ],
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            help="New evidence directory; defaults to a unique path below .horizon/demos.",
+        ),
+    ] = None,
+):
+    """Recover an exited Docker executor, then resume with a new Worker to success."""
+
+    destination = output or (
+        Path(".horizon") / "demos" / f"docker-created-resume-{uuid4().hex[:12]}"
+    )
+    result = DockerCreatedResumeRunner().run(destination, image)
+    evidence = result.evidence_pack.evidence
+    typer.echo(
+        canonical_json(
+            {
+                "verified": True,
+                "run_id": evidence.run_id,
+                "boundary_status": evidence.boundary_status,
+                "terminal_status": evidence.terminal_status,
+                "executor_exit_code": evidence.executor_exit_code,
+                "docker_image_id": evidence.resumed_image_id,
+                "resume_worker_id": evidence.resume_worker_id,
+                "crash_call_id": evidence.crash_call_id,
+                "resumed_check_call_id": evidence.resumed_check_call_id,
+                "attempt_transition": (
+                    f"{evidence.state_before_recovery}->{evidence.state_after_recovery}"
+                ),
+                "recovery_disposition": evidence.recovery_disposition,
+                "worker_epoch_handoff": (
+                    f"{evidence.boundary_lease_epoch}->{evidence.resume_worker_epoch}"
+                ),
+                "created_trace_is_terminal_prefix": (evidence.created_trace_is_terminal_prefix),
+                "call_identity_rotated": evidence.call_identity_rotated,
+                "command_marker_present_after_resume": (
+                    evidence.command_marker_present_after_resume
+                ),
+                "protected_validation_passed": evidence.protected_validation_passed,
+                "task_succeeded": evidence.task_succeeded,
+                "unknown_effects": not evidence.no_unknown_effects,
+                "open_effects": not evidence.no_open_effects,
+                "paid_model_called": evidence.paid_model_called,
+                "network_called": evidence.network_called,
+                "external_cost_cny": evidence.external_cost_cny,
+                "simulated_model_cost_cny": str(evidence.simulated_model_cost_cny),
+                "claim_scope": evidence.claim_scope,
+                "output_dir": str(result.output_dir),
+                "evidence_pack": str(result.evidence_pack_path),
+                "created_boundary_pack": str(result.created_boundary.evidence_pack_path),
+                "terminal_pack": str(result.terminal_evidence_pack_path),
+                "summary": str(result.summary_path),
+                "boundaries": evidence.boundaries,
+            }
+        )
+    )
+
+
 @demos.command("verify-docker-created-recovery")
 @guarded
 def verify_docker_created_recovery_demo(path: Path):
@@ -979,13 +1050,43 @@ def verify_docker_created_recovery_demo(path: Path):
                 "verified": True,
                 "run_id": evidence.run_id,
                 "status": evidence.run_status,
-                "worker_exit_code": evidence.worker_exit_code,
+                "executor_exit_code": evidence.executor_exit_code,
                 "attempt_transition": (
                     f"{evidence.state_before_recovery}->{evidence.state_after_recovery}"
                 ),
                 "recovery_disposition": evidence.recovery_disposition,
                 "trace_replay_verified": evidence.trace_replay_verified,
                 "safe_to_resume": evidence.safe_to_resume,
+                "claim_scope": evidence.claim_scope,
+            }
+        )
+    )
+
+
+@demos.command("verify-docker-created-resume")
+@guarded
+def verify_docker_created_resume_demo(path: Path):
+    """Verify linked created-boundary and terminal-success evidence without Docker."""
+
+    pack = verify_docker_created_resume_pack(path)
+    evidence = pack.evidence
+    typer.echo(
+        canonical_json(
+            {
+                "verified": True,
+                "run_id": evidence.run_id,
+                "boundary_status": evidence.boundary_status,
+                "terminal_status": evidence.terminal_status,
+                "crash_call_id": evidence.crash_call_id,
+                "resumed_check_call_id": evidence.resumed_check_call_id,
+                "docker_image_id": evidence.resumed_image_id,
+                "resume_worker_id": evidence.resume_worker_id,
+                "worker_epoch_handoff": (
+                    f"{evidence.boundary_lease_epoch}->{evidence.resume_worker_epoch}"
+                ),
+                "created_trace_is_terminal_prefix": (evidence.created_trace_is_terminal_prefix),
+                "protected_validation_passed": evidence.protected_validation_passed,
+                "task_succeeded": evidence.task_succeeded,
                 "claim_scope": evidence.claim_scope,
             }
         )

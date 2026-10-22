@@ -18,14 +18,21 @@ from horizon.adapters.model.config import (
     RequestPolicy,
     RunBudgetPolicy,
 )
+from horizon.adapters.model.scripted import ScriptedModelGateway
 from horizon.adapters.persistence.artifacts import ArtifactStore
 from horizon.adapters.persistence.campaign_budget import CampaignBudgetLedger
 from horizon.adapters.persistence.sqlite import SQLiteEventStore
 from horizon.adapters.sandbox.docker import DockerSandbox
+from horizon.adapters.sandbox.validation import DockerAcceptanceExecutor
 from horizon.adapters.workspace.snapshot import FileSnapshot, SnapshotManager
 from horizon.application._docker_created_crash_worker import EXIT_AFTER_CREATE
+from horizon.application.agent_loop import AgentLoopConfig, CodingAgentRunner, _initial_messages
 from horizon.application.recovery import RecoveryService
 from horizon.application.services import HarnessService, LeaseToken
+from horizon.application.terminal_evidence import (
+    export_terminal_evidence_pack,
+    verify_terminal_evidence_pack,
+)
 from horizon.domain.agent import AgentSession, AgentSessionRecord
 from horizon.domain.budget import Usage
 from horizon.domain.common import canonical_json, digest
@@ -34,6 +41,10 @@ from horizon.domain.docker_created_recovery import (
     DockerCreatedRecoveryEvidence,
     DockerCreatedRecoveryFile,
     DockerCreatedRecoveryPack,
+    DockerCreatedResumeEvidence,
+    DockerCreatedResumeFile,
+    DockerCreatedResumeObservation,
+    DockerCreatedResumePack,
 )
 from horizon.domain.events import Event
 from horizon.domain.model import (
@@ -50,9 +61,11 @@ from horizon.domain.model import (
 )
 from horizon.domain.plan import Plan, WorkItem
 from horizon.domain.run import Run, projection_hash
+from horizon.domain.run_evaluation import ScriptedModelAction
 from horizon.domain.states import RunStatus
 from horizon.domain.task import AcceptanceCheck, BudgetSpec, Constraints, Repository, TaskSpec
 from horizon.domain.tools import ToolCallReservation
+from horizon.tools.gateway import WorkspaceToolGateway
 
 _MARKER_PATH = "never-started.txt"
 _CHECK_ID = "never-started"
@@ -69,6 +82,16 @@ class DockerCreatedRecoveryResult:
     final_state_path: Path
     summary_path: Path
     evidence_pack: DockerCreatedRecoveryPack
+
+
+@dataclass(frozen=True)
+class DockerCreatedResumeResult:
+    output_dir: Path
+    created_boundary: DockerCreatedRecoveryResult
+    terminal_evidence_pack_path: Path
+    evidence_pack_path: Path
+    summary_path: Path
+    evidence_pack: DockerCreatedResumePack
 
 
 def _sha256(content: bytes) -> str:
@@ -113,10 +136,12 @@ def _provider_config(campaign_id: str) -> ProviderConfig:
         ),
         pricing=PriceCard(
             currency="CNY",
-            input_per_million="0",
+            # Positive deterministic prices exercise the real reservation contract. The
+            # scripted adapter makes no external request, so external cost remains zero.
+            input_per_million="1",
             cached_input_per_million="0",
-            output_per_million="0",
-            version="offline-scripted-v1",
+            output_per_million="1",
+            version="offline-scripted-v2",
             source_url="https://offline.invalid/horizon-docker-recovery",
         ),
         campaign=CampaignBudget(
@@ -142,8 +167,8 @@ def _task(workspace: Path, revision: str, demo_id: str) -> tuple[TaskSpec, Plan]
         task_id=f"docker-created-{demo_id[-12:]}",
         title="Reconcile a never-started Docker validation attempt",
         objective=(
-            "Recover after the validation Worker exits between Docker create and start without "
-            "executing or replaying the uncertain check."
+            "Recover after the Docker effect executor exits between create and start without "
+            "executing or replaying the uncertain check; the lease-owning controller survives."
         ),
         repository=Repository(
             source="local",
@@ -161,7 +186,8 @@ def _task(workspace: Path, revision: str, demo_id: str) -> tuple[TaskSpec, Plan]
         budgets=BudgetSpec(
             max_steps=4,
             max_model_calls=2,
-            max_tool_calls=2,
+            # One crashed check receipt, one resumed submit, and one fresh protected check.
+            max_tool_calls=3,
             max_wall_time_seconds=300,
             max_cost_usd="1.00",
             max_input_tokens=20_000,
@@ -324,7 +350,7 @@ def _derive_evidence(
         workspace_revision_before=record.workspace_revision_before,
         workspace_revision_after=record.workspace_revision_after,
         recovery_artifact_sha256=artifact_sha256,
-        worker_exit_code=crash.worker_exit_code,
+        executor_exit_code=crash.executor_exit_code,
         image_id=crash.image_id,
         container_name=crash.container_name,
     )
@@ -336,7 +362,7 @@ def _summary(evidence: DockerCreatedRecoveryEvidence) -> str:
         "# Docker created-state crash recovery evidence\n\n"
         f"- Run: `{evidence.run_id}`\n"
         f"- Tool call: `{evidence.call_id}`\n"
-        f"- Worker hard-exit code: `{evidence.worker_exit_code}`\n"
+        f"- Docker effect-executor hard-exit code: `{evidence.executor_exit_code}`\n"
         f"- Docker image ID: `{evidence.image_id}`\n"
         f"- Attempt transition: `{evidence.state_before_recovery} -> "
         f"{evidence.state_after_recovery}`\n"
@@ -466,10 +492,7 @@ class DockerCreatedRecoveryRunner:
             next_iteration=1,
             covered_event_seq=run.seq,
             workspace_revision=snapshot.workspace_revision,
-            messages=(
-                ModelMessage(role="system", content="Run only the bounded acceptance check."),
-                ModelMessage(role="user", content="Verify the fixture without network access."),
-            ),
+            messages=tuple(_initial_messages(run, plan.items[0])),
         )
         session_ref = artifacts.put(canonical_json(session.model_dump(mode="json")).encode("utf-8"))
         run = service.save_agent_session(
@@ -740,3 +763,471 @@ class DockerCreatedRecoveryRunner:
                     status = sandbox.attempt_status(call_id)
                 if status.state in {"created", "stopped"}:
                     sandbox.remove_attempt(call_id, expected_state=status.state)
+
+
+def _resume_file_record(
+    root: Path,
+    role: str,
+    path: Path,
+) -> DockerCreatedResumeFile:
+    content = path.read_bytes()
+    return DockerCreatedResumeFile(
+        role=role,
+        path=path.relative_to(root).as_posix(),
+        sha256=_sha256(content),
+        bytes=len(content),
+    )
+
+
+def _pack_role_path(pack_path: Path, files: tuple, role: str) -> Path:
+    record = next((item for item in files if item.role == role), None)
+    if record is None:
+        raise ValueError(f"EvidencePack is missing role: {role}")
+    candidate = (pack_path.parent / record.path).resolve(strict=True)
+    if not candidate.is_relative_to(pack_path.parent.resolve()):
+        raise ValueError("Nested EvidencePack file escapes its directory")
+    return candidate
+
+
+def _derive_resume_evidence(
+    boundary_pack: DockerCreatedRecoveryPack,
+    boundary_run: Run,
+    terminal_pack,
+    terminal_run: Run,
+    terminal_events: tuple[Event, ...],
+    resume_observation: DockerCreatedResumeObservation,
+    final_manifest_content: bytes,
+    resumed_check_artifact: bytes,
+    marker_content: bytes,
+    *,
+    trace_prefix_verified: bool,
+) -> DockerCreatedResumeEvidence:
+    boundary = boundary_pack.evidence
+    terminal = terminal_pack.evidence
+    if (
+        boundary_run.run_id != boundary.run_id
+        or terminal_run.run_id != terminal.run_id
+        or boundary.run_id != terminal.run_id
+        or boundary.task_id != terminal_run.task.task_id
+        or boundary_run.task.sha256 != terminal_run.task.sha256
+    ):
+        raise ValueError("Created boundary and terminal evidence do not describe one unchanged Run")
+    if boundary_run.status != RunStatus.RUNNING or terminal_run.status != RunStatus.SUCCEEDED:
+        raise ValueError("Resume evidence requires a RUNNING boundary and SUCCEEDED terminal Run")
+    if not trace_prefix_verified:
+        raise ValueError("Created boundary Trace is not an exact prefix of the terminal Trace")
+
+    original = [record for record in terminal_run.tool_calls if record.call_id == boundary.call_id]
+    resumed_checks = [
+        record
+        for record in terminal_run.tool_calls
+        if record.name == "run_check" and record.call_id != boundary.call_id
+    ]
+    if (
+        len(original) != 1
+        or original[0].status != "cancelled"
+        or original[0].recovery_disposition != "discard_check"
+    ):
+        raise ValueError("Terminal Trace does not preserve one exact discarded crash receipt")
+    if len(resumed_checks) != 1:
+        raise ValueError("Terminal Trace must contain one fresh protected validation check")
+    resumed = resumed_checks[0]
+    if (
+        resumed.status != "success"
+        or resumed.recovery_disposition is not None
+        or resumed.artifact_ref is None
+        or resumed.workspace_manifest_ref is None
+        or resumed.workspace_revision_after is None
+        or resumed.output_hash != resumed.artifact_ref
+    ):
+        raise ValueError("Fresh protected validation receipt is incomplete")
+
+    resume_lease_events = [
+        event
+        for event in terminal_events
+        if event.event_type == "LEASE_ACQUIRED"
+        and event.seq > boundary_run.seq
+        and event.payload.get("epoch") == resume_observation.resume_worker_epoch
+    ]
+    if (
+        resume_observation.run_id != terminal_run.run_id
+        or resume_observation.boundary_image_id != boundary.image_id
+        or resume_observation.resumed_image_id != boundary.image_id
+        or resume_observation.resume_worker_epoch != terminal_run.lease_epoch
+        or resume_observation.resumed_check_call_id != resumed.call_id
+        or len(resume_lease_events) != 1
+        or resume_lease_events[0].payload.get("worker_id") != resume_observation.resume_worker_id
+    ):
+        raise ValueError(
+            "Resumed Docker image, Worker, epoch, or check identity is not bound to the Trace"
+        )
+
+    manifest_sha256 = _sha256(final_manifest_content)
+    artifact_sha256 = _sha256(resumed_check_artifact)
+    if (
+        resumed.workspace_manifest_ref != manifest_sha256
+        or resumed.artifact_ref != artifact_sha256
+        or terminal_run.workspace_revision != resumed.workspace_revision_after
+    ):
+        raise ValueError("Fresh protected validation artifacts do not match the terminal Trace")
+    manifest = FileSnapshot.model_validate_json(final_manifest_content)
+    if manifest.workspace_revision != resumed.workspace_revision_after:
+        raise ValueError("Final workspace manifest does not match the resumed check revision")
+    marker = next((entry for entry in manifest.files if entry.path == _MARKER_PATH), None)
+    if (
+        marker is None
+        or marker_content != b"executed"
+        or marker.size_bytes != len(marker_content)
+        or marker.sha256 != _sha256(marker_content)
+    ):
+        raise ValueError("Final workspace manifest does not prove the synthetic command marker")
+    expected_check_artifact = (
+        f"check_id={_CHECK_ID}\npassed=true\nexit_code=0\ntimed_out=false\noutput_truncated=false\n"
+    ).encode()
+    if resumed_check_artifact != expected_check_artifact:
+        raise ValueError("Resumed check artifact does not record a complete passing result")
+    validation = terminal_run.validation or {}
+    if (
+        _CHECK_ID not in validation.get("passed_check_ids", ())
+        or terminal_run.plan is None
+        or set(terminal_run.passed_items) != {item.work_item_id for item in terminal_run.plan.items}
+    ):
+        raise ValueError("Terminal Run lacks passing protected validation or WorkItem evidence")
+    if (
+        terminal.unknown_effects_present
+        or terminal.open_effects_present
+        or terminal_run.reservations
+        or terminal_run.model_reservations
+        or terminal_run.tool_reservations
+        or terminal_run.unknown_reservations
+        or terminal_run.unknown_model_calls
+        or terminal_run.unknown_tool_calls
+    ):
+        raise ValueError("Terminal Run retains unknown or open effects")
+
+    return DockerCreatedResumeEvidence(
+        run_id=terminal_run.run_id,
+        task_id=terminal_run.task.task_id,
+        crash_call_id=boundary.call_id,
+        resumed_check_call_id=resumed.call_id,
+        boundary_image_id=resume_observation.boundary_image_id,
+        resumed_image_id=resume_observation.resumed_image_id,
+        resume_worker_id=resume_observation.resume_worker_id,
+        boundary_event_count=boundary_run.seq,
+        terminal_event_count=terminal_run.seq,
+        boundary_event_hash=boundary_run.event_hash,
+        terminal_event_hash=terminal_run.event_hash,
+        boundary_projection_hash=projection_hash(boundary_run),
+        terminal_projection_hash=projection_hash(terminal_run),
+        boundary_workspace_revision=boundary.workspace_revision_after,
+        terminal_workspace_revision=manifest.workspace_revision,
+        boundary_lease_epoch=boundary_run.lease_epoch,
+        resume_worker_epoch=terminal_run.lease_epoch,
+        model_calls_before_resume=len(boundary_run.model_calls),
+        model_calls_after_resume=len(terminal_run.model_calls),
+        tool_calls_before_resume=len(boundary_run.tool_calls),
+        tool_calls_after_resume=len(terminal_run.tool_calls),
+        simulated_model_cost_cny=terminal_run.model_occupied_cost,
+    )
+
+
+def _resume_summary(evidence: DockerCreatedResumeEvidence) -> str:
+    boundaries = "\n".join(f"- `{item}`" for item in evidence.boundaries)
+    return (
+        "# Docker created-state resume-to-terminal evidence\n\n"
+        f"- Run: `{evidence.run_id}`\n"
+        f"- Crashed check call: `{evidence.crash_call_id}`\n"
+        f"- Fresh protected check call: `{evidence.resumed_check_call_id}`\n"
+        f"- Docker effect-executor hard-exit code: `{evidence.executor_exit_code}`\n"
+        f"- Pinned Docker image ID: `{evidence.resumed_image_id}`\n"
+        f"- Resume Worker: `{evidence.resume_worker_id}`\n"
+        f"- Reconciled attempt: `{evidence.state_before_recovery} -> "
+        f"{evidence.state_after_recovery}`\n"
+        f"- Recovery disposition: `{evidence.recovery_disposition}`\n"
+        f"- Worker epoch handoff: `{evidence.boundary_lease_epoch} -> "
+        f"{evidence.resume_worker_epoch}`\n"
+        f"- Event sequence extension: `{evidence.boundary_event_count} -> "
+        f"{evidence.terminal_event_count}`\n"
+        f"- Trace prefix verified: `true`\n"
+        f"- Call identity rotated: `true`\n"
+        f"- Command marker absent before recovery / present after resume: `true / true`\n"
+        f"- Protected validation passed: `true`\n"
+        f"- Terminal status: `{evidence.terminal_status}`\n"
+        f"- Unknown / open effects: `false / false`\n"
+        f"- Paid model / network: `false / false`\n"
+        f"- External cost: `0 CNY`\n"
+        f"- Simulated model ledger cost: `{evidence.simulated_model_cost_cny} CNY`\n\n"
+        "The root verifier recursively verifies the created-boundary and generic terminal "
+        "EvidencePacks, requires the earlier JSONL Trace to be an exact byte prefix of the "
+        "terminal Trace, and re-derives the fresh validation receipt and marker from the final "
+        "workspace manifest.\n\n"
+        "## Claim boundaries\n\n"
+        f"{boundaries}\n"
+    )
+
+
+def verify_docker_created_resume_pack(path: Path) -> DockerCreatedResumePack:
+    """Verify the linked safe-boundary and terminal-success evidence entirely offline."""
+
+    pack_path = path.resolve(strict=True)
+    root = pack_path.parent
+    pack = DockerCreatedResumePack.model_validate_json(pack_path.read_text(encoding="utf-8"))
+    contents: dict[str, bytes] = {}
+    paths: dict[str, Path] = {}
+    for item in pack.files:
+        candidate = (root / item.path).resolve(strict=True)
+        if not candidate.is_relative_to(root):
+            raise ValueError("Docker resume-to-terminal evidence file escapes its pack directory")
+        content = candidate.read_bytes()
+        if len(content) != item.bytes or _sha256(content) != item.sha256:
+            raise ValueError(
+                "Docker resume-to-terminal evidence file failed integrity verification: "
+                f"{item.path}"
+            )
+        contents[item.role] = content
+        paths[item.role] = candidate
+
+    boundary_path = paths["created_boundary_pack"]
+    terminal_path = paths["terminal_pack"]
+    boundary_pack = verify_docker_created_recovery_pack(boundary_path)
+    terminal_pack = verify_terminal_evidence_pack(terminal_path)
+    boundary_trace = _pack_role_path(boundary_path, boundary_pack.files, "trace").read_bytes()
+    terminal_trace = _pack_role_path(terminal_path, terminal_pack.files, "trace").read_bytes()
+    trace_prefix_verified = terminal_trace.startswith(boundary_trace) and (
+        len(terminal_trace) > len(boundary_trace)
+    )
+    boundary_run = SQLiteEventStore.replay_jsonl(boundary_trace.decode("utf-8"))
+    terminal_trace_text = terminal_trace.decode("utf-8")
+    terminal_run = SQLiteEventStore.replay_jsonl(terminal_trace_text)
+    terminal_events = tuple(
+        Event.model_validate_json(line) for line in terminal_trace_text.splitlines() if line
+    )
+    resume_observation = DockerCreatedResumeObservation.model_validate_json(
+        contents["resume_observation"]
+    )
+    expected = _derive_resume_evidence(
+        boundary_pack,
+        boundary_run,
+        terminal_pack,
+        terminal_run,
+        terminal_events,
+        resume_observation,
+        contents["final_workspace_manifest"],
+        contents["resumed_check_artifact"],
+        contents["command_marker"],
+        trace_prefix_verified=trace_prefix_verified,
+    )
+    if pack.evidence != expected:
+        raise ValueError("Docker resume-to-terminal metadata does not match its linked evidence")
+    if contents["summary"] != _resume_summary(expected).encode("utf-8"):
+        raise ValueError("Docker resume-to-terminal summary does not match its linked evidence")
+    return pack
+
+
+class DockerCreatedResumeRunner:
+    """Recover an exited Docker executor, then continue with a new Worker to success."""
+
+    def run(self, output_dir: Path, image: str) -> DockerCreatedResumeResult:
+        destination = output_dir.resolve()
+        destination.mkdir(parents=True, exist_ok=False)
+        boundary = DockerCreatedRecoveryRunner().run(destination / "created-boundary", image)
+        runtime = boundary.runtime_dir
+        control_root = runtime / ".horizon"
+        staging_root = control_root / "staging"
+        workspace = staging_root / "docker-created-recovery"
+        db_path = control_root / "control.sqlite3"
+        store = SQLiteEventStore(db_path)
+        service = HarnessService(store)
+        boundary_run = store.get(boundary.evidence_pack.evidence.run_id)
+        if boundary_run.plan is None or boundary_run.agent_session is None:
+            raise ValueError("Created-state boundary lost its resumable Agent session")
+        provider = ProviderConfig.model_validate(
+            yaml.safe_load((runtime / "provider.yaml").read_text(encoding="utf-8"))
+        )
+        artifacts = ArtifactStore(control_root / "artifacts")
+        snapshots = SnapshotManager(artifacts)
+        ledger = CampaignBudgetLedger(runtime / provider.ledger_path)
+        sandbox = DockerSandbox(staging_root, image)
+        boundary_image_id = boundary.evidence_pack.evidence.image_id
+        if sandbox.image_id != boundary_image_id:
+            raise ValueError(
+                "Docker image identity changed between the created boundary and continuation"
+            )
+        gateway = WorkspaceToolGateway(
+            workspace,
+            boundary_run.task,
+            boundary_run.plan.items[0],
+            snapshots,
+            DockerAcceptanceExecutor(sandbox),
+        )
+        leased = service.acquire_lease(
+            boundary_run.run_id,
+            "docker-created-resume-worker",
+            f"resume-lease-{uuid4().hex}",
+            ttl_seconds=120,
+        )
+        token = LeaseToken.from_run(leased)
+        model = ScriptedModelGateway(
+            "docker-created-resume",
+            (
+                ScriptedModelAction(
+                    tool="submit",
+                    arguments={
+                        "summary": "Discarded the inactive attempt; run fresh protected validation."
+                    },
+                    input_tokens=12,
+                    output_tokens=8,
+                ),
+            ),
+            start_index=len(boundary_run.model_calls),
+        )
+        runner = CodingAgentRunner(
+            service,
+            model,
+            ledger,
+            gateway,
+            artifacts,
+            provider_id=provider.provider_id,
+            model_id=provider.model.id,
+            pricing=provider.pricing,
+            campaign=provider.campaign,
+            config=AgentLoopConfig(
+                max_model_iterations=boundary_run.task.budgets.max_model_calls,
+                max_output_tokens=provider.request.max_output_tokens,
+                max_run_cost=provider.run_budget.max_cost,
+                max_context_chars=provider.request.max_context_chars,
+                max_input_tokens=provider.request.max_input_tokens,
+                preserve_recent_context_units=provider.request.preserve_recent_context_units,
+            ),
+        )
+        resumed_call_id: str | None = None
+        success = False
+        try:
+            final = runner.run(boundary_run.run_id, token)
+            if final.status != RunStatus.SUCCEEDED or not model.consumed:
+                raise ValueError("Docker created-state continuation did not reach terminal success")
+            resumed_checks = [
+                record
+                for record in final.tool_calls
+                if record.name == "run_check"
+                and record.call_id != boundary.evidence_pack.evidence.call_id
+            ]
+            if len(resumed_checks) != 1:
+                raise ValueError("Docker continuation did not settle one fresh protected check")
+            resumed = resumed_checks[0]
+            resumed_call_id = resumed.call_id
+            if sandbox.attempt_status(resumed.call_id).state != "missing":
+                raise ValueError("Fresh protected validation attempt was not cleaned up")
+            if resumed.workspace_manifest_ref is None or resumed.artifact_ref is None:
+                raise ValueError("Fresh protected validation omitted its evidence artifacts")
+            marker_path = workspace / _MARKER_PATH
+            if not marker_path.is_file():
+                raise ValueError("Fresh protected validation did not create its command marker")
+
+            terminal_result = export_terminal_evidence_pack(
+                store,
+                final.run_id,
+                destination / "terminal",
+            )
+            resume_dir = destination / "resume"
+            resume_dir.mkdir(parents=True, exist_ok=False)
+            observation_path = resume_dir / "runtime-observation.json"
+            manifest_path = resume_dir / "final-workspace-manifest.json"
+            check_artifact_path = resume_dir / "resumed-check-artifact.txt"
+            marker_copy_path = resume_dir / _MARKER_PATH
+            resume_observation = DockerCreatedResumeObservation(
+                run_id=final.run_id,
+                boundary_image_id=boundary_image_id,
+                resumed_image_id=sandbox.image_id,
+                resume_worker_id=token.worker_id,
+                resume_worker_epoch=token.epoch,
+                resumed_check_call_id=resumed.call_id,
+            )
+            _write_new(
+                observation_path,
+                (canonical_json(resume_observation) + "\n").encode("utf-8"),
+            )
+            _write_new(manifest_path, artifacts.read(resumed.workspace_manifest_ref))
+            _write_new(check_artifact_path, artifacts.read(resumed.artifact_ref))
+            _write_new(marker_copy_path, marker_path.read_bytes())
+
+            boundary_trace = boundary.trace_path.read_bytes()
+            terminal_trace = terminal_result.trace_path.read_bytes()
+            terminal_trace_text = terminal_trace.decode("utf-8")
+            evidence = _derive_resume_evidence(
+                boundary.evidence_pack,
+                SQLiteEventStore.replay_jsonl(boundary_trace.decode("utf-8")),
+                terminal_result.evidence_pack,
+                SQLiteEventStore.replay_jsonl(terminal_trace_text),
+                tuple(
+                    Event.model_validate_json(line)
+                    for line in terminal_trace_text.splitlines()
+                    if line
+                ),
+                resume_observation,
+                manifest_path.read_bytes(),
+                check_artifact_path.read_bytes(),
+                marker_copy_path.read_bytes(),
+                trace_prefix_verified=(
+                    terminal_trace.startswith(boundary_trace)
+                    and len(terminal_trace) > len(boundary_trace)
+                ),
+            )
+            summary_path = destination / "SUMMARY.md"
+            evidence_pack_path = destination / "evidence-pack.json"
+            _write_new(summary_path, _resume_summary(evidence).encode("utf-8"))
+            pack = DockerCreatedResumePack(
+                evidence=evidence,
+                files=(
+                    _resume_file_record(
+                        destination,
+                        "created_boundary_pack",
+                        boundary.evidence_pack_path,
+                    ),
+                    _resume_file_record(
+                        destination,
+                        "terminal_pack",
+                        terminal_result.evidence_pack_path,
+                    ),
+                    _resume_file_record(
+                        destination,
+                        "resume_observation",
+                        observation_path,
+                    ),
+                    _resume_file_record(
+                        destination,
+                        "final_workspace_manifest",
+                        manifest_path,
+                    ),
+                    _resume_file_record(
+                        destination,
+                        "resumed_check_artifact",
+                        check_artifact_path,
+                    ),
+                    _resume_file_record(
+                        destination,
+                        "command_marker",
+                        marker_copy_path,
+                    ),
+                    _resume_file_record(destination, "summary", summary_path),
+                ),
+            )
+            _write_new(evidence_pack_path, (canonical_json(pack) + "\n").encode("utf-8"))
+            verified = verify_docker_created_resume_pack(evidence_pack_path)
+            success = True
+            return DockerCreatedResumeResult(
+                output_dir=destination,
+                created_boundary=boundary,
+                terminal_evidence_pack_path=terminal_result.evidence_pack_path,
+                evidence_pack_path=evidence_pack_path,
+                summary_path=summary_path,
+                evidence_pack=verified,
+            )
+        finally:
+            if not success and resumed_call_id is not None:
+                status = sandbox.attempt_status(resumed_call_id)
+                if status.state == "running":
+                    sandbox.stop_attempt(resumed_call_id)
+                    status = sandbox.attempt_status(resumed_call_id)
+                if status.state in {"created", "stopped"}:
+                    sandbox.remove_attempt(resumed_call_id, expected_state=status.state)

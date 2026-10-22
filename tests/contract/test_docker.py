@@ -11,7 +11,9 @@ import pytest
 from horizon.adapters.sandbox.docker import CommandRequest, DockerSandbox
 from horizon.application.docker_created_recovery import (
     DockerCreatedRecoveryRunner,
+    DockerCreatedResumeRunner,
     verify_docker_created_recovery_pack,
+    verify_docker_created_resume_pack,
 )
 from horizon.domain.common import canonical_json
 from horizon.domain.errors import PolicyDenied
@@ -149,7 +151,7 @@ def test_created_attempt_recovery_exports_offline_verifiable_evidence(tmp_path, 
     )
 
     evidence = result.evidence_pack.evidence
-    assert evidence.worker_exit_code == 34
+    assert evidence.executor_exit_code == 34
     assert evidence.state_before_recovery == "created"
     assert evidence.state_after_recovery == "missing"
     assert evidence.recovery_disposition == "discard_check"
@@ -178,6 +180,86 @@ def test_created_attempt_recovery_exports_offline_verifiable_evidence(tmp_path, 
     )
     with pytest.raises(ValueError, match="artifacts do not match the Trace receipt"):
         verify_docker_created_recovery_pack(result.evidence_pack_path)
+
+
+def test_created_attempt_resumes_with_new_worker_to_terminal_success(tmp_path, sandbox):
+    image = os.environ["HORIZON_TEST_DOCKER_IMAGE"]
+    result = DockerCreatedResumeRunner().run(
+        tmp_path / "docker-created-resume",
+        image,
+    )
+
+    evidence = result.evidence_pack.evidence
+    assert evidence.boundary_status == "RUNNING"
+    assert evidence.terminal_status == "SUCCEEDED"
+    assert evidence.executor_exit_code == 34
+    assert evidence.boundary_image_id == sandbox.image_id
+    assert evidence.resumed_image_id == sandbox.image_id
+    assert evidence.resume_worker_id == "docker-created-resume-worker"
+    assert evidence.resume_worker_epoch > evidence.boundary_lease_epoch
+    assert evidence.crash_call_id != evidence.resumed_check_call_id
+    assert evidence.created_trace_is_terminal_prefix is True
+    assert evidence.call_identity_rotated is True
+    assert evidence.command_marker_absent_at_boundary is True
+    assert evidence.command_marker_present_after_resume is True
+    assert evidence.protected_validation_passed is True
+    assert evidence.task_succeeded is True
+    assert evidence.no_unknown_effects is True
+    assert evidence.no_open_effects is True
+    assert evidence.model_calls_before_resume == 1
+    assert evidence.model_calls_after_resume == 2
+    assert evidence.tool_calls_before_resume == 1
+    assert evidence.tool_calls_after_resume == 3
+    assert evidence.simulated_model_cost_cny > 0
+    assert verify_docker_created_resume_pack(result.evidence_pack_path) == result.evidence_pack
+
+    # Rehashing a forged resume image observation cannot bridge two image identities.
+    observation_path = result.output_dir / "resume" / "runtime-observation.json"
+    original_observation = observation_path.read_bytes()
+    observation = json.loads(original_observation)
+    forged_image_id = "sha256:" + ("0" * 64)
+    observation["boundary_image_id"] = forged_image_id
+    observation["resumed_image_id"] = forged_image_id
+    forged_observation = (canonical_json(observation) + "\n").encode("utf-8")
+    observation_path.write_bytes(forged_observation)
+    pack = json.loads(result.evidence_pack_path.read_text(encoding="utf-8"))
+    observation_record = next(
+        item for item in pack["files"] if item["role"] == "resume_observation"
+    )
+    observation_record["bytes"] = len(forged_observation)
+    observation_record["sha256"] = hashlib.sha256(forged_observation).hexdigest()
+    result.evidence_pack_path.write_text(
+        canonical_json(pack) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    with pytest.raises(ValueError, match="not bound to the Trace"):
+        verify_docker_created_resume_pack(result.evidence_pack_path)
+
+    observation_path.write_bytes(original_observation)
+    observation_record["bytes"] = len(original_observation)
+    observation_record["sha256"] = hashlib.sha256(original_observation).hexdigest()
+    result.evidence_pack_path.write_text(
+        canonical_json(pack) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+    # Rehashing a forged execution marker cannot manufacture terminal execution evidence.
+    marker_path = result.output_dir / "resume" / "never-started.txt"
+    forged = b"forged"
+    marker_path.write_bytes(forged)
+    pack = json.loads(result.evidence_pack_path.read_text(encoding="utf-8"))
+    marker_record = next(item for item in pack["files"] if item["role"] == "command_marker")
+    marker_record["bytes"] = len(forged)
+    marker_record["sha256"] = hashlib.sha256(forged).hexdigest()
+    result.evidence_pack_path.write_text(
+        canonical_json(pack) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    with pytest.raises(ValueError, match="synthetic command marker"):
+        verify_docker_created_resume_pack(result.evidence_pack_path)
 
 
 def test_missing_attempt_cannot_prove_non_execution_after_external_removal(sandbox):

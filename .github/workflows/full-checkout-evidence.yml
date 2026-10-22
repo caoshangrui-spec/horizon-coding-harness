@@ -109,17 +109,17 @@ jobs:
             --junitxml="$state_dir/junit.xml" \
             | tee "$state_dir/pytest.txt"
 
-      - name: Export the create-to-start crash recovery EvidencePack
+      - name: Export create-to-start recovery and resume-to-terminal EvidencePacks
         shell: bash
         run: |
           set -euo pipefail
-          output=.horizon/docker-created-recovery-evidence
-          uv run --locked horizon demo docker-created-recovery \
+          output=.horizon/docker-created-resume-evidence
+          uv run --locked horizon demo docker-created-resume \
             --image python:3.12-alpine \
             --output "$output" \
-            | tee .horizon/docker-created-recovery-cli.json
-          uv run --locked horizon demo verify-docker-created-recovery \
-            "$output/evidence/evidence-pack.json" \
+            | tee .horizon/docker-created-resume-cli.json
+          uv run --locked horizon demo verify-docker-created-resume \
+            "$output/evidence-pack.json" \
             | tee "$output/offline-verification.json"
 
       - name: Run the frozen five-case reduced suite
@@ -179,8 +179,8 @@ jobs:
           name: source-bound-docker-evidence
           path: |
             .horizon/docker-contracts
-            .horizon/docker-created-recovery-evidence
-            .horizon/docker-created-recovery-cli.json
+            .horizon/docker-created-resume-evidence
+            .horizon/docker-created-resume-cli.json
             .horizon/reduced-docker-v2
             .horizon/full-checkout-docker-v2
             .horizon/multi-stage-docker-v3
@@ -218,7 +218,12 @@ jobs:
               "test_created_attempt_survives_executor_crash_and_is_removed_without_starting"
           )
           if created_crash_case not in contract_names:
-              raise SystemExit("Docker create-to-start hard-crash contract is missing")
+              raise SystemExit("Docker create-to-start executor-crash contract is missing")
+          resume_case = (
+              "test_created_attempt_resumes_with_new_worker_to_terminal_success"
+          )
+          if resume_case not in contract_names:
+              raise SystemExit("Docker resume-to-terminal contract is missing")
           reduced = json.loads(
               Path(".horizon/reduced-docker-v2/cli-result.json").read_text(encoding="utf-8")
           )
@@ -237,8 +242,8 @@ jobs:
                   ".horizon/multi-stage-hard-crash-docker-v1/cli-result.json"
               ).read_text(encoding="utf-8")
           )
-          created_recovery = json.loads(
-              Path(".horizon/docker-created-recovery-cli.json").read_text(
+          created_resume = json.loads(
+              Path(".horizon/docker-created-resume-cli.json").read_text(
                   encoding="utf-8"
               )
           )
@@ -268,16 +273,21 @@ jobs:
           suite_reports = (reduced_report, full_report, multi_report, hard_crash_report)
           all_expectations_met = (
               all(report["all_expectations_met"] for report in suite_reports)
-              and created_recovery["verified"]
-              and created_recovery["safe_to_resume"]
+              and created_resume["verified"]
+              and created_resume["created_trace_is_terminal_prefix"]
+              and created_resume["protected_validation_passed"]
+              and created_resume["task_succeeded"]
+              and created_resume["terminal_status"] == "SUCCEEDED"
+              and created_resume["docker_image_id"].startswith("sha256:")
+              and created_resume["resume_worker_id"] == "docker-created-resume-worker"
           )
           paid_model_called = (
               any(report["paid_model_called"] for report in suite_reports)
-              or created_recovery["paid_model_called"]
+              or created_resume["paid_model_called"]
           )
           network_called = (
               any(report["network_called"] for report in suite_reports)
-              or created_recovery["network_called"]
+              or created_resume["network_called"]
           )
           lines = [
               "## Frozen source-bound Docker evidence",
@@ -288,16 +298,24 @@ jobs:
                   f"`{contract_passed}/{contract_total}`; skipped `{contract_skipped}`"
               ),
               (
-                  "- Docker create-to-start hard crash: child exit `34`; exact attempt remains "
-                  "`created`; command marker absent; inactive container removed"
+                  "- Docker create-to-start executor crash: effect-executor exit `34` while "
+                  "the lease-owning controller survives; exact attempt remains `created`; "
+                  "command marker absent; inactive container removed"
               ),
               (
-                  "- Replayable create-to-start EvidencePack: transition `"
-                  f"{created_recovery['attempt_state_before']}->"
-                  f"{created_recovery['attempt_state_after']}`; disposition `"
-                  f"{created_recovery['recovery_disposition']}`; Trace replay `"
-                  f"{created_recovery['trace_replay_verified']}`; safe to resume `"
-                  f"{created_recovery['safe_to_resume']}`"
+                  "- Replayable create-to-start boundary: transition `"
+                  f"{created_resume['attempt_transition']}`; disposition `"
+                  f"{created_resume['recovery_disposition']}`; Worker epoch `"
+                  f"{created_resume['worker_epoch_handoff']}`; pinned image `"
+                  f"{created_resume['docker_image_id']}`"
+              ),
+              (
+                  "- Resume-to-terminal continuation: fresh call identity `"
+                  f"{created_resume['crash_call_id']} -> "
+                  f"{created_resume['resumed_check_call_id']}`; Trace prefix `"
+                  f"{created_resume['created_trace_is_terminal_prefix']}`; protected "
+                  f"validation `{created_resume['protected_validation_passed']}`; terminal `"
+                  f"{created_resume['terminal_status']}`"
               ),
               (
                   "- Dependency-reduced suite: "

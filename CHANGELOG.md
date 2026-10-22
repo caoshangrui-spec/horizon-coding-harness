@@ -5,10 +5,23 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Extended the bounded Docker create-to-start crash slice from `safe_to_resume` to actual terminal
+  completion. A linked demo freezes the original `RUNNING` EvidencePack, reopens the recovered
+  Agent session under a newer Worker epoch, uses a fresh tool call identity for protected
+  validation, and reaches `SUCCEEDED` without redispatching the discarded call. Its root verifier
+  recursively verifies the created-boundary and generic terminal packs, requires the earlier
+  JSONL Trace to be an exact byte prefix of the terminal Trace, and binds the passing check receipt
+  to the final workspace manifest and synthetic execution marker. Resume now refuses Docker image
+  ID drift and records the resumed image, Worker, epoch, and call identities for offline comparison
+  with the boundary pack and terminal Trace. The deterministic scripted model makes no
+  provider/network call. The exited process is the Docker effect executor while the lease-owning
+  controller survives; this is not Agent Worker crash takeover, real-model efficacy, or an
+  exactly-once claim.
 - Added a single-command, zero-provider Docker create-to-start crash recovery demonstration. A
-  real child process exits with code 34 after the production sandbox creates its labeled container
-  but before `docker start`; the normal recovery CLI observes the exact `created` attempt, removes
-  it without execution, rechecks the workspace revision, and persists a `cancelled / discard_check`
+  real Docker effect-executor child exits with code 34 after the production sandbox creates its
+  labeled container but before `docker start`; the surviving lease-owning controller and normal
+  recovery CLI observe the exact `created` attempt, remove it without execution, recheck the
+  workspace revision, and persist a `cancelled / discard_check`
   receipt. The seven-file EvidencePack includes its Trace, final projection, crash observation,
   CLI receipt, workspace manifest, recovery artifact, and deterministic summary. Its standalone
   verifier needs neither Docker nor the control database, replays the Trace, and rejects semantic

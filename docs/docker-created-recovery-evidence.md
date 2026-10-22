@@ -1,10 +1,11 @@
-# Docker `created` 状态硬崩溃恢复 EvidencePack
+# Docker `created` 状态执行子进程退出恢复 EvidencePack
 
 ## 1. 目标
 
 这条演示只覆盖一个可精确定义、可重复执行的提交窗口：Harness 已持久化
-`run_check` intent，Docker 已完成 `create`，但 Worker 在调用 `docker start` 前以退出码
-`34` 硬退出。此时命令尚未进入容器，Harness 必须：
+`run_check` intent，Docker 已完成 `create`，但 effect-executor 子进程在调用 `docker start`
+前以退出码 `34` 硬退出。持有 Lease 的演示控制器仍存活并观察该结果；此时命令尚未进入容器，
+Harness 必须：
 
 1. 将没有 receipt 的工具调用保守标为 `unknown`；
 2. 用持久化 call ID 找到唯一标签容器，并确认状态严格为 `created`；
@@ -15,6 +16,10 @@
 
 它复用生产 `DockerSandbox`、`DockerAcceptanceExecutor`、`RecoveryService`、
 `ToolRecoveryService` 和 `agent resolve-tool` CLI，不另造测试专用恢复逻辑。
+
+本页的终点刻意停在 `safe_to_resume`。后续“新 Worker 使用新 call ID 继续 protected validation，
+并进入 `SUCCEEDED`”的因果证据见
+[Docker `created` 执行子进程退出后续跑到终态](docker-created-resume-to-terminal.md)。
 
 ## 2. 一条命令运行
 
@@ -32,13 +37,14 @@ uv run --locked --cache-dir .uv-cache horizon demo docker-created-recovery `
 
 成功输出至少包含：
 
-- `worker_exit_code=34`；
+- `executor_exit_code=34`；
 - `attempt_state_before=created`、`attempt_state_after=missing`；
 - `command_marker_absent=true`；
 - `recovery_disposition=discard_check`、`tool_status=cancelled`；
 - `workspace_revision_unchanged=true`；
 - `trace_replay_verified=true`、`safe_to_resume=true`；
-- `paid_model_called=false`、`network_called=false`、`external_cost_cny=0`。
+- `paid_model_called=false`、`network_called=false`、`external_cost_cny=0`。前两个字段是固定 Runner
+  构造和适配器配置的路径属性，不是 OS 级外部审计。
 
 ## 3. 离线复核
 
@@ -83,13 +89,15 @@ manifest 不一致而失败。
 
 ## 5. 严格声明边界
 
-本演示可以声称：对于这个精确 Docker `create → start` 窗口，真实子进程硬退出后，控制器观察
-到唯一 attempt 为 `created`，命令标记未出现，删除非活动容器，持久化取消 receipt，并恢复到
-可继续的 Agent 边界；完整过程可由 JSONL Trace 离线重放。
+本演示可以声称：对于这个精确 Docker `create → start` 窗口，真实 effect-executor 子进程硬
+退出、Lease-owning 控制器继续存活后，控制器观察到唯一 attempt 为 `created`，命令标记未
+出现，删除非活动容器，持久化取消 receipt，并恢复到可继续的 Agent 边界；完整过程可由 JSONL
+Trace 离线重放。
 
 不能声称：
 
 - 任意指令点、宿主机、Docker daemon、内核或跨主机故障都可恢复；
+- 已证明持有 Lease 的 Agent Worker 自身崩溃或自动接管；
 - marker 缺失足以证明任意外部副作用都未发生；
 - 已提供分布式 exactly-once 执行；
 - 自洽 SHA-256 等同于签名、可信时间戳或第三方来源认证；
