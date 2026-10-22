@@ -84,13 +84,14 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | 提交 `fc2c416` 的[标准 CI](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/39803244946)与[禁网 Docker Evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/39803245157)均通过 | CI 不读取 API Key、不运行付费模型 |
-| 离线回归 | `442 passed, 10 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `442 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | [通用终态 EvidencePack](docs/terminal-evidence-pack.md) | `SUCCEEDED`、`FAILED`、`CANCELLED` 均可导出并离线复核 Trace、最终投影和摘要；unknown/open effect 原样列出 | 自洽哈希不是来源签名，也不证明外部 Provider 或副作用已结清 |
 | [终态 Run 顺序汇总](docs/terminal-suite-evaluation.md) | 有序聚合已有终态 Run；递归验证每个子 EvidencePack，分列成功、失败、取消、预算停止与 unknown/open effect | 不执行任务，不是 batch scheduler，也没有并发性能声明 |
 | [本地顺序 Supervisor](docs/local-sequential-supervisor.md) | 完整轮次后自动释放 Lease并重开 Worker；真实子 Worker 退出后可按精确身份接管；应用层可信父进程还能先落取消栅栏，再 terminate/wait/kill 一个直接子 Worker，保留 pending intent 且零重派 | 子进程取消目前是 Python application API，不是 `agent run --supervise` 的常驻进程平台；不覆盖任意后代进程、跨主机 Worker、分布式队列或任意崩溃自动恢复 |
 | [Docker `created` 执行子进程退出 EvidencePack](docs/docker-created-recovery-evidence.md) | Docker effect-executor 在 `create` 后、`start` 前以 34 退出；存活控制器观察 `created`、精确删除并持久化 `discard_check` receipt，Trace 可离线重放 | 未覆盖 Lease-owning Agent Worker 自身崩溃；也不是任意崩溃、外部副作用不存在或 exactly-once 证明 |
 | [Docker `created` 续跑到终态](docs/docker-created-resume-to-terminal.md) | 在上述安全边界后由新 Worker epoch 继续；旧 call 不重派，新 call 使用同一 immutable image ID 执行 protected validation 并最终 `SUCCEEDED`；本地与[公开 Linux workflow](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/39803245157)均通过 | 使用合成 marker 与 Scripted Model；不是 Agent Worker 崩溃自动接管、真实模型能力或官方任务成绩 |
-| Docker 契约 | 10 项已在本机已有镜像和公开 Linux runner 上分别通过 | 有限隔离合同，不是恶意代码安全认证 |
+| [Lease-owning Agent Worker Docker 崩溃恢复](docs/docker-worker-crash-resume.md) | 真实子 Worker 运行生产 Agent Loop，在 `create` 后以 34 退出；父控制器按已回收 PID/旧 Lease/epoch/session 接管，epoch `1→2→3` 精确丢弃旧 attempt，再由新进程/new call 完成 protected validation 并 `SUCCEEDED`；本机真实 Docker 与离线验真已通过 | 仅覆盖一个本地直接子进程和一个故障窗口；不覆盖父控制器/OS 重启、进程树、跨主机、任意崩溃或 exactly-once |
+| Docker 契约 | 11 项已在本机已有镜像通过；其中既有 10 项已由公开 Linux runner 复核，新增 Worker 崩溃合同待当前公开 workflow 复核 | 有限隔离与恢复合同，不是恶意代码安全认证 |
 | 一键崩溃恢复演示 | 子进程在 `replace_text` 生效后、receipt 前以退出码 86 硬退出；悬空调用先标 unknown，再按精确 manifest 接纳一次并恢复到 epoch 3 | 固定离线脚本与单一写入窗口，不代表任意进程/主机故障恢复 |
 | 有界恢复矩阵 v3 | 21/21；自动恢复 11/11、安全阻塞 10/10、incorrect resume 0、恢复重派/重复副作用 0；含 3 个真实硬退出和 Trace replay | 其余 18 例是生成 fixture 的状态/决策矩阵，不是完整 8 故障点或主机故障验收 |
 | 外部来源裁剪 A/B v2 | 5 个来源绑定案例的初始失败、Baseline 等待和 Treatment 修复均由本地可信与公开禁网 Docker 执行，证据已上传 | 使用 Scripted Model 和 dependency-reduced fixture，不是 BugsInPy 官方成绩 |
@@ -153,6 +154,19 @@ uv run --locked --cache-dir .uv-cache horizon demo docker-created-resume `
 导出通用终态子包和根因果清单；根验证器会递归验证两份子包，并要求早期 Trace 是终态 Trace 的
 逐字节前缀。合同与严格边界见
 [Docker `created` 执行子进程退出后续跑到终态](docs/docker-created-resume-to-terminal.md)。
+
+要把故障提升为“真正持有 Lease 的 Agent Worker 进程退出”，并验证可信父控制器接管、精确处置和
+新进程续跑，运行：
+
+```powershell
+uv run --locked --cache-dir .uv-cache horizon demo docker-worker-crash-resume `
+  --image python:3.12-alpine
+```
+
+该命令先 `fsync` PID/Lease/epoch/session/image launch record，再放行直接子 Worker；终态 Trace
+必须包含绑定同一 PID 的 `confirmed_reaped_worker_expired` takeover，旧 call 不重派，epoch 3
+Worker 以新 call ID 完成验证。完整 EvidencePack、离线验真命令和严格边界见
+[Lease-owning Agent Worker 在 Docker `create -> start` 窗口崩溃后的恢复](docs/docker-worker-crash-resume.md)。
 
 v0.1.0 提供不可变任务合同、人工或 one-shot 模型计划的 DAG/验收覆盖校验、版本修订、SQLite
 追加式事件、幂等操作、Worker Lease/epoch、预算预留和结算、文件快照原语、取消、
@@ -473,6 +487,7 @@ Horizon 原创代码和文档使用 [MIT License](LICENSE)。依赖裁剪的外�
 - [可恢复的顺序多 WorkItem 执行](docs/multi-work-item-execution.md)
 - [本地顺序 Supervisor：安全轮次自动接力](docs/local-sequential-supervisor.md)
 - [Docker `created` 执行子进程退出后续跑到终态](docs/docker-created-resume-to-terminal.md)
+- [Lease-owning Agent Worker 的 Docker created-state 崩溃恢复](docs/docker-worker-crash-resume.md)
 - [执行证据驱动的单次受限 Replan](docs/execution-replanning.md)
 - [确定性上下文投影与恢复合同](docs/context-projection.md)
 - [证据驱动的 Run Memory](docs/run-memory.md)

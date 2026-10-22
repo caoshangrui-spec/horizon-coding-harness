@@ -201,6 +201,12 @@ Worker 协作释放以及父进程崩溃后的显式人工确认，不能把三�
   `CANCELLED`，完整 Trace 可重放；
 - 第五个真实子进程先保存 `read_file` intent 再等待；取消只回收进程并释放 Lease，Run 保持
   `reconciliation_required`，普通 Worker 获取 Lease 被拒绝，显式 recovery settlement 后才取消；
+- Docker 贯通合同由真实直接子 Agent Worker 运行生产 `CodingAgentRunner`：父进程先持久化
+  PID/Lease/epoch/session/image launch record 并放行 start gate，Worker 在 `run_check` intent 和
+  Docker `created` attempt 均形成后以 34 硬退出；父进程同步回收，Lease 到期后由
+  `confirmed_reaped_worker_expired` 接管事件把同一 PID/退出码/旧 Lease/launch sequence 写进
+  Trace。pending intent 保留到 epoch 2 精确 `discard_check`，epoch 3 新子 Worker/new call ID
+  完成 protected validation 并到达 `SUCCEEDED`；
 - 确定性故障测试覆盖 terminate 超时后 kill、调用前 Lease 身份不匹配零进程操作、进程已提前
   退出、Worker 在栅栏后协作释放 Lease，以及父 Supervisor 崩溃后必须等 Lease 过期并显式确认
   旧 Worker 已停止；
@@ -208,6 +214,7 @@ Worker 协作释放以及父进程崩溃后的显式人工确认，不能把三�
   旧 token 被 epoch 围栏，事件 Trace 可重放；
 - 全程不联网、不调用真实模型、不产生外部费用。
 
-这些证据证明本地安全轮次的自动接力、父进程确认退出后的保守接管，以及单个直接子 Worker 的
-栅栏优先取消；不代表任意进程树、任意崩溃自动恢复、操作系统重启恢复、分布式调度或模型任务
-成功率。异常退出后的 unknown 分类、精确副作用处置和人工确认继续由现有恢复协议负责。
+这些证据证明本地安全轮次的自动接力、父进程确认退出后的保守接管、单个直接子 Worker 的
+栅栏优先取消，以及一个 Docker created-state pending effect 的完整接管与续跑；不代表任意
+进程树、任意崩溃自动恢复、操作系统重启恢复、分布式调度或模型任务成功率。其他异常退出后的
+unknown 分类、精确副作用处置和人工确认继续由现有恢复协议负责。

@@ -18,6 +18,8 @@ on:
       - "src/horizon/application/_run_ab_crash_worker.py"
       - "src/horizon/application/docker_created_recovery.py"
       - "src/horizon/application/_docker_created_crash_worker.py"
+      - "src/horizon/application/docker_worker_crash_recovery.py"
+      - "src/horizon/application/_docker_agent_worker.py"
       - "src/horizon/domain/docker_created_recovery.py"
       - "src/horizon/domain/run_evaluation.py"
       - "src/horizon/interfaces/cli/app.py"
@@ -109,7 +111,7 @@ jobs:
             --junitxml="$state_dir/junit.xml" \
             | tee "$state_dir/pytest.txt"
 
-      - name: Export create-to-start recovery and resume-to-terminal EvidencePacks
+      - name: Export Docker create-to-start and Agent Worker crash EvidencePacks
         shell: bash
         run: |
           set -euo pipefail
@@ -121,6 +123,15 @@ jobs:
           uv run --locked horizon demo verify-docker-created-resume \
             "$output/evidence-pack.json" \
             | tee "$output/offline-verification.json"
+
+          worker_output=.horizon/docker-worker-crash-evidence
+          uv run --locked horizon demo docker-worker-crash-resume \
+            --image python:3.12-alpine \
+            --output "$worker_output" \
+            | tee .horizon/docker-worker-crash-cli.json
+          uv run --locked horizon demo verify-docker-worker-crash-resume \
+            "$worker_output/evidence-pack.json" \
+            | tee "$worker_output/offline-verification.json"
 
       - name: Run the frozen five-case reduced suite
         shell: bash
@@ -181,6 +192,8 @@ jobs:
             .horizon/docker-contracts
             .horizon/docker-created-resume-evidence
             .horizon/docker-created-resume-cli.json
+            .horizon/docker-worker-crash-evidence
+            .horizon/docker-worker-crash-cli.json
             .horizon/reduced-docker-v2
             .horizon/full-checkout-docker-v2
             .horizon/multi-stage-docker-v3
@@ -224,6 +237,11 @@ jobs:
           )
           if resume_case not in contract_names:
               raise SystemExit("Docker resume-to-terminal contract is missing")
+          worker_crash_case = (
+              "test_lease_owning_agent_worker_crash_is_reaped_and_resumes_to_success"
+          )
+          if worker_crash_case not in contract_names:
+              raise SystemExit("Lease-owning Agent Worker crash contract is missing")
           reduced = json.loads(
               Path(".horizon/reduced-docker-v2/cli-result.json").read_text(encoding="utf-8")
           )
@@ -244,6 +262,11 @@ jobs:
           )
           created_resume = json.loads(
               Path(".horizon/docker-created-resume-cli.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          worker_crash = json.loads(
+              Path(".horizon/docker-worker-crash-cli.json").read_text(
                   encoding="utf-8"
               )
           )
@@ -280,14 +303,26 @@ jobs:
               and created_resume["terminal_status"] == "SUCCEEDED"
               and created_resume["docker_image_id"].startswith("sha256:")
               and created_resume["resume_worker_id"] == "docker-created-resume-worker"
+              and worker_crash["verified"]
+              and worker_crash["terminal_status"] == "SUCCEEDED"
+              and worker_crash["crashed_worker_exit_code"] == 34
+              and worker_crash["worker_epoch_chain"] == "1->2->3"
+              and worker_crash["lease_transition"] == "expired_takeover"
+              and worker_crash["launch_record_persisted_before_dispatch"]
+              and worker_crash["takeover_bound_to_reaped_pid"]
+              and worker_crash["original_call_not_redispatched"]
+              and worker_crash["protected_validation_passed"]
+              and worker_crash["task_succeeded"]
           )
           paid_model_called = (
               any(report["paid_model_called"] for report in suite_reports)
               or created_resume["paid_model_called"]
+              or worker_crash["paid_model_called"]
           )
           network_called = (
               any(report["network_called"] for report in suite_reports)
               or created_resume["network_called"]
+              or worker_crash["network_called"]
           )
           lines = [
               "## Frozen source-bound Docker evidence",
@@ -316,6 +351,15 @@ jobs:
                   f"{created_resume['created_trace_is_terminal_prefix']}`; protected "
                   f"validation `{created_resume['protected_validation_passed']}`; terminal `"
                   f"{created_resume['terminal_status']}`"
+              ),
+              (
+                  "- Lease-owning Agent Worker crash: PID `"
+                  f"{worker_crash['crashed_process_id']}` exited `"
+                  f"{worker_crash['crashed_worker_exit_code']}`; epochs `"
+                  f"{worker_crash['worker_epoch_chain']}`; takeover `"
+                  f"{worker_crash['lease_transition']}`; original call redispatched `"
+                  f"{not worker_crash['original_call_not_redispatched']}`; terminal `"
+                  f"{worker_crash['terminal_status']}`"
               ),
               (
                   "- Dependency-reduced suite: "

@@ -30,6 +30,10 @@ from horizon.application.docker_created_recovery import (
     verify_docker_created_recovery_pack,
     verify_docker_created_resume_pack,
 )
+from horizon.application.docker_worker_crash_recovery import (
+    DockerWorkerCrashResumeRunner,
+    verify_docker_worker_crash_resume_pack,
+)
 from horizon.application.human import OperatorGuidanceService
 from horizon.application.model_probe import (
     ModelProbeService,
@@ -1085,6 +1089,107 @@ def verify_docker_created_resume_demo(path: Path):
                     f"{evidence.boundary_lease_epoch}->{evidence.resume_worker_epoch}"
                 ),
                 "created_trace_is_terminal_prefix": (evidence.created_trace_is_terminal_prefix),
+                "protected_validation_passed": evidence.protected_validation_passed,
+                "task_succeeded": evidence.task_succeeded,
+                "claim_scope": evidence.claim_scope,
+            }
+        )
+    )
+
+
+@demos.command("docker-worker-crash-resume")
+@guarded
+def docker_worker_crash_resume_demo(
+    image: Annotated[
+        str,
+        typer.Option(
+            "--image",
+            help="Existing local shell-capable Linux image; Horizon never pulls it.",
+        ),
+    ],
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            help="New evidence directory; defaults to a unique path below .horizon/demos.",
+        ),
+    ] = None,
+):
+    """Crash a Lease-owning Agent Worker at Docker created state and resume safely."""
+
+    destination = output or (Path(".horizon") / "demos" / f"docker-worker-crash-{uuid4().hex[:12]}")
+    result = DockerWorkerCrashResumeRunner().run(destination, image)
+    evidence = result.evidence_pack.evidence
+    typer.echo(
+        canonical_json(
+            {
+                "verified": True,
+                "run_id": evidence.run_id,
+                "terminal_status": evidence.terminal_status,
+                "crashed_process_id": evidence.crashed_process_id,
+                "crashed_worker_id": evidence.crashed_worker_id,
+                "crashed_worker_exit_code": evidence.crashed_worker_exit_code,
+                "recovery_worker_id": evidence.recovery_worker_id,
+                "resume_worker_id": evidence.resume_worker_id,
+                "worker_epoch_chain": (
+                    f"{evidence.crashed_worker_epoch}->{evidence.recovery_worker_epoch}->"
+                    f"{evidence.resume_worker_epoch}"
+                ),
+                "supervisor_disposition": evidence.supervisor_disposition,
+                "lease_transition": evidence.lease_transition,
+                "attempt_transition": (
+                    f"{evidence.state_before_recovery}->{evidence.state_after_recovery}"
+                ),
+                "crash_call_id": evidence.crash_call_id,
+                "resumed_check_call_id": evidence.resumed_check_call_id,
+                "docker_image_id": evidence.image_id,
+                "launch_record_persisted_before_dispatch": (
+                    evidence.launch_record_persisted_before_dispatch
+                ),
+                "takeover_bound_to_reaped_pid": evidence.takeover_bound_to_reaped_pid,
+                "original_call_not_redispatched": evidence.original_call_not_redispatched,
+                "protected_validation_passed": evidence.protected_validation_passed,
+                "task_succeeded": evidence.task_succeeded,
+                "trace_replay_verified": evidence.trace_replay_verified,
+                "unknown_effects": not evidence.no_unknown_effects,
+                "open_effects": not evidence.no_open_effects,
+                "paid_model_called": evidence.paid_model_called,
+                "network_called": evidence.network_called,
+                "external_cost_cny": evidence.external_cost_cny,
+                "simulated_model_cost_cny": str(evidence.simulated_model_cost_cny),
+                "claim_scope": evidence.claim_scope,
+                "output_dir": str(result.output_dir),
+                "evidence_pack": str(result.evidence_pack_path),
+                "terminal_pack": str(result.terminal_evidence_pack_path),
+                "summary": str(result.summary_path),
+                "boundaries": evidence.boundaries,
+            }
+        )
+    )
+
+
+@demos.command("verify-docker-worker-crash-resume")
+@guarded
+def verify_docker_worker_crash_resume_demo(path: Path):
+    """Verify the Lease-owning Worker crash EvidencePack entirely offline."""
+
+    pack = verify_docker_worker_crash_resume_pack(path)
+    evidence = pack.evidence
+    typer.echo(
+        canonical_json(
+            {
+                "verified": True,
+                "run_id": evidence.run_id,
+                "terminal_status": evidence.terminal_status,
+                "crashed_process_id": evidence.crashed_process_id,
+                "crashed_worker_exit_code": evidence.crashed_worker_exit_code,
+                "worker_epoch_chain": (
+                    f"{evidence.crashed_worker_epoch}->{evidence.recovery_worker_epoch}->"
+                    f"{evidence.resume_worker_epoch}"
+                ),
+                "lease_transition": evidence.lease_transition,
+                "takeover_bound_to_reaped_pid": evidence.takeover_bound_to_reaped_pid,
+                "original_call_not_redispatched": evidence.original_call_not_redispatched,
                 "protected_validation_passed": evidence.protected_validation_passed,
                 "task_succeeded": evidence.task_succeeded,
                 "claim_scope": evidence.claim_scope,
@@ -2712,6 +2817,10 @@ def doctor():
                 "run_check_created_hard_crash_fault_injection": True,
                 "run_check_created_hard_crash_evidence_profile": (
                     "production_create_child_exit_before_start_plus_resolution_trace_replay"
+                ),
+                "lease_owning_worker_created_crash_resume": True,
+                "lease_owning_worker_created_crash_resume_profile": (
+                    "reaped_pid_expired_lease_takeover_exact_discard_fresh_worker_terminal"
                 ),
                 "run_check_missing_attempt_proof": False,
                 "run_check_signal_timeout_result_recovery": False,

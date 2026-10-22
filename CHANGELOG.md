@@ -5,6 +5,19 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Added a linked EvidencePack for a real Lease-owning Agent Worker crash at the Docker
+  `create -> start` boundary. The parent fsyncs the direct child PID, Lease/epoch, launch cursor,
+  AgentSession, and immutable image ID before releasing a start gate; the child then runs the
+  production `CodingAgentRunner`, persists the model receipt and `run_check` intent, observes the
+  exact labeled container in `created`, writes a hash-bound crash observation, and exits with code
+  34. After synchronous reap and Lease expiry, the existing Supervisor records an epoch-2
+  `confirmed_reaped_worker_expired` takeover bound to the same PID and old Lease, preserves the
+  pending intent for explicit `discard_check`, and only then allows an epoch-3 child Worker to use
+  a fresh call ID for protected validation and reach `SUCCEEDED`. The nine-role root verifier
+  recursively replays the generic terminal pack and rejects rehashed PID, Lease, image, call, or
+  Artifact narratives. This remains one local direct child and one crash window, not parent/OS
+  restart recovery, process-tree or cross-host control, arbitrary crash recovery, exactly-once, or
+  real-model efficacy.
 - Extended the bounded Docker create-to-start crash slice from `safe_to_resume` to actual terminal
   completion. A linked demo freezes the original `RUNNING` EvidencePack, reopens the recovered
   Agent session under a newer Worker epoch, uses a fresh tool call identity for protected

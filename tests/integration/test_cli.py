@@ -391,6 +391,10 @@ def test_doctor_checks_fts_without_model():
     assert data["run_check_created_hard_crash_evidence_profile"] == (
         "production_create_child_exit_before_start_plus_resolution_trace_replay"
     )
+    assert data["lease_owning_worker_created_crash_resume"] is True
+    assert data["lease_owning_worker_created_crash_resume_profile"] == (
+        "reaped_pid_expired_lease_takeover_exact_discard_fresh_worker_terminal"
+    )
     assert data["portfolio_hard_crash_demo"] is True
     assert data["portfolio_hard_crash_demo_profile"] == (
         "replace_effect_before_receipt_exact_accept"

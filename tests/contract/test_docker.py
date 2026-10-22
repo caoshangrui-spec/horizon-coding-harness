@@ -15,6 +15,10 @@ from horizon.application.docker_created_recovery import (
     verify_docker_created_recovery_pack,
     verify_docker_created_resume_pack,
 )
+from horizon.application.docker_worker_crash_recovery import (
+    DockerWorkerCrashResumeRunner,
+    verify_docker_worker_crash_resume_pack,
+)
 from horizon.domain.common import canonical_json
 from horizon.domain.errors import PolicyDenied
 
@@ -260,6 +264,69 @@ def test_created_attempt_resumes_with_new_worker_to_terminal_success(tmp_path, s
     )
     with pytest.raises(ValueError, match="synthetic command marker"):
         verify_docker_created_resume_pack(result.evidence_pack_path)
+
+
+def test_lease_owning_agent_worker_crash_is_reaped_and_resumes_to_success(
+    tmp_path,
+    sandbox,
+):
+    image = os.environ["HORIZON_TEST_DOCKER_IMAGE"]
+    result = DockerWorkerCrashResumeRunner().run(
+        tmp_path / "docker-worker-crash-resume",
+        image,
+    )
+
+    evidence = result.evidence_pack.evidence
+    assert evidence.terminal_status == "SUCCEEDED"
+    assert evidence.crashed_worker_id == "docker-agent-crash-worker"
+    assert evidence.crashed_worker_exit_code == 34
+    assert evidence.crashed_process_id > 0
+    assert evidence.lease_transition == "expired_takeover"
+    assert evidence.supervisor_disposition == "reconciliation_required"
+    assert evidence.recovery_worker_id.startswith("docker-worker-controller-reaped-expired-")
+    assert evidence.resume_worker_id == "docker-agent-resume-worker"
+    assert (
+        evidence.crashed_worker_epoch
+        < evidence.recovery_worker_epoch
+        < evidence.resume_worker_epoch
+    )
+    assert evidence.image_id == sandbox.image_id
+    assert evidence.crash_call_id != evidence.resumed_check_call_id
+    assert evidence.launch_record_persisted_before_dispatch is True
+    assert evidence.crashed_process_owned_exact_lease is True
+    assert evidence.takeover_bound_to_reaped_pid is True
+    assert evidence.pending_intent_preserved_before_recovery is True
+    assert evidence.original_call_not_redispatched is True
+    assert evidence.command_marker_absent_at_crash is True
+    assert evidence.command_marker_present_after_resume is True
+    assert evidence.protected_validation_passed is True
+    assert evidence.task_succeeded is True
+    assert evidence.trace_replay_verified is True
+    assert evidence.no_unknown_effects is True
+    assert evidence.no_open_effects is True
+    assert evidence.model_call_count == 2
+    assert evidence.tool_call_count == 3
+    assert verify_docker_worker_crash_resume_pack(result.evidence_pack_path) == (
+        result.evidence_pack
+    )
+
+    # A rehashed PID narrative still has to match the takeover event in the replayed Trace.
+    crash_path = result.output_dir / "worker-evidence" / "crash-observation.json"
+    crash = json.loads(crash_path.read_text(encoding="utf-8"))
+    crash["process_id"] += 1
+    forged = (canonical_json(crash) + "\n").encode("utf-8")
+    crash_path.write_bytes(forged)
+    pack = json.loads(result.evidence_pack_path.read_text(encoding="utf-8"))
+    crash_record = next(item for item in pack["files"] if item["role"] == "crash_observation")
+    crash_record["bytes"] = len(forged)
+    crash_record["sha256"] = hashlib.sha256(forged).hexdigest()
+    result.evidence_pack_path.write_text(
+        canonical_json(pack) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    with pytest.raises(ValueError, match="parent launch record"):
+        verify_docker_worker_crash_resume_pack(result.evidence_pack_path)
 
 
 def test_missing_attempt_cannot_prove_non_execution_after_external_removal(sandbox):

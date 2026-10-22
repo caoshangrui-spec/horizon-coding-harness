@@ -32,6 +32,17 @@ DOCKER_CREATED_RESUME_BOUNDARIES = (
     "self_consistent_hashes_are_not_origin_authentication",
 )
 
+DOCKER_WORKER_CRASH_RESUME_BOUNDARIES = (
+    "one_local_direct_agent_worker_process_is_reaped_by_its_parent",
+    "the_crashed_lease_expires_before_confirmed_reaped_worker_takeover",
+    "only_the_docker_create_to_start_crash_window_is_injected",
+    "the_created_attempt_is_discarded_after_exact_identity_and_revision_checks",
+    "the_resume_model_is_deterministic_and_the_acceptance_marker_is_synthetic",
+    "process_trees_os_reboot_daemon_restart_and_cross_host_workers_are_not_covered",
+    "this_is_not_arbitrary_crash_recovery_or_an_exactly_once_proof",
+    "self_consistent_hashes_are_not_origin_authentication",
+)
+
 
 class DockerCreatedCrashObservation(Contract):
     schema_version: Literal[1] = 1
@@ -286,4 +297,202 @@ class DockerCreatedResumePack(Contract):
             raise ValueError("Docker resume-to-terminal EvidencePack requires all evidence roles")
         if len(paths) != len(set(paths)):
             raise ValueError("Docker resume-to-terminal EvidencePack paths must be unique")
+        return self
+
+
+class DockerWorkerLaunchObservation(Contract):
+    """A parent-persisted process/Lease boundary released through an explicit start gate."""
+
+    schema_version: Literal[1] = 1
+    run_id: Identifier
+    process_id: PositiveInt
+    worker_id: Text
+    lease_id: Text
+    lease_epoch: PositiveInt
+    launch_event_seq: PositiveInt
+    agent_session_artifact_ref: Sha256
+    next_iteration: PositiveInt
+    image_id: DockerImageId
+
+
+class DockerWorkerCrashObservation(Contract):
+    """Child-written evidence from inside the Lease-owning Agent Worker."""
+
+    schema_version: Literal[1] = 1
+    run_id: Identifier
+    call_id: Identifier
+    process_id: PositiveInt
+    worker_id: Text
+    lease_id: Text
+    lease_epoch: PositiveInt
+    launch_event_seq: PositiveInt
+    agent_session_artifact_ref: Sha256
+    next_iteration: PositiveInt
+    launch_record_sha256: Sha256
+    exit_code: Literal[34] = 34
+    image_id: DockerImageId
+    container_name: Text
+    state_before_recovery: Literal["created"] = "created"
+    command_marker_path: Text
+    command_marker_absent: Literal[True] = True
+
+    @model_validator(mode="after")
+    def validate_marker_path(self) -> Self:
+        relative_pattern(self.command_marker_path)
+        if any(character in self.command_marker_path for character in "*?[]"):
+            raise ValueError("Docker Worker crash marker path must be literal")
+        return self
+
+
+class DockerWorkerRecoveryObservation(Contract):
+    """Controller decisions between the reaped crash Worker and the resume Worker."""
+
+    schema_version: Literal[1] = 1
+    run_id: Identifier
+    call_id: Identifier
+    process_id: PositiveInt
+    supervisor_disposition: Literal["reconciliation_required"] = "reconciliation_required"
+    lease_transition: Literal["expired_takeover"] = "expired_takeover"
+    crashed_worker_epoch: PositiveInt
+    recovery_worker_id: Text
+    recovery_worker_epoch: PositiveInt
+    takeover_event_seq: PositiveInt
+    state_before_recovery: Literal["created"] = "created"
+    state_after_recovery: Literal["missing"] = "missing"
+    recovery_disposition: Literal["discard_check"] = "discard_check"
+    recovered_tool_status: Literal["cancelled"] = "cancelled"
+    pending_intent_preserved_before_recovery: Literal[True] = True
+    safe_to_resume_after_settlement: Literal[True] = True
+
+    @model_validator(mode="after")
+    def validate_epoch_handoff(self) -> Self:
+        if self.recovery_worker_epoch <= self.crashed_worker_epoch:
+            raise ValueError("Recovery Worker epoch must fence the crashed Worker epoch")
+        return self
+
+
+class DockerWorkerCrashResumeEvidence(Contract):
+    """Replay-derived proof for a Lease-owning Agent Worker crash and continuation."""
+
+    schema_version: Literal[1] = 1
+    run_id: Identifier
+    task_id: Identifier
+    terminal_status: Literal["SUCCEEDED"] = "SUCCEEDED"
+    crashed_process_id: PositiveInt
+    crashed_worker_id: Text
+    crashed_worker_epoch: PositiveInt
+    crashed_worker_exit_code: Literal[34] = 34
+    recovery_worker_id: Text
+    recovery_worker_epoch: PositiveInt
+    resume_worker_id: Text
+    resume_worker_epoch: PositiveInt
+    launch_event_seq: PositiveInt
+    takeover_event_seq: PositiveInt
+    crash_session_artifact_ref: Sha256
+    crash_session_next_iteration: PositiveInt
+    crash_call_id: Identifier
+    resumed_check_call_id: Identifier
+    image_id: DockerImageId
+    event_count: PositiveInt
+    event_hash: Sha256
+    projection_hash: Sha256
+    workspace_revision_before: Sha256
+    workspace_revision_after: Sha256
+    supervisor_disposition: Literal["reconciliation_required"] = "reconciliation_required"
+    lease_transition: Literal["expired_takeover"] = "expired_takeover"
+    recovery_disposition: Literal["discard_check"] = "discard_check"
+    recovered_tool_status: Literal["cancelled"] = "cancelled"
+    resumed_check_status: Literal["success"] = "success"
+    state_before_recovery: Literal["created"] = "created"
+    state_after_recovery: Literal["missing"] = "missing"
+    launch_record_persisted_before_dispatch: Literal[True] = True
+    crashed_process_owned_exact_lease: Literal[True] = True
+    takeover_bound_to_reaped_pid: Literal[True] = True
+    pending_intent_preserved_before_recovery: Literal[True] = True
+    original_call_not_redispatched: Literal[True] = True
+    command_marker_absent_at_crash: Literal[True] = True
+    command_marker_present_after_resume: Literal[True] = True
+    protected_validation_passed: Literal[True] = True
+    task_succeeded: Literal[True] = True
+    trace_replay_verified: Literal[True] = True
+    no_unknown_effects: Literal[True] = True
+    no_open_effects: Literal[True] = True
+    model_call_count: Annotated[int, Field(ge=2)]
+    tool_call_count: Annotated[int, Field(ge=3)]
+    paid_model_called: Literal[False] = False
+    network_called: Literal[False] = False
+    external_cost_cny: Literal[0] = 0
+    simulated_model_cost_cny: Annotated[Decimal, Field(ge=0)]
+    claim_scope: Literal["lease_owning_worker_docker_created_crash_resume"] = (
+        "lease_owning_worker_docker_created_crash_resume"
+    )
+    boundaries: tuple[Text, ...] = DOCKER_WORKER_CRASH_RESUME_BOUNDARIES
+
+    @model_validator(mode="after")
+    def validate_contract(self) -> Self:
+        if not (self.crashed_worker_epoch < self.recovery_worker_epoch < self.resume_worker_epoch):
+            raise ValueError("Crash, recovery, and resume Worker epochs must strictly increase")
+        if self.crash_call_id == self.resumed_check_call_id:
+            raise ValueError("Resumed validation must use a new durable tool call identity")
+        if self.workspace_revision_before == self.workspace_revision_after:
+            raise ValueError("Resumed validation must create the synthetic execution marker")
+        if self.takeover_event_seq <= self.launch_event_seq:
+            raise ValueError("Reaped-worker takeover must follow the launch boundary")
+        if tuple(self.boundaries) != DOCKER_WORKER_CRASH_RESUME_BOUNDARIES:
+            raise ValueError("Docker Worker crash boundaries must remain explicit")
+        return self
+
+
+class DockerWorkerCrashResumeFile(Contract):
+    role: Literal[
+        "terminal_pack",
+        "crash_launch",
+        "crash_observation",
+        "recovery_observation",
+        "resume_launch",
+        "final_workspace_manifest",
+        "resumed_check_artifact",
+        "command_marker",
+        "summary",
+    ]
+    path: Text
+    sha256: Sha256
+    bytes: PositiveInt
+
+    @model_validator(mode="after")
+    def validate_path(self) -> Self:
+        relative_pattern(self.path)
+        if any(character in self.path for character in "*?[]"):
+            raise ValueError("Docker Worker crash evidence paths must be literal")
+        return self
+
+
+class DockerWorkerCrashResumePack(Contract):
+    schema_version: Literal[1] = 1
+    pack_type: Literal["horizon.docker-worker-crash-resume"] = "horizon.docker-worker-crash-resume"
+    evidence: DockerWorkerCrashResumeEvidence
+    files: Annotated[
+        tuple[DockerWorkerCrashResumeFile, ...],
+        Field(min_length=9, max_length=9),
+    ]
+
+    @model_validator(mode="after")
+    def validate_files(self) -> Self:
+        roles = [item.role for item in self.files]
+        paths = [item.path.casefold() for item in self.files]
+        expected = {
+            "terminal_pack",
+            "crash_launch",
+            "crash_observation",
+            "recovery_observation",
+            "resume_launch",
+            "final_workspace_manifest",
+            "resumed_check_artifact",
+            "command_marker",
+            "summary",
+        }
+        if set(roles) != expected or len(roles) != len(expected):
+            raise ValueError("Docker Worker crash EvidencePack requires all evidence roles")
+        if len(paths) != len(set(paths)):
+            raise ValueError("Docker Worker crash EvidencePack paths must be unique")
         return self
