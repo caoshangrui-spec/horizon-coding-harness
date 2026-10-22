@@ -1,0 +1,74 @@
+from pathlib import Path
+
+from horizon.application.local_process_supervision import LocalAgentWorkerLauncher
+from horizon.application.services import LeaseToken
+from horizon.application.supervision import ReapedWorkerBoundary
+
+
+def test_local_worker_command_binds_exact_launch_identity_without_credentials(tmp_path):
+    boundary = ReapedWorkerBoundary(
+        run_id="run_process_1",
+        lease=LeaseToken(lease_id="lease_process_1", worker_id="worker-process-1", epoch=7),
+        launch_event_seq=42,
+        agent_session_artifact_ref="sha256:session",
+        next_iteration=3,
+    )
+    launcher = LocalAgentWorkerLauncher(
+        store_path=tmp_path / "control.sqlite3",
+        config_path=tmp_path / "provider.yaml",
+        provider_config_hash="a" * 64,
+        dotenv_path=tmp_path / ".env",
+        artifacts_path=tmp_path / "artifacts",
+        workspace_path=tmp_path / "staging" / "workspace",
+        campaign_path=tmp_path / "campaign.sqlite3",
+        staging_path=tmp_path / "staging",
+        image="local-test-image:latest",
+        retrieval_path=tmp_path / "retrieval.sqlite3",
+        executable="python-test",
+        python_path=(str(tmp_path / "src"),),
+    )
+
+    command = launcher.command(boundary, 2)
+
+    assert command[:3] == (
+        "python-test",
+        "-m",
+        "horizon.application._local_agent_worker",
+    )
+    assert command[4:11] == (
+        "run_process_1",
+        "lease_process_1",
+        "worker-process-1",
+        "7",
+        "42",
+        "sha256:session",
+        "3",
+    )
+    assert command[-2:] == (str((tmp_path / "retrieval.sqlite3").resolve()), "2")
+    assert "credential" not in " ".join(command).lower()
+    assert "api_key" not in " ".join(command).lower()
+
+
+def test_local_worker_command_represents_missing_initial_session(tmp_path):
+    boundary = ReapedWorkerBoundary(
+        run_id="run_process_initial",
+        lease=LeaseToken(lease_id="lease_initial", worker_id="worker-initial", epoch=1),
+        launch_event_seq=5,
+    )
+    launcher = LocalAgentWorkerLauncher(
+        store_path=Path(tmp_path / "control.sqlite3"),
+        config_path=Path(tmp_path / "provider.yaml"),
+        provider_config_hash="b" * 64,
+        dotenv_path=Path(tmp_path / ".env"),
+        artifacts_path=Path(tmp_path / "artifacts"),
+        workspace_path=Path(tmp_path / "workspace"),
+        campaign_path=Path(tmp_path / "campaign.sqlite3"),
+        staging_path=Path(tmp_path / "staging"),
+        image="local-test-image:latest",
+        retrieval_path=Path(tmp_path / "retrieval.sqlite3"),
+        executable="python-test",
+    )
+
+    command = launcher.command(boundary, 1)
+
+    assert command[9:11] == ("-", "0")

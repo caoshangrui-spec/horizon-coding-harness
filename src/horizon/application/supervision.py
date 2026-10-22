@@ -91,7 +91,7 @@ class ReapedWorkerBoundary(Contract):
 @dataclass(frozen=True)
 class ReapedWorkerSupervisionResult:
     run: Run
-    disposition: Literal["continued", "reconciliation_required", "stopped"]
+    disposition: Literal["continued", "ready", "reconciliation_required", "stopped"]
     process_id: int
     exit_code: int
     pending_reservation_ids: tuple[str, ...]
@@ -373,17 +373,23 @@ class SequentialAgentSupervisor:
         *,
         process_id: int,
         exit_code: int,
+        continue_execution: bool = True,
+        acquire_next_lease: bool = True,
     ) -> ReapedWorkerSupervisionResult:
         """Continue only after a trusted parent has synchronously reaped its child Worker.
 
         A live process check cannot be reconstructed from durable state, so callers must invoke
         this method only after ``wait``/``communicate`` returned for ``process_id``. The method
         binds that observation to the exact launch Lease, refuses every pending reservation, and
-        delegates the final safe-boundary decision to ``RecoveryService`` before fencing.
+        delegates the final safe-boundary decision to ``RecoveryService`` before fencing. A
+        process-owning parent can set ``continue_execution=False`` to receive a newly fenced
+        ``ready`` boundary instead of falling back to an in-process runner.
         """
 
         if process_id < 1:
             raise ValueError("Reaped worker process ID must be positive")
+        if continue_execution and not acquire_next_lease:
+            raise ValueError("In-process continuation requires a next Worker lease")
         current = service.store.get(boundary.run_id)
         token = boundary.lease
         self._validate_launch_boundary(current, boundary)
@@ -489,14 +495,44 @@ class SequentialAgentSupervisor:
                 or durable.reservations
             ):
                 raise Conflict("Persisted Run is not quiescent after reaped worker fencing")
-            leased = active_service.acquire_lease(
-                boundary.run_id,
-                f"{self.worker_id_prefix}-reaped-{handoff_id[:8]}",
-                f"supervisor-reaped-acquire-{handoff_id}",
-                ttl_seconds=self.config.lease_ttl_seconds,
-            )
-            active_token = LeaseToken.from_run(leased)
             lease_transition = "live_release"
+        if acquire_next_lease:
+            if not lease_expired:
+                leased = active_service.acquire_lease(
+                    boundary.run_id,
+                    f"{self.worker_id_prefix}-reaped-{handoff_id[:8]}",
+                    f"supervisor-reaped-acquire-{handoff_id}",
+                    ttl_seconds=self.config.lease_ttl_seconds,
+                )
+                active_token = LeaseToken.from_run(leased)
+        else:
+            if lease_expired:
+                active_service.release_lease(
+                    boundary.run_id,
+                    active_token,
+                    f"supervisor-reaped-ready-release-{handoff_id}",
+                )
+            ready = active_service.store.get(boundary.run_id)
+            return ReapedWorkerSupervisionResult(
+                run=ready,
+                disposition="ready",
+                process_id=process_id,
+                exit_code=exit_code,
+                pending_reservation_ids=(),
+                lease_transition=lease_transition,
+                recovery_report=recovery,
+            )
+        if not continue_execution:
+            ready = active_service.store.get(boundary.run_id)
+            return ReapedWorkerSupervisionResult(
+                run=ready,
+                disposition="ready",
+                process_id=process_id,
+                exit_code=exit_code,
+                pending_reservation_ids=(),
+                lease_transition=lease_transition,
+                recovery_report=recovery,
+            )
         supervision = self.run(
             boundary.run_id,
             active_service,

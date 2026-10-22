@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import json
 import platform
 import sqlite3
 from pathlib import Path
@@ -35,6 +36,11 @@ from horizon.application.docker_worker_crash_recovery import (
     verify_docker_worker_crash_resume_pack,
 )
 from horizon.application.human import OperatorGuidanceService
+from horizon.application.local_process_supervision import (
+    LocalAgentWorkerLauncher,
+    LocalProcessAgentSupervisor,
+    WorkerProcessReceipt,
+)
 from horizon.application.model_probe import (
     ModelProbeService,
     build_probe_request,
@@ -233,6 +239,40 @@ def release_quiescent_lease(
     except HorizonError:
         # Preserve the original planning failure; recovery will fence an unreleased lease.
         return
+
+
+def process_worker_cleanup_failures(
+    receipts: tuple[WorkerProcessReceipt, ...],
+    run_id: str,
+) -> dict[str, str]:
+    """Read optional diagnostics emitted by the trusted production child.
+
+    Safety never depends on this stdout payload; process continuation is decided exclusively
+    from the durable Run and reaped-process evidence.
+    """
+
+    failures: dict[str, str] = {}
+    for receipt in receipts:
+        if not receipt.stdout:
+            continue
+        try:
+            payload = json.loads(receipt.stdout.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if (
+            not isinstance(payload, dict)
+            or payload.get("run_id") != run_id
+            or payload.get("process_id") != receipt.process_id
+            or not isinstance(payload.get("check_cleanup_failures"), dict)
+        ):
+            continue
+        failures.update(
+            {
+                str(attempt_id): str(detail)
+                for attempt_id, detail in payload["check_cleanup_failures"].items()
+            }
+        )
+    return failures
 
 
 @app.callback()
@@ -1386,6 +1426,16 @@ def agent_run(
             ),
         ),
     ] = False,
+    worker_process: Annotated[
+        bool,
+        typer.Option(
+            "--worker-process",
+            help=(
+                "Run each supervised slice in a directly owned local child process; implies "
+                "--supervise."
+            ),
+        ),
+    ] = False,
 ):
     if not confirm_paid:
         raise ValueError("Agent execution requires --confirm-paid")
@@ -1631,8 +1681,45 @@ def agent_run(
             config=runner_config,
         )
 
+    effective_supervision = supervise or worker_process
+    process_disposition = None
+    process_receipts: tuple[WorkerProcessReceipt, ...] = ()
+    pending_process_reservations: tuple[str, ...] = ()
     try:
-        if supervise:
+        if worker_process:
+            process_supervised = LocalProcessAgentSupervisor(
+                lambda: HarnessService(SQLiteEventStore(ctx.obj["db"])),
+                LocalAgentWorkerLauncher(
+                    store_path=ctx.obj["db"],
+                    config_path=config_path,
+                    provider_config_hash=digest(provider),
+                    dotenv_path=dotenv_path,
+                    artifacts_path=control_root / "artifacts",
+                    workspace_path=workspace,
+                    campaign_path=Path(provider.ledger_path),
+                    staging_path=staging_root,
+                    image=image,
+                    retrieval_path=control_root / "retrieval.sqlite3",
+                ),
+                lambda active_service: RecoveryService(
+                    active_service,
+                    CampaignBudgetLedger(Path(provider.ledger_path)),
+                    ArtifactStore(control_root / "artifacts"),
+                ),
+                config=SequentialSupervisorConfig(
+                    slice_iterations=slice_iterations or 1,
+                    max_worker_slices=min(50, runner_config.max_model_iterations + 1),
+                    lease_ttl_seconds=600,
+                ),
+            ).run(run.run_id, service, token)
+            result = process_supervised.run
+            worker_slices = process_supervised.worker_slices
+            worker_handoffs = process_supervised.worker_handoffs
+            slice_limit_reached = process_supervised.slice_limit_reached
+            process_disposition = process_supervised.disposition
+            process_receipts = process_supervised.process_receipts
+            pending_process_reservations = process_supervised.pending_reservation_ids
+        elif supervise:
             supervised = SequentialAgentSupervisor(
                 lambda: HarnessService(SQLiteEventStore(ctx.obj["db"])),
                 build_runner,
@@ -1674,6 +1761,7 @@ def agent_run(
         for active_tools in worker_tools
         for attempt_id, detail in active_tools.check_cleanup_failures.items()
     }
+    check_cleanup_failures.update(process_worker_cleanup_failures(process_receipts, run.run_id))
     campaign = ledger.summary(provider.campaign.campaign_id)
     source_after, _ = snapshots.capture(
         source,
@@ -1710,11 +1798,29 @@ def agent_run(
                 ],
                 "planning_response_reused": planning_response_reused,
                 "supervision": {
-                    "enabled": supervise,
-                    "slice_iterations": (slice_iterations or 1) if supervise else slice_iterations,
+                    "enabled": effective_supervision,
+                    "slice_iterations": (
+                        (slice_iterations or 1) if effective_supervision else slice_iterations
+                    ),
                     "worker_slices": worker_slices,
                     "worker_handoffs": worker_handoffs,
                     "slice_limit_reached": slice_limit_reached,
+                    **(
+                        {
+                            "mode": "local_process",
+                            "disposition": process_disposition,
+                            "processes": [
+                                {
+                                    "process_id": receipt.process_id,
+                                    "exit_code": receipt.exit_code,
+                                }
+                                for receipt in process_receipts
+                            ],
+                            "pending_reservation_ids": list(pending_process_reservations),
+                        }
+                        if worker_process
+                        else {}
+                    ),
                 },
                 "usage": result.usage.model_dump(mode="json"),
                 "model_cost": str(result.model_occupied_cost),
@@ -1731,7 +1837,10 @@ def agent_run(
             }
         )
     )
-    if result.status not in {RunStatus.SUCCEEDED, RunStatus.RUNNING}:
+    if process_disposition == "reconciliation_required" or result.status not in {
+        RunStatus.SUCCEEDED,
+        RunStatus.RUNNING,
+    }:
         raise typer.Exit(3)
 
 
@@ -1785,6 +1894,16 @@ def agent_resume(
             help=(
                 "Continue through safe worker handoffs until the Run stops; defaults to one "
                 "model iteration per worker slice."
+            ),
+        ),
+    ] = False,
+    worker_process: Annotated[
+        bool,
+        typer.Option(
+            "--worker-process",
+            help=(
+                "Run each supervised slice in a directly owned local child process; implies "
+                "--supervise."
             ),
         ),
     ] = False,
@@ -2000,8 +2119,45 @@ def agent_resume(
             config=runner_config,
         )
 
+    effective_supervision = supervise or worker_process
+    process_disposition = None
+    process_receipts: tuple[WorkerProcessReceipt, ...] = ()
+    pending_process_reservations: tuple[str, ...] = ()
     try:
-        if supervise:
+        if worker_process:
+            process_supervised = LocalProcessAgentSupervisor(
+                lambda: HarnessService(SQLiteEventStore(ctx.obj["db"])),
+                LocalAgentWorkerLauncher(
+                    store_path=ctx.obj["db"],
+                    config_path=config_path,
+                    provider_config_hash=digest(provider),
+                    dotenv_path=dotenv_path,
+                    artifacts_path=control_root / "artifacts",
+                    workspace_path=workspace,
+                    campaign_path=Path(provider.ledger_path),
+                    staging_path=staging_root,
+                    image=image,
+                    retrieval_path=control_root / "retrieval.sqlite3",
+                ),
+                lambda active_service: RecoveryService(
+                    active_service,
+                    CampaignBudgetLedger(Path(provider.ledger_path)),
+                    ArtifactStore(control_root / "artifacts"),
+                ),
+                config=SequentialSupervisorConfig(
+                    slice_iterations=slice_iterations or 1,
+                    max_worker_slices=min(50, runner_config.max_model_iterations + 1),
+                    lease_ttl_seconds=600,
+                ),
+            ).run(run_id, service, token)
+            result = process_supervised.run
+            worker_slices = process_supervised.worker_slices
+            worker_handoffs = process_supervised.worker_handoffs
+            slice_limit_reached = process_supervised.slice_limit_reached
+            process_disposition = process_supervised.disposition
+            process_receipts = process_supervised.process_receipts
+            pending_process_reservations = process_supervised.pending_reservation_ids
+        elif supervise:
             supervised = SequentialAgentSupervisor(
                 lambda: HarnessService(SQLiteEventStore(ctx.obj["db"])),
                 build_runner,
@@ -2043,6 +2199,7 @@ def agent_resume(
         for active_tools in worker_tools
         for attempt_id, detail in active_tools.check_cleanup_failures.items()
     }
+    check_cleanup_failures.update(process_worker_cleanup_failures(process_receipts, run_id))
     campaign = ledger.summary(provider.campaign.campaign_id)
     typer.echo(
         canonical_json(
@@ -2072,11 +2229,29 @@ def agent_resume(
                 ],
                 "planning_response_reused": planning_response_reused,
                 "supervision": {
-                    "enabled": supervise,
-                    "slice_iterations": (slice_iterations or 1) if supervise else slice_iterations,
+                    "enabled": effective_supervision,
+                    "slice_iterations": (
+                        (slice_iterations or 1) if effective_supervision else slice_iterations
+                    ),
                     "worker_slices": worker_slices,
                     "worker_handoffs": worker_handoffs,
                     "slice_limit_reached": slice_limit_reached,
+                    **(
+                        {
+                            "mode": "local_process",
+                            "disposition": process_disposition,
+                            "processes": [
+                                {
+                                    "process_id": receipt.process_id,
+                                    "exit_code": receipt.exit_code,
+                                }
+                                for receipt in process_receipts
+                            ],
+                            "pending_reservation_ids": list(pending_process_reservations),
+                        }
+                        if worker_process
+                        else {}
+                    ),
                 },
                 "usage": result.usage.model_dump(mode="json"),
                 "model_cost": str(result.model_occupied_cost),
@@ -2093,7 +2268,10 @@ def agent_resume(
             }
         )
     )
-    if result.status not in {RunStatus.SUCCEEDED, RunStatus.RUNNING}:
+    if process_disposition == "reconciliation_required" or result.status not in {
+        RunStatus.SUCCEEDED,
+        RunStatus.RUNNING,
+    }:
         raise typer.Exit(3)
 
 

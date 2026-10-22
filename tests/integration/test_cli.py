@@ -16,6 +16,10 @@ from horizon.adapters.persistence.sqlite import SQLiteEventStore
 from horizon.adapters.sandbox.docker import CommandResult, SandboxAttemptStatus
 from horizon.adapters.workspace.snapshot import SnapshotManager
 from horizon.application.agent_loop import AgentLoopConfig, CodingAgentRunner
+from horizon.application.local_process_supervision import (
+    LocalProcessSupervisionResult,
+    WorkerProcessReceipt,
+)
 from horizon.application.planning import (
     PlanGenerator,
     PlanGeneratorConfig,
@@ -653,6 +657,80 @@ def test_agent_run_supervisor_reopens_at_safe_turn_and_finishes(tmp_path, monkey
     assert (source / "src/parser.py").read_text(encoding="utf-8") == original
 
 
+def test_agent_run_worker_process_implies_supervision_and_reports_process_evidence(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+    source, original, task_path, dotenv = write_auto_plan_cli_fixture(tmp_path)
+    model = AutoPlanAndFixModel()
+    monkeypatch.setattr(
+        cli_app_module,
+        "OpenAICompatibleModelGateway",
+        lambda *args, **kwargs: model,
+    )
+    captured = {}
+
+    class FakeProcessSupervisor:
+        def __init__(self, service_factory, process_launcher, recovery_factory, *, config):
+            captured["launcher"] = process_launcher
+            captured["config"] = config
+
+        def run(self, run_id, service, token):
+            released = service.release_lease(run_id, token, "fake-process-slice-limit")
+            return LocalProcessSupervisionResult(
+                run=released,
+                disposition="slice_limit_reached",
+                worker_slices=1,
+                worker_handoffs=0,
+                slice_limit_reached=True,
+                process_receipts=(WorkerProcessReceipt(process_id=4321, exit_code=0),),
+            )
+
+    monkeypatch.setattr(
+        cli_app_module,
+        "LocalProcessAgentSupervisor",
+        FakeProcessSupervisor,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "run",
+            str(task_path),
+            "--auto-plan",
+            "--image",
+            "offline-fixture",
+            "--config",
+            str(PROVIDER),
+            "--dotenv",
+            str(dotenv),
+            "--confirm-paid",
+            "--worker-process",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.stdout)
+    assert data["status"] == "RUNNING"
+    assert data["supervision"] == {
+        "enabled": True,
+        "slice_iterations": 1,
+        "worker_slices": 1,
+        "worker_handoffs": 0,
+        "slice_limit_reached": True,
+        "mode": "local_process",
+        "disposition": "slice_limit_reached",
+        "processes": [{"process_id": 4321, "exit_code": 0}],
+        "pending_reservation_ids": [],
+    }
+    assert captured["config"].slice_iterations == 1
+    assert captured["launcher"].image == "offline-fixture"
+    assert len(model.requests) == 1
+    assert (source / "src/parser.py").read_text(encoding="utf-8") == original
+
+
 def test_agent_resume_supervisor_continues_existing_safe_session(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     source, original, task_path, dotenv = write_auto_plan_cli_fixture(tmp_path)
@@ -721,6 +799,91 @@ def test_agent_resume_supervisor_continues_existing_safe_session(tmp_path, monke
     assert persisted.lease_epoch == 3
     assert persisted.lease_id is None
     assert len(model.requests) == 4
+    assert (source / "src/parser.py").read_text(encoding="utf-8") == original
+
+
+def test_agent_resume_worker_process_uses_existing_safe_session(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    source, original, task_path, dotenv = write_auto_plan_cli_fixture(tmp_path)
+    model = AutoPlanAndFixModel(inspect_first=True)
+    monkeypatch.setattr(
+        cli_app_module,
+        "OpenAICompatibleModelGateway",
+        lambda *args, **kwargs: model,
+    )
+    monkeypatch.setattr(cli_app_module, "DockerSandbox", lambda *args, **kwargs: object())
+    monkeypatch.setattr(cli_app_module, "DockerAcceptanceExecutor", LocalParserAcceptance)
+
+    partial = runner.invoke(
+        app,
+        [
+            "agent",
+            "run",
+            str(task_path),
+            "--auto-plan",
+            "--image",
+            "offline-fixture",
+            "--config",
+            str(PROVIDER),
+            "--dotenv",
+            str(dotenv),
+            "--confirm-paid",
+            "--slice-iterations",
+            "1",
+        ],
+    )
+    assert partial.exit_code == 0, partial.output
+    partial_data = json.loads(partial.stdout)
+    requests_before_resume = len(model.requests)
+
+    class FakeProcessSupervisor:
+        def __init__(self, service_factory, process_launcher, recovery_factory, *, config):
+            assert config.slice_iterations == 1
+
+        def run(self, run_id, service, token):
+            current = service.store.get(run_id)
+            assert current.agent_session is not None
+            assert current.agent_session.next_iteration == 2
+            released = service.release_lease(run_id, token, "fake-resume-process-limit")
+            return LocalProcessSupervisionResult(
+                run=released,
+                disposition="slice_limit_reached",
+                worker_slices=1,
+                worker_handoffs=0,
+                slice_limit_reached=True,
+                process_receipts=(WorkerProcessReceipt(process_id=5432, exit_code=0),),
+            )
+
+    monkeypatch.setattr(
+        cli_app_module,
+        "LocalProcessAgentSupervisor",
+        FakeProcessSupervisor,
+    )
+    resumed = runner.invoke(
+        app,
+        [
+            "agent",
+            "resume",
+            partial_data["run_id"],
+            "--image",
+            "offline-fixture",
+            "--config",
+            str(PROVIDER),
+            "--dotenv",
+            str(dotenv),
+            "--confirm-paid",
+            "--worker-process",
+        ],
+    )
+
+    assert resumed.exit_code == 0, resumed.output
+    data = json.loads(resumed.stdout)
+    assert data["status"] == "RUNNING"
+    assert data["agent_session"]["next_iteration"] == 2
+    assert data["supervision"]["mode"] == "local_process"
+    assert data["supervision"]["processes"] == [{"process_id": 5432, "exit_code": 0}]
+    assert data["supervision"]["slice_limit_reached"] is True
+    assert len(model.requests) == requests_before_resume
     assert (source / "src/parser.py").read_text(encoding="utf-8") == original
 
 

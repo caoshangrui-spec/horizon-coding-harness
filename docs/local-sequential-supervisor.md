@@ -1,12 +1,16 @@
 # 本地顺序 Supervisor：安全轮次自动接力
 
-更新：2026-10-10。Horizon 现可在一次 `agent run` 或 `agent resume` 命令内，把长任务按完整
+更新：2026-10-23。Horizon 现可在一次 `agent run` 或 `agent resume` 命令内，把长任务按完整
 模型—工具轮次切成多个 Worker slice，并在每个持久化安全边界自动完成 Lease 释放、适配器重开
 和新 epoch 接力。应用层 Supervisor 还提供一个窄的“父进程已回收子 Worker”入口：只有 Lease
 身份、持久化边界和恢复报告同时安全时才接管；任何未决调用都会留在原 Lease 上等待既有恢复
 流程。现在同一可信父进程还可执行恢复安全取消：先持久化精确 Worker 停止目标，再终止并同步
 回收该子进程，最后释放 Lease 或转入原有副作用恢复。它解决的是长任务的本地顺序接力和一个
 直接子进程边界，不引入并行调度、分布式队列或新的模型策略。
+
+2026-10-23 起，`--worker-process` 已把这里的 reaped-worker 安全接管接入正式 CLI，每个 slice
+由真实直接子进程执行；完整命令、输出和新增边界见[本地子进程 Supervisor](local-process-supervisor.md)。
+本页继续保留底层顺序、接管与取消合同。
 
 ## 1. 使用方式
 
@@ -96,8 +100,8 @@ ID、Worker ID、epoch、事件序号和当时的 AgentSession。只有父进程
 若子 Worker 已提交终态或持久化人工等待并按原协议清除 Lease，则返回 `stopped`，不会重新启动。
 这个入口只接受同一个可信父进程同步回收的子进程；父进程自身重启后无法从数据库重建该操作
 系统事实，仍使用显式旧 Worker 停止确认的既有恢复路径。若 Run 保存了取消目标，该路径还要
-回填 Trace 中的精确 PID。它是 Python application API，尚未把 CLI Supervisor 改造成常驻进程
-管理器。
+回填 Trace 中的精确 PID。该 API 已被 `agent run/resume --worker-process` 用于正常执行切片，
+但仍不是可跨父进程重启恢复句柄的常驻进程管理器；下节的主动取消也尚未接入 CLI Ctrl-C。
 
 ## 5. 取消一个仍在运行的直接子 Worker
 

@@ -17,6 +17,7 @@ from horizon.adapters.retrieval.sqlite_fts import SQLiteCodeRetriever
 from horizon.adapters.workspace.snapshot import SnapshotManager
 from horizon.application.agent_loop import AgentLoopConfig, CodingAgentRunner
 from horizon.application.human import OperatorGuidanceService
+from horizon.application.local_process_supervision import LocalProcessAgentSupervisor
 from horizon.application.model_probe import conservative_input_estimate
 from horizon.application.recovery import RecoveryService
 from horizon.application.services import HarnessService, LeaseToken
@@ -3181,6 +3182,213 @@ def _run_reaped_supervisor_worker(
     _, stderr = process.communicate(timeout=20)
     assert process.returncode == expected_exit_code, stderr.decode(errors="replace")
     return process
+
+
+def _launch_process_supervisor_worker(tmp_path, store, run_id, workspace):
+    worker = Path(__file__).parents[1] / "fault_injection" / "_reaped_supervisor_worker.py"
+
+    def launch(boundary, slice_iterations):
+        assert boundary.run_id == run_id
+        assert slice_iterations == 1
+        child_env = os.environ.copy()
+        child_env["PYTHONPATH"] = os.pathsep.join(str(item) for item in sys.path if item)
+        return subprocess.Popen(
+            [
+                getattr(sys, "_base_executable", sys.executable),
+                str(worker),
+                "sequence",
+                str(store.path),
+                run_id,
+                boundary.lease.lease_id,
+                boundary.lease.worker_id,
+                str(boundary.lease.epoch),
+                str(tmp_path / "artifacts"),
+                str(workspace),
+                str(tmp_path / "campaign.sqlite3"),
+                str(tmp_path / "retrieval.sqlite3"),
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=child_env,
+        )
+
+    return launch
+
+
+def test_local_process_supervisor_reaps_each_slice_and_reaches_terminal_success(
+    tmp_path,
+    task_dict,
+):
+    _, store, run_id, token, workspace, parent_model = setup_loop(
+        tmp_path,
+        task_dict,
+        [],
+    )
+    supervisor = LocalProcessAgentSupervisor(
+        lambda: HarnessService(SQLiteEventStore(store.path)),
+        _launch_process_supervisor_worker(tmp_path, store, run_id, workspace),
+        lambda service: RecoveryService(
+            service,
+            CampaignBudgetLedger(tmp_path / "campaign.sqlite3"),
+            ArtifactStore(tmp_path / "artifacts"),
+        ),
+        config=SequentialSupervisorConfig(slice_iterations=1, max_worker_slices=4),
+    )
+
+    result = supervisor.run(run_id, HarnessService(store), token)
+
+    assert result.disposition == "stopped"
+    assert result.run.status == RunStatus.SUCCEEDED
+    assert result.worker_slices == 3
+    assert result.worker_handoffs == 2
+    assert result.slice_limit_reached is False
+    assert len(result.process_receipts) == 3
+    assert len({receipt.process_id for receipt in result.process_receipts}) == 3
+    assert [receipt.exit_code for receipt in result.process_receipts] == [0, 0, 0]
+    assert result.pending_reservation_ids == ()
+    assert result.run.lease_epoch == 3
+    assert result.run.lease_id is None
+    assert not parent_model.requests
+    assert "return [] if" in (workspace / "src/parser.py").read_text(encoding="utf-8")
+
+    releases = [
+        event
+        for event in store.events(run_id)
+        if event.event_type == "LEASE_RELEASED"
+        and event.payload.get("release_reason") == "confirmed_reaped_worker"
+    ]
+    assert len(releases) == 2
+    assert [event.payload["process_id"] for event in releases] == [
+        receipt.process_id for receipt in result.process_receipts[:2]
+    ]
+    replayed = SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id))
+    assert replayed.as_dict() == result.run.as_dict()
+
+
+def test_local_process_supervisor_yields_unleased_at_slice_limit(tmp_path, task_dict):
+    _, store, run_id, token, workspace, _ = setup_loop(tmp_path, task_dict, [])
+    supervisor = LocalProcessAgentSupervisor(
+        lambda: HarnessService(SQLiteEventStore(store.path)),
+        _launch_process_supervisor_worker(tmp_path, store, run_id, workspace),
+        lambda service: RecoveryService(
+            service,
+            CampaignBudgetLedger(tmp_path / "campaign.sqlite3"),
+            ArtifactStore(tmp_path / "artifacts"),
+        ),
+        config=SequentialSupervisorConfig(slice_iterations=1, max_worker_slices=2),
+    )
+
+    result = supervisor.run(run_id, HarnessService(store), token)
+
+    assert result.disposition == "slice_limit_reached"
+    assert result.run.status == RunStatus.RUNNING
+    assert result.worker_slices == 2
+    assert result.worker_handoffs == 1
+    assert result.slice_limit_reached is True
+    assert result.run.lease_epoch == 2
+    assert result.run.lease_id is None
+    assert len(result.process_receipts) == 2
+    assert len(result.run.model_calls) == 2
+
+
+def test_local_process_supervisor_blocks_after_reaped_pending_intent(tmp_path, task_dict):
+    _, store, run_id, token, workspace, parent_model = setup_loop(
+        tmp_path,
+        task_dict,
+        [("submit", {"summary": "must not run"})],
+    )
+    worker = Path(__file__).parents[1] / "fault_injection" / "_reaped_supervisor_worker.py"
+
+    def launch(boundary, slice_iterations):
+        assert slice_iterations == 1
+        child_env = os.environ.copy()
+        child_env["PYTHONPATH"] = os.pathsep.join(str(item) for item in sys.path if item)
+        return subprocess.Popen(
+            [
+                getattr(sys, "_base_executable", sys.executable),
+                str(worker),
+                "pending",
+                str(store.path),
+                run_id,
+                boundary.lease.lease_id,
+                boundary.lease.worker_id,
+                str(boundary.lease.epoch),
+                str(tmp_path / "artifacts"),
+                str(workspace),
+                str(tmp_path / "campaign.sqlite3"),
+                str(tmp_path / "retrieval.sqlite3"),
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=child_env,
+        )
+
+    recovery_called = False
+
+    def recovery_factory(service):
+        nonlocal recovery_called
+        recovery_called = True
+        return RecoveryService(
+            service,
+            CampaignBudgetLedger(tmp_path / "campaign.sqlite3"),
+            ArtifactStore(tmp_path / "artifacts"),
+        )
+
+    result = LocalProcessAgentSupervisor(
+        lambda: HarnessService(SQLiteEventStore(store.path)),
+        launch,
+        recovery_factory,
+        config=SequentialSupervisorConfig(slice_iterations=1, max_worker_slices=3),
+    ).run(run_id, HarnessService(store), token)
+
+    assert result.disposition == "reconciliation_required"
+    assert result.run.status == RunStatus.RUNNING
+    assert result.worker_slices == 1
+    assert result.worker_handoffs == 0
+    assert result.pending_reservation_ids == ("reaped-pending-read",)
+    assert len(result.process_receipts) == 1
+    assert result.process_receipts[0].exit_code == 38
+    assert recovery_called is False
+    assert not parent_model.requests
+    persisted = store.get(run_id)
+    assert persisted.lease_id == token.lease_id
+    assert persisted.lease_epoch == token.epoch
+    assert set(persisted.reservations) == {"reaped-pending-read"}
+    assert not any(event.event_type == "LEASE_RELEASED" for event in store.events(run_id))
+
+
+def test_local_process_supervisor_releases_quiescent_lease_when_launch_fails(
+    tmp_path,
+    task_dict,
+):
+    _, store, run_id, token, _, parent_model = setup_loop(tmp_path, task_dict, [])
+
+    def fail_launch(boundary, slice_iterations):
+        assert boundary.lease == token
+        assert slice_iterations == 1
+        raise OSError("simulated child launch failure")
+
+    supervisor = LocalProcessAgentSupervisor(
+        lambda: HarnessService(SQLiteEventStore(store.path)),
+        fail_launch,
+        lambda service: RecoveryService(
+            service,
+            CampaignBudgetLedger(tmp_path / "campaign.sqlite3"),
+            ArtifactStore(tmp_path / "artifacts"),
+        ),
+        config=SequentialSupervisorConfig(slice_iterations=1, max_worker_slices=2),
+    )
+
+    with pytest.raises(OSError, match="simulated child launch failure"):
+        supervisor.run(run_id, HarnessService(store), token)
+
+    persisted = store.get(run_id)
+    assert persisted.status == RunStatus.RUNNING
+    assert persisted.lease_id is None
+    assert persisted.reservations == {}
+    assert not parent_model.requests
 
 
 def _start_waiting_supervisor_worker(

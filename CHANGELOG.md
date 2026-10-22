@@ -5,6 +5,17 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Added an opt-in, process-owning runtime path for normal `agent run` and `agent resume`.
+  `--worker-process` now launches each bounded Agent slice in a direct local child, binds its
+  Run/Lease/epoch/session/event cursor before dispatch, synchronously reaps the exact PID, and
+  uses the existing RecoveryService gate before starting a fresh epoch. Safe slices record PID,
+  exit code, launch cursor, and safe cursor in the Trace; a final slice limit yields an unleased
+  `RUNNING` Run. A child that leaves any pending effect returns `reconciliation_required` with the
+  intent untouched and performs no retry or fallback. Credentials are reloaded by the child and
+  never placed in argv. Real offline subprocess tests cover three distinct Workers through
+  terminal success, bounded yield, pending-intent blocking, and Trace replay. This remains local
+  direct-child supervision, not a daemon, process-tree manager, queue, cross-host failover, or
+  arbitrary crash recovery.
 - Added a linked EvidencePack for a real Lease-owning Agent Worker crash at the Docker
   `create -> start` boundary. The parent fsyncs the direct child PID, Lease/epoch, launch cursor,
   AgentSession, and immutable image ID before releasing a start gate; the child then runs the

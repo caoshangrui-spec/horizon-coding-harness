@@ -84,10 +84,10 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | 提交 `cfe4ac3` 的[标准 CI](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/39809773915)与[禁网 Docker Evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/39809773689)均通过 | CI 不读取 API Key、不运行付费模型 |
-| 离线回归 | `442 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `450 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | [通用终态 EvidencePack](docs/terminal-evidence-pack.md) | `SUCCEEDED`、`FAILED`、`CANCELLED` 均可导出并离线复核 Trace、最终投影和摘要；unknown/open effect 原样列出 | 自洽哈希不是来源签名，也不证明外部 Provider 或副作用已结清 |
 | [终态 Run 顺序汇总](docs/terminal-suite-evaluation.md) | 有序聚合已有终态 Run；递归验证每个子 EvidencePack，分列成功、失败、取消、预算停止与 unknown/open effect | 不执行任务，不是 batch scheduler，也没有并发性能声明 |
-| [本地顺序 Supervisor](docs/local-sequential-supervisor.md) | 完整轮次后自动释放 Lease并重开 Worker；真实子 Worker 退出后可按精确身份接管；应用层可信父进程还能先落取消栅栏，再 terminate/wait/kill 一个直接子 Worker，保留 pending intent 且零重派 | 子进程取消目前是 Python application API，不是 `agent run --supervise` 的常驻进程平台；不覆盖任意后代进程、跨主机 Worker、分布式队列或任意崩溃自动恢复 |
+| [本地顺序 Supervisor](docs/local-sequential-supervisor.md)与[正式子进程模式](docs/local-process-supervisor.md) | `--supervise` 支持安全轮次接力；`agent run/resume --worker-process` 进一步让每个 slice 由真实直接子进程持有 Lease，父 CLI 同步回收 PID、验证持久 session，再换 epoch；pending intent 显式阻塞且零重派 | 只管理一个本地直接子进程；取消 API 尚未接到 CLI 中断处理；不覆盖父控制器/OS 重启、任意后代进程、跨主机、队列或任意崩溃自动恢复 |
 | [Docker `created` 执行子进程退出 EvidencePack](docs/docker-created-recovery-evidence.md) | Docker effect-executor 在 `create` 后、`start` 前以 34 退出；存活控制器观察 `created`、精确删除并持久化 `discard_check` receipt，Trace 可离线重放 | 未覆盖 Lease-owning Agent Worker 自身崩溃；也不是任意崩溃、外部副作用不存在或 exactly-once 证明 |
 | [Docker `created` 续跑到终态](docs/docker-created-resume-to-terminal.md) | 在上述安全边界后由新 Worker epoch 继续；旧 call 不重派，新 call 使用同一 immutable image ID 执行 protected validation 并最终 `SUCCEEDED`；本地与[公开 Linux workflow](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/39803245157)均通过 | 使用合成 marker 与 Scripted Model；不是 Agent Worker 崩溃自动接管、真实模型能力或官方任务成绩 |
 | [Lease-owning Agent Worker Docker 崩溃恢复](docs/docker-worker-crash-resume.md) | 真实子 Worker 运行生产 Agent Loop，在 `create` 后以 34 退出；父控制器按已回收 PID/旧 Lease/epoch/session 接管，epoch `1→2→3` 精确丢弃旧 attempt，再由新进程/new call 完成 protected validation 并 `SUCCEEDED`；本机与[公开 Linux workflow](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/39809773689)均通过 | 仅覆盖一个本地直接子进程和一个故障窗口；不覆盖父控制器/OS 重启、进程树、跨主机、任意崩溃或 exactly-once |
@@ -362,6 +362,12 @@ uv run --locked --cache-dir .uv-cache horizon agent run `
   examples/agent-task.yaml examples/agent-plan.yaml `
   --image redis:7-alpine --confirm-paid --supervise
 
+# 若要让每个 slice 真正在独立直接子进程中执行，用 --worker-process；它隐含 --supervise。
+# 父 CLI 只在同步回收 PID且持久化 AgentSession 通过恢复门后才启动下一 Worker。
+uv run --locked --cache-dir .uv-cache horizon agent run `
+  examples/agent-task.yaml examples/agent-plan.yaml `
+  --image redis:7-alpine --confirm-paid --worker-process
+
 # 长任务可在完整模型—工具轮次后安全让出，再由新进程继续。
 $partial = uv run --locked --cache-dir .uv-cache horizon agent run `
   examples/agent-task.yaml examples/agent-plan.yaml `
@@ -432,8 +438,8 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **442 passed，9 skipped**；9 项 Docker 合同均已指定本机已有镜像
-单独复跑并通过。另有一次真实
+当前离线全量回归为 **450 passed，11 skipped**；11 项 Docker 合同此前均已指定本机已有镜像
+单独复跑并通过，本轮子进程 Supervisor 增量未启动 Docker。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实
 Issue 效果。新增真实模型 Pilot 单元测试覆盖私有答案拒绝、初始失败证据、内容寻址报告和
 启动时任务/源码/镜像/Provider/Harness 源码漂移拒绝；真实 checkout 的离线 Docker preflight
@@ -486,6 +492,7 @@ Horizon 原创代码和文档使用 [MIT License](LICENSE)。依赖裁剪的外�
 - [确定性费用停止语义](docs/budget-stop-semantics.md)
 - [可恢复的顺序多 WorkItem 执行](docs/multi-work-item-execution.md)
 - [本地顺序 Supervisor：安全轮次自动接力](docs/local-sequential-supervisor.md)
+- [本地子进程 Supervisor：正式 CLI 运行、回收与保守故障边界](docs/local-process-supervisor.md)
 - [Docker `created` 执行子进程退出后续跑到终态](docs/docker-created-resume-to-terminal.md)
 - [Lease-owning Agent Worker 的 Docker created-state 崩溃恢复](docs/docker-worker-crash-resume.md)
 - [执行证据驱动的单次受限 Replan](docs/execution-replanning.md)

@@ -525,6 +525,9 @@ stateDiagram-v2
 - 受本地父 Supervisor 管理的直接子 Worker 使用 `CANCEL_WORKER_STOP_PENDING` 把精确
   PID/Lease/epoch/启动游标变成独立终态 blocker；必须在同步 reap receipt 或 Lease 过期后的
   显式操作者停止确认后清除，TTL 到期本身不构成停止证明。
+- 正式本地进程模式下，父 CLI 在每个 slice 前固定 Run/Lease/epoch/AgentSession/event cursor，
+  子 Worker 必须在派发前逐项匹配；父进程同步 reap 后仍须通过 RecoveryService 安全边界检查，
+  退出码本身不构成续跑依据。pending effect 原样保留并停止接力。
 - 未知副作用状态只能进入 `WAITING_FOR_USER` 或 `FAILED`，不能静默重试。
 
 图中展示主要路径；完整转换合同还包括：每个非终态均可因取消进入 CANCELLED、因错误/硬截止进入 FAILED；PLANNING/READY/COMPACTING/VALIDATING/CHECKPOINTING/REPAIRING 均可在需要时进入 WAITING_FOR_USER 或 RECOVERING。等待态和恢复态持久化 `resume_state`，回转前重新校验阶段前置条件，不无条件转 RUNNING。未列出的任意转换禁止。
@@ -749,7 +752,7 @@ Lease TTL 过期后必须增加 epoch、fence 旧 Worker，确认旧命令不能
 | 只读工具调用 | 可按策略重试，并使用新 attempt ID |
 | 文件编辑 | 先检查文件摘要或 patch 是否已经存在，再决定跳过或重试 |
 | 测试命令 | 可重跑；旧进程必须确认已终止 |
-| Supervisor 直接子 Worker | 先持久化精确停止目标，再 terminate/wait，超时才 kill/wait；父进程崩溃后必须显式确认停止，pending effect 仍走原恢复 |
+| Supervisor 直接子 Worker | 正常 `--worker-process` slice 由父 CLI 同步 reap 后按精确 Lease/session 边界换 epoch；主动取消先持久化精确停止目标，再 terminate/wait，超时才 kill/wait；父进程崩溃后必须显式确认停止，pending effect 仍走原恢复 |
 | 模型调用 | 不假设供应商已执行；如无可查询请求 ID，标记旧调用 `unknown` 后发起新调用 |
 | Git 临时提交 | 通过 commit ID 查询，不重复提交 |
 | 外部 PR/Issue 写操作 | 必须通过外部 ID 查询；无法确认则等待人工 |
