@@ -59,6 +59,16 @@ uv run --locked --cache-dir .uv-cache horizon demo docker-created-resume `
 `0 CNY`。其中 `paid_model_called=false` 与 `network_called=false` 是固定 Runner 构造及适配器配置
 保证的路径属性，不是 EvidencePack 通过 OS 级外部审计独立测得的结论。
 
+2026-10-22 的公开 Linux 验收保留了完整的失败—修复链：首次
+[run 39802257676](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/39802257676)
+在新终态合同处失败，因为原生 Linux bind mount 的一次性 workspace 为 `0755`，容器 UID
+`65534` 无法写 marker；提交 `fc2c416` 将该 staging 子目录显式设为可写后，复跑
+[run 39803245157](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/39803245157)
+通过全部 10 个 Docker 合同、新 EvidencePack 导出、既有冻结 suites、artifact 上传和汇总。
+GitHub API 返回的统一 artifact `source-bound-docker-evidence` digest 为
+`sha256:ed66fa5d447f0ff2bf603cbf84df21a0bac88200f593c34d6d89efcfa28e411b`，当前保留期截至
+2026-11-21；run 页面和 digest 仍保留可审计身份，但 artifact 到期后不可再下载。
+
 成功输出必须包含：
 
 - `boundary_status=RUNNING`、`terminal_status=SUCCEEDED`；
