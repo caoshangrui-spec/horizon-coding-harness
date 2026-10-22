@@ -78,6 +78,12 @@ uv run --locked --cache-dir .uv-cache horizon demo verify-docker-worker-crash-re
   .horizon/demos/docker-worker-crash-local/evidence-pack.json
 ```
 
+本机真实 Docker 合同为 `11 passed`。公开 Linux
+[Source-bound Docker evidence run 39809773689](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/39809773689)
+也完成了 11 项合同、演示命令、离线 verifier、既有四组 suite、证据上传和 summary；统一
+artifact digest 为
+`sha256:7d7aea85aa1ea8a4a33f1f3395bc847cf27ad41d862e9417f428b3be1eaf3120`。
+
 ## 3. Worker 身份与启动门
 
 父进程先获取 epoch 1 Lease 并捕获 `ReapedWorkerBoundary`。启动子进程后，父进程立即得到真实
