@@ -13,9 +13,17 @@ from typer.testing import CliRunner
 
 from horizon.adapters.persistence.artifacts import ArtifactStore
 from horizon.adapters.persistence.sqlite import SQLiteEventStore
-from horizon.application.run_ab_eval import RunABEvaluator
+from horizon.application.run_ab_eval import (
+    RunABEvaluator,
+    build_run_ab_suite_report,
+    store_run_ab_report,
+)
 from horizon.domain.events import Event
-from horizon.domain.run_evaluation import RunABEvalManifest, RunABSuiteManifest
+from horizon.domain.run_evaluation import (
+    RunABEvalManifest,
+    RunABSuiteManifest,
+    RunABSuiteReport,
+)
 from horizon.domain.states import RunStatus
 from horizon.domain.tools import AcceptanceResult
 from horizon.interfaces.cli.app import app
@@ -160,6 +168,8 @@ def test_run_ab_evaluator_compares_full_replayable_runs_without_paid_model(tmp_p
     assert report.paid_model_called is False
     assert report.network_called is False
     assert report.repository_code_executed is False
+    assert report.duration_ms is not None
+    assert report.duration_ms >= 0
     assert (fixture / "src/parser.sh").read_bytes() == original
 
     artifacts = ArtifactStore(tmp_path / "state" / "artifacts")
@@ -518,6 +528,7 @@ def test_run_ab_recovers_real_write_hard_crash_without_redispatch(tmp_path):
     assert report.schema_version == 2
     assert report.all_expectations_met is True
     assert report.treatment_recovered is False
+    assert report.duration_ms is not None
     artifacts = ArtifactStore(tmp_path / "state" / "artifacts")
     for arm in (report.baseline, report.single_replan):
         assert arm.status == RunStatus.SUCCEEDED
@@ -544,6 +555,56 @@ def test_run_ab_recovers_real_write_hard_crash_without_redispatch(tmp_path):
         assert recovered[0].recovery_disposition == "accept_replace"
         assert not replayed.unknown_tool_calls
         assert not replayed.reservations
+
+    suite = RunABSuiteManifest.model_validate(
+        {
+            "suite_id": "write-hard-crash-suite-v1",
+            "cases": [
+                {
+                    "case_id": manifest.benchmark_id,
+                    "manifest_path": "write-hard-crash-recovery-v1.yaml",
+                    "source": {
+                        "benchmark": "fixture",
+                        "project": "stalled-reader",
+                        "bug_id": "1",
+                        "repository_url": "https://github.com/example/stalled-reader",
+                        "buggy_commit": "a" * 40,
+                        "fixed_commit": "b" * 40,
+                        "fix_url": "https://github.com/example/stalled-reader/commit/" + "b" * 40,
+                        "upstream_test": "tests/test_parser.sh",
+                        "license_spdx": "MIT",
+                        "license_url": "https://github.com/example/stalled-reader/blob/main/LICENSE",
+                        "reduction": "dependency_reduced",
+                        "reduction_note": "Test-only source metadata for reliability aggregation.",
+                    },
+                }
+            ],
+        }
+    )
+    report_ref = store_run_ab_report(artifacts, report)
+    suite_report = build_run_ab_suite_report(
+        suite,
+        {manifest.benchmark_id: (report, report_ref)},
+        validation_backend="fixture-content",
+        validation_backend_ref="test-only-hard-crash-contract",
+        repository_code_executed=False,
+    )
+    reliability = suite_report.reliability
+    assert reliability is not None
+    assert reliability.scenario_count == 1
+    assert reliability.arm_count == 2
+    assert reliability.terminal_success_count == 2
+    assert reliability.worker_restart_count == 4
+    assert reliability.hard_crash_arm_count == 2
+    assert reliability.recovered_hard_crash_arm_count == 2
+    assert reliability.recovery_success_rate == 1.0
+    assert reliability.recovery_redispatch_count == 0
+    assert reliability.duplicate_side_effect_count == 0
+    assert reliability.trace_replay_verified_count == 2
+    assert reliability.trace_replay_rate == 1.0
+    assert reliability.source_workspace_unchanged_count == 2
+    assert reliability.source_workspace_unchanged_rate == 1.0
+    assert reliability.final_open_effect_count == 0
 
 
 def test_run_ab_hard_crash_contract_rejects_legacy_or_asymmetric_configuration():
@@ -609,6 +670,23 @@ def test_run_ab_suite_cli_aggregates_source_bound_cases(tmp_path, monkeypatch):
     assert report["paid_model_called"] is False
     assert report["network_called"] is False
     assert report["repository_code_executed"] is True
+    reliability = report["reliability"]
+    assert reliability["scenario_count"] == 5
+    assert reliability["timed_scenario_count"] == 5
+    assert reliability["arm_count"] == 10
+    assert reliability["terminal_success_count"] == 5
+    assert reliability["worker_restart_count"] == 0
+    assert reliability["hard_crash_arm_count"] == 0
+    assert reliability["recovered_hard_crash_arm_count"] == 0
+    assert reliability["recovery_success_rate"] == 0.0
+    assert reliability["recovery_redispatch_count"] == 0
+    assert reliability["duplicate_side_effect_count"] == 0
+    assert reliability["trace_replay_verified_count"] == 10
+    assert reliability["trace_replay_rate"] == 1.0
+    assert reliability["source_workspace_unchanged_count"] == 10
+    assert reliability["source_workspace_unchanged_rate"] == 1.0
+    assert reliability["final_open_effect_count"] == 0
+    assert reliability["p95_scenario_duration_ms"] >= 0
     assert {case["source"]["project"] for case in report["cases"]} == {
         "cookiecutter",
         "fastapi",
@@ -616,6 +694,18 @@ def test_run_ab_suite_cli_aggregates_source_bound_cases(tmp_path, monkeypatch):
         "tqdm",
         "tornado",
     }
+
+    legacy = json.loads(json.dumps(report))
+    legacy.pop("reliability")
+    for case in legacy["cases"]:
+        case.pop("reliability")
+    assert RunABSuiteReport.model_validate(legacy).reliability is None
+
+    tampered = json.loads(json.dumps(report))
+    tampered["reliability"]["trace_replay_verified_count"] -= 1
+    tampered["reliability"]["trace_replay_rate"] = 0.9
+    with pytest.raises(ValueError, match="trace_replay_verified_count"):
+        RunABSuiteReport.model_validate(tampered)
 
     artifacts = ArtifactStore(state / "artifacts")
     suite_ref = payload["report_ref"]

@@ -17,7 +17,8 @@ Horizon 是一个面向长程软件工程任务的**可恢复执行控制层**�
 > 两次 Worker 重启的恢复场景已有可重放证据；youtube-dl 与 Luigi 独立案例均通过本地可信执行
 > 和公开禁网 Docker。七次真实模型 Pilot 均为负结果，因此目前**不宣称真实 Issue 成功率或
 > 官方 benchmark 成绩**。main 的 Unreleased 版本另加入父控制器硬退出后的持久 PID 启动闸门与
-> 精确停止确认；它尚未发布为新版本。版本范围与证据边界见
+> 精确停止确认，并让来源绑定 suite 直接输出耗时、恢复成功率、恢复重派、重复副作用、Trace
+> 完整性与最终悬空 effect 指标；它尚未发布为新版本。版本范围与证据边界见
 > [v0.2.0 release notes](docs/release-v0.2.0.md)。
 
 ## 为什么值得看
@@ -113,6 +114,7 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 完整 checkout A/B v2 | tqdm 82 files、youtube-dl 872 files、Luigi 382 files；本地可信与公开禁网 Docker 均为 3/3，RAG rank 1、Trace replay 和证据上传通过 | 使用 Scripted Model，不是模型能力或官方 BugsInPy 成绩 |
 | [三阶段恢复 A/B v3](docs/multi-stage-full-checkout-pilot.md) | youtube-dl 872 files + Luigi 382 files；两例均含 3 个依赖 WorkItem、2 次持久化 Worker 重启、final epoch 3 和一次只改未完成项的 replan；本地可信与[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/37450253181)均为 2/2 | 作者选择的两个案例与 Scripted Model；边界重启不等于任意指令处崩溃，不是模型能力或官方成绩 |
 | [源码绑定写入硬崩溃 A/B](docs/source-bound-hard-crash-recovery.md) | Luigi 382 files；两条 arm 都在首个生产写入 effect 后、receipt 前真实退出，先标 unknown，再由新 epoch 精确 `accept_replace`，随后跨两个 WorkItem 边界到 epoch 4；本地可信与[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/37569667246)均为 1/1 | 固定第 2 次调用、单个作者选择任务与 Scripted Model；不是任意崩溃、自动恢复策略或官方成绩 |
+| [长程任务可靠性指标](docs/long-horizon-reliability-metrics.md) | 每个来源绑定 suite 的 typed report 直接聚合观测耗时/P95、Worker 重启、硬崩溃恢复率、恢复重派、重复副作用、Trace replay、source isolation 和最终 open effects；公开 Docker workflow 对关键指标设失败门槛 | 11 个执行场景含重复上游 bug，不能宣传为 11 个独立任务；耗时依赖 runner，Scripted Model 指标不是 LLM 成功率 |
 | 真实模型 Pilot | 七轮均可重放、费用可核对、source 未变 | 七轮均未编辑或验证成功，保留为负结果 |
 | 预算预留诊断 | 7 Trace、22 个已结算调用；聚合预留/结算比 6.860516；候选公式的 5 个可回放样本按旧领域 JSON / 当前 wire basis 分开报告，当前口径只有 2 个 | 新 BudgetStop 保存请求尺寸；样本不足，不自动降低费用安全门槛 |
 | 出站请求尺寸 | 6 类离线边界请求均复用 Adapter 的精确 wire encoder；167～9,061 bytes，含真实四工具 Schema 的检索轮次 | 无 Provider usage，不证明候选公式安全或模型效果 |

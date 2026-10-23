@@ -274,6 +274,8 @@ jobs:
           full_report = full["report"]
           multi_report = multi["report"]
           hard_crash_report = hard_crash["report"]
+          multi_reliability = multi_report["reliability"]
+          hard_crash_reliability = hard_crash_report["reliability"]
           multi_cases = []
           for case in multi_report["cases"]:
               case_ref = case["report_ref"]
@@ -313,6 +315,18 @@ jobs:
               and worker_crash["original_call_not_redispatched"]
               and worker_crash["protected_validation_passed"]
               and worker_crash["task_succeeded"]
+              and multi_reliability["timed_scenario_count"] == 2
+              and multi_reliability["trace_replay_rate"] == 1.0
+              and multi_reliability["source_workspace_unchanged_rate"] == 1.0
+              and multi_reliability["final_open_effect_count"] == 0
+              and hard_crash_reliability["timed_scenario_count"] == 1
+              and hard_crash_reliability["hard_crash_arm_count"] == 2
+              and hard_crash_reliability["recovered_hard_crash_arm_count"] == 2
+              and hard_crash_reliability["recovery_success_rate"] == 1.0
+              and hard_crash_reliability["recovery_redispatch_count"] == 0
+              and hard_crash_reliability["duplicate_side_effect_count"] == 0
+              and hard_crash_reliability["trace_replay_rate"] == 1.0
+              and hard_crash_reliability["final_open_effect_count"] == 0
           )
           paid_model_called = (
               any(report["paid_model_called"] for report in suite_reports)
@@ -324,6 +338,10 @@ jobs:
               or created_resume["network_called"]
               or worker_crash["network_called"]
           )
+          if not all_expectations_met:
+              raise SystemExit("Source-bound Docker evidence contract failed")
+          if paid_model_called or network_called:
+              raise SystemExit("Source-bound Docker evidence made a forbidden external call")
           lines = [
               "## Frozen source-bound Docker evidence",
               "",
@@ -407,6 +425,27 @@ jobs:
               (
                   "- Hard-crash recovery without model redispatch: "
                   f"`{all(arm['hard_crash']['recovered_without_model_redispatch'] for arm in (hard_crash_case['baseline'], hard_crash_case['single_replan']))}`"
+              ),
+              (
+                  "- Three-stage reliability metrics: scenarios `"
+                  f"{multi_reliability['scenario_count']}`; arms `"
+                  f"{multi_reliability['arm_count']}`; Worker restarts `"
+                  f"{multi_reliability['worker_restart_count']}`; Trace replay rate `"
+                  f"{multi_reliability['trace_replay_rate']}`; final open effects `"
+                  f"{multi_reliability['final_open_effect_count']}`; observed/P95 ms `"
+                  f"{multi_reliability['observed_duration_ms']}/"
+                  f"{multi_reliability['p95_scenario_duration_ms']}`"
+              ),
+              (
+                  "- Hard-crash reliability metrics: recovered `"
+                  f"{hard_crash_reliability['recovered_hard_crash_arm_count']}/"
+                  f"{hard_crash_reliability['hard_crash_arm_count']}`; rate `"
+                  f"{hard_crash_reliability['recovery_success_rate']}`; redispatch `"
+                  f"{hard_crash_reliability['recovery_redispatch_count']}`; duplicate "
+                  f"side effects `{hard_crash_reliability['duplicate_side_effect_count']}`; "
+                  f"Trace replay rate `{hard_crash_reliability['trace_replay_rate']}`; "
+                  f"observed/P95 ms `{hard_crash_reliability['observed_duration_ms']}/"
+                  f"{hard_crash_reliability['p95_scenario_duration_ms']}`"
               ),
               (
                   "- Reduced initial failures / recovered treatments: "

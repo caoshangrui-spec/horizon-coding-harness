@@ -5,6 +5,14 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Added first-class long-horizon reliability metrics to every new source-bound Run A/B suite
+  report. Case execution now records monotonic observed duration, while the typed suite aggregate
+  reports scenario/arm counts, P95 duration, Worker restarts, injected hard-crash recovery rate,
+  recovery redispatch, duplicate side effects, Trace replay, source-workspace isolation, and final
+  open effects. Older reports remain readable and frozen manifest digests are unchanged. The public
+  Docker workflow gates the multi-stage and write-hard-crash suites on these fields and publishes
+  them in its job summary. The report explicitly excludes real-model success, official benchmark,
+  and arbitrary-crash exactly-once claims.
 - Added a durable start gate for each `--worker-process` child. The parent now records
   `PROCESS_WORKER_LAUNCHED` with the exact launch ID, PID, Lease, Worker, epoch and launch cursor,
   records `PROCESS_WORKER_START_AUTHORIZED`, and only then releases the launch ID over a one-shot

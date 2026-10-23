@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import time
 from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
@@ -28,11 +29,13 @@ from horizon.domain.run_evaluation import (
     RUN_AB_HARD_CRASH_EXIT_CODE,
     RunABArm,
     RunABArmResult,
+    RunABCaseReliabilityMetrics,
     RunABEvalManifest,
     RunABEvalReport,
     RunABHardCrashEvidence,
     RunABSuiteCaseResult,
     RunABSuiteManifest,
+    RunABSuiteReliabilityMetrics,
     RunABSuiteReport,
     ScriptedModelAction,
 )
@@ -73,6 +76,7 @@ class RunABEvaluator:
         fixture_source: Path,
         state_dir: Path,
     ) -> RunABEvalReport:
+        started = time.perf_counter_ns()
         fixture_source = fixture_source.resolve(strict=True)
         if not fixture_source.is_dir():
             raise ValueError("Run A/B fixture must be a directory")
@@ -146,6 +150,7 @@ class RunABEvaluator:
             step_delta=treatment.usage.steps - baseline.usage.steps,
             model_cost_delta=treatment.model_cost - baseline.model_cost,
             repository_code_executed=self.repository_code_executed,
+            duration_ms=(time.perf_counter_ns() - started) // 1_000_000,
         )
 
     def _inject_write_hard_crash(
@@ -760,6 +765,37 @@ def build_run_ab_suite_report(
             raise ValueError(
                 "Run A/B suite cases must agree on whether repository code was executed"
             )
+        arms = (report.baseline, report.single_replan)
+        hard_crashes = tuple(arm.hard_crash for arm in arms if arm.hard_crash is not None)
+        reliability = RunABCaseReliabilityMetrics(
+            duration_ms=report.duration_ms,
+            terminal_success_count=sum(arm.status == RunStatus.SUCCEEDED for arm in arms),
+            worker_restart_count=sum(arm.worker_restarts for arm in arms),
+            hard_crash_arm_count=len(hard_crashes),
+            recovered_hard_crash_arm_count=sum(
+                evidence.exact_effect_accepted
+                and evidence.recovered_without_model_redispatch
+                and evidence.one_recovered_tool_receipt
+                for evidence in hard_crashes
+            ),
+            recovery_redispatch_count=sum(
+                not evidence.recovered_without_model_redispatch for evidence in hard_crashes
+            ),
+            duplicate_side_effect_count=sum(
+                not (
+                    evidence.exact_effect_accepted
+                    and evidence.recovered_without_model_redispatch
+                    and evidence.one_recovered_tool_receipt
+                )
+                for evidence in hard_crashes
+            ),
+            trace_replay_verified_count=sum(arm.trace_replay_verified for arm in arms),
+            source_workspace_unchanged_count=sum(arm.source_workspace_unchanged for arm in arms),
+            final_open_effect_count=sum(
+                arm.unknown_model_calls + arm.unknown_tool_calls + arm.open_reservations
+                for arm in arms
+            ),
+        )
         cases.append(
             RunABSuiteCaseResult(
                 case_id=case.case_id,
@@ -777,10 +813,60 @@ def build_run_ab_suite_report(
                 tool_call_delta=report.tool_call_delta,
                 step_delta=report.step_delta,
                 model_cost_delta=report.model_cost_delta,
+                reliability=reliability,
             )
         )
 
     case_results = tuple(cases)
+    case_metrics = tuple(case.reliability for case in case_results)
+    observed_metrics = tuple(metrics for metrics in case_metrics if metrics is not None)
+    durations = sorted(
+        metrics.duration_ms for metrics in observed_metrics if metrics.duration_ms is not None
+    )
+    arm_count = sum(metrics.arm_count for metrics in observed_metrics)
+    hard_crash_arm_count = sum(metrics.hard_crash_arm_count for metrics in observed_metrics)
+    recovered_hard_crash_arm_count = sum(
+        metrics.recovered_hard_crash_arm_count for metrics in observed_metrics
+    )
+    trace_replay_verified_count = sum(
+        metrics.trace_replay_verified_count for metrics in observed_metrics
+    )
+    source_workspace_unchanged_count = sum(
+        metrics.source_workspace_unchanged_count for metrics in observed_metrics
+    )
+    reliability = RunABSuiteReliabilityMetrics(
+        scenario_count=len(observed_metrics),
+        timed_scenario_count=len(durations),
+        observed_duration_ms=sum(durations),
+        p95_scenario_duration_ms=(
+            durations[max(0, (95 * len(durations) + 99) // 100 - 1)] if durations else None
+        ),
+        arm_count=arm_count,
+        terminal_success_count=sum(metrics.terminal_success_count for metrics in observed_metrics),
+        worker_restart_count=sum(metrics.worker_restart_count for metrics in observed_metrics),
+        hard_crash_arm_count=hard_crash_arm_count,
+        recovered_hard_crash_arm_count=recovered_hard_crash_arm_count,
+        recovery_success_rate=(
+            round(recovered_hard_crash_arm_count / hard_crash_arm_count, 6)
+            if hard_crash_arm_count
+            else 0.0
+        ),
+        recovery_redispatch_count=sum(
+            metrics.recovery_redispatch_count for metrics in observed_metrics
+        ),
+        duplicate_side_effect_count=sum(
+            metrics.duplicate_side_effect_count for metrics in observed_metrics
+        ),
+        trace_replay_verified_count=trace_replay_verified_count,
+        trace_replay_rate=(round(trace_replay_verified_count / arm_count, 6) if arm_count else 0.0),
+        source_workspace_unchanged_count=source_workspace_unchanged_count,
+        source_workspace_unchanged_rate=(
+            round(source_workspace_unchanged_count / arm_count, 6) if arm_count else 0.0
+        ),
+        final_open_effect_count=sum(
+            metrics.final_open_effect_count for metrics in observed_metrics
+        ),
+    )
     return RunABSuiteReport(
         suite_id=manifest.suite_id,
         suite_manifest_digest=manifest.sha256,
@@ -804,6 +890,7 @@ def build_run_ab_suite_report(
         model_cost_delta=sum((case.model_cost_delta for case in case_results), start=Decimal("0")),
         all_expectations_met=all(case.passed for case in case_results),
         repository_code_executed=repository_code_executed,
+        reliability=reliability,
     )
 
 

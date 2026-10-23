@@ -24,6 +24,7 @@ Sha256 = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
 GitCommit = Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
 NonNegativeMoney = Annotated[Decimal, Field(ge=0, allow_inf_nan=False)]
 SignedCount = StrictInt
+Ratio = Annotated[float, Field(ge=0.0, le=1.0)]
 RUN_AB_HARD_CRASH_EXIT_CODE = 87
 _RECOVERABLE_WRITE_TOOLS = {"replace_text", "apply_patch", "create_file"}
 
@@ -239,6 +240,10 @@ class RunABEvalReport(Contract):
     paid_model_called: Literal[False] = False
     network_called: Literal[False] = False
     repository_code_executed: bool
+    duration_ms: NonNegativeInt | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
 
     @model_validator(mode="after")
     def validate_comparison(self) -> Self:
@@ -357,6 +362,42 @@ class RunABSuiteManifest(Contract):
         return digest(self)
 
 
+class RunABCaseReliabilityMetrics(Contract):
+    """Observed reliability facts for both arms of one source-bound scenario."""
+
+    duration_ms: NonNegativeInt | None = None
+    arm_count: Literal[2] = 2
+    terminal_success_count: NonNegativeInt
+    worker_restart_count: NonNegativeInt
+    hard_crash_arm_count: NonNegativeInt
+    recovered_hard_crash_arm_count: NonNegativeInt
+    recovery_redispatch_count: NonNegativeInt
+    duplicate_side_effect_count: NonNegativeInt
+    trace_replay_verified_count: NonNegativeInt
+    source_workspace_unchanged_count: NonNegativeInt
+    final_open_effect_count: NonNegativeInt
+
+    @model_validator(mode="after")
+    def validate_counts(self) -> Self:
+        bounded_by_arms = (
+            self.terminal_success_count,
+            self.hard_crash_arm_count,
+            self.recovered_hard_crash_arm_count,
+            self.trace_replay_verified_count,
+            self.source_workspace_unchanged_count,
+        )
+        if any(value > self.arm_count for value in bounded_by_arms):
+            raise ValueError("Run A/B case reliability count exceeds its arm count")
+        if self.recovered_hard_crash_arm_count > self.hard_crash_arm_count:
+            raise ValueError("Recovered hard-crash arms exceed injected hard-crash arms")
+        if (
+            self.recovery_redispatch_count > self.hard_crash_arm_count
+            or self.duplicate_side_effect_count > self.hard_crash_arm_count
+        ):
+            raise ValueError("Hard-crash violation count exceeds injected hard-crash arms")
+        return self
+
+
 class RunABSuiteCaseResult(Contract):
     case_id: Identifier
     manifest_path: Text
@@ -373,6 +414,74 @@ class RunABSuiteCaseResult(Contract):
     tool_call_delta: SignedCount
     step_delta: SignedCount
     model_cost_delta: Decimal
+    reliability: RunABCaseReliabilityMetrics | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+
+
+RUN_AB_EXCLUDED_CLAIMS = (
+    "real_model_task_success_rate",
+    "official_bugsinpy_or_swe_bench_score",
+    "arbitrary_crash_exactly_once",
+)
+
+
+class RunABSuiteReliabilityMetrics(Contract):
+    """Aggregate long-horizon and recovery observations for a source-bound suite."""
+
+    claim_scope: Literal["source_bound_scripted_agent_runs"] = "source_bound_scripted_agent_runs"
+    scenario_count: NonNegativeInt
+    timed_scenario_count: NonNegativeInt
+    observed_duration_ms: NonNegativeInt
+    p95_scenario_duration_ms: NonNegativeInt | None = None
+    arm_count: NonNegativeInt
+    terminal_success_count: NonNegativeInt
+    worker_restart_count: NonNegativeInt
+    hard_crash_arm_count: NonNegativeInt
+    recovered_hard_crash_arm_count: NonNegativeInt
+    recovery_success_rate: Ratio
+    recovery_redispatch_count: NonNegativeInt
+    duplicate_side_effect_count: NonNegativeInt
+    trace_replay_verified_count: NonNegativeInt
+    trace_replay_rate: Ratio
+    source_workspace_unchanged_count: NonNegativeInt
+    source_workspace_unchanged_rate: Ratio
+    final_open_effect_count: NonNegativeInt
+    excluded_claims: tuple[Text, ...] = RUN_AB_EXCLUDED_CLAIMS
+
+    @model_validator(mode="after")
+    def validate_scope(self) -> Self:
+        if tuple(self.excluded_claims) != RUN_AB_EXCLUDED_CLAIMS:
+            raise ValueError("Run A/B suite claim boundaries must remain explicit")
+        if self.timed_scenario_count > self.scenario_count:
+            raise ValueError("Timed scenarios exceed source-bound scenarios")
+        if self.p95_scenario_duration_ms is None and self.timed_scenario_count:
+            raise ValueError("Timed scenarios require a P95 duration")
+        if self.p95_scenario_duration_ms is not None and not self.timed_scenario_count:
+            raise ValueError("P95 duration requires at least one timed scenario")
+        if self.recovered_hard_crash_arm_count > self.hard_crash_arm_count:
+            raise ValueError("Recovered hard-crash arms exceed injected hard-crash arms")
+        expected_recovery_rate = (
+            round(self.recovered_hard_crash_arm_count / self.hard_crash_arm_count, 6)
+            if self.hard_crash_arm_count
+            else 0.0
+        )
+        expected_trace_rate = (
+            round(self.trace_replay_verified_count / self.arm_count, 6) if self.arm_count else 0.0
+        )
+        expected_source_rate = (
+            round(self.source_workspace_unchanged_count / self.arm_count, 6)
+            if self.arm_count
+            else 0.0
+        )
+        if self.recovery_success_rate != expected_recovery_rate:
+            raise ValueError("Run A/B recovery success rate does not match its arms")
+        if self.trace_replay_rate != expected_trace_rate:
+            raise ValueError("Run A/B Trace replay rate does not match its arms")
+        if self.source_workspace_unchanged_rate != expected_source_rate:
+            raise ValueError("Run A/B source-isolation rate does not match its arms")
+        return self
 
 
 class RunABSuiteReport(Contract):
@@ -395,6 +504,10 @@ class RunABSuiteReport(Contract):
     paid_model_called: Literal[False] = False
     network_called: Literal[False] = False
     repository_code_executed: bool
+    reliability: RunABSuiteReliabilityMetrics | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
 
     @model_validator(mode="after")
     def validate_aggregate(self) -> Self:
@@ -424,4 +537,48 @@ class RunABSuiteReport(Contract):
             raise ValueError("Run A/B suite success delta does not match its cases")
         if self.all_expectations_met != all(case.passed for case in self.cases):
             raise ValueError("Run A/B suite verdict does not match its cases")
+        case_metrics = [case.reliability for case in self.cases]
+        if self.reliability is None:
+            if any(metrics is not None for metrics in case_metrics):
+                raise ValueError("Run A/B suite reliability is missing case aggregates")
+            return self
+        if any(metrics is None for metrics in case_metrics):
+            raise ValueError("Run A/B suite reliability requires every case metric")
+        observed = tuple(metrics for metrics in case_metrics if metrics is not None)
+        durations = sorted(
+            metrics.duration_ms for metrics in observed if metrics.duration_ms is not None
+        )
+        expected_reliability = {
+            "scenario_count": len(observed),
+            "timed_scenario_count": len(durations),
+            "observed_duration_ms": sum(durations),
+            "arm_count": sum(metrics.arm_count for metrics in observed),
+            "terminal_success_count": sum(metrics.terminal_success_count for metrics in observed),
+            "worker_restart_count": sum(metrics.worker_restart_count for metrics in observed),
+            "hard_crash_arm_count": sum(metrics.hard_crash_arm_count for metrics in observed),
+            "recovered_hard_crash_arm_count": sum(
+                metrics.recovered_hard_crash_arm_count for metrics in observed
+            ),
+            "recovery_redispatch_count": sum(
+                metrics.recovery_redispatch_count for metrics in observed
+            ),
+            "duplicate_side_effect_count": sum(
+                metrics.duplicate_side_effect_count for metrics in observed
+            ),
+            "trace_replay_verified_count": sum(
+                metrics.trace_replay_verified_count for metrics in observed
+            ),
+            "source_workspace_unchanged_count": sum(
+                metrics.source_workspace_unchanged_count for metrics in observed
+            ),
+            "final_open_effect_count": sum(metrics.final_open_effect_count for metrics in observed),
+        }
+        for field, value in expected_reliability.items():
+            if getattr(self.reliability, field) != value:
+                raise ValueError(f"Run A/B suite reliability {field} does not match its cases")
+        expected_p95 = (
+            durations[max(0, (95 * len(durations) + 99) // 100 - 1)] if durations else None
+        )
+        if self.reliability.p95_scenario_duration_ms != expected_p95:
+            raise ValueError("Run A/B suite P95 duration does not match its timed cases")
         return self
