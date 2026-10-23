@@ -29,7 +29,7 @@
 | Typed Tool Gateway | [gateway.py](../src/horizon/tools/gateway.py) | 搜索、读取、单文件精确替换、最多 8 文件的结构化精确 patch、单个最多 64 KiB 的 UTF-8 新文件、受保护检查和 submit；路径/链接/大小受限，每次 intent/receipt 持久化；existing target 不覆盖、父目录不自动创建；exact search 饱和时显式标记截断并引导 ranked retrieval；`retrieve_code` 默认只返回 rank 1，需要时才显式扩大；大文件整读拒绝并要求最多 400 行、32 Ki 字符的范围读取 |
 | 顺序多 WorkItem Agent Loop | [agent_loop.py](../src/horizon/application/agent_loop.py) | dependency-ready 调度、逐项会话/权限/验收、原子交接、最终全量回归、有限 repair 与单次受限 replan；不支持并行或自动/多次 replan |
 | 本地顺序 Supervisor | [supervision.py](../src/horizon/application/supervision.py)、[设计与边界](local-sequential-supervisor.md) | `--supervise` 在新 AgentSession 已持久化后释放 Lease并重开完整 Worker 栈；可信父进程同步回收子进程后可绑定精确 Lease/epoch 接管。应用层还支持对一个直接子 Worker 先持久化取消目标，再 terminate/wait、超时 kill/wait；pending intent 原样进入 recovery，父进程崩溃后必须显式确认旧 Worker 停止。当前不是 CLI 常驻进程管理器、进程树控制、daemon 或分布式队列 |
-| 本地子进程 Supervisor | [local_process_supervision.py](../src/horizon/application/local_process_supervision.py)、[_local_agent_worker.py](../src/horizon/application/_local_agent_worker.py)、[设计与边界](local-process-supervisor.md) | `agent run/resume --worker-process` 让每个有界 slice 由真实直接子进程执行；父进程同步 reap 后按精确 Run/Lease/epoch/session/event cursor 通过 RecoveryService 门禁并换 epoch。pending intent 原样阻塞、无 retry/fallback；不是 daemon、进程树、父/OS 重启或跨主机恢复 |
+| 本地子进程 Supervisor | [local_process_supervision.py](../src/horizon/application/local_process_supervision.py)、[_local_agent_worker.py](../src/horizon/application/_local_agent_worker.py)、[设计与边界](local-process-supervisor.md) | `agent run/resume --worker-process` 让每个有界 slice 由真实直接子进程执行；父进程同步 reap 后按精确 Run/Lease/epoch/session/event cursor 通过 RecoveryService 门禁并换 epoch。等待期间的 `Ctrl+C` 与显式 slice timeout 复用持久取消栅栏，pending intent 原样阻塞、无 retry/fallback；不是 daemon、进程树、父/OS 硬崩溃或重启、跨主机恢复 |
 | 执行证据驱动的受限 Replan | [plan.py](../src/horizon/domain/plan.py)、[services.py](../src/horizon/application/services.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 模型显式 `revise_plan`，最多 1 次成功；大型动态 Schema 只在当前 WorkItem 已积累至少两轮执行证据或已有通过项后暴露，并用持久会话元数据保持崩溃恢复请求稳定；完成项逐字段不可变，工具 receipt、Plan vN+1、新 session 同事务；未做真实模型效果评测 |
 | 确定性 ContextProjection + MandatoryFactLedger | [context.py](../src/horizon/application/context.py)、[context.py](../src/horizon/domain/context.py) | 完整 transcript 留存；候选投影同时满足字符上限与覆盖工具 Schema 的完整请求保守 token 上界，执行期再按 Run/Campaign/单调用最小 CNY 余量收窄 effective cap，近期完整单元在任一硬上限需要时只折叠最少数量，incomplete 单元绝不折叠；新 Projection/Reservation 使用 Adapter 实际 OpenAI-compatible body 字节，绑定版本化 estimator、payload hash/字段分量、上界与 effective cap，并按 estimator ID 恢复 v1；Task/Plan/权限/验收/预算/策略/工具 Schema/workspace 另做内容寻址绑定；不是精确 tokenizer、语义压缩或 Project Memory |
 | 证据驱动的 Run Memory | [memory.py](../src/horizon/application/memory.py)、[memory.py](../src/horizon/domain/memory.py) | 从工具事件和内容寻址输出派生；保留失败/unknown，按 workspace revision 失效并绑定模型请求恢复边界；仅 run scope，不是 Project Memory |
@@ -107,8 +107,14 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
   `reconciliation_required`、零 recovery/模型/下一 Worker 调用、intent 和 Lease 原样保留。
 - CLI 接线测试确认无需同时写 `--supervise`，并输出 mode、disposition、每个 PID/exit code 与
   pending IDs。没有联网、没有付费模型调用、没有 retry/fallback，也未扩大历史 Campaign 预算。
-- 当前仍只覆盖本地直接子进程；父控制器/OS 重启、进程树、跨主机、后台 daemon/队列、CLI
-  Ctrl-C 到恢复安全取消的接线和任意故障窗口均未完成。详见[本地子进程 Supervisor](local-process-supervisor.md)。
+- `Ctrl+C` 和新增 `--worker-timeout-seconds` 已接入既有 `cancel_and_reap_worker`：触碰子进程前
+  先提交精确 PID/Lease/epoch 栅栏，随后 terminate/wait，必要时 kill/wait。真实等待子进程测试
+  覆盖无 effect 时进入 `CANCELLED`，以及已有 `read_file` intent 时保留 intent、返回
+  `reconciliation_required`、不启动下一 Worker；两条 Trace 均可重放。CLI 输出中断原因、停止
+  方式和 timeout，未配合 `--worker-process` 的 timeout 在创建 Run/派发模型前拒绝。
+- 当前仍只覆盖本地直接子进程和可处理的一次键盘中断/显式 timeout；父控制器/OS 硬崩溃或
+  重启、进程树、跨主机、后台 daemon/队列和任意故障窗口均未完成。详见
+  [本地子进程 Supervisor](local-process-supervisor.md)。
 
 ### 2026-10-10 Docker created 检查恢复与删除后 revision 门禁
 
@@ -927,8 +933,8 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 七轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 450 passed；全量入口对应
-450 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
+当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 459 passed；全量入口对应
+459 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
 `run_model_cost_limit` 进入 `FAILED`。没有工具、编辑、checkpoint 或验证，Trace 14 事件可重放，

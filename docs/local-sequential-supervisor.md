@@ -101,7 +101,8 @@ ID、Worker ID、epoch、事件序号和当时的 AgentSession。只有父进程
 这个入口只接受同一个可信父进程同步回收的子进程；父进程自身重启后无法从数据库重建该操作
 系统事实，仍使用显式旧 Worker 停止确认的既有恢复路径。若 Run 保存了取消目标，该路径还要
 回填 Trace 中的精确 PID。该 API 已被 `agent run/resume --worker-process` 用于正常执行切片，
-但仍不是可跨父进程重启恢复句柄的常驻进程管理器；下节的主动取消也尚未接入 CLI Ctrl-C。
+也已用于处理父 CLI 等待子进程时的 `Ctrl+C` 和显式 slice timeout；但仍不是可跨父进程重启
+恢复句柄的常驻进程管理器。
 
 ## 5. 取消一个仍在运行的直接子 Worker
 
@@ -143,6 +144,11 @@ result = supervisor.cancel_and_reap_worker(
 `cancel_worker_stop.process_id` 时写入 `operator_confirmed` receipt 并提升恢复 epoch；没有未决
 effect 时会直接安全取消，有未决 effect 时继续原 recovery。缺失或错误 PID 始终拒绝接管且不
 改变 Trace。
+
+正式 `--worker-process` 调用方在 `communicate` 等待中捕获一次 `KeyboardInterrupt`，或在
+`--worker-timeout-seconds` 到期时，都会立即调用上述入口。timeout 是 Run 级硬取消，不是下一
+slice 的安全交接；返回 JSON 会记录原因、PID、退出码与停止方式。pending effect 仍进入原
+recovery，且不会启动下一 Worker。
 
 当前边界只覆盖一个直接子进程，不覆盖其任意后代进程或跨主机 Worker；没有进程组/Job Object、
 后台 watcher、Provider 主动取消或 daemon。父进程在强制 `kill` 后仍收不到退出结果时，不写

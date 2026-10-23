@@ -30,15 +30,29 @@ class WorkerProcessReceipt:
 
 
 @dataclass(frozen=True)
+class WorkerProcessInterruption:
+    reason: Literal["keyboard_interrupt", "worker_timeout"]
+    process_id: int
+    stop_method: Literal["already_exited", "terminate", "kill"]
+    timeout_seconds: float | None = None
+
+
+@dataclass(frozen=True)
 class LocalProcessSupervisionResult:
     run: Run
-    disposition: Literal["stopped", "reconciliation_required", "slice_limit_reached"]
+    disposition: Literal[
+        "stopped",
+        "cancelled",
+        "reconciliation_required",
+        "slice_limit_reached",
+    ]
     worker_slices: int
     worker_handoffs: int
     slice_limit_reached: bool
     process_receipts: tuple[WorkerProcessReceipt, ...]
     pending_reservation_ids: tuple[str, ...] = ()
     recovery_report: RecoveryReport | None = None
+    interruption: WorkerProcessInterruption | None = None
 
 
 WorkerProcessLauncher = Callable[
@@ -205,12 +219,76 @@ class LocalProcessAgentSupervisor:
             stderr=as_bytes(stderr),
         )
 
+    @staticmethod
+    def _validate_timeouts(
+        worker_timeout_seconds: float | None,
+        terminate_timeout_seconds: float,
+    ) -> None:
+        if worker_timeout_seconds is not None and (
+            isinstance(worker_timeout_seconds, bool)
+            or not isinstance(worker_timeout_seconds, int | float)
+            or not 0 < worker_timeout_seconds <= 86_400
+        ):
+            raise ValueError("Worker timeout must be in (0, 86400] seconds")
+        if (
+            isinstance(terminate_timeout_seconds, bool)
+            or not isinstance(terminate_timeout_seconds, int | float)
+            or not 0 < terminate_timeout_seconds <= 30
+        ):
+            raise ValueError("Worker termination timeout must be in (0, 30] seconds")
+
+    def _cancel_interrupted_worker(
+        self,
+        *,
+        reason: Literal["keyboard_interrupt", "worker_timeout"],
+        handoff: SequentialAgentSupervisor,
+        boundary: ReapedWorkerBoundary,
+        service: HarnessService,
+        process: subprocess.Popen[bytes],
+        receipts: list[WorkerProcessReceipt],
+        slice_number: int,
+        worker_handoffs: int,
+        worker_timeout_seconds: float | None,
+        terminate_timeout_seconds: float,
+    ) -> LocalProcessSupervisionResult:
+        cancelled = handoff.cancel_and_reap_worker(
+            boundary,
+            service,
+            process,
+            key=f"process-supervisor-{reason}-{slice_number}-{uuid4().hex}",
+            terminate_timeout_seconds=terminate_timeout_seconds,
+        )
+        stdout, stderr = process.communicate()
+        receipt = self._receipt(process, stdout, stderr)
+        if receipt.exit_code != cancelled.exit_code:
+            raise Conflict("Cancelled Worker exit code changed after synchronous reap")
+        receipts.append(receipt)
+        return LocalProcessSupervisionResult(
+            run=cancelled.run,
+            disposition=cancelled.disposition,
+            worker_slices=slice_number,
+            worker_handoffs=worker_handoffs,
+            slice_limit_reached=False,
+            process_receipts=tuple(receipts),
+            pending_reservation_ids=cancelled.pending_reservation_ids,
+            interruption=WorkerProcessInterruption(
+                reason=reason,
+                process_id=cancelled.process_id,
+                stop_method=cancelled.stop_method,
+                timeout_seconds=(worker_timeout_seconds if reason == "worker_timeout" else None),
+            ),
+        )
+
     def run(
         self,
         run_id: str,
         service: HarnessService,
         token: LeaseToken,
+        *,
+        worker_timeout_seconds: float | None = None,
+        terminate_timeout_seconds: float = 5.0,
     ) -> LocalProcessSupervisionResult:
+        self._validate_timeouts(worker_timeout_seconds, terminate_timeout_seconds)
         receipts: list[WorkerProcessReceipt] = []
         worker_handoffs = 0
         handoff = SequentialAgentSupervisor(
@@ -231,7 +309,37 @@ class LocalProcessAgentSupervisor:
             if not isinstance(process.pid, int) or process.pid < 1:
                 raise Conflict("Agent Worker launch did not return a process identity")
 
-            stdout, stderr = process.communicate()
+            try:
+                if worker_timeout_seconds is None:
+                    stdout, stderr = process.communicate()
+                else:
+                    stdout, stderr = process.communicate(timeout=worker_timeout_seconds)
+            except KeyboardInterrupt:
+                return self._cancel_interrupted_worker(
+                    reason="keyboard_interrupt",
+                    handoff=handoff,
+                    boundary=boundary,
+                    service=service,
+                    process=process,
+                    receipts=receipts,
+                    slice_number=slice_number,
+                    worker_handoffs=worker_handoffs,
+                    worker_timeout_seconds=worker_timeout_seconds,
+                    terminate_timeout_seconds=terminate_timeout_seconds,
+                )
+            except subprocess.TimeoutExpired:
+                return self._cancel_interrupted_worker(
+                    reason="worker_timeout",
+                    handoff=handoff,
+                    boundary=boundary,
+                    service=service,
+                    process=process,
+                    receipts=receipts,
+                    slice_number=slice_number,
+                    worker_handoffs=worker_handoffs,
+                    worker_timeout_seconds=worker_timeout_seconds,
+                    terminate_timeout_seconds=terminate_timeout_seconds,
+                )
             receipt = self._receipt(process, stdout, stderr)
             receipts.append(receipt)
             last_slice = slice_number == self.config.max_worker_slices

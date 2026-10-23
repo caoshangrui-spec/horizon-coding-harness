@@ -19,11 +19,23 @@ uv run --locked --cache-dir .uv-cache horizon agent run `
 
 uv run --locked --cache-dir .uv-cache horizon agent resume <run-id> `
   --image redis:7-alpine --confirm-paid --worker-process
+
+# 每个子 Worker slice 的可选硬墙钟上限；Ctrl+C 不需要额外开关。
+uv run --locked --cache-dir .uv-cache horizon agent run `
+  examples/agent-task.yaml examples/agent-plan.yaml `
+  --image redis:7-alpine --confirm-paid --worker-process `
+  --worker-timeout-seconds 900
 ```
 
 `--slice-iterations N` 仍控制每个子 Worker 最多执行多少个模型 iteration；省略时为 1。
+`--worker-timeout-seconds N` 控制一个子进程 slice 的硬墙钟时间，仅能与 `--worker-process`
+一起使用。它与安全 yield 不同：到期意味着取消整个 Run，而不是自动启动下一 Worker。
 `--confirm-paid`、TaskSpec/Run/Campaign 预算、Provider 的无重试/无 fallback 规则均不改变。
 父进程不会把 API Key 写进子进程命令行；子进程从原配置和 `.env`/环境变量重新读取凭据。
+
+父 CLI 在等待子进程期间收到一次 `Ctrl+C`（Python `KeyboardInterrupt`）时，也将它解释为显式
+取消：先持久化精确 PID/Lease/epoch 的停止栅栏，再 terminate/wait，超时才 kill/wait。不会把
+键盘中断直接抛出并把仍运行的子进程遗留在无记录状态。
 
 ## 运行链
 
@@ -83,13 +95,31 @@ launch cursor 与安全 cursor；下一子进程使用新的 Lease epoch。进�
 }
 ```
 
-`disposition` 有三种：
+`disposition` 有四种：
 
 | 值 | 含义 | CLI 结果 |
 |---|---|---|
 | `stopped` | Run 已终态或进入人工等待 | 由 Run status 决定退出码 |
+| `cancelled` | `Ctrl+C` 或 slice 超时后，子进程已同步回收且无未决 effect | `CANCELLED`，CLI 退出 3 |
 | `slice_limit_reached` | 本次进程数上限到达，Run 在无 Lease 的安全边界 | `RUNNING`，可再次 `agent resume` |
 | `reconciliation_required` | 子进程结束后存在 pending effect，或 RecoveryService 无法证明安全 session | 保留原证据，CLI 退出 3，不启动下一 Worker |
+
+发生可控中断时还会增加：
+
+```json
+{
+  "worker_timeout_seconds": 900.0,
+  "interruption": {
+    "reason": "worker_timeout",
+    "process_id": 12001,
+    "stop_method": "terminate",
+    "timeout_seconds": 900.0
+  }
+}
+```
+
+`reason` 为 `worker_timeout` 或 `keyboard_interrupt`；键盘中断的 `timeout_seconds` 为 `null`。
+`stop_method` 记录 `already_exited`、`terminate` 或 `kill`，且只在同步 wait 返回后输出。
 
 stdout 中的子 Worker 小型诊断只用于汇总 `check_cleanup_failures`；是否续跑完全不信任该输出，
 只看持久 Run 与同步 reap 证据。
@@ -104,6 +134,9 @@ stdout 中的子 Worker 小型诊断只用于汇总 `check_cleanup_failures`；�
 | Worker 未产生新 session且无 pending intent | RecoveryService 返回 `unsafe_agent_boundary`，停止 | 不猜测“没有副作用所以可继续” |
 | 最后允许的 slice 安全结束 | 记录 reaped release，保持无 Lease `RUNNING` | 不为一个不会启动的 Worker 多拿 Lease |
 | Run 已 `SUCCEEDED/FAILED/CANCELLED/WAITING_FOR_USER` | 直接返回持久状态 | 不开启额外 Worker |
+| 父 CLI 在 `communicate` 中收到 `Ctrl+C` | 先写 `CANCEL_WORKER_STOP_PENDING`，再停止并同步回收精确子进程 | 不先释放 Lease，不按进程名扫描 |
+| `--worker-timeout-seconds` 到期 | 使用同一取消路径；无 effect 时进入 `CANCELLED` | 不把超时当安全 yield，不自动重试/fallback |
+| 中断后仍有 pending effect | 写 Worker stop receipt、释放旧 Lease并返回 `reconciliation_required` | 不清除 intent，不启动下一 Worker |
 
 `reconciliation_required` 后先检查 `pending_reservation_ids` 和 Run status。普通恢复仍走
 `agent reconcile`；具体工具 effect 再走窄化的 `agent resolve-tool` 决策。若旧 Lease 尚未过期，
@@ -119,7 +152,13 @@ stdout 中的子 Worker 小型诊断只用于汇总 `check_cleanup_failures`；�
 - 两个 slice 后达到上限，Run 保持 `RUNNING` 且无 Lease，可由后续命令继续；
 - 子进程持久化 `read_file` intent 后以 38 退出，父进程返回
   `reconciliation_required`，不调用 RecoveryService、模型或下一 Worker，也不释放/覆盖 intent；
+- 真实等待子进程触发 slice timeout 后，父进程先持久化取消栅栏再 terminate/wait；无 effect 的
+  Run 进入 `CANCELLED`，带持久 `read_file` intent 的 Run 保留原 intent 并返回
+  `reconciliation_required`；两条 Trace 均可完整重放且没有启动第二个 Worker；
+- 模拟 `KeyboardInterrupt` 验证 `Ctrl+C` 走相同的 fence-before-terminate 路径，并输出精确 PID、
+  退出码、中断原因和停止方式；
 - `--worker-process` 在 `agent run` 中隐含 supervision，并输出 PID/退出码和 disposition；
+- `--worker-timeout-seconds` 未配合 `--worker-process` 时在创建 Run 或派发模型前拒绝；
 - 生产 child command 绑定完整启动身份，命令行不包含 API Key。
 
 这些是离线 Scripted Model 与本地进程协议证据，不是付费模型效果、Docker 隔离安全认证或跨主机
@@ -128,6 +167,9 @@ stdout 中的子 Worker 小型诊断只用于汇总 `check_cleanup_failures`；�
 ## 严格边界
 
 - 仅管理父 CLI 直接创建的一个子进程；没有进程树/job object 管理。
+- 自动中断接线仅覆盖父 CLI 已获得 `Popen` 句柄后、等待子进程时的一次可处理
+  `KeyboardInterrupt`，以及显式 slice timeout；强制结束父进程、掉电或 OS 崩溃仍不会产生同步
+  reap receipt。
 - 父控制器或操作系统崩溃后，内存中的 `Popen`/reap 事实不可恢复；仍走显式旧 Worker 停止确认。
 - pending effect 不自动接纳、回滚、重试或丢弃。
 - 没有后台 daemon、任务队列、并行 Worker、跨主机租约或自动重启策略。

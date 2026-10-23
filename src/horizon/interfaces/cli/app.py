@@ -1436,9 +1436,23 @@ def agent_run(
             ),
         ),
     ] = False,
+    worker_timeout_seconds: Annotated[
+        float | None,
+        typer.Option(
+            "--worker-timeout-seconds",
+            min=0.1,
+            max=86_400.0,
+            help=(
+                "Hard wall-clock limit for each local child slice. A timeout durably cancels "
+                "the Run before stopping and reaping the child; requires --worker-process."
+            ),
+        ),
+    ] = None,
 ):
     if not confirm_paid:
         raise ValueError("Agent execution requires --confirm-paid")
+    if worker_timeout_seconds is not None and not worker_process:
+        raise ValueError("--worker-timeout-seconds requires --worker-process")
     if auto_plan == (plan_path is not None):
         raise ValueError("Provide exactly one Plan source: PLAN_PATH or --auto-plan")
     if pilot_preflight is not None and not auto_plan:
@@ -1685,6 +1699,7 @@ def agent_run(
     process_disposition = None
     process_receipts: tuple[WorkerProcessReceipt, ...] = ()
     pending_process_reservations: tuple[str, ...] = ()
+    process_interruption = None
     try:
         if worker_process:
             process_supervised = LocalProcessAgentSupervisor(
@@ -1711,7 +1726,12 @@ def agent_run(
                     max_worker_slices=min(50, runner_config.max_model_iterations + 1),
                     lease_ttl_seconds=600,
                 ),
-            ).run(run.run_id, service, token)
+            ).run(
+                run.run_id,
+                service,
+                token,
+                worker_timeout_seconds=worker_timeout_seconds,
+            )
             result = process_supervised.run
             worker_slices = process_supervised.worker_slices
             worker_handoffs = process_supervised.worker_handoffs
@@ -1719,6 +1739,7 @@ def agent_run(
             process_disposition = process_supervised.disposition
             process_receipts = process_supervised.process_receipts
             pending_process_reservations = process_supervised.pending_reservation_ids
+            process_interruption = process_supervised.interruption
         elif supervise:
             supervised = SequentialAgentSupervisor(
                 lambda: HarnessService(SQLiteEventStore(ctx.obj["db"])),
@@ -1817,6 +1838,23 @@ def agent_run(
                                 for receipt in process_receipts
                             ],
                             "pending_reservation_ids": list(pending_process_reservations),
+                            **(
+                                {"worker_timeout_seconds": worker_timeout_seconds}
+                                if worker_timeout_seconds is not None
+                                else {}
+                            ),
+                            **(
+                                {
+                                    "interruption": {
+                                        "reason": process_interruption.reason,
+                                        "process_id": process_interruption.process_id,
+                                        "stop_method": process_interruption.stop_method,
+                                        "timeout_seconds": process_interruption.timeout_seconds,
+                                    }
+                                }
+                                if process_interruption is not None
+                                else {}
+                            ),
                         }
                         if worker_process
                         else {}
@@ -1907,9 +1945,23 @@ def agent_resume(
             ),
         ),
     ] = False,
+    worker_timeout_seconds: Annotated[
+        float | None,
+        typer.Option(
+            "--worker-timeout-seconds",
+            min=0.1,
+            max=86_400.0,
+            help=(
+                "Hard wall-clock limit for each local child slice. A timeout durably cancels "
+                "the Run before stopping and reaping the child; requires --worker-process."
+            ),
+        ),
+    ] = None,
 ):
     if not confirm_paid:
         raise ValueError("Agent continuation requires --confirm-paid")
+    if worker_timeout_seconds is not None and not worker_process:
+        raise ValueError("--worker-timeout-seconds requires --worker-process")
     provider = load_provider_config(config_path)
     credential = resolve_credential(provider, dotenv_path)
     store = store_for(ctx)
@@ -2123,6 +2175,7 @@ def agent_resume(
     process_disposition = None
     process_receipts: tuple[WorkerProcessReceipt, ...] = ()
     pending_process_reservations: tuple[str, ...] = ()
+    process_interruption = None
     try:
         if worker_process:
             process_supervised = LocalProcessAgentSupervisor(
@@ -2149,7 +2202,12 @@ def agent_resume(
                     max_worker_slices=min(50, runner_config.max_model_iterations + 1),
                     lease_ttl_seconds=600,
                 ),
-            ).run(run_id, service, token)
+            ).run(
+                run_id,
+                service,
+                token,
+                worker_timeout_seconds=worker_timeout_seconds,
+            )
             result = process_supervised.run
             worker_slices = process_supervised.worker_slices
             worker_handoffs = process_supervised.worker_handoffs
@@ -2157,6 +2215,7 @@ def agent_resume(
             process_disposition = process_supervised.disposition
             process_receipts = process_supervised.process_receipts
             pending_process_reservations = process_supervised.pending_reservation_ids
+            process_interruption = process_supervised.interruption
         elif supervise:
             supervised = SequentialAgentSupervisor(
                 lambda: HarnessService(SQLiteEventStore(ctx.obj["db"])),
@@ -2248,6 +2307,23 @@ def agent_resume(
                                 for receipt in process_receipts
                             ],
                             "pending_reservation_ids": list(pending_process_reservations),
+                            **(
+                                {"worker_timeout_seconds": worker_timeout_seconds}
+                                if worker_timeout_seconds is not None
+                                else {}
+                            ),
+                            **(
+                                {
+                                    "interruption": {
+                                        "reason": process_interruption.reason,
+                                        "process_id": process_interruption.process_id,
+                                        "stop_method": process_interruption.stop_method,
+                                        "timeout_seconds": process_interruption.timeout_seconds,
+                                    }
+                                }
+                                if process_interruption is not None
+                                else {}
+                            ),
                         }
                         if worker_process
                         else {}
@@ -2973,6 +3049,9 @@ def doctor():
                 "safe_turn_continuation": True,
                 "local_sequential_supervisor": True,
                 "local_sequential_supervisor_profile": ("quiescent_session_bound_worker_handoffs"),
+                "local_process_supervisor": True,
+                "local_process_interrupt_cancellation": True,
+                "local_process_slice_timeout": True,
                 "response_receipt_continuation": True,
                 "campaign_only_hold_recovery": True,
                 "run_linked_call_reconciliation": True,

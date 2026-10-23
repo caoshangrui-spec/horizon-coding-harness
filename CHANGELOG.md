@@ -5,6 +5,16 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Wired graceful parent interruption into process supervision. While `agent run/resume
+  --worker-process` waits for a direct child, `Ctrl+C` now persists the exact
+  `CANCEL_WORKER_STOP_PENDING` fence before terminate/wait and optional kill/wait. The new
+  `--worker-timeout-seconds` applies the same recovery-safe Run cancellation at a per-slice hard
+  wall-clock limit; it is rejected without process mode. CLI JSON identifies the interruption,
+  exact PID, exit code, stop method, and timeout. Pending effects remain intact and return
+  `reconciliation_required` without launching another Worker. Offline tests cover real waiting
+  children with and without a pending tool intent, simulated `KeyboardInterrupt`, Trace replay,
+  and pre-dispatch option validation. Force-killing or restarting the parent remains outside this
+  synchronous-reap guarantee.
 - Added an opt-in, process-owning runtime path for normal `agent run` and `agent resume`.
   `--worker-process` now launches each bounded Agent slice in a direct local child, binds its
   Run/Lease/epoch/session/event cursor before dispatch, synchronously reaps the exact PID, and

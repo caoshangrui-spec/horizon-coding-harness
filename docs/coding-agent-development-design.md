@@ -752,7 +752,7 @@ Lease TTL 过期后必须增加 epoch、fence 旧 Worker，确认旧命令不能
 | 只读工具调用 | 可按策略重试，并使用新 attempt ID |
 | 文件编辑 | 先检查文件摘要或 patch 是否已经存在，再决定跳过或重试 |
 | 测试命令 | 可重跑；旧进程必须确认已终止 |
-| Supervisor 直接子 Worker | 正常 `--worker-process` slice 由父 CLI 同步 reap 后按精确 Lease/session 边界换 epoch；主动取消先持久化精确停止目标，再 terminate/wait，超时才 kill/wait；父进程崩溃后必须显式确认停止，pending effect 仍走原恢复 |
+| Supervisor 直接子 Worker | 正常 `--worker-process` slice 由父 CLI 同步 reap 后按精确 Lease/session 边界换 epoch；等待期间的 `Ctrl+C` 或显式 slice timeout 先持久化精确停止目标，再 terminate/wait，超时才 kill/wait；父进程硬崩溃后必须显式确认停止，pending effect 仍走原恢复 |
 | 模型调用 | 不假设供应商已执行；如无可查询请求 ID，标记旧调用 `unknown` 后发起新调用 |
 | Git 临时提交 | 通过 commit ID 查询，不重复提交 |
 | 外部 PR/Issue 写操作 | 必须通过外部 ID 查询；无法确认则等待人工 |

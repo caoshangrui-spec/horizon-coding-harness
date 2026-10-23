@@ -3447,6 +3447,181 @@ def _cancellation_supervisor(store):
     )
 
 
+def _waiting_process_supervisor(tmp_path, store, run_id, workspace, *, mode):
+    launches = []
+
+    def launch(boundary, slice_iterations):
+        assert boundary.run_id == run_id
+        assert slice_iterations == 1
+        launches.append(boundary)
+        return _start_waiting_supervisor_worker(
+            tmp_path,
+            store,
+            run_id,
+            boundary.lease,
+            workspace,
+            mode=mode,
+        )
+
+    supervisor = LocalProcessAgentSupervisor(
+        lambda: HarnessService(SQLiteEventStore(store.path)),
+        launch,
+        lambda service: RecoveryService(
+            service,
+            CampaignBudgetLedger(tmp_path / "campaign.sqlite3"),
+            ArtifactStore(tmp_path / "artifacts"),
+        ),
+        config=SequentialSupervisorConfig(slice_iterations=1, max_worker_slices=2),
+    )
+    return supervisor, launches
+
+
+def test_local_process_supervisor_timeout_cancels_and_reaps_exact_child(
+    tmp_path,
+    task_dict,
+):
+    _, store, run_id, token, workspace, model = setup_loop(tmp_path, task_dict, [])
+    supervisor, launches = _waiting_process_supervisor(
+        tmp_path,
+        store,
+        run_id,
+        workspace,
+        mode="wait",
+    )
+
+    result = supervisor.run(
+        run_id,
+        HarnessService(store),
+        token,
+        worker_timeout_seconds=0.05,
+    )
+
+    assert result.disposition == "cancelled"
+    assert result.run.status == RunStatus.CANCELLED
+    assert result.worker_slices == 1
+    assert result.worker_handoffs == 0
+    assert result.slice_limit_reached is False
+    assert len(launches) == 1
+    assert len(result.process_receipts) == 1
+    assert result.interruption is not None
+    assert result.interruption.reason == "worker_timeout"
+    assert result.interruption.process_id == result.process_receipts[0].process_id
+    assert result.interruption.stop_method == "terminate"
+    assert result.interruption.timeout_seconds == 0.05
+    assert result.pending_reservation_ids == ()
+    assert result.run.cancel_worker_stop is None
+    assert result.run.cancel_worker_stop_receipts[-1]["process_id"] == (
+        result.interruption.process_id
+    )
+    assert result.run.cancel_worker_stop_receipts[-1]["stop_method"] == "terminate"
+    assert not model.requests
+    assert SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id)).as_dict() == (
+        result.run.as_dict()
+    )
+
+
+def test_local_process_supervisor_timeout_preserves_pending_effect_for_recovery(
+    tmp_path,
+    task_dict,
+):
+    _, store, run_id, token, workspace, model = setup_loop(tmp_path, task_dict, [])
+    supervisor, launches = _waiting_process_supervisor(
+        tmp_path,
+        store,
+        run_id,
+        workspace,
+        mode="pending_wait",
+    )
+
+    result = supervisor.run(
+        run_id,
+        HarnessService(store),
+        token,
+        worker_timeout_seconds=0.05,
+    )
+
+    assert result.disposition == "reconciliation_required"
+    assert result.run.status == RunStatus.RUNNING
+    assert result.run.cancel_requested is True
+    assert result.run.lease_id is None
+    assert result.pending_reservation_ids == ("reaped-pending-read",)
+    assert set(result.run.reservations) == {"reaped-pending-read"}
+    assert len(launches) == 1
+    assert result.interruption is not None
+    assert result.interruption.reason == "worker_timeout"
+    assert result.interruption.stop_method == "terminate"
+    assert len(result.process_receipts) == 1
+    assert not model.requests
+    assert SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id)).as_dict() == (
+        result.run.as_dict()
+    )
+
+
+def test_local_process_supervisor_keyboard_interrupt_uses_durable_cancel_fence(
+    tmp_path,
+    task_dict,
+):
+    _, store, run_id, token, _, model = setup_loop(tmp_path, task_dict, [])
+
+    class InterruptingProcess:
+        pid = 4348
+
+        def __init__(self):
+            self.returncode = None
+            self.terminated = False
+
+        def communicate(self, timeout=None):
+            if not self.terminated:
+                raise KeyboardInterrupt
+            return b"", b""
+
+        def poll(self):
+            return self.returncode
+
+        def terminate(self):
+            fenced = store.get(run_id)
+            assert fenced.cancel_requested is True
+            assert fenced.cancel_worker_stop is not None
+            assert fenced.cancel_worker_stop["process_id"] == self.pid
+            self.terminated = True
+
+        def kill(self):
+            pytest.fail("cooperative interrupt cancellation must not force-kill the child")
+
+        def wait(self, timeout=None):
+            assert self.terminated is True
+            self.returncode = 130
+            return self.returncode
+
+    process = InterruptingProcess()
+    supervisor = LocalProcessAgentSupervisor(
+        lambda: HarnessService(SQLiteEventStore(store.path)),
+        lambda boundary, slice_iterations: process,
+        lambda service: RecoveryService(
+            service,
+            CampaignBudgetLedger(tmp_path / "campaign.sqlite3"),
+            ArtifactStore(tmp_path / "artifacts"),
+        ),
+        config=SequentialSupervisorConfig(slice_iterations=1, max_worker_slices=2),
+    )
+
+    result = supervisor.run(run_id, HarnessService(store), token)
+
+    assert result.disposition == "cancelled"
+    assert result.run.status == RunStatus.CANCELLED
+    assert result.interruption is not None
+    assert result.interruption.reason == "keyboard_interrupt"
+    assert result.interruption.process_id == process.pid
+    assert result.interruption.stop_method == "terminate"
+    assert result.interruption.timeout_seconds is None
+    assert result.process_receipts[0].exit_code == 130
+    assert result.pending_reservation_ids == ()
+    assert not model.requests
+    assert SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id)).as_dict() == (
+        result.run.as_dict()
+    )
+
+
 def test_supervisor_persists_fence_before_stopping_and_reaping_worker(
     tmp_path,
     task_dict,

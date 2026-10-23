@@ -1,6 +1,11 @@
 from pathlib import Path
 
-from horizon.application.local_process_supervision import LocalAgentWorkerLauncher
+import pytest
+
+from horizon.application.local_process_supervision import (
+    LocalAgentWorkerLauncher,
+    LocalProcessAgentSupervisor,
+)
 from horizon.application.services import LeaseToken
 from horizon.application.supervision import ReapedWorkerBoundary
 
@@ -72,3 +77,9 @@ def test_local_worker_command_represents_missing_initial_session(tmp_path):
     command = launcher.command(boundary, 1)
 
     assert command[9:11] == ("-", "0")
+
+
+@pytest.mark.parametrize("timeout", [0, -1, 86_401, True])
+def test_local_process_supervisor_rejects_invalid_worker_timeout(timeout):
+    with pytest.raises(ValueError, match="Worker timeout"):
+        LocalProcessAgentSupervisor._validate_timeouts(timeout, 5.0)

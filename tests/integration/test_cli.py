@@ -18,6 +18,7 @@ from horizon.adapters.workspace.snapshot import SnapshotManager
 from horizon.application.agent_loop import AgentLoopConfig, CodingAgentRunner
 from horizon.application.local_process_supervision import (
     LocalProcessSupervisionResult,
+    WorkerProcessInterruption,
     WorkerProcessReceipt,
 )
 from horizon.application.planning import (
@@ -373,6 +374,9 @@ def test_doctor_checks_fts_without_model():
     assert data["local_sequential_supervisor_profile"] == (
         "quiescent_session_bound_worker_handoffs"
     )
+    assert data["local_process_supervisor"] is True
+    assert data["local_process_interrupt_cancellation"] is True
+    assert data["local_process_slice_timeout"] is True
     assert data["response_receipt_continuation"] is True
     assert data["campaign_only_hold_recovery"] is True
     assert data["run_linked_call_reconciliation"] is True
@@ -676,7 +680,8 @@ def test_agent_run_worker_process_implies_supervision_and_reports_process_eviden
             captured["launcher"] = process_launcher
             captured["config"] = config
 
-        def run(self, run_id, service, token):
+        def run(self, run_id, service, token, *, worker_timeout_seconds=None):
+            assert worker_timeout_seconds is None
             released = service.release_lease(run_id, token, "fake-process-slice-limit")
             return LocalProcessSupervisionResult(
                 run=released,
@@ -840,7 +845,8 @@ def test_agent_resume_worker_process_uses_existing_safe_session(tmp_path, monkey
         def __init__(self, service_factory, process_launcher, recovery_factory, *, config):
             assert config.slice_iterations == 1
 
-        def run(self, run_id, service, token):
+        def run(self, run_id, service, token, *, worker_timeout_seconds=None):
+            assert worker_timeout_seconds is None
             current = service.store.get(run_id)
             assert current.agent_session is not None
             assert current.agent_session.next_iteration == 2
@@ -885,6 +891,123 @@ def test_agent_resume_worker_process_uses_existing_safe_session(tmp_path, monkey
     assert data["supervision"]["slice_limit_reached"] is True
     assert len(model.requests) == requests_before_resume
     assert (source / "src/parser.py").read_text(encoding="utf-8") == original
+
+
+def test_agent_run_worker_timeout_reports_recovery_safe_cancellation(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    source, original, task_path, dotenv = write_auto_plan_cli_fixture(tmp_path)
+    model = AutoPlanAndFixModel()
+    monkeypatch.setattr(
+        cli_app_module,
+        "OpenAICompatibleModelGateway",
+        lambda *args, **kwargs: model,
+    )
+
+    class FakeProcessSupervisor:
+        def __init__(self, service_factory, process_launcher, recovery_factory, *, config):
+            assert config.slice_iterations == 1
+
+        def run(self, run_id, service, token, *, worker_timeout_seconds=None):
+            assert worker_timeout_seconds == 0.25
+            cancelled = service.cancel(run_id, "fake-worker-timeout-cancel")
+            return LocalProcessSupervisionResult(
+                run=cancelled,
+                disposition="cancelled",
+                worker_slices=1,
+                worker_handoffs=0,
+                slice_limit_reached=False,
+                process_receipts=(WorkerProcessReceipt(process_id=6543, exit_code=1),),
+                interruption=WorkerProcessInterruption(
+                    reason="worker_timeout",
+                    process_id=6543,
+                    stop_method="terminate",
+                    timeout_seconds=0.25,
+                ),
+            )
+
+    monkeypatch.setattr(
+        cli_app_module,
+        "LocalProcessAgentSupervisor",
+        FakeProcessSupervisor,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "run",
+            str(task_path),
+            "--auto-plan",
+            "--image",
+            "offline-fixture",
+            "--config",
+            str(PROVIDER),
+            "--dotenv",
+            str(dotenv),
+            "--confirm-paid",
+            "--worker-process",
+            "--worker-timeout-seconds",
+            "0.25",
+        ],
+    )
+
+    assert result.exit_code == 3, result.output
+    data = json.loads(result.stdout)
+    assert data["status"] == "CANCELLED"
+    assert data["supervision"] == {
+        "enabled": True,
+        "slice_iterations": 1,
+        "worker_slices": 1,
+        "worker_handoffs": 0,
+        "slice_limit_reached": False,
+        "mode": "local_process",
+        "disposition": "cancelled",
+        "processes": [{"process_id": 6543, "exit_code": 1}],
+        "pending_reservation_ids": [],
+        "worker_timeout_seconds": 0.25,
+        "interruption": {
+            "reason": "worker_timeout",
+            "process_id": 6543,
+            "stop_method": "terminate",
+            "timeout_seconds": 0.25,
+        },
+    }
+    assert (source / "src/parser.py").read_text(encoding="utf-8") == original
+
+
+def test_agent_run_worker_timeout_requires_process_mode_before_dispatch(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _, _, task_path, dotenv = write_auto_plan_cli_fixture(tmp_path)
+    model = AutoPlanAndFixModel()
+    monkeypatch.setattr(
+        cli_app_module,
+        "OpenAICompatibleModelGateway",
+        lambda *args, **kwargs: model,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "run",
+            str(task_path),
+            "--auto-plan",
+            "--image",
+            "offline-fixture",
+            "--config",
+            str(PROVIDER),
+            "--dotenv",
+            str(dotenv),
+            "--confirm-paid",
+            "--worker-timeout-seconds",
+            "0.25",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "--worker-timeout-seconds requires --worker-process" in result.output
+    assert not model.requests
+    assert not (tmp_path / ".horizon" / "control.sqlite3").exists()
 
 
 def test_agent_run_invalid_auto_plan_persists_human_fallback_without_retry(

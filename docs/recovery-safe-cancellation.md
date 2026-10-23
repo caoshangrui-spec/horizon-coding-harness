@@ -104,6 +104,12 @@ receipt 并进入 recovery。缺少或不匹配的 PID 保持原栅栏不变；�
 该入口不按进程名扫描，不终止任意 Python 进程，也不覆盖进程树、Job Object、跨主机 Worker
 或 Provider 侧取消。调用方必须保证句柄 PID 就是实际 Worker，而非会再派生解释器的 launcher。
 
+正式 `agent run/resume --worker-process` 已把该入口接到两个可控父进程事件：等待直接子进程时
+收到 `Ctrl+C`，以及可选 `--worker-timeout-seconds` 到期。两者都在触碰进程前写停止栅栏，
+然后 terminate/wait、必要时 kill/wait；只有同步 wait 返回才报告 `cancelled` 或
+`reconciliation_required`。slice timeout 是整个 Run 的硬取消，不是安全 yield，也不会自动 retry
+或 fallback。未配合 `--worker-process` 的 timeout 参数会在创建 Run 或派发模型前被拒绝。
+
 ## 6. 关键故障窗口
 
 | 故障点 | 持久结果 | 恢复行为 |
@@ -125,9 +131,11 @@ SQLite 事件与 Docker/Provider 不是分布式事务，因此这里提供的�
 
 - 已实现：取消派发栅栏、迟到模型 receipt、模型 unknown、普通 reservation、工具恢复、顺序
   多工具截断、protected check 截断、精确 Docker check 停止、单个直接子 Worker 的栅栏优先
-  terminate/wait/kill 与父进程崩溃后的显式确认、Trace replay。
+  terminate/wait/kill、正式 CLI 的单次 `Ctrl+C`/slice timeout 接线、父进程崩溃后的显式确认、
+  Trace replay。
 - 未实现：通用宿主进程组/后代进程终止、Provider 侧主动取消/receipt 查询、后台定时取消 Worker、多个
-  并发外部 effect、daemon/分布式队列。
+  并发外部 effect、daemon/分布式队列。父进程被强制结束、掉电或 OS 崩溃仍不能生成同步 reap
+  证据，必须走旧 Worker 停止确认。
 - `status=RUNNING` 且 `cancel_requested=true` 表示“原阶段仍供 recovery 使用，但业务执行已被
   永久围栏”，不是 Agent 仍可继续工作。
 
@@ -144,6 +152,8 @@ SQLite 事件与 Docker/Provider 不是分布式事务，因此这里提供的�
 - 带未决只读 intent 的 Worker 被回收后不重派，需 recovery settlement 才终态；
 - terminate 超时后的 kill、已退出进程、协作释放 Lease、身份不匹配零进程操作，以及父进程崩溃
   后无显式停止确认不接管；
+- 正式本地子进程模式的 `Ctrl+C` 和硬 slice timeout 均复用 fence-before-stop；真实等待子进程
+  覆盖无 effect 直接取消与 pending intent 保守阻塞，且 Trace 可重放、无第二 Worker；
 - CLI 精确停止路径不联网、不调用付费模型。
 
 这些测试证明当前有界实现的状态闭合，不代表任意进程、任意 Provider 或分布式执行环境都已支持。
