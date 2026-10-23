@@ -5,6 +5,15 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Added a zero-cost `horizon demo process-timeout` path that starts one real direct child,
+  waits for its exact Run/Lease/epoch/event handshake, triggers a parent-side slice timeout,
+  and exercises the production fence-before-stop cancellation path. It exports child-ready and
+  parent-supervision observations plus a nested generic terminal EvidencePack; the standalone
+  verifier recursively checks hashes, replays the Trace without SQLite, and requires
+  `launch < CANCEL_WORKER_STOP_PENDING < CANCEL_WORKER_STOPPED < LEASE_RELEASED < CANCEL_REQUESTED`.
+  The demo makes no model, tool, network, Docker, or repository-code call. It proves only one
+  local direct-child timeout and synchronous reap, not parent/OS crash recovery, process-tree or
+  cross-host control, arbitrary-effect recovery, exactly-once execution, or model quality.
 - Wired graceful parent interruption into process supervision. While `agent run/resume
   --worker-process` waits for a direct child, `Ctrl+C` now persists the exact
   `CANCEL_WORKER_STOP_PENDING` fence before terminate/wait and optional kill/wait. The new

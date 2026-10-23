@@ -59,6 +59,10 @@ from horizon.application.planning import (
     build_planning_context,
 )
 from horizon.application.portfolio_demo import PortfolioDemoRunner
+from horizon.application.process_timeout_demo import (
+    ProcessTimeoutDemoRunner,
+    verify_process_timeout_evidence_pack,
+)
 from horizon.application.promotion import PromotionService
 from horizon.application.recovery import RecoveryService
 from horizon.application.recovery_eval import RecoveryMatrixEvaluator
@@ -951,6 +955,96 @@ def portfolio_demo_run(
     )
     if not result.report.verification.all_checks_passed:
         raise typer.Exit(3)
+
+
+@demos.command("process-timeout")
+@guarded
+def process_timeout_demo(
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            help="New evidence directory; defaults to a unique path below .horizon/demos.",
+        ),
+    ] = None,
+    worker_timeout_seconds: Annotated[
+        float,
+        typer.Option(
+            "--worker-timeout-seconds",
+            min=0.05,
+            max=5.0,
+            help="Parent-side wall-clock limit applied after the direct child is ready.",
+        ),
+    ] = 0.2,
+):
+    """Timeout one real direct child, cancel it safely, and export offline evidence."""
+
+    destination = output or (Path(".horizon") / "demos" / f"process-timeout-{uuid4().hex[:12]}")
+    result = ProcessTimeoutDemoRunner().run(
+        destination,
+        worker_timeout_seconds=worker_timeout_seconds,
+    )
+    evidence = result.evidence_pack.evidence
+    typer.echo(
+        canonical_json(
+            {
+                "verified": True,
+                "run_id": evidence.run_id,
+                "status": evidence.terminal_status,
+                "process_id": evidence.process_id,
+                "worker_id": evidence.worker_id,
+                "lease_epoch": evidence.lease_epoch,
+                "worker_timeout_seconds": evidence.timeout_seconds,
+                "interruption_reason": evidence.interruption_reason,
+                "stop_method": evidence.stop_method,
+                "exit_code": evidence.exit_code,
+                "event_order": {
+                    "launch": evidence.launch_event_seq,
+                    "cancellation_fence": evidence.cancellation_fence_event_seq,
+                    "worker_stopped": evidence.worker_stopped_event_seq,
+                    "lease_released": evidence.lease_released_event_seq,
+                    "terminal_cancellation": evidence.terminal_cancellation_event_seq,
+                },
+                "paid_model_called": evidence.paid_model_called,
+                "tool_called": evidence.tool_called,
+                "network_called": evidence.network_called,
+                "docker_called": evidence.docker_called,
+                "repository_code_executed": evidence.repository_code_executed,
+                "external_cost_cny": evidence.external_cost_cny,
+                "claim_scope": evidence.claim_scope,
+                "output_dir": str(result.output_dir),
+                "evidence_pack": str(result.evidence_pack_path),
+                "terminal_pack": str(result.terminal_evidence_pack_path),
+                "trace": str(result.trace_path),
+                "summary": str(result.summary_path),
+                "boundaries": evidence.boundaries,
+            }
+        )
+    )
+
+
+@demos.command("verify-process-timeout")
+@guarded
+def verify_process_timeout_demo(path: Path):
+    """Verify direct-child timeout evidence without its database or a live child."""
+
+    pack = verify_process_timeout_evidence_pack(path)
+    evidence = pack.evidence
+    typer.echo(
+        canonical_json(
+            {
+                "verified": True,
+                "run_id": evidence.run_id,
+                "status": evidence.terminal_status,
+                "process_id": evidence.process_id,
+                "interruption_reason": evidence.interruption_reason,
+                "event_count": evidence.event_count,
+                "trace_replay_verified": evidence.trace_replay_verified,
+                "verification_mode": evidence.verification_mode,
+                "claim_scope": evidence.claim_scope,
+            }
+        )
+    )
 
 
 @demos.command("docker-created-recovery")

@@ -46,5 +46,10 @@ jobs:
       - name: Run portfolio demo and verify EvidencePack
         run: uv run --locked horizon demo run --output .horizon/ci-portfolio-demo
 
+      - name: Run direct-child timeout demo and verify EvidencePack
+        run: |
+          uv run --locked horizon demo process-timeout --output .horizon/ci-process-timeout
+          uv run --locked horizon demo verify-process-timeout .horizon/ci-process-timeout/evidence-pack.json
+
       - name: Build wheel and source distribution
         run: uv build
