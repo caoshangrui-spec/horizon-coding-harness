@@ -1,13 +1,12 @@
-# Horizon v0.2.0 候选说明
+# Horizon v0.2.0 — Recoverable Process Supervision and Evidence
 
-> 状态：`0.2.0rc1` release candidate，尚未创建 `v0.2.0` tag，也未发布 GitHub Release。
-> v0.1.0 仍是当前已发布版本。
+> 发布日期：2026-10-23。
 
-v0.2.0 候选聚焦一件事：把 v0.1.0 的“可恢复状态内核”推进为可以用真实本地子进程运行、在
+v0.2.0 聚焦一件事：把 v0.1.0 的“可恢复状态内核”推进为可以用真实本地子进程运行、在
 有限故障窗口内保守恢复、并导出可离线复核证据的 Coding Agent Harness。它仍优先证明执行
 可靠性和声明边界，不把 Scripted Model 结果包装成模型能力。
 
-## 从 v0.1.0 到候选版的主要变化
+## 从 v0.1.0 到 v0.2.0 的主要变化
 
 ### 1. 从可恢复状态变成可管理的真实 Worker
 
@@ -49,7 +48,7 @@ v0.2.0 候选聚焦一件事：把 v0.1.0 的“可恢复状态内核”推进�
 - 一键 portfolio demo 升到 schema v3，绑定真实硬退出 marker、recovery disposition 与可从
   Trace 复算的 retrieval → write lineage。
 
-## 候选证据快照
+## 发布证据快照
 
 | 证据 | 当前结果 | 不能推出什么 |
 |---|---|---|
@@ -87,8 +86,8 @@ uv run --locked --cache-dir .uv-cache horizon demo run
 - Python 支持范围仍为 3.12～3.13；依赖继续由 `uv.lock` 锁定。
 - CLI、领域对象和 EvidencePack 都仍处于 1.0 之前；只有文档明确列出的旧 schema reader/参数
   别名具备兼容保证，不能推断所有内部 Python API 稳定。
-- 当前 SQLite `user_version` 仍为 1，但项目没有从任意 v0.1.0 运行库到候选库的通用 migration
-  验收。不要直接拿重要的旧 `.horizon/*.sqlite3` 做原地升级；保留原证据目录，并为候选运行使用
+- 当前 SQLite `user_version` 仍为 1，但项目没有从任意 v0.1.0 运行库到 v0.2.0 的通用 migration
+  验收。不要直接拿重要的旧 `.horizon/*.sqlite3` 做原地升级；保留原证据目录，并为 v0.2.0 运行使用
   新 state directory。实现 migration 前，这一点是发布边界，不靠版本号掩盖。
 - `TaskSpec.max_cost_usd` 是尚未完成多币种迁移的历史字段；真实 Provider 路径的权威硬上限仍是
   CNY Campaign、Run policy 与单调用上限。
@@ -97,7 +96,7 @@ uv run --locked --cache-dir .uv-cache horizon demo run
 
 ## 严格声明边界
 
-v0.2.0 候选不声称：
+v0.2.0 不声称：
 
 - 官方 SWE-bench/BugsInPy 分数或真实模型 Issue 成功率；
 - 父控制器/操作系统重启、进程树、daemon、队列或跨主机容灾；
@@ -106,16 +105,16 @@ v0.2.0 候选不声称：
 - Docker 配置已经构成恶意代码安全认证；
 - EvidencePack 哈希等于签名、可信时间戳或第三方来源认证。
 
-## 发布门
+## 发布验收合同
 
-候选整理完成后，正式发布仍需同时满足：
+本版本按以下可复核条件发布：
 
 1. `pyproject.toml`、`horizon.__version__`、`uv.lock` 和构建产物版本一致；
-2. 精确候选提交的标准 CI 通过，并实际生成 timeout EvidencePack artifact；
+2. 精确发布提交的标准 CI 通过，并实际生成 timeout EvidencePack artifact；
 3. 最新相关 runtime 提交的公开 Docker evidence 通过；仅文档/版本元数据提交不重复冒充 Docker
    runtime 复验；
 4. wheel 与 sdist 可离线构建，安装后的包能导入并运行 `horizon doctor`；
 5. Changelog 继续保留全部负结果、unknown、预算和兼容性边界；
-6. 用户明确批准后，才把 `0.2.0rc1` 收敛为 `0.2.0`、创建 `v0.2.0` tag 和 GitHub Release。
+6. 只有在用户明确批准后，才创建 `v0.2.0` tag 和 GitHub Release。
 
-当前这份文件是候选说明，不是发布公告。
+本文是 v0.2.0 的发布说明；测试、Docker、真实模型效果和安全边界继续分别陈述。

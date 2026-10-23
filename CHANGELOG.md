@@ -5,8 +5,7 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
-Candidate package metadata is `0.2.0rc1`. This section remains unreleased until an explicit
-`v0.2.0` release is approved, tagged, and published.
+## 0.2.0 - 2026-10-23
 
 - Added a zero-cost `horizon demo process-timeout` path that starts one real direct child,
   waits for its exact Run/Lease/epoch/event handshake, triggers a parent-side slice timeout,
