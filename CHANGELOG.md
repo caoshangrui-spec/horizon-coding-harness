@@ -13,7 +13,10 @@ for public releases; unreleased work must not be presented as a published releas
   `launch < CANCEL_WORKER_STOP_PENDING < CANCEL_WORKER_STOPPED < LEASE_RELEASED < CANCEL_REQUESTED`.
   The demo makes no model, tool, network, Docker, or repository-code call. It proves only one
   local direct-child timeout and synchronous reap, not parent/OS crash recovery, process-tree or
-  cross-host control, arbitrary-effect recovery, exactly-once execution, or model quality.
+  cross-host control, arbitrary-effect recovery, exactly-once execution, or model quality. Standard
+  CI now publishes the verified root pack as the 14-day `horizon-process-timeout-evidence` workflow
+  artifact; a focused three-minute interview guide links this demo to the wider Harness architecture
+  without expanding its claims.
 - Wired graceful parent interruption into process supervision. While `agent run/resume
   --worker-process` waits for a direct child, `Ctrl+C` now persists the exact
   `CANCEL_WORKER_STOP_PENDING` fence before terminate/wait and optional kill/wait. The new

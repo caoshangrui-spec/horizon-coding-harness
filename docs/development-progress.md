@@ -30,7 +30,7 @@
 | 顺序多 WorkItem Agent Loop | [agent_loop.py](../src/horizon/application/agent_loop.py) | dependency-ready 调度、逐项会话/权限/验收、原子交接、最终全量回归、有限 repair 与单次受限 replan；不支持并行或自动/多次 replan |
 | 本地顺序 Supervisor | [supervision.py](../src/horizon/application/supervision.py)、[设计与边界](local-sequential-supervisor.md) | `--supervise` 在新 AgentSession 已持久化后释放 Lease并重开完整 Worker 栈；可信父进程同步回收子进程后可绑定精确 Lease/epoch 接管。应用层还支持对一个直接子 Worker 先持久化取消目标，再 terminate/wait、超时 kill/wait；pending intent 原样进入 recovery，父进程崩溃后必须显式确认旧 Worker 停止。当前不是 CLI 常驻进程管理器、进程树控制、daemon 或分布式队列 |
 | 本地子进程 Supervisor | [local_process_supervision.py](../src/horizon/application/local_process_supervision.py)、[_local_agent_worker.py](../src/horizon/application/_local_agent_worker.py)、[设计与边界](local-process-supervisor.md) | `agent run/resume --worker-process` 让每个有界 slice 由真实直接子进程执行；父进程同步 reap 后按精确 Run/Lease/epoch/session/event cursor 通过 RecoveryService 门禁并换 epoch。等待期间的 `Ctrl+C` 与显式 slice timeout 复用持久取消栅栏，pending intent 原样阻塞、无 retry/fallback；不是 daemon、进程树、父/OS 硬崩溃或重启、跨主机恢复 |
-| 直接子 Worker timeout 一键 EvidencePack | [process_timeout_demo.py](../src/horizon/application/process_timeout_demo.py)、[_process_timeout_demo_worker.py](../src/horizon/application/_process_timeout_demo_worker.py)、[领域合同](../src/horizon/domain/process_timeout_demo.py)、[文档](process-timeout-cancellation-demo.md) | `demo process-timeout` 启动一个真实直接子进程，ready marker 绑定 PID/Lease/epoch/launch event hash 后触发父侧 slice timeout；复用正式 fence-before-stop、terminate/kill + wait 和终态导出。根包递归重放通用终态子包且无需数据库；无模型/工具/网络/Docker/仓库代码调用。只覆盖一个直接子进程，不是父/OS 崩溃、进程树、跨主机或 exactly-once 验收 |
+| 直接子 Worker timeout 一键 EvidencePack | [process_timeout_demo.py](../src/horizon/application/process_timeout_demo.py)、[_process_timeout_demo_worker.py](../src/horizon/application/_process_timeout_demo_worker.py)、[领域合同](../src/horizon/domain/process_timeout_demo.py)、[演示合同](process-timeout-cancellation-demo.md)、[面试讲解](interview-demo.md) | `demo process-timeout` 启动一个真实直接子进程，ready marker 绑定 PID/Lease/epoch/launch event hash 后触发父侧 slice timeout；复用正式 fence-before-stop、terminate/kill + wait 和终态导出。根包递归重放通用终态子包且无需数据库；标准 CI 另发布保留 14 天的根包 artifact。无模型/工具/网络/Docker/仓库代码调用。只覆盖一个直接子进程，不是父/OS 崩溃、进程树、跨主机或 exactly-once 验收 |
 | 执行证据驱动的受限 Replan | [plan.py](../src/horizon/domain/plan.py)、[services.py](../src/horizon/application/services.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 模型显式 `revise_plan`，最多 1 次成功；大型动态 Schema 只在当前 WorkItem 已积累至少两轮执行证据或已有通过项后暴露，并用持久会话元数据保持崩溃恢复请求稳定；完成项逐字段不可变，工具 receipt、Plan vN+1、新 session 同事务；未做真实模型效果评测 |
 | 确定性 ContextProjection + MandatoryFactLedger | [context.py](../src/horizon/application/context.py)、[context.py](../src/horizon/domain/context.py) | 完整 transcript 留存；候选投影同时满足字符上限与覆盖工具 Schema 的完整请求保守 token 上界，执行期再按 Run/Campaign/单调用最小 CNY 余量收窄 effective cap，近期完整单元在任一硬上限需要时只折叠最少数量，incomplete 单元绝不折叠；新 Projection/Reservation 使用 Adapter 实际 OpenAI-compatible body 字节，绑定版本化 estimator、payload hash/字段分量、上界与 effective cap，并按 estimator ID 恢复 v1；Task/Plan/权限/验收/预算/策略/工具 Schema/workspace 另做内容寻址绑定；不是精确 tokenizer、语义压缩或 Project Memory |
 | 证据驱动的 Run Memory | [memory.py](../src/horizon/application/memory.py)、[memory.py](../src/horizon/domain/memory.py) | 从工具事件和内容寻址输出派生；保留失败/unknown，按 workspace revision 失效并绑定模型请求恢复边界；仅 run scope，不是 Project Memory |
@@ -111,6 +111,10 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 - 新增 3 项 Windows 离线回归，并把实际演示与独立脱库验证接入公共 Linux CI。此结果只覆盖
   一个本地直接子进程的父侧 timeout 与同步 reap，不扩展为父/OS 崩溃恢复、进程树、daemon、
   跨主机、任意 effect 自动恢复或 exactly-once 结论。本批未联网、未调用模型或 Docker，费用为 0。
+- 标准 CI 在上述验证通过后，把根目录发布为保留 14 天的
+  `horizon-process-timeout-evidence` workflow artifact；缺失文件会让 upload step 失败。新增的
+  [3 分钟面试演示与架构讲解](interview-demo.md)只整理现有架构、命令和声明边界，没有新增运行时
+  组件、后台服务或付费调用。artifact 通常需要登录 GitHub 下载，不冒充匿名永久发布资产。
 
 ### 2026-10-23 正式 CLI 本地子进程 Supervisor
 

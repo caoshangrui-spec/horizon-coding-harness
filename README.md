@@ -49,7 +49,8 @@ flowchart LR
 
 详细数据流、恢复不变量和模块边界见
 [开发设计](docs/coding-agent-development-design.md) 与
-[能力设计](docs/agent-capabilities-design.md)。
+[能力设计](docs/agent-capabilities-design.md)。若用于面试，先看
+[3 分钟演示与架构讲解](docs/interview-demo.md)。
 
 ## 60 秒演示
 
@@ -93,12 +94,12 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
-| 公共 CI | 提交 `cfe4ac3` 的[标准 CI](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/39809773915)与[禁网 Docker Evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/39809773689)均通过 | CI 不读取 API Key、不运行付费模型 |
+| 公共 CI | main 的[标准 CI](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/ci.yml)运行离线回归和两条演示，并把 timeout 根包发布为保留 14 天的 `horizon-process-timeout-evidence` artifact；[禁网 Docker Evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/full-checkout-evidence.yml)独立运行 | CI 不读取 API Key、不运行付费模型；workflow artifact 通常需要登录 GitHub 下载，不是永久发布资产 |
 | 离线回归 | `462 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | [通用终态 EvidencePack](docs/terminal-evidence-pack.md) | `SUCCEEDED`、`FAILED`、`CANCELLED` 均可导出并离线复核 Trace、最终投影和摘要；unknown/open effect 原样列出 | 自洽哈希不是来源签名，也不证明外部 Provider 或副作用已结清 |
 | [终态 Run 顺序汇总](docs/terminal-suite-evaluation.md) | 有序聚合已有终态 Run；递归验证每个子 EvidencePack，分列成功、失败、取消、预算停止与 unknown/open effect | 不执行任务，不是 batch scheduler，也没有并发性能声明 |
 | [本地顺序 Supervisor](docs/local-sequential-supervisor.md)与[正式子进程模式](docs/local-process-supervisor.md) | `--supervise` 支持安全轮次接力；`agent run/resume --worker-process` 进一步让每个 slice 由真实直接子进程持有 Lease，父 CLI 同步回收 PID、验证持久 session，再换 epoch；`Ctrl+C` 与显式 slice 超时均先写取消栅栏再停止/reap 子进程，pending intent 显式阻塞且零重派 | 只管理一个本地直接子进程；不覆盖父控制器/OS 硬崩溃或重启、任意后代进程、跨主机、队列或任意崩溃自动恢复 |
-| [直接子 Worker 超时取消 EvidencePack](docs/process-timeout-cancellation-demo.md) | 一条零费用命令启动真实直接子进程；ready handshake 绑定 PID/Lease/epoch/event hash，timeout 后复用正式 fence-before-stop 路径并递归导出/验证终态包 | 只证明一个本地直接子进程的父侧 timeout 与同步 reap；不是父/OS 崩溃恢复、进程树/跨主机控制、任意 effect 恢复或 exactly-once |
+| [直接子 Worker 超时取消 EvidencePack](docs/process-timeout-cancellation-demo.md) | 一条零费用命令启动真实直接子进程；ready handshake 绑定 PID/Lease/epoch/event hash，timeout 后复用正式 fence-before-stop 路径并递归导出/验证终态包；标准 CI 同步发布限时 artifact | 只证明一个本地直接子进程的父侧 timeout 与同步 reap；不是父/OS 崩溃恢复、进程树/跨主机控制、任意 effect 恢复或 exactly-once |
 | [Docker `created` 执行子进程退出 EvidencePack](docs/docker-created-recovery-evidence.md) | Docker effect-executor 在 `create` 后、`start` 前以 34 退出；存活控制器观察 `created`、精确删除并持久化 `discard_check` receipt，Trace 可离线重放 | 未覆盖 Lease-owning Agent Worker 自身崩溃；也不是任意崩溃、外部副作用不存在或 exactly-once 证明 |
 | [Docker `created` 续跑到终态](docs/docker-created-resume-to-terminal.md) | 在上述安全边界后由新 Worker epoch 继续；旧 call 不重派，新 call 使用同一 immutable image ID 执行 protected validation 并最终 `SUCCEEDED`；本地与[公开 Linux workflow](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/39803245157)均通过 | 使用合成 marker 与 Scripted Model；不是 Agent Worker 崩溃自动接管、真实模型能力或官方任务成绩 |
 | [Lease-owning Agent Worker Docker 崩溃恢复](docs/docker-worker-crash-resume.md) | 真实子 Worker 运行生产 Agent Loop，在 `create` 后以 34 退出；父控制器按已回收 PID/旧 Lease/epoch/session 接管，epoch `1→2→3` 精确丢弃旧 attempt，再由新进程/new call 完成 protected validation 并 `SUCCEEDED`；本机与[公开 Linux workflow](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/39809773689)均通过 | 仅覆盖一个本地直接子进程和一个故障窗口；不覆盖父控制器/OS 重启、进程树、跨主机、任意崩溃或 exactly-once |
@@ -510,6 +511,7 @@ Horizon 原创代码和文档使用 [MIT License](LICENSE)。依赖裁剪的外�
 
 ## 设计与实现边界
 
+- [3 分钟面试演示与架构讲解](docs/interview-demo.md)
 - [详细开发设计](docs/coding-agent-development-design.md)
 - [Agent 能力设计](docs/agent-capabilities-design.md)
 - [需求追踪矩阵](docs/requirements-traceability.md)

@@ -51,5 +51,16 @@ jobs:
           uv run --locked horizon demo process-timeout --output .horizon/ci-process-timeout
           uv run --locked horizon demo verify-process-timeout .horizon/ci-process-timeout/evidence-pack.json
 
+      - name: Upload direct-child timeout EvidencePack
+        id: process-timeout-upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: horizon-process-timeout-evidence
+          path: .horizon/ci-process-timeout
+          if-no-files-found: error
+          include-hidden-files: true
+          compression-level: 9
+          retention-days: 14
+
       - name: Build wheel and source distribution
         run: uv build

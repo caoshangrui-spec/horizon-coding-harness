@@ -108,7 +108,13 @@ uv run --locked --cache-dir .uv-cache horizon demo verify-process-timeout `
 - CLI 一条命令运行、独立命令复核、已有目录不覆盖；
 - 修改 parent observation 的 PID 并同步重算根文件 hash，仍因 PID 与 ready/Trace 不一致而拒绝。
 
-CI 也单独运行演示和脱库验证；普通离线测试覆盖 Windows，公共 workflow 覆盖 Linux。
+CI 也单独运行演示和脱库验证；普通离线测试覆盖 Windows，公共 workflow 覆盖 Linux。标准
+[CI workflow](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/ci.yml)
+成功后还会上传保留 14 天的 `horizon-process-timeout-evidence` artifact。GitHub 通常要求登录后
+下载；解压后的根 `evidence-pack.json` 可直接交给上述独立 verifier，不需要原始数据库。
+
+面试场景的三分钟讲解顺序、架构图和常见追问见
+[面试演示与架构讲解](interview-demo.md)。
 
 ## 严格声明边界
 
