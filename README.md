@@ -13,10 +13,11 @@ Horizon 是一个面向长程软件工程任务的**可恢复执行控制层**�
 需要压缩或费用即将耗尽时，如何继续执行而不重复付费、不丢失事实、不越权，也不把部分成功
 包装成完成。
 
-> **当前状态：** v0.1.0 工程核心可运行。离线 Harness 主链路、来源绑定的完整 checkout A/B，
-> 以及三 WorkItem/两次 Worker 重启的恢复场景已有可重放证据；youtube-dl 与新加入的 Luigi
-> 独立案例均已通过本地可信执行和公开禁网 Docker。七次真实模型 Pilot 均为负结果，因此目前
-> **不宣称真实 Issue 成功率或官方 benchmark 成绩**。
+> **当前状态：** v0.1.0 是已发布版本；main 的包元数据已进入 `0.2.0rc1` 候选阶段，但尚未创建
+> v0.2.0 tag 或 Release。离线 Harness 主链路、来源绑定的完整 checkout A/B，以及三 WorkItem/
+> 两次 Worker 重启的恢复场景已有可重放证据；youtube-dl 与 Luigi 独立案例均通过本地可信执行
+> 和公开禁网 Docker。七次真实模型 Pilot 均为负结果，因此目前**不宣称真实 Issue 成功率或
+> 官方 benchmark 成绩**。候选范围和发布门见 [v0.2.0 candidate notes](docs/release-v0.2.0.md)。
 
 ## 为什么值得看
 
@@ -95,7 +96,7 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | main 的[标准 CI](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/ci.yml)运行离线回归和两条演示，并把 timeout 根包发布为保留 14 天的 `horizon-process-timeout-evidence` artifact；[禁网 Docker Evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/full-checkout-evidence.yml)独立运行 | CI 不读取 API Key、不运行付费模型；workflow artifact 通常需要登录 GitHub 下载，不是永久发布资产 |
-| 离线回归 | `462 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `463 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | [通用终态 EvidencePack](docs/terminal-evidence-pack.md) | `SUCCEEDED`、`FAILED`、`CANCELLED` 均可导出并离线复核 Trace、最终投影和摘要；unknown/open effect 原样列出 | 自洽哈希不是来源签名，也不证明外部 Provider 或副作用已结清 |
 | [终态 Run 顺序汇总](docs/terminal-suite-evaluation.md) | 有序聚合已有终态 Run；递归验证每个子 EvidencePack，分列成功、失败、取消、预算停止与 unknown/open effect | 不执行任务，不是 batch scheduler，也没有并发性能声明 |
 | [本地顺序 Supervisor](docs/local-sequential-supervisor.md)与[正式子进程模式](docs/local-process-supervisor.md) | `--supervise` 支持安全轮次接力；`agent run/resume --worker-process` 进一步让每个 slice 由真实直接子进程持有 Lease，父 CLI 同步回收 PID、验证持久 session，再换 epoch；`Ctrl+C` 与显式 slice 超时均先写取消栅栏再停止/reap 子进程，pending intent 显式阻塞且零重派 | 只管理一个本地直接子进程；不覆盖父控制器/OS 硬崩溃或重启、任意后代进程、跨主机、队列或任意崩溃自动恢复 |
@@ -467,7 +468,7 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **462 passed，11 skipped**；11 项 Docker 合同此前均已指定本机已有镜像
+当前离线全量回归为 **463 passed，11 skipped**；11 项 Docker 合同此前均已指定本机已有镜像
 单独复跑并通过，本轮子进程 Supervisor 增量未启动 Docker。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实
 Issue 效果。新增真实模型 Pilot 单元测试覆盖私有答案拒绝、初始失败证据、内容寻址报告和
@@ -504,6 +505,7 @@ Horizon 原创代码和文档使用 [MIT License](LICENSE)。依赖裁剪的外�
 遵循各自上游许可证，来源、固定 commit 与许可证见
 [Third-party notices](THIRD_PARTY_NOTICES.md)。版本变化记录在 [Changelog](CHANGELOG.md)，
 首个公开版本说明见 [v0.1.0 release notes](docs/release-v0.1.0.md)。
+主干尚未发布的候选范围见 [v0.2.0 candidate notes](docs/release-v0.2.0.md)。
 
 提交修改前请阅读 [Contributing guide](CONTRIBUTING.md)；安全问题和当前隔离边界见
 [Security policy](SECURITY.md)。GitHub CI 只运行锁定依赖下的离线测试、静态检查、一键演示和
@@ -542,6 +544,7 @@ Horizon 原创代码和文档使用 [MIT License](LICENSE)。依赖裁剪的外�
 - [源码绑定的多阶段写入硬崩溃恢复](docs/source-bound-hard-crash-recovery.md)
 - [真实模型 Pilot：预检、首轮负结果与付费边界](docs/real-model-pilot.md)
 - [v0.1.0 Release Notes](docs/release-v0.1.0.md)
+- [v0.2.0 Candidate Notes](docs/release-v0.2.0.md)
 
 既有 79 项需求继续保留。当前采用直接实现、自检和风险触发复核；历史工作流标签不构成
 产品运行时依赖。测试、实现、真实任务效果、独立安全复核分别报告。
