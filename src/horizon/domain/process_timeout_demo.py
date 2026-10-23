@@ -32,6 +32,7 @@ class ProcessTimeoutReadyObservation(Contract):
     epoch: PositiveInt
     launch_event_seq: PositiveInt
     launch_event_hash: Sha256
+    process_launch_id: Identifier
     process_id: PositiveInt
 
 
@@ -61,12 +62,16 @@ class ProcessTimeoutDemoEvidence(Contract):
     lease_epoch: PositiveInt
     launch_event_seq: PositiveInt
     launch_event_hash: Sha256
+    process_launch_id: Identifier
     process_id: PositiveInt
     exit_code: StrictInt
     interruption_reason: Literal["worker_timeout"] = "worker_timeout"
     timeout_seconds: TimeoutSeconds
     stop_method: Literal["already_exited", "terminate", "kill"]
+    process_launched_event_seq: PositiveInt
+    process_start_authorized_event_seq: PositiveInt
     cancellation_fence_event_seq: PositiveInt
+    process_reaped_event_seq: PositiveInt
     worker_stopped_event_seq: PositiveInt
     lease_released_event_seq: PositiveInt
     terminal_cancellation_event_seq: PositiveInt
@@ -95,7 +100,10 @@ class ProcessTimeoutDemoEvidence(Contract):
     def validate_sequence(self) -> Self:
         if not (
             self.launch_event_seq
+            < self.process_launched_event_seq
+            < self.process_start_authorized_event_seq
             < self.cancellation_fence_event_seq
+            < self.process_reaped_event_seq
             < self.worker_stopped_event_seq
             < self.lease_released_event_seq
             < self.terminal_cancellation_event_seq

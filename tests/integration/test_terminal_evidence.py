@@ -132,6 +132,50 @@ def test_succeeded_terminal_evidence_claims_task_success_only_after_validation(
     assert verify_terminal_evidence_pack(result.evidence_pack_path) == result.evidence_pack
 
 
+def test_terminal_evidence_reports_unreaped_process_worker_as_open_effect(
+    tmp_path,
+    store,
+    service,
+    running,
+    clock,
+):
+    run, token = running
+    launch_id = "launch_" + "d" * 32
+    service.record_process_worker_launched(
+        run.run_id,
+        token,
+        "terminal-evidence-process-launched",
+        launch_id=launch_id,
+        process_id=4242,
+        launch_event_seq=run.seq,
+    )
+    service.authorize_process_worker_start(
+        run.run_id,
+        token,
+        "terminal-evidence-process-authorized",
+        launch_id=launch_id,
+        process_id=4242,
+        launch_event_seq=run.seq,
+    )
+    clock.advance(3601)
+    failed = service.expire_if_safe(run.run_id, "terminal-evidence-process-expired")
+    assert failed.status == RunStatus.FAILED
+    assert failed.process_worker_launch is not None
+
+    result = export_terminal_evidence_pack(
+        store,
+        run.run_id,
+        tmp_path / "active-process-evidence",
+    )
+
+    evidence = result.evidence_pack.evidence
+    assert evidence.active_process_launch_id == launch_id
+    assert evidence.active_process_id == 4242
+    assert evidence.open_effects_present is True
+    assert "Active Process Worker: `launch_" in result.summary_path.read_text(encoding="utf-8")
+    assert verify_terminal_evidence_pack(result.evidence_pack_path) == result.evidence_pack
+
+
 def test_cancelled_terminal_evidence_cli_is_successful_but_does_not_claim_task_success(
     tmp_path,
     task,

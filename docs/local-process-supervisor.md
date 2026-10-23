@@ -42,7 +42,10 @@ uv run --locked --cache-dir .uv-cache horizon agent run `
 ```text
 CLI parent
   │ capture exact Run + Lease(epoch N) + AgentSession + event seq
-  │ spawn direct child (no shell, no credential in argv)
+  │ spawn gated direct child (no shell, no credential in argv)
+  │ persist PROCESS_WORKER_LAUNCHED(PID + launch_id + exact Lease)
+  │ persist PROCESS_WORKER_START_AUTHORIZED
+  │ release the one-shot stdin launch_id gate
   ▼
 Agent Worker child
   │ reopen SQLite / Artifact / Campaign / RAG / Docker adapters
@@ -64,6 +67,7 @@ CLI parent
 - `run_id`；
 - `lease_id / worker_id / epoch`；
 - 父进程捕获的 `launch_event_seq`；
+- 持久 `launch_id / process_id` 与启动授权事件；
 - AgentSession Artifact 引用与 `next_iteration`；
 - 空 reservation 集；
 - TaskSpec 中的 staging workspace；
@@ -129,6 +133,8 @@ stdout 中的子 Worker 小型诊断只用于汇总 `check_cleanup_failures`；�
 | 故障点 | 当前动作 | 明确不做 |
 |---|---|---|
 | `Popen` 前/过程中启动失败且 Run 仍静止 | 释放该精确 Lease并返回错误 | 不伪造 Worker 已运行 |
+| 父进程在启动闸门放行前硬退出 | 子进程因管道关闭而在打开 Store/模型/工具前退出 | 不让未记录进程执行 Agent slice |
+| 父进程在持久 launch 后硬退出 | 重启后活动 PID/Lease/epoch 阻止新 Lease；TTL 到期后仍要求精确 PID 停止确认 | 不把 TTL 当进程停止证明，不自动 kill/重派 |
 | Worker 在新 AgentSession 后以任意退出码结束 | 父进程验证 session 前进与 recovery-safe，记录进程证据后可换 epoch | 不把退出码 0 当作唯一证据 |
 | Worker 留下模型或工具 intent | 返回 `reconciliation_required`，保留 intent 和原 Lease | 不重试模型、不重复工具、不 fallback |
 | Worker 未产生新 session且无 pending intent | RecoveryService 返回 `unsafe_agent_boundary`，停止 | 不猜测“没有副作用所以可继续” |
@@ -160,6 +166,9 @@ stdout 中的子 Worker 小型诊断只用于汇总 `check_cleanup_failures`；�
 - `--worker-process` 在 `agent run` 中隐含 supervision，并输出 PID/退出码和 disposition；
 - `--worker-timeout-seconds` 未配合 `--worker-process` 时在创建 Run 或派发模型前拒绝；
 - 生产 child command 绑定完整启动身份，命令行不包含 API Key。
+- 独立父控制器在授权子 Worker 后被硬 `kill`：活动 launch 在 SQLite 中保留；缺失/错误 PID
+  均不改变 Trace，精确停止确认后 epoch 前进并从原 AgentSession 续跑到 `SUCCEEDED`，旧模型/
+  工具轮次不重派。
 
 这些是离线 Scripted Model 与本地进程协议证据，不是付费模型效果、Docker 隔离安全认证或跨主机
 容灾验收。
@@ -170,7 +179,10 @@ stdout 中的子 Worker 小型诊断只用于汇总 `check_cleanup_failures`；�
 - 自动中断接线仅覆盖父 CLI 已获得 `Popen` 句柄后、等待子进程时的一次可处理
   `KeyboardInterrupt`，以及显式 slice timeout；强制结束父进程、掉电或 OS 崩溃仍不会产生同步
   reap receipt。
-- 父控制器或操作系统崩溃后，内存中的 `Popen`/reap 事实不可恢复；仍走显式旧 Worker 停止确认。
+- 父控制器硬退出后可恢复持久 launch 身份并安全阻塞；内存中的 `Popen`/reap 事实不会被伪造，
+  仍须等待 TTL 并显式确认 Trace 中的精确 PID 已停止。详见
+  [父控制器硬退出恢复](parent-controller-crash-recovery.md)。
+- 不覆盖操作系统掉电/内核崩溃后的自动拉起，也不自动判断 PID reuse。
 - pending effect 不自动接纳、回滚、重试或丢弃。
 - 没有后台 daemon、任务队列、并行 Worker、跨主机租约或自动重启策略。
 - 没有新增任何付费调用授权；运行真实模型仍需用户当次明确 `--confirm-paid`。

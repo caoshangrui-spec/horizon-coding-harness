@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Literal
 
 from horizon.application.model_recovery import (
-    LEASE_EVENTS,
+    SUPERVISION_EVENTS,
     RecoverableModelTurn,
     events_after_agent_session,
     load_recorded_model_response,
@@ -121,7 +121,7 @@ class RecoveryService:
         tail = events_after_agent_session(run, events)
         if tail is None:
             return False
-        if all(event.event_type in LEASE_EVENTS for event in tail):
+        if all(event.event_type in SUPERVISION_EVENTS for event in tail):
             return True
         turn = recoverable_model_turn(run, events)
         if turn is None and self.artifact_store is not None:

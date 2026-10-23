@@ -113,6 +113,7 @@ class LocalAgentWorkerLauncher:
             boundary.lease.worker_id,
             str(boundary.lease.epoch),
             str(boundary.launch_event_seq),
+            boundary.launch_id,
             session_ref,
             str(boundary.next_iteration),
             str(self.config_path),
@@ -137,7 +138,7 @@ class LocalAgentWorkerLauncher:
         child_env["PYTHONPATH"] = os.pathsep.join(import_paths)
         return subprocess.Popen(
             self.command(boundary, slice_iterations),
-            stdin=subprocess.DEVNULL,
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=child_env,
@@ -185,6 +186,7 @@ class LocalProcessAgentSupervisor:
             or current.worker_id != token.worker_id
             or current.lease_epoch != token.epoch
             or current.reservations
+            or current.process_worker_launch is not None
         ):
             return
         try:
@@ -195,6 +197,87 @@ class LocalProcessAgentSupervisor:
             )
         except HorizonError:
             return
+
+    @staticmethod
+    def _stop_failed_launch(
+        process: subprocess.Popen[bytes],
+        terminate_timeout_seconds: float,
+    ) -> int:
+        """Stop and reap a child that has not crossed a usable launch boundary."""
+
+        if process.poll() is None:
+            try:
+                process.terminate()
+            except OSError:
+                if process.poll() is None:
+                    raise
+        try:
+            return process.wait(timeout=terminate_timeout_seconds)
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+            except OSError:
+                if process.poll() is None:
+                    raise
+            try:
+                return process.wait(timeout=terminate_timeout_seconds)
+            except subprocess.TimeoutExpired as exc:
+                raise Conflict("Failed-launch Worker could not be synchronously reaped") from exc
+
+    @staticmethod
+    def _record_failed_launch_stop(
+        service: HarnessService,
+        boundary: ReapedWorkerBoundary,
+        process_id: int,
+        exit_code: int,
+        launch_number: int,
+    ) -> None:
+        current = service.store.get(boundary.run_id)
+        launch = current.process_worker_launch
+        if launch is None or launch.get("launch_id") != boundary.launch_id:
+            return
+        service.record_process_worker_stopped(
+            boundary.run_id,
+            boundary.lease,
+            f"process-supervisor-failed-launch-stopped-{launch_number}-{uuid4().hex}",
+            launch_id=boundary.launch_id,
+            process_id=process_id,
+            launch_event_seq=boundary.launch_event_seq,
+            exit_code=exit_code,
+            stop_evidence="synchronous_reap",
+        )
+
+    @staticmethod
+    def _open_start_gate(
+        service: HarnessService,
+        boundary: ReapedWorkerBoundary,
+        process: subprocess.Popen[bytes],
+        launch_number: int,
+    ) -> None:
+        service.record_process_worker_launched(
+            boundary.run_id,
+            boundary.lease,
+            f"process-supervisor-launched-{launch_number}-{boundary.launch_id}",
+            launch_id=boundary.launch_id,
+            process_id=process.pid,
+            launch_event_seq=boundary.launch_event_seq,
+        )
+        service.authorize_process_worker_start(
+            boundary.run_id,
+            boundary.lease,
+            f"process-supervisor-authorized-{launch_number}-{boundary.launch_id}",
+            launch_id=boundary.launch_id,
+            process_id=process.pid,
+            launch_event_seq=boundary.launch_event_seq,
+        )
+        gate = process.stdin
+        if gate is None:
+            raise Conflict("Agent Worker launcher did not provide a start-gate pipe")
+        gate.write(f"{boundary.launch_id}\n".encode())
+        gate.flush()
+        gate.close()
+        # ``communicate`` otherwise tries to flush the already closed writer.
+        process.stdin = None
 
     @staticmethod
     def _receipt(
@@ -306,8 +389,23 @@ class LocalProcessAgentSupervisor:
             except OSError:
                 self._release_failed_launch(service, boundary, slice_number)
                 raise
-            if not isinstance(process.pid, int) or process.pid < 1:
+            if not isinstance(process.pid, int) or isinstance(process.pid, bool) or process.pid < 1:
+                self._stop_failed_launch(process, terminate_timeout_seconds)
+                self._release_failed_launch(service, boundary, slice_number)
                 raise Conflict("Agent Worker launch did not return a process identity")
+            try:
+                self._open_start_gate(service, boundary, process, slice_number)
+            except BaseException:
+                exit_code = self._stop_failed_launch(process, terminate_timeout_seconds)
+                self._record_failed_launch_stop(
+                    service,
+                    boundary,
+                    process.pid,
+                    exit_code,
+                    slice_number,
+                )
+                self._release_failed_launch(service, boundary, slice_number)
+                raise
 
             try:
                 if worker_timeout_seconds is None:

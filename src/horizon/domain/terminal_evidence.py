@@ -35,6 +35,8 @@ class TerminalRunEvidence(Contract):
     open_model_reservation_ids: tuple[str, ...] = ()
     open_tool_reservation_ids: tuple[str, ...] = ()
     promotion_pending: bool = False
+    active_process_launch_id: Identifier | None = None
+    active_process_id: PositiveInt | None = None
     unknown_effects_present: bool
     open_effects_present: bool
     verification_mode: Literal["offline_trace_replay"] = "offline_trace_replay"
@@ -63,7 +65,10 @@ class TerminalRunEvidence(Contract):
             or self.open_model_reservation_ids
             or self.open_tool_reservation_ids
             or self.promotion_pending
+            or self.active_process_launch_id is not None
         )
+        if (self.active_process_launch_id is None) != (self.active_process_id is None):
+            raise ValueError("Active Process Worker evidence requires launch ID and PID together")
         if self.open_effects_present != open_effects:
             raise ValueError("Open-effect summary does not match its identifiers")
         if tuple(self.boundaries) != TERMINAL_EVIDENCE_BOUNDARIES:

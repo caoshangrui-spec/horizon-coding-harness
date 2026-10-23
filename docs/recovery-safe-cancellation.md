@@ -18,8 +18,10 @@ Horizon 因此把取消拆成两个可重放阶段：
          -> CANCEL_REQUESTED(recovery_safe=true) -> CANCELLED
 
 有受 Supervisor 管理的直接子 Worker
+  PROCESS_WORKER_LAUNCHED -> PROCESS_WORKER_START_AUTHORIZED -> child gate
   cancel -> CANCEL_WORKER_STOP_PENDING（先落盘）
          -> terminate -> bounded wait -> optional kill -> wait
+         -> PROCESS_WORKER_STOPPED
          -> CANCEL_WORKER_STOPPED + exact Lease fence
          -> 无 effect 则 CANCELLED；有 effect 则进入原 recovery
 ```
@@ -43,6 +45,8 @@ Horizon 因此把取消拆成两个可重放阶段：
    序列化，因此旧 Run 的 projection hash 不变。
 7. 一个持久化的 `cancel_worker_stop` 本身会阻止终态和新 Lease。同步 `wait` receipt 或旧 Lease
    过期后的显式操作者停止确认清除它；TTL 到期本身仍不等于进程已经退出。
+8. 正式进程模式中的 `process_worker_launch` 也是 blocker。父进程正常同步回收后写
+   `PROCESS_WORKER_STOPPED`；父进程硬退出时，必须在 TTL 后回填同一 PID 的操作者停止确认。
 
 ## 3. receipt 与恢复路径
 
@@ -53,7 +57,7 @@ Horizon 因此把取消拆成两个可重放阶段：
 | 普通预算操作 | 写入 settlement 或 unknown 分类 | 不再存在未分类 reservation |
 | 只读/写入工具 | 保留 tool intent，使用既有 `agent resolve-tool` 精确处置 | tool receipt 已持久化 |
 | `run_check` | 接纳自然退出结果，或确认/控制器停止后 discard | 标签容器已闭合且 tool receipt 已持久化 |
-| 直接子 Worker | 先绑定 PID/Lease/epoch，再 terminate/wait，超时才 kill/wait | Worker stop receipt 已持久化；若仍有 tool intent，继续等待恢复 |
+| 直接子 Worker | 执行前绑定 launch ID/PID/Lease/epoch并持久授权；取消时先写目标，再 terminate/wait，超时才 kill/wait | Process Worker 与 cancellation stop receipt 均已持久化；若仍有 tool intent，继续等待恢复 |
 
 Campaign unknown 必须先于 Run unknown 写入。这样即使两次持久化之间崩溃，Run 仍保持非终态，
 下一个 recovery Worker 可以完成对账；不会留下一个 Campaign 尚未分类、Run 却已经取消的死角。
@@ -91,8 +95,9 @@ discard receipt。该路径处理 tool intent，不替代本节 cancel 的先栅
 
 `SequentialAgentSupervisor.cancel_and_reap_worker(...)` 只接受可信父进程持有的直接子进程句柄。
 它先写 `CANCEL_WORKER_STOP_PENDING`，再触碰进程；Lease/epoch/启动游标不匹配时不会调用
-`poll`、`terminate`、`kill` 或 `wait`。`wait` 返回后才写 `CANCEL_WORKER_STOPPED` 和退出码，
-并记录 `already_exited`、`terminate` 或 `kill`。若 Worker 在栅栏后协作释放 Lease，receipt 仍可
+`poll`、`terminate`、`kill` 或 `wait`。正式进程模式会在 `wait` 返回后先写
+`PROCESS_WORKER_STOPPED`，再写 `CANCEL_WORKER_STOPPED` 和退出码，并记录 `already_exited`、
+`terminate` 或 `kill`。若 Worker 在栅栏后协作释放 Lease，receipt 仍可
 闭合；在 receipt 前，任何新 Lease 都被拒绝。
 
 父 Supervisor 若在栅栏后崩溃，不能从数据库重建 `wait` 事实。旧 Lease 过期后，只有操作者从

@@ -30,13 +30,16 @@ uv run --locked --cache-dir .uv-cache horizon demo process-timeout `
 
 ```text
 父进程创建 RUNNING Run + Lease epoch 1
-  -> 启动一个可导入的直接 Python 子进程
-  -> 子进程只读重开 SQLite，核对 Run/Lease/Worker/epoch/launch seq
+  -> 启动一个阻塞在 stdin gate 的直接 Python 子进程
+  -> 持久化 PROCESS_WORKER_LAUNCHED（launch ID/PID/Lease/epoch/launch seq）
+  -> 持久化 PROCESS_WORKER_START_AUTHORIZED，再放行精确 launch ID
+  -> 子进程只读重开 SQLite，核对 Run/Lease/Worker/epoch/PID/launch 授权
   -> 子进程 fsync + 原子发布 child-ready.json，随后保持空闲
   -> 父进程开始 bounded communicate(timeout)
   -> timeout
   -> 追加 CANCEL_WORKER_STOP_PENDING（精确 PID/Lease/epoch/launch seq）
   -> terminate + wait；仅在有界等待失败时 kill + wait
+  -> 追加 PROCESS_WORKER_STOPPED（精确 launch + synchronous_reap）
   -> 追加 CANCEL_WORKER_STOPPED（PID/exit code/stop method）
   -> 追加 LEASE_RELEASED
   -> 追加 CANCEL_REQUESTED，Run 进入 CANCELLED
@@ -52,13 +55,17 @@ observation，然后等待父进程触发生产取消路径。因此该演示隔
 | 顺序 | Trace 事件 | 证明内容 |
 |---:|---|---|
 | 1 | launch event | 子进程观察到的 RUNNING 边界，绑定 event hash |
-| 2 | `CANCEL_WORKER_STOP_PENDING` | 在停止进程前持久化精确 PID/Lease/epoch/launch seq |
-| 3 | `CANCEL_WORKER_STOPPED` | `wait` 已返回，并记录 exit code 与 stop method |
-| 4 | `LEASE_RELEASED` | 被回收进程的旧 Lease 已释放 |
-| 5 | `CANCEL_REQUESTED` | 没有 pending effect，Run 才进入终态 `CANCELLED` |
+| 2 | `PROCESS_WORKER_LAUNCHED` | 父进程持久化精确 launch ID/PID/Lease/epoch |
+| 3 | `PROCESS_WORKER_START_AUTHORIZED` | 启动记录落盘后才允许子进程打开执行资源 |
+| 4 | `CANCEL_WORKER_STOP_PENDING` | 在停止进程前持久化精确 PID/Lease/epoch/launch seq |
+| 5 | `PROCESS_WORKER_STOPPED` | 同步 `wait` 已返回，活动 process launch 被精确关闭 |
+| 6 | `CANCEL_WORKER_STOPPED` | 取消目标 receipt 记录 exit code 与 stop method |
+| 7 | `LEASE_RELEASED` | 被回收进程的旧 Lease 已释放 |
+| 8 | `CANCEL_REQUESTED` | 没有 pending effect，Run 才进入终态 `CANCELLED` |
 
-根验证器要求五个序号严格递增，且最后一个事件就是终态取消。它还要求 Trace 中不存在任何
-`MODEL_*` 或 `TOOL_*` 事件、最终投影没有 unknown/open effect、只有一份进程停止 receipt。
+根验证器要求八个序号严格递增，且最后一个事件就是终态取消。它还要求 Trace 中不存在任何
+`MODEL_*` 或 `TOOL_*` 事件、最终投影没有 unknown/open effect，并分别只有一份 process reap
+receipt 与 cancellation stop receipt。
 
 ## EvidencePack 结构
 
@@ -75,8 +82,8 @@ process-timeout-*/
     └── SUMMARY.md
 ```
 
-- `child-ready.json`：由真实子进程写入，包含 PID、Run、Lease、Worker、epoch、launch event seq
-  与 event hash。
+- `child-ready.json`：由真实子进程写入，包含 launch ID、PID、Run、Lease、Worker、epoch、
+  launch event seq 与 event hash。
 - `supervision-observation.json`：父进程的 timeout、stop method、exit code 和 process receipt 摘要。
 - `terminal/`：复用通用终态 EvidencePack；保存完整 Trace、规范最终投影和确定性摘要。
 - 根 `evidence-pack.json`：绑定上述文件的字节数与 SHA-256，并保存从 observation + Trace 复算
@@ -97,8 +104,8 @@ uv run --locked --cache-dir .uv-cache horizon demo verify-process-timeout `
 1. 校验根包四个角色及每个文件的大小和 SHA-256；
 2. 递归调用通用终态 EvidencePack 验证器；
 3. 重放 `trace.jsonl` 的事件 hash 链与最终 Run 投影；
-4. 把 child-ready 和 parent-supervision observation 重新绑定到 Trace 中的同一 PID、Lease、
-   epoch、launch event、stop receipt；
+4. 把 child-ready 和 parent-supervision observation 重新绑定到 Trace 中的同一 launch ID、PID、
+   Lease、epoch、start authorization 与两类 stop receipt；
 5. 复算根 evidence 与 `SUMMARY.md`，拒绝“改叙述再重算文件 hash”的语义篡改。
 
 ## 已验证用例

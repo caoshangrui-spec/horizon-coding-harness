@@ -37,6 +37,7 @@ def _evidence(run: Run) -> TerminalRunEvidence:
     open_models = tuple(sorted(run.model_reservations))
     open_tools = tuple(sorted(run.tool_reservations))
     promotion_pending = run.promotion_intent is not None and run.promotion_receipt is None
+    process_launch = run.process_worker_launch
     return TerminalRunEvidence(
         run_id=run.run_id,
         task_id=run.task.task_id,
@@ -54,9 +55,17 @@ def _evidence(run: Run) -> TerminalRunEvidence:
         open_model_reservation_ids=open_models,
         open_tool_reservation_ids=open_tools,
         promotion_pending=promotion_pending,
+        active_process_launch_id=(
+            process_launch["launch_id"] if process_launch is not None else None
+        ),
+        active_process_id=(process_launch["process_id"] if process_launch is not None else None),
         unknown_effects_present=bool(unknown_reservations or unknown_models or unknown_tools),
         open_effects_present=bool(
-            open_reservations or open_models or open_tools or promotion_pending
+            open_reservations
+            or open_models
+            or open_tools
+            or promotion_pending
+            or process_launch is not None
         ),
     )
 
@@ -84,6 +93,8 @@ def _summary(evidence: TerminalRunEvidence) -> str:
         f"- Open model reservations: {_id_list(evidence.open_model_reservation_ids)}\n"
         f"- Open tool reservations: {_id_list(evidence.open_tool_reservation_ids)}\n"
         f"- Promotion pending: `{str(evidence.promotion_pending).lower()}`\n\n"
+        f"- Active Process Worker: `{evidence.active_process_launch_id or 'none'}` / PID "
+        f"`{evidence.active_process_id or 'none'}`\n\n"
         "The verifier checks every listed file hash, replays the append-only Trace offline, and "
         "requires the replayed projection to equal the exported final state.\n\n"
         "## Claim boundaries\n\n"

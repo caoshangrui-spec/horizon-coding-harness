@@ -1,4 +1,5 @@
 import hashlib
+import io
 import json
 import os
 import subprocess
@@ -3192,6 +3193,7 @@ def _launch_process_supervisor_worker(tmp_path, store, run_id, workspace):
         assert slice_iterations == 1
         child_env = os.environ.copy()
         child_env["PYTHONPATH"] = os.pathsep.join(str(item) for item in sys.path if item)
+        child_env["HORIZON_TEST_PROCESS_START_GATE"] = boundary.launch_id
         return subprocess.Popen(
             [
                 getattr(sys, "_base_executable", sys.executable),
@@ -3207,7 +3209,7 @@ def _launch_process_supervisor_worker(tmp_path, store, run_id, workspace):
                 str(tmp_path / "campaign.sqlite3"),
                 str(tmp_path / "retrieval.sqlite3"),
             ],
-            stdin=subprocess.DEVNULL,
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=child_env,
@@ -3304,6 +3306,7 @@ def test_local_process_supervisor_blocks_after_reaped_pending_intent(tmp_path, t
         assert slice_iterations == 1
         child_env = os.environ.copy()
         child_env["PYTHONPATH"] = os.pathsep.join(str(item) for item in sys.path if item)
+        child_env["HORIZON_TEST_PROCESS_START_GATE"] = boundary.launch_id
         return subprocess.Popen(
             [
                 getattr(sys, "_base_executable", sys.executable),
@@ -3319,7 +3322,7 @@ def test_local_process_supervisor_blocks_after_reaped_pending_intent(tmp_path, t
                 str(tmp_path / "campaign.sqlite3"),
                 str(tmp_path / "retrieval.sqlite3"),
             ],
-            stdin=subprocess.DEVNULL,
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=child_env,
@@ -3391,6 +3394,228 @@ def test_local_process_supervisor_releases_quiescent_lease_when_launch_fails(
     assert not parent_model.requests
 
 
+def _process_is_running(process_id: int) -> bool:
+    if os.name == "nt":
+        import ctypes
+
+        process_query_limited_information = 0x1000
+        still_active = 259
+        handle = ctypes.windll.kernel32.OpenProcess(
+            process_query_limited_information,
+            False,
+            process_id,
+        )
+        if not handle:
+            return False
+        try:
+            exit_code = ctypes.c_ulong()
+            if not ctypes.windll.kernel32.GetExitCodeProcess(
+                handle,
+                ctypes.byref(exit_code),
+            ):
+                return False
+            return exit_code.value == still_active
+        finally:
+            ctypes.windll.kernel32.CloseHandle(handle)
+
+    try:
+        stat = Path(f"/proc/{process_id}/stat")
+        if stat.is_file() and stat.read_text(encoding="utf-8").split()[2] == "Z":
+            return False
+        os.kill(process_id, 0)
+    except (ProcessLookupError, PermissionError, OSError):
+        return False
+    return True
+
+
+def _wait_until_process_stops(process_id: int, timeout_seconds: float = 10.0) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while _process_is_running(process_id):
+        if time.monotonic() >= deadline:
+            pytest.fail(f"Process Worker {process_id} did not stop")
+        time.sleep(0.01)
+
+
+def test_parent_hard_exit_requires_exact_stopped_pid_before_recovery(
+    tmp_path,
+    task_dict,
+):
+    runner, store, run_id, token, workspace, model = setup_loop(
+        tmp_path,
+        task_dict,
+        [
+            ("read_file", {"path": "src/parser.py", "start_line": 1, "end_line": 2}),
+            (
+                "replace_text",
+                {
+                    "path": "src/parser.py",
+                    "old": "return [value]",
+                    "new": "return [] if value == '' else [value]",
+                },
+            ),
+            ("submit", {"summary": "Recovered after parent controller crash."}),
+        ],
+    )
+    before_crash = runner.run(run_id, token, max_iterations_this_invocation=1)
+    assert before_crash.status == RunStatus.RUNNING
+    assert before_crash.agent_session is not None
+    assert len(model.requests) == 1
+
+    ready_path = tmp_path / "parent-crash-worker.ready.json"
+    stop_path = tmp_path / "parent-crash-worker.stop"
+    stopped_path = tmp_path / "parent-crash-worker.stopped"
+    parent_script = Path(__file__).parents[1] / "fault_injection" / "_parent_crash_supervisor.py"
+    child_script = Path(__file__).parents[1] / "fault_injection" / "_parent_crash_worker.py"
+    child_env = os.environ.copy()
+    child_env["PYTHONPATH"] = os.pathsep.join(str(item) for item in sys.path if item)
+    parent = subprocess.Popen(
+        [
+            getattr(sys, "_base_executable", sys.executable),
+            str(parent_script),
+            str(store.path),
+            run_id,
+            token.lease_id,
+            token.worker_id,
+            str(token.epoch),
+            str(tmp_path / "artifacts"),
+            str(tmp_path / "campaign.sqlite3"),
+            str(ready_path),
+            str(stop_path),
+            str(stopped_path),
+            str(child_script),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=child_env,
+    )
+    worker_process_id = None
+    try:
+        deadline = time.monotonic() + 15
+        while not ready_path.exists():
+            if parent.poll() is not None:
+                _, stderr = parent.communicate()
+                pytest.fail(
+                    "parent controller exited before child authorization: "
+                    + stderr.decode(errors="replace")
+                )
+            if time.monotonic() >= deadline:
+                pytest.fail("parent controller did not authorize its child")
+            time.sleep(0.01)
+        ready = json.loads(ready_path.read_text(encoding="utf-8"))
+        worker_process_id = ready["process_id"]
+        assert _process_is_running(worker_process_id)
+
+        launched = store.get(run_id)
+        launch = launched.process_worker_launch
+        assert launch is not None
+        assert launch["launch_id"] == ready["launch_id"]
+        assert launch["process_id"] == worker_process_id
+        assert launch["lease_id"] == token.lease_id
+        assert launch["epoch"] == token.epoch
+        assert launch["start_authorized"] is True
+        assert len(model.requests) == 1
+
+        parent.kill()
+        parent.communicate(timeout=10)
+        assert parent.returncode != 0
+        after_parent_exit = store.get(run_id)
+        assert after_parent_exit.process_worker_launch == launch
+        assert after_parent_exit.lease_id == token.lease_id
+        assert len(model.requests) == 1
+
+        stop_path.write_text("stop", encoding="utf-8")
+        deadline = time.monotonic() + 10
+        while not stopped_path.exists():
+            if time.monotonic() >= deadline:
+                pytest.fail("orphaned Process Worker did not acknowledge its stop signal")
+            time.sleep(0.01)
+        _wait_until_process_stops(worker_process_id)
+
+        assert after_parent_exit.lease_expires_at is not None
+        expired_now = datetime.fromisoformat(after_parent_exit.lease_expires_at) + timedelta(
+            seconds=1
+        )
+        recovery_service = HarnessService(SQLiteEventStore(store.path, clock=lambda: expired_now))
+        event_count = len(store.events(run_id))
+        with pytest.raises(LeaseConflict, match="confirmed stopped"):
+            recovery_service.acquire_lease(
+                run_id,
+                "recovery-without-evidence",
+                "parent-crash-no-stop-evidence",
+            )
+        with pytest.raises(LeaseConflict, match="recorded process PID"):
+            recovery_service.acquire_lease(
+                run_id,
+                "recovery-without-pid",
+                "parent-crash-no-pid",
+                prior_worker_stopped=True,
+            )
+        with pytest.raises(LeaseConflict, match="recorded process PID"):
+            recovery_service.acquire_lease(
+                run_id,
+                "recovery-wrong-pid",
+                "parent-crash-wrong-pid",
+                prior_worker_stopped=True,
+                confirmed_stopped_process_id=worker_process_id + 1,
+            )
+        assert len(store.events(run_id)) == event_count
+
+        recovered = recovery_service.acquire_lease(
+            run_id,
+            "recovery-exact-pid",
+            "parent-crash-exact-pid",
+            ttl_seconds=600,
+            prior_worker_stopped=True,
+            confirmed_stopped_process_id=worker_process_id,
+        )
+        recovery_token = LeaseToken.from_run(recovered)
+        assert recovered.lease_epoch == token.epoch + 1
+        assert recovered.process_worker_launch is None
+        assert recovered.process_worker_stop_receipts[-1]["process_id"] == worker_process_id
+        assert recovered.process_worker_stop_receipts[-1]["stop_evidence"] == "operator_confirmed"
+        assert [event.event_type for event in store.events(run_id)[-2:]] == [
+            "PROCESS_WORKER_STOPPED",
+            "LEASE_ACQUIRED",
+        ]
+
+        recovery = RecoveryService(
+            recovery_service,
+            runner.campaign_ledger,
+            runner.session_store,
+        ).reconcile(run_id, recovery_token)
+        assert recovery.safe_to_resume is True
+        assert len(model.requests) == 1
+
+        resumed_runner = CodingAgentRunner(
+            recovery_service,
+            model,
+            runner.campaign_ledger,
+            runner.tools,
+            runner.session_store,
+            provider_id=runner.provider_id,
+            model_id=runner.model_id,
+            pricing=runner.pricing,
+            campaign=runner.campaign,
+            config=runner.config,
+        )
+        result = resumed_runner.run(run_id, recovery_token)
+        assert result.status == RunStatus.SUCCEEDED
+        assert len(model.requests) == 3
+        assert [record.name for record in result.tool_calls].count("read_file") == 1
+        assert result.process_worker_launch is None
+        assert "return [] if" in (workspace / "src/parser.py").read_text(encoding="utf-8")
+        assert SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id)).as_dict() == (
+            result.as_dict()
+        )
+    finally:
+        stop_path.write_text("stop", encoding="utf-8")
+        if parent.poll() is None:
+            parent.kill()
+        parent.communicate(timeout=10)
+        if worker_process_id is not None:
+            _wait_until_process_stops(worker_process_id)
+
+
 def _start_waiting_supervisor_worker(
     tmp_path,
     store,
@@ -3399,12 +3624,15 @@ def _start_waiting_supervisor_worker(
     workspace,
     *,
     mode,
+    start_gate=None,
 ):
     worker = Path(__file__).parents[1] / "fault_injection" / "_reaped_supervisor_worker.py"
     ready = tmp_path / f"{mode}.ready"
     ready.unlink(missing_ok=True)
     child_env = os.environ.copy()
     child_env["PYTHONPATH"] = os.pathsep.join(str(item) for item in sys.path if item)
+    if start_gate is not None:
+        child_env["HORIZON_TEST_PROCESS_START_GATE"] = start_gate
     process = subprocess.Popen(
         [
             getattr(sys, "_base_executable", sys.executable),
@@ -3420,10 +3648,13 @@ def _start_waiting_supervisor_worker(
             str(tmp_path / "campaign.sqlite3"),
             str(tmp_path / "retrieval.sqlite3"),
         ],
+        stdin=subprocess.PIPE if start_gate is not None else subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         env=child_env,
     )
+    if start_gate is not None:
+        return process
     deadline = time.monotonic() + 10
     while not ready.exists() or ready.read_text(encoding="utf-8") != str(process.pid):
         if process.poll() is not None:
@@ -3461,6 +3692,7 @@ def _waiting_process_supervisor(tmp_path, store, run_id, workspace, *, mode):
             boundary.lease,
             workspace,
             mode=mode,
+            start_gate=boundary.launch_id,
         )
 
     supervisor = LocalProcessAgentSupervisor(
@@ -3537,7 +3769,7 @@ def test_local_process_supervisor_timeout_preserves_pending_effect_for_recovery(
         run_id,
         HarnessService(store),
         token,
-        worker_timeout_seconds=0.05,
+        worker_timeout_seconds=1.0,
     )
 
     assert result.disposition == "reconciliation_required"
@@ -3569,6 +3801,7 @@ def test_local_process_supervisor_keyboard_interrupt_uses_durable_cancel_fence(
         def __init__(self):
             self.returncode = None
             self.terminated = False
+            self.stdin = io.BytesIO()
 
         def communicate(self, timeout=None):
             if not self.terminated:

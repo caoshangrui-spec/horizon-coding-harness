@@ -2011,6 +2011,17 @@ def agent_resume(
             ),
         ),
     ] = False,
+    confirm_old_worker_pid: Annotated[
+        int | None,
+        typer.Option(
+            "--confirm-old-worker-pid",
+            min=1,
+            help=(
+                "Exact PID persisted in the active local-process launch; required with "
+                "--confirm-old-worker-stopped for parent-crash recovery."
+            ),
+        ),
+    ] = None,
     slice_iterations: Annotated[
         int | None,
         typer.Option(
@@ -2052,6 +2063,8 @@ def agent_resume(
         ),
     ] = None,
 ):
+    if confirm_old_worker_pid is not None and not confirm_old_worker_stopped:
+        raise ValueError("--confirm-old-worker-pid requires --confirm-old-worker-stopped")
     if not confirm_paid:
         raise ValueError("Agent continuation requires --confirm-paid")
     if worker_timeout_seconds is not None and not worker_process:
@@ -2099,6 +2112,7 @@ def agent_resume(
         f"resume_lease_{uuid4().hex}",
         ttl_seconds=600,
         prior_worker_stopped=confirm_old_worker_stopped,
+        confirmed_stopped_process_id=confirm_old_worker_pid,
     )
     token = LeaseToken.from_run(leased)
     ledger = CampaignBudgetLedger(Path(provider.ledger_path))
@@ -2531,7 +2545,8 @@ def agent_reconcile(
             "--confirm-old-worker-pid",
             min=1,
             help=(
-                "Exact PID persisted in the cancellation target; required with "
+                "Exact PID persisted in the cancellation target or active process launch; "
+                "required with "
                 "--confirm-old-worker-stopped for that recovery path."
             ),
         ),
@@ -2798,7 +2813,8 @@ def agent_resolve_tool(
             "--confirm-old-worker-pid",
             min=1,
             help=(
-                "Exact PID persisted in the cancellation target; required with "
+                "Exact PID persisted in the cancellation target or active process launch; "
+                "required with "
                 "--confirm-old-worker-stopped for that recovery path."
             ),
         ),

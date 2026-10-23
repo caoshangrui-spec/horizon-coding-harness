@@ -5,6 +5,29 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Added a durable start gate for each `--worker-process` child. The parent now records
+  `PROCESS_WORKER_LAUNCHED` with the exact launch ID, PID, Lease, Worker, epoch and launch cursor,
+  records `PROCESS_WORKER_START_AUTHORIZED`, and only then releases the launch ID over a one-shot
+  stdin pipe. The production child opens no store, model, tool or workspace before that gate and
+  revalidates the persisted authorization afterward. Normal synchronous reap and cancellation now
+  append `PROCESS_WORKER_STOPPED`; these supervision events remain transparent to AgentSession
+  recovery while replaying into explicit active-launch and stop-receipt state.
+- Added bounded parent-controller hard-exit recovery for one local direct child. An active persisted
+  process launch blocks every replacement Lease even after TTL expiry until the operator confirms
+  the exact recorded PID has stopped; missing or mismatched PIDs append no events. `agent resume`
+  now accepts `--confirm-old-worker-pid` alongside the existing stopped-worker acknowledgement, and
+  `agent reconcile` / `agent resolve-tool` use the same launch or cancellation identity. A real
+  fault-injection test kills the separate parent while its authorized child remains alive, verifies
+  zero redispatch, rejects absent/wrong PID evidence, advances the Lease epoch only for the exact
+  stopped PID, resumes the prior AgentSession to `SUCCEEDED`, and replays the complete Trace. This
+  does not add automatic liveness probing, process-tree control, a daemon, cross-host takeover,
+  OS-crash recovery, retry/fallback, or paid model calls.
+- Extended the zero-cost process-timeout EvidencePack to verify the full durable lifecycle ordering:
+  Run launch, process launch, start authorization, cancellation fence, synchronous process reap,
+  cancellation-target receipt, Lease release, then terminal cancellation. Generic terminal evidence
+  now reports an uncleared Process Worker launch as an open effect instead of equating terminal Run
+  status with confirmed host-process shutdown.
+
 ## 0.2.0 - 2026-10-23
 
 - Added a zero-cost `horizon demo process-timeout` path that starts one real direct child,

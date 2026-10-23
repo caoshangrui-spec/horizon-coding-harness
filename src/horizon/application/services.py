@@ -470,6 +470,165 @@ class HarnessService:
 
         return self._command(run_id, key, request, decide)
 
+    def record_process_worker_launched(
+        self,
+        run_id: str,
+        token: LeaseToken,
+        key: str,
+        *,
+        launch_id: str,
+        process_id: int,
+        launch_event_seq: int,
+    ) -> Run:
+        """Bind one directly owned child PID to its exact durable launch boundary."""
+
+        if (
+            not isinstance(launch_id, str)
+            or not launch_id.startswith("launch_")
+            or not isinstance(process_id, int)
+            or isinstance(process_id, bool)
+            or process_id < 1
+            or not isinstance(launch_event_seq, int)
+            or isinstance(launch_event_seq, bool)
+            or launch_event_seq < 1
+        ):
+            raise ValueError("Process Worker launch requires exact launch and process identities")
+        request = {
+            "operation": "record_process_worker_launched",
+            "token": token.model_dump(),
+            "launch_id": launch_id,
+            "process_id": process_id,
+            "launch_event_seq": launch_event_seq,
+        }
+        launch = {
+            "launch_id": launch_id,
+            **token.model_dump(),
+            "process_id": process_id,
+            "launch_event_seq": launch_event_seq,
+            "source": "local_process_supervisor",
+        }
+
+        def decide(run):
+            self.check_worker(run, token)
+            if run.status != RunStatus.RUNNING or run.plan is None or run.reservations:
+                raise Conflict("Process Worker launch requires a quiescent planned Run")
+            if run.process_worker_launch is not None:
+                raise Conflict("Another Process Worker launch is still active")
+            if run.seq != launch_event_seq:
+                raise Conflict("Process Worker launch boundary is no longer current")
+            return [NewEvent(event_type="PROCESS_WORKER_LAUNCHED", payload=launch)]
+
+        return self._command(run_id, key, request, decide)
+
+    def authorize_process_worker_start(
+        self,
+        run_id: str,
+        token: LeaseToken,
+        key: str,
+        *,
+        launch_id: str,
+        process_id: int,
+        launch_event_seq: int,
+    ) -> Run:
+        """Durably authorize a recorded child before its stdin start gate is opened."""
+
+        request = {
+            "operation": "authorize_process_worker_start",
+            "token": token.model_dump(),
+            "launch_id": launch_id,
+            "process_id": process_id,
+            "launch_event_seq": launch_event_seq,
+        }
+        target = {
+            "launch_id": launch_id,
+            **token.model_dump(),
+            "process_id": process_id,
+            "launch_event_seq": launch_event_seq,
+            "source": "local_process_supervisor",
+        }
+
+        def decide(run):
+            self.check_worker(run, token)
+            launch = run.process_worker_launch
+            if launch is None or any(launch.get(name) != value for name, value in target.items()):
+                raise Conflict("Process Worker authorization has no exact recorded launch")
+            if launch.get("start_authorized") is not False:
+                raise Conflict("Process Worker launch was already authorized")
+            return [
+                NewEvent(
+                    event_type="PROCESS_WORKER_START_AUTHORIZED",
+                    payload=target,
+                )
+            ]
+
+        return self._command(run_id, key, request, decide)
+
+    def record_process_worker_stopped(
+        self,
+        run_id: str,
+        token: LeaseToken,
+        key: str,
+        *,
+        launch_id: str,
+        process_id: int,
+        launch_event_seq: int,
+        exit_code: int | None,
+        stop_evidence: str,
+    ) -> Run:
+        """Clear one active child only from a synchronous reap or exact operator evidence."""
+
+        synchronous_reap = (
+            stop_evidence == "synchronous_reap"
+            and isinstance(exit_code, int)
+            and not isinstance(exit_code, bool)
+        )
+        operator_confirmation = stop_evidence == "operator_confirmed" and exit_code is None
+        if (
+            not isinstance(launch_id, str)
+            or not launch_id.startswith("launch_")
+            or not isinstance(process_id, int)
+            or isinstance(process_id, bool)
+            or process_id < 1
+            or not isinstance(launch_event_seq, int)
+            or isinstance(launch_event_seq, bool)
+            or launch_event_seq < 1
+            or not (synchronous_reap or operator_confirmation)
+        ):
+            raise ValueError("Process Worker stop requires exact trusted stop evidence")
+        request = {
+            "operation": "record_process_worker_stopped",
+            "token": token.model_dump(),
+            "launch_id": launch_id,
+            "process_id": process_id,
+            "launch_event_seq": launch_event_seq,
+            "exit_code": exit_code,
+            "stop_evidence": stop_evidence,
+        }
+        target = {
+            "launch_id": launch_id,
+            **token.model_dump(),
+            "process_id": process_id,
+            "launch_event_seq": launch_event_seq,
+            "source": "local_process_supervisor",
+        }
+
+        def decide(run):
+            launch = run.process_worker_launch
+            if launch is None or any(launch.get(name) != value for name, value in target.items()):
+                raise Conflict("Process Worker stop does not match the active launch")
+            return [
+                NewEvent(
+                    event_type="PROCESS_WORKER_STOPPED",
+                    payload={
+                        **target,
+                        "exit_code": exit_code,
+                        "stop_evidence": stop_evidence,
+                    },
+                )
+            ]
+
+        return self._command(run_id, key, request, decide)
+
     def acquire_lease(
         self,
         run_id: str,
@@ -549,6 +708,11 @@ class HarnessService:
             else:
                 self._active(run)
             cancel_target = run.cancel_worker_stop
+            process_launch = run.process_worker_launch
+            if process_launch is not None and not prior_worker_stopped:
+                raise LeaseConflict(
+                    "A recorded Process Worker must be confirmed stopped before takeover"
+                )
             if cancel_target is not None and (not recovery or not prior_worker_stopped):
                 raise LeaseConflict("A cancellation-bound Worker must be stopped before takeover")
             if cancel_target is not None and (
@@ -557,9 +721,25 @@ class HarnessService:
                 raise LeaseConflict(
                     "Old Worker stop confirmation must match the cancellation target PID"
                 )
-            if cancel_target is None and confirmed_stopped_process_id is not None:
+            if process_launch is not None and (
+                confirmed_stopped_process_id != process_launch["process_id"]
+            ):
                 raise LeaseConflict(
-                    "A stopped process ID can confirm only a cancellation-bound Worker"
+                    "Old Worker stop confirmation must match the recorded process PID"
+                )
+            if (
+                cancel_target is not None
+                and process_launch is not None
+                and cancel_target["process_id"] != process_launch["process_id"]
+            ):
+                raise LeaseConflict("Cancellation and process launch identify different Workers")
+            if (
+                cancel_target is None
+                and process_launch is None
+                and confirmed_stopped_process_id is not None
+            ):
+                raise LeaseConflict(
+                    "A stopped process ID can confirm only a recorded Process Worker"
                 )
             now = self.store.clock()
             if run.lease_id:
@@ -568,6 +748,29 @@ class HarnessService:
                 if not prior_worker_stopped:
                     raise LeaseConflict("TTL expiry is not proof that the old process stopped")
             events = []
+            if process_launch is not None:
+                events.append(
+                    NewEvent(
+                        event_type="PROCESS_WORKER_STOPPED",
+                        payload={
+                            **{
+                                name: process_launch[name]
+                                for name in (
+                                    "launch_id",
+                                    "lease_id",
+                                    "worker_id",
+                                    "epoch",
+                                    "process_id",
+                                    "launch_event_seq",
+                                    "source",
+                                )
+                            },
+                            "exit_code": None,
+                            "stop_evidence": "operator_confirmed",
+                        },
+                        occurred_at=now,
+                    )
+                )
             if cancel_target is not None:
                 target_matches_live_lease = (
                     cancel_target["lease_id"],
@@ -649,6 +852,8 @@ class HarnessService:
                 raise LeaseConflict("Expired reaped-worker takeover requires a RUNNING Run")
             if run.cancel_worker_stop is not None:
                 raise LeaseConflict("A cancellation-bound Worker cannot use reaped takeover")
+            if run.process_worker_launch is not None:
+                raise LeaseConflict("Record the reaped Process Worker before lease takeover")
             if (
                 run.lease_id != previous_token.lease_id
                 or run.worker_id != previous_token.worker_id
@@ -712,6 +917,8 @@ class HarnessService:
             self.check_recovery_worker(run, token)
             if set(run.reservations) - run.unknown_reservations:
                 raise LeaseConflict("Cannot release a worker with unsettled operations")
+            if run.process_worker_launch is not None:
+                raise LeaseConflict("Cannot release a lease while its Process Worker is active")
             return [NewEvent(event_type="LEASE_RELEASED", payload=token.model_dump())]
 
         released = self._command(run_id, key, request, decide)
@@ -820,6 +1027,7 @@ class HarnessService:
             set(run.reservations) - run.unknown_reservations
             or run.tool_reservations
             or run.cancel_worker_stop is not None
+            or run.process_worker_launch is not None
         )
 
     def request_cancel_worker_stop(
@@ -876,6 +1084,21 @@ class HarnessService:
                 if run.cancel_worker_stop != target:
                     raise Conflict("A different Worker process is already bound to cancellation")
                 return []
+            launch = run.process_worker_launch
+            if launch is not None and (
+                launch["lease_id"],
+                launch["worker_id"],
+                launch["epoch"],
+                launch["process_id"],
+                launch["launch_event_seq"],
+            ) != (
+                token.lease_id,
+                token.worker_id,
+                token.epoch,
+                process_id,
+                launch_event_seq,
+            ):
+                raise Conflict("Worker cancellation does not match the active process launch")
             return [NewEvent(event_type="CANCEL_WORKER_STOP_PENDING", payload=target)]
 
         return self._command(run_id, key, request, decide)

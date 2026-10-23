@@ -145,6 +145,13 @@ result = supervisor.cancel_and_reap_worker(
 effect 时会直接安全取消，有未决 effect 时继续原 recovery。缺失或错误 PID 始终拒绝接管且不
 改变 Trace。
 
+正式 `--worker-process` 现在还在任何 Agent 执行前持久化
+`PROCESS_WORKER_LAUNCHED -> PROCESS_WORKER_START_AUTHORIZED`，再通过 stdin 放行 launch ID。
+因此父 Supervisor 即使不在取消步骤中而是普通等待期间硬退出，重启后也能从
+`process_worker_launch.process_id` 找到精确 blocker；同样必须等 TTL、确认该 PID 已停止，才写
+`PROCESS_WORKER_STOPPED(operator_confirmed)` 并取得新 epoch。完整协议与故障注入见
+[父控制器硬退出恢复](parent-controller-crash-recovery.md)。
+
 正式 `--worker-process` 调用方在 `communicate` 等待中捕获一次 `KeyboardInterrupt`，或在
 `--worker-timeout-seconds` 到期时，都会立即调用上述入口。timeout 是 Run 级硬取消，不是下一
 slice 的安全交接；返回 JSON 会记录原因、PID、退出码与停止方式。pending effect 仍进入原

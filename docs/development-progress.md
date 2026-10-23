@@ -28,9 +28,9 @@
 | 临时副本 Docker 执行与受保护验收 | [docker.py](../src/horizon/adapters/sandbox/docker.py)、[validation.py](../src/horizon/adapters/sandbox/validation.py) | 非 root、禁网、只读根、超时、输出有界；模型只能选择控制器冻结的 check ID |
 | Typed Tool Gateway | [gateway.py](../src/horizon/tools/gateway.py) | 搜索、读取、单文件精确替换、最多 8 文件的结构化精确 patch、单个最多 64 KiB 的 UTF-8 新文件、受保护检查和 submit；路径/链接/大小受限，每次 intent/receipt 持久化；existing target 不覆盖、父目录不自动创建；exact search 饱和时显式标记截断并引导 ranked retrieval；`retrieve_code` 默认只返回 rank 1，需要时才显式扩大；大文件整读拒绝并要求最多 400 行、32 Ki 字符的范围读取 |
 | 顺序多 WorkItem Agent Loop | [agent_loop.py](../src/horizon/application/agent_loop.py) | dependency-ready 调度、逐项会话/权限/验收、原子交接、最终全量回归、有限 repair 与单次受限 replan；不支持并行或自动/多次 replan |
-| 本地顺序 Supervisor | [supervision.py](../src/horizon/application/supervision.py)、[设计与边界](local-sequential-supervisor.md) | `--supervise` 在新 AgentSession 已持久化后释放 Lease并重开完整 Worker 栈；可信父进程同步回收子进程后可绑定精确 Lease/epoch 接管。应用层还支持对一个直接子 Worker 先持久化取消目标，再 terminate/wait、超时 kill/wait；pending intent 原样进入 recovery，父进程崩溃后必须显式确认旧 Worker 停止。当前不是 CLI 常驻进程管理器、进程树控制、daemon 或分布式队列 |
-| 本地子进程 Supervisor | [local_process_supervision.py](../src/horizon/application/local_process_supervision.py)、[_local_agent_worker.py](../src/horizon/application/_local_agent_worker.py)、[设计与边界](local-process-supervisor.md) | `agent run/resume --worker-process` 让每个有界 slice 由真实直接子进程执行；父进程同步 reap 后按精确 Run/Lease/epoch/session/event cursor 通过 RecoveryService 门禁并换 epoch。等待期间的 `Ctrl+C` 与显式 slice timeout 复用持久取消栅栏，pending intent 原样阻塞、无 retry/fallback；不是 daemon、进程树、父/OS 硬崩溃或重启、跨主机恢复 |
-| 直接子 Worker timeout 一键 EvidencePack | [process_timeout_demo.py](../src/horizon/application/process_timeout_demo.py)、[_process_timeout_demo_worker.py](../src/horizon/application/_process_timeout_demo_worker.py)、[领域合同](../src/horizon/domain/process_timeout_demo.py)、[演示合同](process-timeout-cancellation-demo.md)、[面试讲解](interview-demo.md) | `demo process-timeout` 启动一个真实直接子进程，ready marker 绑定 PID/Lease/epoch/launch event hash 后触发父侧 slice timeout；复用正式 fence-before-stop、terminate/kill + wait 和终态导出。根包递归重放通用终态子包且无需数据库；标准 CI 另发布保留 14 天的根包 artifact。无模型/工具/网络/Docker/仓库代码调用。只覆盖一个直接子进程，不是父/OS 崩溃、进程树、跨主机或 exactly-once 验收 |
+| 本地顺序 Supervisor | [supervision.py](../src/horizon/application/supervision.py)、[设计与边界](local-sequential-supervisor.md) | `--supervise` 在新 AgentSession 已持久化后释放 Lease并重开完整 Worker 栈；可信父进程同步回收子进程后可绑定精确 Lease/epoch 接管。应用层还支持一个直接子 Worker 的 fence-before-stop；pending intent 原样进入 recovery。正式进程模式的父控制器硬退出由持久 launch + 精确 PID 人工停止确认安全接管。当前不是 CLI 常驻进程管理器、进程树控制、daemon 或分布式队列 |
+| 本地子进程 Supervisor | [local_process_supervision.py](../src/horizon/application/local_process_supervision.py)、[_local_agent_worker.py](../src/horizon/application/_local_agent_worker.py)、[设计与边界](local-process-supervisor.md)、[父崩溃恢复](parent-controller-crash-recovery.md) | `agent run/resume --worker-process` 让每个 slice 由真实直接子进程执行；父进程先持久化 launch ID/PID 与启动授权再放行，正常同步 reap 后按精确 Run/Lease/epoch/session/event cursor 通过 RecoveryService 门禁。父进程 hard kill 后活动 launch 持续阻止接管，TTL 后仍须匹配 PID 停止确认；`Ctrl+C` 与 slice timeout 复用取消栅栏。pending intent 原样阻塞、无 retry/fallback；不是 daemon、自动探活/重启、进程树、OS 灾难恢复或跨主机恢复 |
+| 直接子 Worker timeout 一键 EvidencePack | [process_timeout_demo.py](../src/horizon/application/process_timeout_demo.py)、[_process_timeout_demo_worker.py](../src/horizon/application/_process_timeout_demo_worker.py)、[领域合同](../src/horizon/domain/process_timeout_demo.py)、[演示合同](process-timeout-cancellation-demo.md)、[面试讲解](interview-demo.md) | `demo process-timeout` 启动一个真实直接子进程，ready marker 绑定 launch ID/PID/Lease/epoch/launch event hash；根包验证 process launch→start authorization→cancel fence→synchronous reap→terminal cancel，并递归重放通用终态子包。标准 CI 发布保留 14 天的 artifact。无模型/工具/网络/Docker/仓库代码调用；只覆盖一个父侧 timeout，不等同于父/OS 自动恢复、进程树、跨主机或 exactly-once 验收 |
 | 执行证据驱动的受限 Replan | [plan.py](../src/horizon/domain/plan.py)、[services.py](../src/horizon/application/services.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 模型显式 `revise_plan`，最多 1 次成功；大型动态 Schema 只在当前 WorkItem 已积累至少两轮执行证据或已有通过项后暴露，并用持久会话元数据保持崩溃恢复请求稳定；完成项逐字段不可变，工具 receipt、Plan vN+1、新 session 同事务；未做真实模型效果评测 |
 | 确定性 ContextProjection + MandatoryFactLedger | [context.py](../src/horizon/application/context.py)、[context.py](../src/horizon/domain/context.py) | 完整 transcript 留存；候选投影同时满足字符上限与覆盖工具 Schema 的完整请求保守 token 上界，执行期再按 Run/Campaign/单调用最小 CNY 余量收窄 effective cap，近期完整单元在任一硬上限需要时只折叠最少数量，incomplete 单元绝不折叠；新 Projection/Reservation 使用 Adapter 实际 OpenAI-compatible body 字节，绑定版本化 estimator、payload hash/字段分量、上界与 effective cap，并按 estimator ID 恢复 v1；Task/Plan/权限/验收/预算/策略/工具 Schema/workspace 另做内容寻址绑定；不是精确 tokenizer、语义压缩或 Project Memory |
 | 证据驱动的 Run Memory | [memory.py](../src/horizon/application/memory.py)、[memory.py](../src/horizon/domain/memory.py) | 从工具事件和内容寻址输出派生；保留失败/unknown，按 workspace revision 失效并绑定模型请求恢复边界；仅 run scope，不是 Project Memory |
@@ -95,15 +95,36 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 ## 验证结果
 
+### 2026-10-23 父控制器硬退出后的持久 Process Worker 恢复
+
+- 每个 `--worker-process` 子进程新增 `launch_id` 和 stdin 启动闸门。父进程必须先提交
+  `PROCESS_WORKER_LAUNCHED`（精确 PID/Lease/Worker/epoch/launch cursor），再提交
+  `PROCESS_WORKER_START_AUTHORIZED`，最后才把同一 launch ID 写入管道；生产 child 在闸门前不打开
+  Store、模型、工具或 workspace，闸门后再次读取 SQLite 复核授权。
+- Run 投影保存活动 `process_worker_launch` 与历史停止 receipts。正常 `communicate/wait`、timeout
+  或取消均先写 `PROCESS_WORKER_STOPPED(synchronous_reap)`；父控制器崩溃后，活动 launch 即使 Lease
+  已过期也继续阻止新 Worker，直到操作者同时提供停止确认和完全匹配的 PID。缺失或错误 PID 不写
+  事件；终态包把未清除的 launch 计为 open effect。
+- 新增真实故障注入：先保存一个 AgentSession，再由独立父控制器放行等待子进程；测试硬 kill
+  父进程后确认 child 仍活、模型请求数不变，随后停止精确 PID。无 PID和错 PID均拒绝且 Trace
+  长度不变，正确 PID 使 epoch `1→2`，RecoveryService 接受旧 session，剩余两轮完成
+  `replace_text -> submit` 并到达 `SUCCEEDED`；最初的 `read_file` 只有一个 receipt，JSONL 重放一致。
+- `agent resume` 增加 `--confirm-old-worker-pid`；`agent reconcile` 与 `agent resolve-tool` 的相同参数
+  同时接受 cancellation target 或活动 process launch 的 PID。推荐先用离线 reconcile，再在新的
+  `--confirm-paid` 授权下 resume。本批未联网、未运行真实模型或 Docker，费用为 0。
+- 没有引入 daemon、自动重启、进程扫描或 liveness probe。当前只覆盖一个本地直接子进程和父
+  控制器 hard exit；OS 掉电/内核恢复、PID reuse 自动判定、进程树、跨主机和 exactly-once 仍未覆盖。
+  详细合同见 [父控制器硬退出恢复](parent-controller-crash-recovery.md)。
+
 ### 2026-10-23 直接子 Worker timeout 一键证据
 
 - 新增 `horizon demo process-timeout`。父进程创建一个没有模型/工具调用的 `RUNNING` Run，
   启动真实直接子进程；子进程以只读连接复核精确 Run/Lease/Worker/epoch/launch event，`fsync`
   并原子发布 PID marker 后保持空闲，父侧随后触发有界 slice timeout。
 - timeout 复用生产 `LocalProcessAgentSupervisor` 和 `cancel_and_reap_worker`：Trace 中严格保存
-  `launch < CANCEL_WORKER_STOP_PENDING < CANCEL_WORKER_STOPPED < LEASE_RELEASED <
-  CANCEL_REQUESTED`。只有同步 `wait` 返回并记录 exit code/stop method 后才释放 Lease、进入
-  `CANCELLED`。
+  `run launch < process launch < start authorization < CANCEL_WORKER_STOP_PENDING <
+  PROCESS_WORKER_STOPPED < CANCEL_WORKER_STOPPED < LEASE_RELEASED < CANCEL_REQUESTED`。只有同步
+  `wait` 返回并记录 exit code/stop method 后才释放 Lease、进入 `CANCELLED`。
 - 根 EvidencePack 绑定 child-ready、parent-supervision、确定性摘要和通用终态子包。
   `verify-process-timeout` 无需 SQLite、活进程、模型或 Docker，递归核验文件 hash、重放 Trace、
   复算最终投影和 PID/Lease/epoch/event 语义；修改 observation PID 并同步重算根文件 hash 的
@@ -134,8 +155,9 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
   覆盖无 effect 时进入 `CANCELLED`，以及已有 `read_file` intent 时保留 intent、返回
   `reconciliation_required`、不启动下一 Worker；两条 Trace 均可重放。CLI 输出中断原因、停止
   方式和 timeout，未配合 `--worker-process` 的 timeout 在创建 Run/派发模型前拒绝。
-- 当前仍只覆盖本地直接子进程和可处理的一次键盘中断/显式 timeout；父控制器/OS 硬崩溃或
-  重启、进程树、跨主机、后台 daemon/队列和任意故障窗口均未完成。详见
+- 当前仍只覆盖本地直接子进程和可处理的一次键盘中断/显式 timeout；父控制器 hard exit 已由
+  上述持久 launch + 人工精确 PID 确认切片覆盖，但 OS 掉电/自动重启、进程树、跨主机、后台
+  daemon/队列和任意故障窗口均未完成。详见
   [本地子进程 Supervisor](local-process-supervisor.md)。
 
 ### 2026-10-10 Docker created 检查恢复与删除后 revision 门禁
@@ -955,8 +977,8 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 七轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 463 passed；全量入口对应
-463 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
+当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 466 passed；全量入口对应
+466 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
 `run_model_cost_limit` 进入 `FAILED`。没有工具、编辑、checkpoint 或验证，Trace 14 事件可重放，

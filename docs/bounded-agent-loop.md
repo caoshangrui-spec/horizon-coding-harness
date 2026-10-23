@@ -276,12 +276,15 @@ uv run --locked --cache-dir .uv-cache horizon agent resume $partial.run_id `
 若 `horizon status <run-id>` 返回了 `cancel_worker_stop`，这是父 Supervisor 在取消栅栏后崩溃的
 更严格路径，还必须同时提供
 `--confirm-old-worker-pid <cancel_worker_stop.process_id>`；缺少或不匹配的 PID 不写任何事件。
+正式 `--worker-process` 还会返回 `process_worker_launch`；父控制器在普通等待中硬退出时，同样必须
+使用 `--confirm-old-worker-pid <process_worker_launch.process_id>`，因为 TTL 过期本身不是旧子进程
+已经停止的证明。
 
 异常退出后的离线对账不需要 API Key、Docker 或付费确认：
 
 ```powershell
 uv run --locked --cache-dir .uv-cache horizon agent reconcile <run-id> `
-  --confirm-old-worker-stopped
+  --confirm-old-worker-stopped --confirm-old-worker-pid <pid-if-recorded>
 ```
 
 输出同时给出每个调用的 classification/action、`safe_to_resume`、`next_action` 和 Campaign

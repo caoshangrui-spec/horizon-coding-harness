@@ -210,6 +210,11 @@ def main() -> None:
             "ARTIFACTS WORKSPACE CAMPAIGN RETRIEVAL"
         )
     mode = sys.argv[1]
+    expected_gate = os.environ.get("HORIZON_TEST_PROCESS_START_GATE")
+    if expected_gate is not None:
+        observed_gate = sys.stdin.buffer.readline().decode("utf-8").rstrip("\r\n")
+        if observed_gate != expected_gate:
+            raise SystemExit("test Process Worker did not receive its exact start gate")
     service = HarnessService(SQLiteEventStore(Path(sys.argv[2])))
     run_id = sys.argv[3]
     token = _token()

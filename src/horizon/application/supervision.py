@@ -64,6 +64,7 @@ class ReapedWorkerBoundary(Contract):
     run_id: str
     lease: LeaseToken
     launch_event_seq: Annotated[StrictInt, Field(ge=1)]
+    launch_id: str = Field(default_factory=lambda: f"launch_{uuid4().hex}")
     agent_session_artifact_ref: str | None = None
     next_iteration: Annotated[StrictInt, Field(ge=0)] = 0
 
@@ -76,6 +77,7 @@ class ReapedWorkerBoundary(Contract):
             or run.worker_id != token.worker_id
             or run.lease_epoch != token.epoch
             or run.reservations
+            or run.process_worker_launch is not None
         ):
             raise Conflict("Worker launch boundary requires a quiescent current RUNNING lease")
         session = run.agent_session
@@ -83,6 +85,7 @@ class ReapedWorkerBoundary(Contract):
             run_id=run.run_id,
             lease=token,
             launch_event_seq=run.seq,
+            launch_id=f"launch_{uuid4().hex}",
             agent_session_artifact_ref=session.artifact_ref if session is not None else None,
             next_iteration=session.next_iteration if session is not None else 0,
         )
@@ -341,6 +344,19 @@ class SequentialAgentSupervisor:
             except subprocess.TimeoutExpired as exc:
                 raise Conflict("Cancelled Worker did not exit after forced termination") from exc
 
+        current = service.store.get(boundary.run_id)
+        if current.process_worker_launch is not None:
+            service.record_process_worker_stopped(
+                boundary.run_id,
+                token,
+                f"{key}-process-stopped",
+                launch_id=boundary.launch_id,
+                process_id=process.pid,
+                launch_event_seq=boundary.launch_event_seq,
+                exit_code=exit_code,
+                stop_evidence="synchronous_reap",
+            )
+
         result = service.record_cancel_worker_stopped(
             boundary.run_id,
             token,
@@ -386,13 +402,25 @@ class SequentialAgentSupervisor:
         ``ready`` boundary instead of falling back to an in-process runner.
         """
 
-        if process_id < 1:
+        if not isinstance(process_id, int) or isinstance(process_id, bool) or process_id < 1:
             raise ValueError("Reaped worker process ID must be positive")
         if continue_execution and not acquire_next_lease:
             raise ValueError("In-process continuation requires a next Worker lease")
         current = service.store.get(boundary.run_id)
         token = boundary.lease
         self._validate_launch_boundary(current, boundary)
+
+        if current.process_worker_launch is not None:
+            current = service.record_process_worker_stopped(
+                boundary.run_id,
+                token,
+                f"supervisor-process-stopped-{boundary.launch_id}",
+                launch_id=boundary.launch_id,
+                process_id=process_id,
+                launch_event_seq=boundary.launch_event_seq,
+                exit_code=exit_code,
+                stop_evidence="synchronous_reap",
+            )
 
         if current.terminal or current.status == RunStatus.WAITING_FOR_USER:
             if current.lease_id is not None:

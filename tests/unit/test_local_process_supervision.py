@@ -1,3 +1,5 @@
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -40,12 +42,13 @@ def test_local_worker_command_binds_exact_launch_identity_without_credentials(tm
         "-m",
         "horizon.application._local_agent_worker",
     )
-    assert command[4:11] == (
+    assert command[4:12] == (
         "run_process_1",
         "lease_process_1",
         "worker-process-1",
         "7",
         "42",
+        boundary.launch_id,
         "sha256:session",
         "3",
     )
@@ -76,7 +79,44 @@ def test_local_worker_command_represents_missing_initial_session(tmp_path):
 
     command = launcher.command(boundary, 1)
 
-    assert command[9:11] == ("-", "0")
+    assert command[10:12] == ("-", "0")
+
+
+def test_local_worker_without_parent_gate_exits_before_opening_store(tmp_path):
+    store_path = tmp_path / "must-not-be-created.sqlite3"
+    process = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "horizon.application._local_agent_worker",
+            str(store_path),
+            "run_without_gate",
+            "lease_without_gate",
+            "worker-without-gate",
+            "1",
+            "1",
+            "launch_" + "a" * 32,
+            "-",
+            "0",
+            str(tmp_path / "missing-provider.yaml"),
+            "a" * 64,
+            str(tmp_path / ".env"),
+            str(tmp_path / "artifacts"),
+            str(tmp_path / "workspace"),
+            str(tmp_path / "campaign.sqlite3"),
+            str(tmp_path / "staging"),
+            "local-test-image:latest",
+            str(tmp_path / "retrieval.sqlite3"),
+            "1",
+        ],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        check=False,
+    )
+
+    assert process.returncode != 0
+    assert b"start gate was not authorized" in process.stderr
+    assert not store_path.exists()
 
 
 @pytest.mark.parametrize("timeout", [0, -1, 86_401, True])

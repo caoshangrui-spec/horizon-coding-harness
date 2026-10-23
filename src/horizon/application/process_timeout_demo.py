@@ -135,8 +135,88 @@ def _task_and_plan(demo_id: str) -> tuple[TaskSpec, Plan]:
     return task, plan
 
 
+class _ReadyWorkerProcess:
+    """Popen-compatible handle that completes the demo handshake after the start gate opens."""
+
+    def __init__(
+        self,
+        process: subprocess.Popen[bytes],
+        boundary: ReapedWorkerBoundary,
+        ready_path: Path,
+        ready_timeout_seconds: float,
+    ):
+        self.process = process
+        self.boundary = boundary
+        self.ready_path = ready_path
+        self.ready_timeout_seconds = ready_timeout_seconds
+        self.ready_verified = False
+
+    @property
+    def pid(self) -> int:
+        return self.process.pid
+
+    @property
+    def returncode(self) -> int | None:
+        return self.process.returncode
+
+    @property
+    def stdin(self):
+        return self.process.stdin
+
+    @stdin.setter
+    def stdin(self, value) -> None:
+        self.process.stdin = value
+
+    def poll(self) -> int | None:
+        return self.process.poll()
+
+    def terminate(self) -> None:
+        self.process.terminate()
+
+    def kill(self) -> None:
+        self.process.kill()
+
+    def wait(self, timeout: float | None = None) -> int:
+        return self.process.wait(timeout=timeout)
+
+    def _wait_until_ready(self) -> None:
+        if self.ready_verified:
+            return
+        deadline = time.monotonic() + self.ready_timeout_seconds
+        while time.monotonic() < deadline:
+            if self.ready_path.is_file():
+                ready = ProcessTimeoutReadyObservation.model_validate_json(
+                    self.ready_path.read_text(encoding="utf-8")
+                )
+                boundary = self.boundary
+                if (
+                    ready.run_id != boundary.run_id
+                    or ready.lease_id != boundary.lease.lease_id
+                    or ready.worker_id != boundary.lease.worker_id
+                    or ready.epoch != boundary.lease.epoch
+                    or ready.launch_event_seq != boundary.launch_event_seq
+                    or ready.process_launch_id != boundary.launch_id
+                    or ready.process_id != self.process.pid
+                ):
+                    raise Conflict("Demo Worker ready marker does not match its launch boundary")
+                self.ready_verified = True
+                return
+            if self.process.poll() is not None:
+                stdout, stderr = self.process.communicate()
+                detail = (stderr or stdout).decode("utf-8", errors="replace").strip()
+                raise Conflict(
+                    "Demo Worker exited before its ready marker" + (f": {detail}" if detail else "")
+                )
+            time.sleep(0.01)
+        raise Conflict("Demo Worker did not publish its ready marker before the handshake timeout")
+
+    def communicate(self, timeout: float | None = None):
+        self._wait_until_ready()
+        return self.process.communicate(timeout=timeout)
+
+
 class _ReadyWorkerLauncher:
-    """Launch the silent demo child and return only after its durable identity handshake."""
+    """Launch one silent demo child whose execution is held by the parent start gate."""
 
     def __init__(
         self,
@@ -153,22 +233,11 @@ class _ReadyWorkerLauncher:
         self.python_path = tuple(python_path if python_path is not None else sys.path)
         self.ready_timeout_seconds = ready_timeout_seconds
 
-    @staticmethod
-    def _reap_failed_launch(process: subprocess.Popen[bytes]) -> tuple[bytes, bytes]:
-        if process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=2)
-        return process.communicate()
-
     def __call__(
         self,
         boundary: ReapedWorkerBoundary,
         slice_iterations: int,
-    ) -> subprocess.Popen[bytes]:
+    ) -> _ReadyWorkerProcess:
         if slice_iterations != 1:
             raise ValueError("Process-timeout demo requires exactly one idle Worker slice")
         child_env = os.environ.copy()
@@ -186,45 +255,20 @@ class _ReadyWorkerLauncher:
                 boundary.lease.worker_id,
                 str(boundary.lease.epoch),
                 str(boundary.launch_event_seq),
+                boundary.launch_id,
                 str(self.ready_path),
             ),
-            stdin=subprocess.DEVNULL,
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=child_env,
         )
-        deadline = time.monotonic() + self.ready_timeout_seconds
-        try:
-            while time.monotonic() < deadline:
-                if self.ready_path.is_file():
-                    ready = ProcessTimeoutReadyObservation.model_validate_json(
-                        self.ready_path.read_text(encoding="utf-8")
-                    )
-                    if (
-                        ready.run_id != boundary.run_id
-                        or ready.lease_id != boundary.lease.lease_id
-                        or ready.worker_id != boundary.lease.worker_id
-                        or ready.epoch != boundary.lease.epoch
-                        or ready.launch_event_seq != boundary.launch_event_seq
-                        or ready.process_id != process.pid
-                    ):
-                        raise Conflict(
-                            "Demo Worker ready marker does not match its launch boundary"
-                        )
-                    return process
-                if process.poll() is not None:
-                    stdout, stderr = process.communicate()
-                    detail = (stderr or stdout).decode("utf-8", errors="replace").strip()
-                    raise Conflict(
-                        "Demo Worker exited before its ready marker"
-                        + (f": {detail}" if detail else "")
-                    )
-                time.sleep(0.01)
-        except BaseException:
-            self._reap_failed_launch(process)
-            raise
-        self._reap_failed_launch(process)
-        raise Conflict("Demo Worker did not publish its ready marker before the handshake timeout")
+        return _ReadyWorkerProcess(
+            process,
+            boundary,
+            self.ready_path,
+            self.ready_timeout_seconds,
+        )
 
 
 def _one_event(events: tuple[Event, ...], event_type: str) -> Event:
@@ -263,10 +307,28 @@ def _derive_evidence(
     ):
         raise ValueError("Child ready marker does not bind the durable RUNNING launch event")
 
+    process_launched = _one_event(events, "PROCESS_WORKER_LAUNCHED")
+    process_authorized = _one_event(events, "PROCESS_WORKER_START_AUTHORIZED")
     fence = _one_event(events, "CANCEL_WORKER_STOP_PENDING")
+    process_reaped = _one_event(events, "PROCESS_WORKER_STOPPED")
     stopped = _one_event(events, "CANCEL_WORKER_STOPPED")
     released = _one_event(events, "LEASE_RELEASED")
     cancelled = _one_event(events, "CANCEL_REQUESTED")
+    process_target = {
+        "launch_id": ready.process_launch_id,
+        "lease_id": ready.lease_id,
+        "worker_id": ready.worker_id,
+        "epoch": ready.epoch,
+        "process_id": ready.process_id,
+        "launch_event_seq": ready.launch_event_seq,
+        "source": "local_process_supervisor",
+    }
+    if any(process_launched.payload.get(key) != value for key, value in process_target.items()):
+        raise ValueError("Process launch event does not match the ready direct child")
+    if any(process_authorized.payload.get(key) != value for key, value in process_target.items()):
+        raise ValueError("Process start authorization does not match the ready direct child")
+    if any(process_reaped.payload.get(key) != value for key, value in process_target.items()):
+        raise ValueError("Process reap receipt does not match the ready direct child")
     target = {
         "lease_id": ready.lease_id,
         "worker_id": ready.worker_id,
@@ -281,6 +343,8 @@ def _derive_evidence(
         raise ValueError("Worker stop receipt does not match the ready direct child")
     if (
         observation.process_id != ready.process_id
+        or process_reaped.payload.get("exit_code") != observation.exit_code
+        or process_reaped.payload.get("stop_evidence") != "synchronous_reap"
         or stopped.payload.get("exit_code") != observation.exit_code
         or stopped.payload.get("stop_method") != observation.stop_method
         or stopped.payload.get("lease_release") != "parent"
@@ -300,6 +364,8 @@ def _derive_evidence(
         or replayed.reservations
         or replayed.cancel_worker_stop is not None
         or len(replayed.cancel_worker_stop_receipts) != 1
+        or replayed.process_worker_launch is not None
+        or len(replayed.process_worker_stop_receipts) != 1
         or terminal_pack.evidence.unknown_effects_present
         or terminal_pack.evidence.open_effects_present
     ):
@@ -313,11 +379,15 @@ def _derive_evidence(
         lease_epoch=ready.epoch,
         launch_event_seq=ready.launch_event_seq,
         launch_event_hash=ready.launch_event_hash,
+        process_launch_id=ready.process_launch_id,
         process_id=ready.process_id,
         exit_code=observation.exit_code,
         timeout_seconds=observation.timeout_seconds,
         stop_method=observation.stop_method,
+        process_launched_event_seq=process_launched.seq,
+        process_start_authorized_event_seq=process_authorized.seq,
         cancellation_fence_event_seq=fence.seq,
+        process_reaped_event_seq=process_reaped.seq,
         worker_stopped_event_seq=stopped.seq,
         lease_released_event_seq=released.seq,
         terminal_cancellation_event_seq=cancelled.seq,
@@ -337,8 +407,11 @@ def _summary(evidence: ProcessTimeoutDemoEvidence) -> str:
         f"- Worker lease: `{evidence.lease_id}` / epoch `{evidence.lease_epoch}`\n"
         f"- Parent-side slice timeout: `{evidence.timeout_seconds}` seconds\n"
         f"- Stop result: `{evidence.stop_method}` / exit `{evidence.exit_code}`\n"
-        f"- Durable ordering: launch `{evidence.launch_event_seq}` < fence "
+        f"- Durable ordering: run launch `{evidence.launch_event_seq}` < process launch "
+        f"`{evidence.process_launched_event_seq}` < start authorized "
+        f"`{evidence.process_start_authorized_event_seq}` < fence "
         f"`{evidence.cancellation_fence_event_seq}` < stopped "
+        f"process `{evidence.process_reaped_event_seq}` < stopped cancellation target "
         f"`{evidence.worker_stopped_event_seq}` < lease released "
         f"`{evidence.lease_released_event_seq}` < terminal cancellation "
         f"`{evidence.terminal_cancellation_event_seq}`\n"

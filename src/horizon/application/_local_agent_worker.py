@@ -48,9 +48,9 @@ def _active_plan_item(run):
 
 
 def main() -> None:
-    if len(sys.argv) != 19:
+    if len(sys.argv) != 20:
         raise SystemExit(
-            "usage: _local_agent_worker STORE RUN LEASE WORKER EPOCH LAUNCH_SEQ "
+            "usage: _local_agent_worker STORE RUN LEASE WORKER EPOCH LAUNCH_SEQ LAUNCH_ID "
             "SESSION_REF NEXT_ITERATION CONFIG CONFIG_HASH DOTENV ARTIFACTS WORKSPACE CAMPAIGN "
             "STAGING IMAGE RETRIEVAL SLICE_ITERATIONS"
         )
@@ -61,6 +61,7 @@ def main() -> None:
         worker_id,
         epoch_arg,
         launch_seq_arg,
+        launch_id,
         session_ref_arg,
         next_iteration_arg,
         config_arg,
@@ -85,19 +86,41 @@ def main() -> None:
     if not 1 <= slice_iterations <= 50:
         raise ValueError("Agent Worker slice size must be in [1, 50]")
 
+    # No model, tool, store, or workspace object may be opened until the parent has persisted
+    # both the PID-bound launch and its authorization, then releases this one-shot gate.
+    start_gate = sys.stdin.buffer.readline().decode("utf-8", errors="strict").rstrip("\r\n")
+    if start_gate != launch_id:
+        raise SystemExit("Agent Worker start gate was not authorized by its parent")
+
     store = SQLiteEventStore(Path(store_arg))
     service = HarnessService(store)
     run = store.get(run_id)
     expected_session_ref = None if session_ref_arg == "-" else session_ref_arg
     current_session_ref = run.agent_session.artifact_ref if run.agent_session is not None else None
     current_iteration = run.agent_session.next_iteration if run.agent_session is not None else 0
+    process_launch = run.process_worker_launch
+    expected_process_launch = {
+        "launch_id": launch_id,
+        "lease_id": token.lease_id,
+        "worker_id": token.worker_id,
+        "epoch": token.epoch,
+        "process_id": os.getpid(),
+        "launch_event_seq": launch_event_seq,
+        "source": "local_process_supervisor",
+    }
     if (
         run.status != RunStatus.RUNNING
-        or run.seq != launch_event_seq
         or run.lease_id != token.lease_id
         or run.worker_id != token.worker_id
         or run.lease_epoch != token.epoch
         or run.reservations
+        or run.cancel_requested
+        or process_launch is None
+        or any(process_launch.get(name) != value for name, value in expected_process_launch.items())
+        or process_launch.get("recorded_event_seq") != launch_event_seq + 1
+        or process_launch.get("start_authorized") is not True
+        or process_launch.get("authorized_event_seq") != launch_event_seq + 2
+        or run.seq < process_launch["authorized_event_seq"]
         or current_session_ref != expected_session_ref
         or current_iteration != next_iteration
     ):

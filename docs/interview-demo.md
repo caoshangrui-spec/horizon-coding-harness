@@ -27,17 +27,20 @@ EvidencePack 才能说明这次运行实际发生了什么。”
 
 ### 1:00～1:50：现场运行真实故障链
 
-“我现在运行的是最窄、最容易复核的版本。它会启动一个真实直接子进程；子进程只读重开
-SQLite，核对 Run、Lease、Worker、epoch 和 launch event 后发布 ready marker。父进程随后故意
-触发 slice timeout。正式 Supervisor 必须先把精确取消目标写进 Trace，之后才 terminate/wait，
-记录 exit code，再释放 Lease 并把 Run 置为 CANCELLED。”
+“我现在运行的是最窄、最容易复核的版本。它会启动一个阻塞在 stdin gate 的真实直接子进程；
+父进程先把 launch ID、PID、Lease 和 epoch 落入 Trace并持久授权，才放行子进程。子进程只读
+重开 SQLite、复核该授权后发布 ready marker。父进程随后故意触发 slice timeout：先写精确取消
+目标，之后才 terminate/wait、记录两类停止 receipt、释放 Lease并把 Run 置为 CANCELLED。”
 
 运行下方命令，并指出输出中的 `process_id`、`lease_epoch`、`event_order`、`status` 和
 `external_cost_cny`。事件序号必须满足：
 
 ```text
 launch
+  < PROCESS_WORKER_LAUNCHED
+  < PROCESS_WORKER_START_AUTHORIZED
   < CANCEL_WORKER_STOP_PENDING
+  < PROCESS_WORKER_STOPPED
   < CANCEL_WORKER_STOPPED
   < LEASE_RELEASED
   < CANCEL_REQUESTED
@@ -47,8 +50,8 @@ launch
 
 “演示结束后临时数据库已经删除，只留下 EvidencePack。我再用独立命令检查文件大小和 SHA-256、
 重放 JSONL Trace、复算最终 Run 投影，并把 child-ready 与父进程 observation 重新绑定到同一个
-PID、Lease、epoch 和事件链。仅仅修改 PID 并重算文件哈希也会被语义校验拒绝，所以它不是只看
-一个成功字符串。”
+launch ID、PID、Lease、epoch 和事件链。仅仅修改 PID 并重算文件哈希也会被语义校验拒绝，所以
+它不是只看一个成功字符串。”
 
 ### 2:30～3:00：主动说清边界
 
@@ -164,7 +167,8 @@ scan fallback 会显式标记 degraded，不能把 `evidence_missing` 包装成�
 
 项目要先证明单机 Harness 的恢复不变量：状态权威、旧 Worker 围栏、副作用对账、预算和验收。
 分布式调度会增加组件，却不会自动解决这些问题。当前边界明确是本地直接子进程；跨主机 Lease、
-父控制器重启和进程树回收属于后续生产化工作，不在现有证据范围内。
+父控制器被硬 kill 后，持久 launch 阻止新 Lease、精确 PID 人工停止确认和原 session 续跑已有
+离线故障注入证据；自动探活/重启、OS 灾难恢复与进程树回收仍属于后续生产化工作。
 
 ### 7. EvidencePack 到底证明了什么？
 

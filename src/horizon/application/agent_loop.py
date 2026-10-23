@@ -16,7 +16,7 @@ from horizon.application.model_probe import (
     legacy_input_estimate,
 )
 from horizon.application.model_recovery import (
-    LEASE_EVENTS,
+    SUPERVISION_EVENTS,
     events_after_agent_session,
     load_recorded_model_response,
     persist_model_response,
@@ -502,7 +502,7 @@ class CodingAgentRunner:
         tail = events_after_agent_session(run, events)
         if tail is None:
             raise Conflict("Run has no valid persisted Agent session boundary")
-        if all(event.event_type in LEASE_EVENTS for event in tail):
+        if all(event.event_type in SUPERVISION_EVENTS for event in tail):
             return list(session.messages), session.next_iteration, None
         pending = recoverable_model_turn(run, events)
         if pending is None:

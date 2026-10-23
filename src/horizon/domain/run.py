@@ -89,6 +89,8 @@ class Run:
     cancel_stop_receipts: list[dict[str, str]] = field(default_factory=list)
     cancel_worker_stop: dict[str, Any] | None = None
     cancel_worker_stop_receipts: list[dict[str, Any]] = field(default_factory=list)
+    process_worker_launch: dict[str, Any] | None = None
+    process_worker_stop_receipts: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def occupied(self) -> Usage:
@@ -193,6 +195,10 @@ class Run:
             result["cancel_worker_stop"] = dict(self.cancel_worker_stop)
         if self.cancel_worker_stop_receipts:
             result["cancel_worker_stop_receipts"] = list(self.cancel_worker_stop_receipts)
+        if self.process_worker_launch is not None:
+            result["process_worker_launch"] = dict(self.process_worker_launch)
+        if self.process_worker_stop_receipts:
+            result["process_worker_stop_receipts"] = list(self.process_worker_stop_receipts)
         return result
 
 
@@ -424,8 +430,100 @@ def apply(run: Run | None, event: Event) -> Run:
             run.no_progress_reset_tool_count = len(run.tool_calls)
         run.human_decisions.append(decision)
         run.pending_human_request = None
+    elif event.event_type == "PROCESS_WORKER_LAUNCHED":
+        launch = {
+            "launch_id": p.get("launch_id"),
+            "lease_id": p.get("lease_id"),
+            "worker_id": p.get("worker_id"),
+            "epoch": p.get("epoch"),
+            "process_id": p.get("process_id"),
+            "launch_event_seq": p.get("launch_event_seq"),
+            "source": p.get("source"),
+            "recorded_event_seq": event.seq,
+            "start_authorized": False,
+        }
+        if (
+            run.terminal
+            or run.status != RunStatus.RUNNING
+            or run.plan is None
+            or run.cancel_requested
+            or run.reservations
+            or run.process_worker_launch is not None
+            or launch["source"] != "local_process_supervisor"
+            or not isinstance(launch["launch_id"], str)
+            or not launch["launch_id"].startswith("launch_")
+            or (launch["lease_id"], launch["worker_id"], launch["epoch"])
+            != (run.lease_id, run.worker_id, run.lease_epoch)
+            or not isinstance(launch["process_id"], int)
+            or isinstance(launch["process_id"], bool)
+            or launch["process_id"] < 1
+            or launch["launch_event_seq"] != run.seq
+        ):
+            raise IntegrityError("Process Worker launch does not match the active lease boundary")
+        run.process_worker_launch = launch
+    elif event.event_type == "PROCESS_WORKER_START_AUTHORIZED":
+        launch = run.process_worker_launch
+        target = {
+            "launch_id": p.get("launch_id"),
+            "lease_id": p.get("lease_id"),
+            "worker_id": p.get("worker_id"),
+            "epoch": p.get("epoch"),
+            "process_id": p.get("process_id"),
+            "launch_event_seq": p.get("launch_event_seq"),
+            "source": p.get("source"),
+        }
+        if (
+            launch is None
+            or run.terminal
+            or run.status != RunStatus.RUNNING
+            or run.cancel_requested
+            or launch["start_authorized"]
+            or any(launch[key] != value for key, value in target.items())
+            or (launch["lease_id"], launch["worker_id"], launch["epoch"])
+            != (run.lease_id, run.worker_id, run.lease_epoch)
+        ):
+            raise IntegrityError("Process Worker start authorization has no exact launch")
+        launch["start_authorized"] = True
+        launch["authorized_event_seq"] = event.seq
+    elif event.event_type == "PROCESS_WORKER_STOPPED":
+        launch = run.process_worker_launch
+        target = {
+            "launch_id": p.get("launch_id"),
+            "lease_id": p.get("lease_id"),
+            "worker_id": p.get("worker_id"),
+            "epoch": p.get("epoch"),
+            "process_id": p.get("process_id"),
+            "launch_event_seq": p.get("launch_event_seq"),
+            "source": p.get("source"),
+        }
+        receipt = {
+            **target,
+            "exit_code": p.get("exit_code"),
+            "stop_evidence": p.get("stop_evidence"),
+            "stopped_event_seq": event.seq,
+        }
+        synchronous_reap = (
+            receipt["stop_evidence"] == "synchronous_reap"
+            and isinstance(receipt["exit_code"], int)
+            and not isinstance(receipt["exit_code"], bool)
+        )
+        operator_confirmation = (
+            receipt["stop_evidence"] == "operator_confirmed" and receipt["exit_code"] is None
+        )
+        if (
+            launch is None
+            or any(launch[key] != value for key, value in target.items())
+            or not (synchronous_reap or operator_confirmation)
+        ):
+            raise IntegrityError("Process Worker stop receipt has no exact active launch")
+        run.process_worker_stop_receipts.append(receipt)
+        run.process_worker_launch = None
     elif event.event_type == "CANCEL_PENDING":
-        if run.terminal or run.cancel_requested or not run.reservations:
+        if (
+            run.terminal
+            or run.cancel_requested
+            or not (run.reservations or run.process_worker_launch is not None)
+        ):
             raise IntegrityError("Pending cancellation requires an active in-flight operation")
         if p.get("source") != "local_control":
             raise IntegrityError("Cancellation must originate from the trusted control plane")
@@ -543,6 +641,7 @@ def apply(run: Run | None, event: Event) -> Run:
             set(run.reservations) - run.unknown_reservations
             or run.tool_reservations
             or run.cancel_worker_stop is not None
+            or run.process_worker_launch is not None
         ):
             raise IntegrityError("Recovery-safe cancellation cannot hide an unsettled effect")
         _transition(run, RunStatus.CANCELLED)
