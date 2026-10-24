@@ -283,7 +283,11 @@ class RetrievalSourceMaterializer:
                     or tree_digest != spec.expected_tree_digest
                 ):
                     raise IntegrityError(
-                        f"Materialized source evidence mismatch for {spec.case_id}"
+                        f"Materialized source evidence mismatch for {spec.case_id}: "
+                        f"expected files/bytes/tree "
+                        f"{spec.expected_file_count}/{spec.expected_byte_count}/"
+                        f"{spec.expected_tree_digest}, observed "
+                        f"{file_count}/{byte_count}/{tree_digest}"
                     )
                 receipts.append(
                     RetrievalSourceCaseReceipt(
