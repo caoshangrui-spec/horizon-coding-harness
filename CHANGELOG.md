@@ -14,8 +14,9 @@ for public releases; unreleased work must not be presented as a published releas
   or network call.
 - Added reproducible source materialization for the 16 development cases. A strict manifest pins
   public GitHub repositories, commits, archive roots, file/byte counts, and content-tree digests;
-  the CLI uses bare Git caches, rejects holdout by default, and never checks out or executes
-  upstream code. Frozen baseline verification excludes machine-specific timings but compares every
+  the CLI uses bare Git caches, forces LF Git archives across Windows and Linux, rejects holdout by
+  default, and never checks out or executes upstream code. Frozen baseline verification excludes
+  machine-specific timings but compares every
   deterministic ranking, status, child report, and aggregate metric. A dedicated main-only workflow
   uploads receipts and reports without publishing third-party source trees or indexes.
 - Froze and ran 16 query-form perturbations over four known-hard development cases. English

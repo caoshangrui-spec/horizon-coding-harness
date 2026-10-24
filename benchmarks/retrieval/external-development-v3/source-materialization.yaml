@@ -8,110 +8,110 @@ cases:
     buggy_commit: c15633745df6abdb24e02746b82aadb20b8cdf8c
     archive_paths: [cookiecutter]
     expected_file_count: 18
-    expected_byte_count: 69262
-    expected_tree_digest: 038a7942b4915fbd9fb06f9c7fb3b0511b0856c6024ed4ac3c53d698fbe92e80
+    expected_byte_count: 67213
+    expected_tree_digest: 2d8f6ead13bb77087d3d13e4612913947cbe1c951e022ad23e1ab61fa21046ef
   - case_id: cookiecutter-3-read-user-choice
     repository_url: https://github.com/cookiecutter/cookiecutter
     buggy_commit: 5c282f020a8db7e5e7c4e7b51b010556ca31fb7f
     archive_paths: [cookiecutter]
     expected_file_count: 18
-    expected_byte_count: 65250
-    expected_tree_digest: cf561224bc048e7e159ec307393745f809ac70de11ff7e8b10902b4087ab833b
+    expected_byte_count: 63258
+    expected_tree_digest: e684cd5b3e2b80f83179bfa8b754a9ce6c4ca59f783944c03b55c72b17e40dd0
   - case_id: httpie-1-unique-download-filename
     repository_url: https://github.com/httpie/cli
     buggy_commit: 001bda19450ad85c91345eea3cfa3991e1d492ba
     archive_paths: [httpie]
     expected_file_count: 25
-    expected_byte_count: 121908
-    expected_tree_digest: 7ac1a09aa160c42a4d245e2de83e8a48c4f6e85b5f860e0c5e7c141f208a49e5
+    expected_byte_count: 117997
+    expected_tree_digest: 6c0856536652c9bfe69d127692da64e5296bb85bfa9838d2ba274cf3a86b9927
   - case_id: httpie-4-host-header-overwrite
     repository_url: https://github.com/httpie/cli
     buggy_commit: 8c892edd4fe700a7ca5cc733dcb4817831d253e2
     archive_paths: [httpie]
     expected_file_count: 25
-    expected_byte_count: 107944
-    expected_tree_digest: b505179393b02a7c2eb7ed14f83d72b2989d4922d85781b93ce8edd6e2253c02
+    expected_byte_count: 104470
+    expected_tree_digest: 103eb85b1754cd9ef5ec1986c6f2eea3acd3066ac20674e98b0b2f5e4cdf3315
   - case_id: httpie-5-escape-long-separator
     repository_url: https://github.com/httpie/cli
     buggy_commit: 16df8848e81eefac830f407e4b985f42b52970da
     archive_paths: [httpie]
     expected_file_count: 6
-    expected_byte_count: 24600
-    expected_tree_digest: 1588cf1aac8ad27f3ecdacae526b4c8ff2fb6a98e6176a3c80fe194172215257
+    expected_byte_count: 23825
+    expected_tree_digest: 4b10c828dd639fd879eac3fe429659096a38bac3c9156348ac52588c37b692bd
   - case_id: luigi-2-beam-target-path
     repository_url: https://github.com/spotify/luigi
     buggy_commit: baa54c9f4f809692d62d4c3e4497161717c76550
     archive_paths: [luigi]
     expected_file_count: 167
-    expected_byte_count: 3001653
-    expected_tree_digest: 2054fcae2a088ec5b20ee4d4f22f238f54e67991766d731095e9444bd59f8a36
+    expected_byte_count: 2965489
+    expected_tree_digest: f0c0064c7b976ac56292af9d9fedb1043152c505fbec58bf60e7d14e33a7221a
   - case_id: luigi-3-serialize-tuple-parameter
     repository_url: https://github.com/spotify/luigi
     buggy_commit: a0f1db01ddab5b4b2bda3fbe58bad09a6d94a7b4
     archive_paths: [luigi]
     expected_file_count: 164
-    expected_byte_count: 2958808
-    expected_tree_digest: 224196c9b6993b9c5259ae36131868a3ca7e332ca91fff842b3fd6536d12b882
+    expected_byte_count: 2923758
+    expected_tree_digest: 30d127ce971e1e9970c8428c80c7742be79e7131bd6f915b8c6b38f431ab20d3
   - case_id: luigi-7-status-wont-override
     repository_url: https://github.com/spotify/luigi
     buggy_commit: dd1f2ce0061e7787166522a3c75339ba4755dd2c
     archive_paths: [luigi]
     expected_file_count: 153
-    expected_byte_count: 2833582
-    expected_tree_digest: 45066e88ae804822d39440a9a1e55ba34bbfb105326b2482d3fd6e2539861703
+    expected_byte_count: 2801932
+    expected_tree_digest: ee58c98c16d1d0c56f376b14f1b7260cfe2a6ba1e615d027c503081f8ba5e1de
   - case_id: pysnooper-2-custom-repr
     repository_url: https://github.com/cool-RR/PySnooper
     buggy_commit: e21a31162f4c54be693d8ca8260e42393b39abd3
     archive_paths: [pysnooper]
     expected_file_count: 5
-    expected_byte_count: 22048
-    expected_tree_digest: 6a386cf94b435fa637e6feed34494477ba34b8099c86b31f5ad86311a3576d29
+    expected_byte_count: 21375
+    expected_tree_digest: cc9ec7bb123fde731b6ef1d1458255f5f180b7bf32251ecec8c82276d170fe72
   - case_id: sanic-2-asyncio-start-serving
     repository_url: https://github.com/sanic-org/sanic
     buggy_commit: ba9b432993019b0af0c4827a5ed42aaa091bd17d
     archive_paths: [sanic]
     expected_file_count: 27
-    expected_byte_count: 258576
-    expected_tree_digest: 945d8ee5a6d91d2f4781e609e1587a89e9aced52a354452f8cc8628137590cb9
+    expected_byte_count: 251056
+    expected_tree_digest: 52a426ae0171edabaf4aa135bc57bdd52867359a60b91b1a2a447496499459d6
   - case_id: sanic-3-routes-with-host
     repository_url: https://github.com/sanic-org/sanic
     buggy_commit: 91f6abaa81248189fbcbdf685e8bdcbb7846609f
     archive_paths: [sanic]
     expected_file_count: 27
-    expected_byte_count: 260033
-    expected_tree_digest: 4b4a8e3f40660d28cbd69dd28ec2dd34ac7f182cb924da742e4596a63313fc6e
+    expected_byte_count: 252471
+    expected_tree_digest: 51565f4e83c2965693180e8c6902e8119abc3f9cf4b17c19709ac3f514907609
   - case_id: sanic-5-root-logger-config
     repository_url: https://github.com/sanic-org/sanic
     buggy_commit: e3a27c2cc485d57aa1ff87d9f69098e4ab12727e
     archive_paths: [sanic]
     expected_file_count: 21
-    expected_byte_count: 182495
-    expected_tree_digest: 405656b0a04a3d8d94419b1198ac6889c699e778940d97af78ae5bb6bb604488
+    expected_byte_count: 176989
+    expected_tree_digest: 4e047fb8b34179c1954d38b6c9cfbc5cbdab0bc7e336923e3c0f5e8900292f83
   - case_id: thefuck-2-executable-path-separator
     repository_url: https://github.com/nvbn/thefuck
     buggy_commit: 40ab4eb62db57627bff10cf029d29c94704086a2
     archive_paths: [thefuck]
     expected_file_count: 184
-    expected_byte_count: 179030
-    expected_tree_digest: ff1f27f7f5166eccc6f0ff5f77566207c745dcae185799d415750a9859bc066f
+    expected_byte_count: 173118
+    expected_tree_digest: b19a6c8f14edb5770cc027043623ebfac08fc7663a10cac3aff4771859866a6f
   - case_id: thefuck-5-git-push-bitbucket
     repository_url: https://github.com/nvbn/thefuck
     buggy_commit: 7c858fadb3458be829d3d43666ccb46c3ed5b8a0
     archive_paths: [thefuck]
     expected_file_count: 174
-    expected_byte_count: 167742
-    expected_tree_digest: c13d0c7f1eb6f04251b30fd174cfba55aca2a39e357d0b387dc4431d8d42b3ac
+    expected_byte_count: 162167
+    expected_tree_digest: 1ca025a3f888ea6dcc6a7f17ab49fc72bd88b0858d70af2f1b75472bebb37393
   - case_id: tornado-2-redirect-put-without-body
     repository_url: https://github.com/tornadoweb/tornado
     buggy_commit: 2ca8821d006f6693f920a4b183a3a7c985a5c8ad
     archive_paths: [tornado]
     expected_file_count: 97
-    expected_byte_count: 1521049
-    expected_tree_digest: 57ddff00ca43c92bf46e1053f20672d366e99f8f808b806d1a23463c222014c6
+    expected_byte_count: 1480279
+    expected_tree_digest: b58f92b9cddda8c986208416b922cf381f5273f53d079e85d605096302aa8e82
   - case_id: tornado-4-static-range-bounds
     repository_url: https://github.com/tornadoweb/tornado
     buggy_commit: a8420fc681c5423d072978f00eab4d0645057d16
     archive_paths: [tornado]
     expected_file_count: 97
-    expected_byte_count: 1509567
-    expected_tree_digest: b69e5af0f678bdf625a8cde9f5ade93896b5b7883963b6b0c461165e7a3c6893
+    expected_byte_count: 1469063
+    expected_tree_digest: 42481a268bda5765260c41d9be4920f2bccd8b3a73a5e6f125b47c2abd0b3ac1

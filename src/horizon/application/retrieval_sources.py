@@ -50,7 +50,14 @@ class SubprocessGitArchiveTransport:
         environment["GIT_TERMINAL_PROMPT"] = "0"
         try:
             result = subprocess.run(
-                ("git", *arguments),
+                (
+                    "git",
+                    "-c",
+                    "core.autocrlf=false",
+                    "-c",
+                    "core.eol=lf",
+                    *arguments,
+                ),
                 check=False,
                 capture_output=True,
                 timeout=self.timeout_seconds,

@@ -6,7 +6,7 @@ evaluated_at: "2026-10-24"
 execution:
   partition: development
   holdout_status: sealed
-  source_manifest_digest: 8276c3818736d428bdc3a5ba84ec04640979846f22aebed5e294ed1127254302
+  source_manifest_digest: 74a87b4dbf6c54f8f9fd003473dcc0a7995f5b7be9953e080a1f5d672ec16431
   source_preparation_network_used: true
   evaluator_network_called: false
   paid_model_called: false
@@ -74,7 +74,7 @@ by_variant:
 
 groups:
   - base_case_id: cookiecutter-1-non-ascii-context
-    report_ref: dd0da840557f98b91b1da7fadbc90aa6124ba91aea406471825d64a924b5b442
+    report_ref: 241ec6e85d7e557f9240f8881a330d43be62aa7a5de87ab7a8daaec2783958b3
     hit_count: 3
     case_count: 4
     micro_path_recall_at_8: 0.75
@@ -100,7 +100,7 @@ groups:
         returned_paths: [cookiecutter/extensions.py, cookiecutter/extensions.py]
 
   - base_case_id: luigi-7-status-wont-override
-    report_ref: 8d0d2d6225959382faddac7402527215b347af030a992c14df29abcb0c71b205
+    report_ref: 492d8b9b87564535f92b3393aa8821db2ad6ce9d1a9855e6e0a0f2fc676c854a
     hit_count: 3
     case_count: 4
     micro_path_recall_at_8: 0.75
@@ -126,7 +126,7 @@ groups:
         returned_paths: []
 
   - base_case_id: pysnooper-2-custom-repr
-    report_ref: c476bd10fe22c833058854e5171226ab55a1cb24eca85a01d8a58788e96a0158
+    report_ref: e5320012ed2775df5ad3102306da3c8fb0b5071d252290572b00c44db3c7478c
     hit_count: 3
     case_count: 4
     micro_path_recall_at_8: 0.65
@@ -152,7 +152,7 @@ groups:
         returned_paths: []
 
   - base_case_id: tornado-2-redirect-put-without-body
-    report_ref: 2333251a9a3cf01a655d759d8caafe010ddb1ac9553914798c881f9b8cf3c771
+    report_ref: d15bd52740d68b50dc6f7e4cb781cc8a24b3376f21aae03ffe584ac70903d42c
     hit_count: 4
     case_count: 4
     micro_path_recall_at_8: 1.0

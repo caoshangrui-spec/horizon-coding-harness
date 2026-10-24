@@ -1,5 +1,6 @@
 import io
 import json
+import subprocess
 import tarfile
 from pathlib import Path
 
@@ -8,6 +9,7 @@ from pydantic import ValidationError
 
 from horizon.application.retrieval_sources import (
     RetrievalSourceMaterializer,
+    SubprocessGitArchiveTransport,
     source_tree_evidence,
 )
 from horizon.domain.errors import IntegrityError, PolicyDenied
@@ -45,6 +47,30 @@ class FakeGitArchiveTransport:
 
     def archive(self, repository, commit, paths):
         return self.payload
+
+
+def test_subprocess_transport_forces_portable_archive_line_endings(monkeypatch):
+    captured = {}
+
+    def fake_run(arguments, **kwargs):
+        captured["arguments"] = arguments
+        captured["kwargs"] = kwargs
+        return subprocess.CompletedProcess(arguments, 0, stdout=b"", stderr=b"")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = SubprocessGitArchiveTransport()._run(("version",))
+
+    assert result.returncode == 0
+    assert captured["arguments"] == (
+        "git",
+        "-c",
+        "core.autocrlf=false",
+        "-c",
+        "core.eol=lf",
+        "version",
+    )
+    assert captured["kwargs"]["env"]["GIT_TERMINAL_PROMPT"] == "0"
 
 
 def _contracts(tmp_path: Path, *, partition: str = "development", tree_digest: str | None = None):

@@ -381,6 +381,7 @@ def test_checked_in_external_v3_suite_preserves_selection_and_sealed_holdout():
     assert sources.suite_id == suite.suite_id
     assert sources.partition == suite.partition == "development"
     assert sources.evaluation_suite_path == "development-suite.yaml"
+    assert sources.sha256 == "74a87b4dbf6c54f8f9fd003473dcc0a7995f5b7be9953e080a1f5d672ec16431"
     assert suite.selection_commit == "57776b89d1f7a99723f61c5a8b15db5c5ff579ae"
     assert all("expected_paths" not in selected[case_id] for case_id in holdout)
     assert not any((benchmark_root / "cases" / f"{case_id}.yaml").exists() for case_id in holdout)
@@ -412,7 +413,7 @@ def test_checked_in_external_v3_suite_preserves_selection_and_sealed_holdout():
     assert baseline["aggregate"]["case_count"] == 16
     assert baseline["aggregate"]["expected_path_count"] == 20
     assert baseline["aggregate"]["report_ref"] == (
-        "8f68016ce398da6464e669aadb8855de2bb850beb9c6ba78d993bd9291a653a5"
+        "8726f5d1ea513269542eab17b1b788cd1ebb7a4d30f02f3f323fa2f315b482a3"
     )
     assert baseline["metrics_at_k"][0]["hit_count"] == 11
     assert baseline["metrics_at_k"][2]["hit_count"] == 16
@@ -458,9 +459,13 @@ def test_checked_in_query_robustness_selection_has_four_frozen_variants_per_case
 
 def test_checked_in_query_robustness_result_recomputes_from_rankings():
     root = Path(__file__).resolve().parents[2]
+    benchmark_root = root / "benchmarks/retrieval/external-development-v3"
     result_root = root / "benchmarks/retrieval/external-development-v3/query-robustness-v1"
     selection = yaml.safe_load((result_root / "selection.yaml").read_text(encoding="utf-8"))
     result = yaml.safe_load((result_root / "result-v1.yaml").read_text(encoding="utf-8"))
+    source_manifest = RetrievalSourceManifest.model_validate(
+        yaml.safe_load((benchmark_root / "source-materialization.yaml").read_text(encoding="utf-8"))
+    )
     observations = []
 
     assert result["selection_commit"] == "03261ed2f68a99f9a48e82bf9781590232e959d0"
@@ -468,6 +473,7 @@ def test_checked_in_query_robustness_result_recomputes_from_rankings():
     assert result["execution"]["evaluator_network_called"] is False
     assert result["execution"]["paid_model_called"] is False
     assert result["execution"]["repository_code_executed"] is False
+    assert result["execution"]["source_manifest_digest"] == source_manifest.sha256
     assert len({group["report_ref"] for group in result["groups"]}) == 4
 
     for selected, group in zip(selection["cases"], result["groups"], strict=True):

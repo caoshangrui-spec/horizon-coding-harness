@@ -144,6 +144,11 @@ jobs:
                   "query-robustness-v1/result-v1.yaml"
               ).read_text(encoding="utf-8")
           )
+          if (
+              robustness["execution"]["source_manifest_digest"]
+              != receipt["source_manifest_digest"]
+          ):
+              raise SystemExit("Query robustness source manifest digest drifted")
           robustness_root = evidence / "query-robustness"
           for group in robustness["groups"]:
               payload = json.loads(

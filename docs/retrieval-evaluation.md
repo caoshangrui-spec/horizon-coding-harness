@@ -218,10 +218,10 @@ v0.3.0 词法检索在 16 个 development 案例、20 个 production gold path �
 | 8 | 16/16 = 1.0 | 18/20 = 0.90 | 0.792708 | 0.846637 |
 
 MRR 为 `0.817708`，leakage/empty 均为 0，3 个 Luigi 案例因跳过非 UTF-8 或超长行保持
-`degraded`。全新状态目录的首次评测 P50/P95 为 `464.589 / 3745.464 ms`，同进程缓存复用为
-`288.675 / 1897.468 ms`；这只是本机 16 案例的冷索引+查询与 warm 查询观察，不是跨机器性能
+`degraded`。LF 规范化源码上，全新状态目录的首次评测 P50/P95 为 `414.989 / 3809.351 ms`，
+同进程缓存复用为 `338.235 / 2135.362 ms`；这只是本机 16 案例的冷索引+查询与 warm 查询观察，不是跨机器性能
 承诺。内容寻址 suite report ref 为
-`8f68016ce398da6464e669aadb8855de2bb850beb9c6ba78d993bd9291a653a5`，完整案例、返回路径和
+`8726f5d1ea513269542eab17b1b788cd1ebb7a4d30f02f3f323fa2f315b482a3`，完整案例、返回路径和
 子报告 ref 保存在
 [`baseline-v0.3.0.yaml`](../benchmarks/retrieval/external-development-v3/baseline-v0.3.0.yaml)。
 
@@ -234,14 +234,17 @@ MRR 为 `0.817708`，leakage/empty 均为 0，3 个 Luigi 案例因跳过非 UTF
 源码准备现在也进入可复现合同，而不再依赖人工描述。`source-materialization.yaml` 为每个
 development 案例固定公开 GitHub URL、buggy commit、production package 根、文件数、字节数和
 跨平台内容树 SHA-256。`horizon eval materialize-retrieval-suite` 按仓库合并 shallow fetch，使用
-bare Git cache 和 `git archive` 生成全新目录；它拒绝 credential URL、路径穿越、link、内容哈希
+bare Git cache，并为所有 Git 命令强制 `core.autocrlf=false` 与 `core.eol=lf` 后再由 `git archive`
+生成全新目录；它拒绝 credential URL、路径穿越、link、内容哈希
 漂移和已有目标目录，默认也拒绝 holdout manifest。该阶段需要 GitHub 网络，但不 checkout、import
-或执行上游代码。16/16 案例已从网络重新物化并与原快照逐字节证据一致。
+或执行上游代码。Windows 默认 `core.autocrlf` 曾使首版字节证据与 Linux CI 不一致；该失败及修复
+保留为跨平台负证据。规范化后的 source manifest digest 为
+`74a87b4dbf6c54f8f9fd003473dcc0a7995f5b7be9953e080a1f5d672ec16431`，16/16 案例已在本机重新物化。
 
 `retrieval-suite --baseline baseline-v0.3.0.yaml` 进一步逐项核对稳定证据：全部 path ranking、
 gold 覆盖、状态、degradation reason、子报告 ref 和聚合指标；机器相关的 cold/warm 时间及 suite
 report ref 不进入相等判定。本机重建后的稳定投影 digest 为
-`eb4bc0d03038f6dc3706e138b1df420af5bf105b153ce0586f9f6197657716b4`。独立
+`ea72dcf20fe111527b9058df388a94feee7557b567631325385357a885fbb934`。独立
 `retrieval-evidence.yml` 只在 main 的相关路径变更或手工触发时重新下载 development 源码、执行
 冻结比较并上传 source receipt 与报告；第三方源码、Git cache 和检索索引不上传。这个 CI 闭环
 验证数据准备和排名可复现，仍不是 holdout、真实 Agent query 或端到端修复证据。
