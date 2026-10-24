@@ -49,9 +49,13 @@ NEW_FULL_MANIFEST_PATHS = {
 }
 MULTI_STAGE_V1_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-pilot-v1.yaml"
 MULTI_STAGE_V2_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-pilot-v2.yaml"
-MULTI_STAGE_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-pilot-v3.yaml"
+MULTI_STAGE_V3_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-pilot-v3.yaml"
+MULTI_STAGE_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-pilot-v4.yaml"
 LUIGI_MULTI_STAGE_MANIFEST_PATH = (
     ROOT / "benchmarks" / "run_ab" / "full" / "luigi-1-metrics-handler" / "multi-stage-v3.yaml"
+)
+FASTAPI_MULTI_STAGE_MANIFEST_PATH = (
+    ROOT / "benchmarks" / "run_ab" / "full" / "fastapi-5-nested-field-clone" / "multi-stage-v4.yaml"
 )
 HARD_CRASH_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-hard-crash-v1.yaml"
 LUIGI_HARD_CRASH_MANIFEST_PATH = (
@@ -878,21 +882,29 @@ def test_luigi_full_checkout_repair_is_line_ending_independent():
         assert "metrics_collector.configure_http_handler(self)" in source
 
 
-def test_three_stage_full_checkout_suite_preserves_v1_v2_and_binds_dependency_order():
+def test_three_stage_full_checkout_suite_preserves_v1_v2_v3_and_binds_dependency_order():
     v1 = RunABSuiteManifest.model_validate(
         yaml.safe_load(MULTI_STAGE_V1_SUITE_PATH.read_text(encoding="utf-8"))
     )
     v2 = RunABSuiteManifest.model_validate(
         yaml.safe_load(MULTI_STAGE_V2_SUITE_PATH.read_text(encoding="utf-8"))
     )
+    v3 = RunABSuiteManifest.model_validate(
+        yaml.safe_load(MULTI_STAGE_V3_SUITE_PATH.read_text(encoding="utf-8"))
+    )
     suite = RunABSuiteManifest.model_validate(
         yaml.safe_load(MULTI_STAGE_SUITE_PATH.read_text(encoding="utf-8"))
     )
     assert v1.sha256 == "e4afeee636e571010c65557757770b8c1b489227e3c3809314371e35527b7569"
     assert v2.sha256 == "c57ae62f6a4bbed7a7ba22e4169822887564c41272f9e440ca0f1c2bd4d458d3"
-    assert suite.sha256 == "4f1d9c5596b5acb06986f082a42fa328f25e8954d44f56a9d02ddb50149314dd"
-    assert list(suite.cases[:1]) == list(v2.cases)
-    assert {case.source.project for case in suite.cases} == {"luigi", "youtube-dl"}
+    assert v3.sha256 == "4f1d9c5596b5acb06986f082a42fa328f25e8954d44f56a9d02ddb50149314dd"
+    assert suite.sha256 == "7541ec23c1a1d4a0ab6e052ae84cd256c756ecff6b5bb108f9ae086fda43cf17"
+    assert list(suite.cases[:2]) == list(v3.cases)
+    assert {case.source.project for case in suite.cases} == {
+        "luigi",
+        "fastapi",
+        "youtube-dl",
+    }
     assert all(case.source.reduction == "full_checkout" for case in suite.cases)
 
     expected_digests = {
@@ -902,6 +914,14 @@ def test_three_stage_full_checkout_suite_preserves_v1_v2_and_binds_dependency_or
         "luigi-1-metrics-handler-three-stage-full": (
             "fab149f13284d5428702d3f6ca72e618fe1004bc0dab7ae2409fc6161dd2e6c3"
         ),
+        "fastapi-5-nested-field-clone-three-stage-full": (
+            "8ac330a5e7ec07053163695d05572e4c849155297743e742963750e666cb0fe1"
+        ),
+    }
+    expected_restart_points = {
+        "youtube-dl-3-unescape-html-three-stage-full": (3, 6),
+        "luigi-1-metrics-handler-three-stage-full": (3, 6),
+        "fastapi-5-nested-field-clone-three-stage-full": (3, 6),
     }
     for case in suite.cases:
         case_path = MULTI_STAGE_SUITE_PATH.parent / case.manifest_path
@@ -913,11 +933,37 @@ def test_three_stage_full_checkout_suite_preserves_v1_v2_and_binds_dependency_or
         first, second, third = manifest.initial_plan.items
         assert second.dependencies == (first.work_item_id,)
         assert third.dependencies == (second.work_item_id,)
-        assert {arm.restart_points for arm in manifest.arms} == {(3, 6)}
+        assert {arm.restart_points for arm in manifest.arms} == {
+            expected_restart_points[case.case_id]
+        }
         assert (
             len(set(first.acceptance_ids) | set(second.acceptance_ids) | set(third.acceptance_ids))
             == 3
         )
+
+
+def test_fastapi_three_stage_preserves_exact_upstream_production_and_regression_edits():
+    manifest = RunABEvalManifest.model_validate(
+        yaml.safe_load(FASTAPI_MULTI_STAGE_MANIFEST_PATH.read_text(encoding="utf-8"))
+    )
+    write_tools = {"replace_text", "create_file"}
+    baseline_writes = [action for action in manifest.arms[0].actions if action.tool in write_tools]
+    treatment_writes = [action for action in manifest.arms[1].actions if action.tool in write_tools]
+    assert treatment_writes == baseline_writes
+    assert [action.tool for action in treatment_writes] == ["replace_text", "create_file"]
+
+    production, regression = treatment_writes
+    assert production.arguments == {
+        "path": "fastapi/utils.py",
+        "old": "use_type.__fields__[f.name] = f",
+        "new": "use_type.__fields__[f.name] = create_cloned_field(f)",
+    }
+    assert regression.arguments["path"] == "tests/test_filter_pydantic_sub_model.py"
+    content = regression.arguments["content"]
+    assert len(content.splitlines()) == 91
+    assert hashlib.sha256(content.encode("utf-8")).hexdigest() == (
+        "f64fb11b78917f494f3101424f30219be3d8e761bff6da437f9ccd586b372c50"
+    )
 
 
 def test_source_bound_hard_crash_suite_binds_exact_recovery_window():

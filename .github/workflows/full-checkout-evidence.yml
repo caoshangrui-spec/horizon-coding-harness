@@ -177,14 +177,14 @@ jobs:
             exit "$suite_status"
           fi
 
-      - name: Run the two-case three-stage recovery suite in network-disabled containers
+      - name: Run the three-case three-stage recovery suite in network-disabled containers
         shell: bash
         run: |
           set -euo pipefail
-          state_dir=.horizon/multi-stage-docker-v3
+          state_dir=.horizon/multi-stage-docker-v4
           mkdir -p "$state_dir"
           uv run --locked horizon eval run-ab-suite \
-            benchmarks/run_ab/bugsinpy-multi-stage-pilot-v3.yaml \
+            benchmarks/run_ab/bugsinpy-multi-stage-pilot-v4.yaml \
             --image python:3.12-alpine \
             --state-dir "$state_dir" \
             | tee "$state_dir/cli-result.json"
@@ -215,7 +215,7 @@ jobs:
             .horizon/docker-worker-crash-cli.json
             .horizon/reduced-docker-v2
             .horizon/full-checkout-docker-v3
-            .horizon/multi-stage-docker-v3
+            .horizon/multi-stage-docker-v4
             .horizon/multi-stage-hard-crash-docker-v1
           if-no-files-found: warn
           retention-days: 30
@@ -270,7 +270,7 @@ jobs:
               )
           )
           multi = json.loads(
-              Path(".horizon/multi-stage-docker-v3/cli-result.json").read_text(
+              Path(".horizon/multi-stage-docker-v4/cli-result.json").read_text(
                   encoding="utf-8"
               )
           )
@@ -300,7 +300,7 @@ jobs:
               case_ref = case["report_ref"]
               report = json.loads(
                   (
-                      Path(".horizon/multi-stage-docker-v3/artifacts")
+                      Path(".horizon/multi-stage-docker-v4/artifacts")
                       / case_ref[:2]
                       / case_ref
                   ).read_text(encoding="utf-8")
@@ -334,7 +334,7 @@ jobs:
               and worker_crash["original_call_not_redispatched"]
               and worker_crash["protected_validation_passed"]
               and worker_crash["task_succeeded"]
-              and multi_reliability["timed_scenario_count"] == 2
+              and multi_reliability["timed_scenario_count"] == 3
               and multi_reliability["trace_replay_rate"] == 1.0
               and multi_reliability["source_workspace_unchanged_rate"] == 1.0
               and multi_reliability["final_open_effect_count"] == 0
