@@ -28,6 +28,11 @@ for public releases; unreleased work must not be presented as a published releas
   0.362574 to 0.653646. Chinese path recall rises from 1/8 to 7/8, but English-paraphrase and
   failure-description recall each regress from 8/8 to 7/8 on PySnooper, so the normalizer remains
   experimental and the default runtime policy is unchanged.
+- Added a frozen selective normalization gate for the same development slice. It normalizes eight
+  CJK or structured test-identifier queries and preserves eight ordinary English queries exactly,
+  retaining Hit@8 16/16 while lifting path recall from the always-on 28/32 to 30/32. Its MRR is
+  0.549479 versus 0.653646 for always-on normalization, and the adaptive four-case result remains
+  opt-in with the sealed holdout untouched.
 
 ## 0.3.0 - 2026-10-24
 

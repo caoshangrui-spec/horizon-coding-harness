@@ -136,6 +136,35 @@ jobs:
             tornado-2-redirect-put-without-body \
             benchmarks/retrieval/external-development-v3/query-normalization-v1/cases/tornado-2.yaml
 
+      - name: Run frozen selective query-normalization gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=.horizon/retrieval-v3-evidence/query-normalization-gate
+          mkdir -p "$evidence"
+
+          run_gate_group() {
+            local base_case_id="$1"
+            local manifest="$2"
+            uv run --locked horizon eval retrieval "$manifest" \
+              --source ".horizon/retrieval-v3/sources/$base_case_id" \
+              --state-dir ".horizon/retrieval-v3/gate-$base_case_id" \
+              | tee "$evidence/$base_case_id.json"
+          }
+
+          run_gate_group \
+            cookiecutter-1-non-ascii-context \
+            benchmarks/retrieval/external-development-v3/query-normalization-gate-v1/cases/cookiecutter-1.yaml
+          run_gate_group \
+            luigi-7-status-wont-override \
+            benchmarks/retrieval/external-development-v3/query-normalization-gate-v1/cases/luigi-7.yaml
+          run_gate_group \
+            pysnooper-2-custom-repr \
+            benchmarks/retrieval/external-development-v3/query-normalization-gate-v1/cases/pysnooper-2.yaml
+          run_gate_group \
+            tornado-2-redirect-put-without-body \
+            benchmarks/retrieval/external-development-v3/query-normalization-gate-v1/cases/tornado-2.yaml
+
       - name: Validate evidence boundary and publish summary
         shell: bash
         run: |
@@ -221,6 +250,36 @@ jobs:
           if normalization["decision"]["default_runtime_policy"] != "unchanged":
               raise SystemExit("Development treatment unexpectedly changed runtime policy")
 
+          gate = yaml.safe_load(
+              Path(
+                  "benchmarks/retrieval/external-development-v3/"
+                  "query-normalization-gate-v1/result-v1.yaml"
+              ).read_text(encoding="utf-8")
+          )
+          if gate["execution"]["source_manifest_digest"] != receipt["source_manifest_digest"]:
+              raise SystemExit("Selective query-normalization source manifest digest drifted")
+          gate_root = evidence / "query-normalization-gate"
+          for group in gate["groups"]:
+              payload = json.loads(
+                  (gate_root / f"{group['base_case_id']}.json").read_text(encoding="utf-8")
+              )
+              gate_report = payload["report"]
+              if payload["report_ref"] != group["report_ref"]:
+                  raise SystemExit(
+                      f"Selective query-normalization report drifted for {group['base_case_id']}"
+                  )
+              if gate_report["paid_model_called"] or gate_report["network_called"]:
+                  raise SystemExit("Selective query-normalization evaluator made an external call")
+          gate_at_8 = gate["aggregate"]["metrics_at_k"][3]
+          if (
+              gate_at_8["hit_count"]["selective"] != 16
+              or gate_at_8["relevant_path_count"]["selective"] != 30
+              or gate["aggregate"]["mean_reciprocal_rank"]["selective"] != 0.549479
+          ):
+              raise SystemExit("Selective query-normalization metrics changed unexpectedly")
+          if gate["decision"]["default_runtime_policy"] != "unchanged":
+              raise SystemExit("Selective gate unexpectedly changed runtime policy")
+
           lines = [
               "## External retrieval development evidence",
               "",
@@ -260,6 +319,19 @@ jobs:
                   " -> "
                   f"{normalization['by_variant']['chinese_description']['micro_path_recall_at_8']['treatment']}`"
               ),
+              (
+                  "- Path recall@8 baseline -> always-on -> selective: `"
+                  f"{gate_at_8['micro_path_recall']['baseline']} -> "
+                  f"{gate_at_8['micro_path_recall']['always_on']} -> "
+                  f"{gate_at_8['micro_path_recall']['selective']}`"
+              ),
+              (
+                  "- MRR baseline -> always-on -> selective: `"
+                  f"{gate['aggregate']['mean_reciprocal_rank']['baseline']} -> "
+                  f"{gate['aggregate']['mean_reciprocal_rank']['always_on']} -> "
+                  f"{gate['aggregate']['mean_reciprocal_rank']['selective']}`"
+              ),
+              "- Selective gate applied / bypassed queries: `8 / 8`",
               "- Query normalization default runtime policy: `unchanged`",
               "- Holdout: `sealed and not materialized`",
           ]

@@ -301,3 +301,30 @@ MRR 从 `0.362574` 提至 `0.653646`；empty 从 1 降至 0，degraded 仍为 4�
 因跳过不支持文件而标记 degraded。中文提升也只覆盖这个已知的四案例固定词表，不能外推成通用
 多语言 RAG。因此本轮**不改变默认 runtime policy**，规范化器只作为实验组件保留。下一步应冻结
 并测试一个更窄的 gate：仅对含中文或明确测试标识符脚手架的 query 启用，普通英文自然语言保持原样。
+
+## 13. 选择性查询规范化门控
+
+commit `2626daabac7e303904c864119563fe4c04a9e046` 在运行结果前冻结了更窄的
+`normalize_retrieval_query_selectively`：query 含 CJK 字符，或含带下划线／camel boundary 且
+包含 `test`、`tests`、`TestCase` 脚手架的结构化 identifier 时才调用规范化器；其余普通英文
+query 字节级原样旁路。门控只读取 query，不读取仓库、源码、路径、gold 或 patch。完整排名和
+三方比较见
+[`query-normalization-gate-v1/result-v1.yaml`](../benchmarks/retrieval/external-development-v3/query-normalization-gate-v1/result-v1.yaml)。
+
+| K | Baseline Hit / Recall | Always-on Hit / Recall | Selective Hit / Recall |
+|---:|---:|---:|---:|
+| 1 | 3/16 / 3/32 | 7/16 / 7/32 | 5/16 / 5/32 |
+| 3 | 6/16 / 12/32 | 13/16 / 21/32 | 11/16 / 19/32 |
+| 5 | 11/16 / 21/32 | 15/16 / 27/32 | 15/16 / 29/32 |
+| 8 | 13/16 / 23/32 | 16/16 / 28/32 | 16/16 / 30/32 |
+
+门控对 8 条 raw identifier／中文 query 生效，对 8 条英文改写／故障描述原样旁路。它保留中文
+`7/8` 和 raw identifier `7/8` 的 Recall@8，同时把 always-on 在两类英文 query 上各丢失的
+PySnooper `__init__.py` 恢复，因此总路径 Recall@8 达到 `30/32 = 0.9375`。代价也明确：MRR
+为 `0.549479`，高于 baseline 的 `0.362574`，但低于 always-on 的 `0.653646`；旁路英文 query
+同时放弃了别名扩展带来的前排提升。Tornado failure description 仍到 rank 8 才命中，PySnooper
+raw／中文仍各缺 1 个路径，4 条 Luigi 结果仍 degraded。
+
+这证明窄门控能在当前开发切片上避免已观察到的英文 Recall 回退，不证明门控规则可泛化。规则本身
+是在看到这四个 development 案例后设计，8 个 holdout 仍密封且未物化。因此默认 runtime policy
+继续保持不变；该门控只作为显式 opt-in development component，等待更宽的查询集或独立 holdout。

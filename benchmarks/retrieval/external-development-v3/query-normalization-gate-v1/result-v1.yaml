@@ -1,0 +1,234 @@
+schema_version: 1
+suite_id: external-development-query-normalization-gate-v1
+selection_commit: 2626daabac7e303904c864119563fe4c04a9e046
+evaluated_at: "2026-10-24"
+
+execution:
+  partition: development
+  holdout_status: sealed
+  source_manifest_digest: 74a87b4dbf6c54f8f9fd003473dcc0a7995f5b7be9953e080a1f5d672ec16431
+  evaluator_network_called: false
+  paid_model_called: false
+  repository_code_executed: false
+  gate_applied_query_count: 8
+  bypassed_query_count: 8
+  interpretation: Adaptive development comparison on four known-hard cases; not independent holdout evidence.
+
+gate:
+  implementation: src/horizon/adapters/retrieval/query_normalization.py
+  mode: cjk-or-structured-test-identifier-v1
+  model_or_external_service_used: false
+  input_fields: [query]
+  excluded_inputs: [case_id, repository, source_code, source_paths, gold_paths, patch]
+  accepted_shapes: [cjk_text_v1, test_identifier_v1]
+  bypass_contract: Preserve ordinary English query text exactly.
+
+aggregate:
+  query_case_count: 16
+  expected_path_count: 32
+  mean_reciprocal_rank:
+    baseline: 0.362574
+    always_on: 0.653646
+    selective: 0.549479
+  empty_count:
+    baseline: 1
+    always_on: 0
+    selective: 0
+  degraded_count:
+    baseline: 4
+    always_on: 4
+    selective: 4
+  metrics_at_k:
+    - cutoff: 1
+      hit_count: {baseline: 3, always_on: 7, selective: 5}
+      relevant_path_count: {baseline: 3, always_on: 7, selective: 5}
+      micro_path_recall: {baseline: 0.09375, always_on: 0.21875, selective: 0.15625}
+      mean_average_precision: {baseline: 0.0375, always_on: 0.2375, selective: 0.1125}
+      mean_ndcg: {baseline: 0.1875, always_on: 0.4375, selective: 0.3125}
+    - cutoff: 3
+      hit_count: {baseline: 6, always_on: 13, selective: 11}
+      relevant_path_count: {baseline: 12, always_on: 21, selective: 19}
+      micro_path_recall: {baseline: 0.375, always_on: 0.65625, selective: 0.59375}
+      mean_average_precision: {baseline: 0.195833, always_on: 0.514583, selective: 0.379167}
+      mean_ndcg: {baseline: 0.297616, always_on: 0.665916, selective: 0.532732}
+    - cutoff: 5
+      hit_count: {baseline: 11, always_on: 15, selective: 15}
+      relevant_path_count: {baseline: 21, always_on: 27, selective: 29}
+      micro_path_recall: {baseline: 0.65625, always_on: 0.84375, selective: 0.90625}
+      mean_average_precision: {baseline: 0.320833, always_on: 0.595833, selective: 0.516667}
+      mean_ndcg: {baseline: 0.412134, always_on: 0.686949, selective: 0.624001}
+    - cutoff: 8
+      hit_count: {baseline: 13, always_on: 16, selective: 16}
+      relevant_path_count: {baseline: 23, always_on: 28, selective: 30}
+      micro_path_recall: {baseline: 0.71875, always_on: 0.875, selective: 0.9375}
+      mean_average_precision: {baseline: 0.337574, always_on: 0.603646, selective: 0.524479}
+      mean_ndcg: {baseline: 0.452684, always_on: 0.706665, selective: 0.643717}
+
+by_variant:
+  raw_identifier:
+    hit_at_8: {baseline: 4/4, always_on: 4/4, selective: 4/4}
+    relevant_paths_at_8: {baseline: 6/8, always_on: 7/8, selective: 7/8}
+    micro_path_recall_at_8: {baseline: 0.75, always_on: 0.875, selective: 0.875}
+    mean_reciprocal_rank: {baseline: 0.460714, always_on: 0.520833, selective: 0.520833}
+  english_paraphrase:
+    hit_at_8: {baseline: 4/4, always_on: 4/4, selective: 4/4}
+    relevant_paths_at_8: {baseline: 8/8, always_on: 7/8, selective: 8/8}
+    micro_path_recall_at_8: {baseline: 1, always_on: 0.875, selective: 1}
+    mean_reciprocal_rank: {baseline: 0.520833, always_on: 0.75, selective: 0.520833}
+  failure_description:
+    hit_at_8: {baseline: 4/4, always_on: 4/4, selective: 4/4}
+    relevant_paths_at_8: {baseline: 8/8, always_on: 7/8, selective: 8/8}
+    micro_path_recall_at_8: {baseline: 1, always_on: 0.875, selective: 1}
+    mean_reciprocal_rank: {baseline: 0.40625, always_on: 0.59375, selective: 0.40625}
+  chinese_description:
+    hit_at_8: {baseline: 1/4, always_on: 4/4, selective: 4/4}
+    relevant_paths_at_8: {baseline: 1/8, always_on: 7/8, selective: 7/8}
+    micro_path_recall_at_8: {baseline: 0.125, always_on: 0.875, selective: 0.875}
+    mean_reciprocal_rank: {baseline: 0.0625, always_on: 0.75, selective: 0.75}
+
+groups:
+  - base_case_id: cookiecutter-1-non-ascii-context
+    report_ref: afffc1dc2cbc5d81820fa85f8eb520919cf33e0fa08c0bcdf098236bcfa7116c
+    hit_count: 4
+    case_count: 4
+    micro_path_recall_at_8: 1
+    mean_reciprocal_rank: 0.395833
+    empty_count: 0
+    degraded_count: 0
+    cases:
+      - variant: raw_identifier
+        gate_reason: test_identifier_v1
+        selected_query: generateContextDecodesNonAsciiChars generate context decodes decode non ascii chars character
+        first_relevant_rank: {baseline: 2, always_on: 2, selective: 2}
+        relevant_path_count: {baseline: 1, always_on: 1, selective: 1}
+        returned_paths_selective: [cookiecutter/extensions.py, cookiecutter/generate.py, cookiecutter/vcs.py, cookiecutter/prompt.py, cookiecutter/main.py, cookiecutter/hooks.py, cookiecutter/cli.py, cookiecutter/exceptions.py]
+      - variant: english_paraphrase
+        gate_reason: bypass
+        selected_query: context generation should decode non ascii characters
+        first_relevant_rank: {baseline: 3, always_on: 2, selective: 3}
+        relevant_path_count: {baseline: 1, always_on: 1, selective: 1}
+        returned_paths_selective: [cookiecutter/extensions.py, cookiecutter/vcs.py, cookiecutter/generate.py, cookiecutter/exceptions.py, cookiecutter/prompt.py, cookiecutter/cli.py, cookiecutter/utils.py, cookiecutter/zipfile.py]
+      - variant: failure_description
+        gate_reason: bypass
+        selected_query: generated context fails to decode unicode characters
+        first_relevant_rank: {baseline: 4, always_on: 1, selective: 4}
+        relevant_path_count: {baseline: 1, always_on: 1, selective: 1}
+        returned_paths_selective: [cookiecutter/vcs.py, cookiecutter/exceptions.py, cookiecutter/prompt.py, cookiecutter/generate.py, cookiecutter/environment.py, cookiecutter/cli.py, cookiecutter/main.py, cookiecutter/hooks.py]
+      - variant: chinese_description
+        gate_reason: cjk_text_v1
+        selected_query: generate context decode non ascii character
+        first_relevant_rank: {baseline: null, always_on: 2, selective: 2}
+        relevant_path_count: {baseline: 0, always_on: 1, selective: 1}
+        returned_paths_selective: [cookiecutter/extensions.py, cookiecutter/generate.py, cookiecutter/vcs.py, cookiecutter/prompt.py, cookiecutter/main.py, cookiecutter/hooks.py, cookiecutter/cli.py, cookiecutter/exceptions.py]
+
+  - base_case_id: luigi-7-status-wont-override
+    report_ref: 37b89b416b2a4b334f33c6fa932c95557247c740e9ef4e85b1fc5eed8e06623f
+    hit_count: 4
+    case_count: 4
+    micro_path_recall_at_8: 1
+    mean_reciprocal_rank: 0.4375
+    empty_count: 0
+    degraded_count: 4
+    cases:
+      - variant: raw_identifier
+        gate_reason: test_identifier_v1
+        selected_query: schedulerApi scheduler api statusWontOverride status wont not override
+        first_relevant_rank: {baseline: 5, always_on: 4, selective: 4}
+        relevant_path_count: {baseline: 1, always_on: 1, selective: 1}
+        returned_paths_selective: [luigi/worker.py, luigi/tools/luigi_grep.py, luigi/server.py, luigi/scheduler.py, luigi/contrib/salesforce.py, luigi/interface.py, luigi/contrib/kubernetes.py, luigi/task.py]
+      - variant: english_paraphrase
+        gate_reason: bypass
+        selected_query: scheduler status should not override an existing status
+        first_relevant_rank: {baseline: 4, always_on: 1, selective: 4}
+        relevant_path_count: {baseline: 1, always_on: 1, selective: 1}
+        returned_paths_selective: [luigi/task.py, luigi/parameter.py, luigi/contrib/esindex.py, luigi/scheduler.py, luigi/contrib/external_program.py, luigi/contrib/salesforce.py, luigi/interface.py, luigi/worker.py]
+      - variant: failure_description
+        gate_reason: bypass
+        selected_query: scheduler api status override regression
+        first_relevant_rank: {baseline: 4, always_on: 4, selective: 4}
+        relevant_path_count: {baseline: 1, always_on: 1, selective: 1}
+        returned_paths_selective: [luigi/worker.py, luigi/tools/luigi_grep.py, luigi/server.py, luigi/scheduler.py, luigi/contrib/salesforce.py, luigi/interface.py, luigi/contrib/kubernetes.py, luigi/task.py]
+      - variant: chinese_description
+        gate_reason: cjk_text_v1
+        selected_query: scheduler status not override existing
+        first_relevant_rank: {baseline: null, always_on: 1, selective: 1}
+        relevant_path_count: {baseline: 0, always_on: 1, selective: 1}
+        returned_paths_selective: [luigi/scheduler.py, luigi/interface.py, luigi/contrib/esindex.py, luigi/task.py, luigi/tools/luigi_grep.py, luigi/contrib/salesforce.py, luigi/worker.py, luigi/contrib/sqla.py]
+
+  - base_case_id: pysnooper-2-custom-repr
+    report_ref: 5cbfb9b194b0d77de51f85bfd1d3257e5b87c1d371d8f2b3e0816a5ddf5171ba
+    hit_count: 4
+    case_count: 4
+    micro_path_recall_at_8: 0.9
+    mean_reciprocal_rank: 1
+    empty_count: 0
+    degraded_count: 0
+    cases:
+      - variant: raw_identifier
+        gate_reason: test_identifier_v1
+        selected_query: customReprSingle custom repr representation single
+        first_relevant_rank: {baseline: 1, always_on: 1, selective: 1}
+        relevant_path_count: {baseline: 3, always_on: 4, selective: 4}
+        returned_paths_selective: [pysnooper/pycompat.py, pysnooper/utils.py, pysnooper/tracer.py, pysnooper/variables.py, pysnooper/tracer.py, pysnooper/tracer.py, pysnooper/variables.py, pysnooper/tracer.py]
+      - variant: english_paraphrase
+        gate_reason: bypass
+        selected_query: custom representation for a single value
+        first_relevant_rank: {baseline: 1, always_on: 1, selective: 1}
+        relevant_path_count: {baseline: 5, always_on: 4, selective: 5}
+        returned_paths_selective: [pysnooper/pycompat.py, pysnooper/tracer.py, pysnooper/variables.py, pysnooper/__init__.py, pysnooper/utils.py, pysnooper/tracer.py, pysnooper/variables.py, pysnooper/variables.py]
+      - variant: failure_description
+        gate_reason: bypass
+        selected_query: custom repr formatting failed for one value
+        first_relevant_rank: {baseline: 1, always_on: 1, selective: 1}
+        relevant_path_count: {baseline: 5, always_on: 4, selective: 5}
+        returned_paths_selective: [pysnooper/utils.py, pysnooper/variables.py, pysnooper/tracer.py, pysnooper/__init__.py, pysnooper/pycompat.py, pysnooper/tracer.py, pysnooper/tracer.py, pysnooper/variables.py]
+      - variant: chinese_description
+        gate_reason: cjk_text_v1
+        selected_query: single value custom representation repr failure
+        first_relevant_rank: {baseline: null, always_on: 1, selective: 1}
+        relevant_path_count: {baseline: 0, always_on: 4, selective: 4}
+        returned_paths_selective: [pysnooper/pycompat.py, pysnooper/variables.py, pysnooper/tracer.py, pysnooper/utils.py, pysnooper/tracer.py, pysnooper/tracer.py, pysnooper/variables.py, pysnooper/tracer.py]
+
+  - base_case_id: tornado-2-redirect-put-without-body
+    report_ref: 9d4589b5f3c7859d276bb848ab550614433922ef58c884163c7ac88091002d04
+    hit_count: 4
+    case_count: 4
+    micro_path_recall_at_8: 1
+    mean_reciprocal_rank: 0.364583
+    empty_count: 0
+    degraded_count: 0
+    cases:
+      - variant: raw_identifier
+        gate_reason: test_identifier_v1
+        selected_query: httpClientCommon http client common redirectPutWithoutBody redirect put without body
+        first_relevant_rank: {baseline: 7, always_on: 3, selective: 3}
+        relevant_path_count: {baseline: 1, always_on: 1, selective: 1}
+        returned_paths_selective: [tornado/auth.py, tornado/queues.py, tornado/http1connection.py, tornado/simple_httpclient.py, tornado/curl_httpclient.py, tornado/web.py, tornado/httpclient.py, tornado/locks.py]
+      - variant: english_paraphrase
+        gate_reason: bypass
+        selected_query: http client redirect preserves put request without body
+        first_relevant_rank: {baseline: 2, always_on: 2, selective: 2}
+        relevant_path_count: {baseline: 1, always_on: 1, selective: 1}
+        returned_paths_selective: [tornado/auth.py, tornado/http1connection.py, tornado/simple_httpclient.py, tornado/curl_httpclient.py, tornado/queues.py, tornado/httputil.py, tornado/web.py, tornado/httpclient.py]
+      - variant: failure_description
+        gate_reason: bypass
+        selected_query: redirect put without body request failure
+        first_relevant_rank: {baseline: 8, always_on: 8, selective: 8}
+        relevant_path_count: {baseline: 1, always_on: 1, selective: 1}
+        returned_paths_selective: [tornado/queues.py, tornado/platform/twisted.py, tornado/curl_httpclient.py, tornado/auth.py, tornado/simple_httpclient.py, tornado/web.py, tornado/httpclient.py, tornado/http1connection.py]
+      - variant: chinese_description
+        gate_reason: cjk_text_v1
+        selected_query: http client redirect without request body put failure
+        first_relevant_rank: {baseline: 4, always_on: 2, selective: 2}
+        relevant_path_count: {baseline: 1, always_on: 1, selective: 1}
+        returned_paths_selective: [tornado/auth.py, tornado/http1connection.py, tornado/simple_httpclient.py, tornado/curl_httpclient.py, tornado/testing.py, tornado/queues.py, tornado/platform/twisted.py, tornado/web.py]
+
+negative_results:
+  - Selective MRR is 0.549479, below always-on normalization at 0.653646, because bypassed English queries do not receive ranking-improving alias expansion.
+  - PySnooper raw-identifier and Chinese-description queries still miss __init__.py, leaving two of 32 expected query-path observations outside the top eight.
+  - Tornado failure-description still reaches its target only at rank 8, and all four Luigi observations remain degraded because source indexing skips unsupported files.
+  - The gate was designed after inspecting these four development cases; it cannot establish general multilingual or Agent-generated-query quality.
+
+decision:
+  default_runtime_policy: unchanged
+  statement: The selective gate restores the two English paths lost by always-on normalization and raises path Recall@8 to 30/32, but remains an opt-in development component until evaluated on a broader query set or sealed holdout.
