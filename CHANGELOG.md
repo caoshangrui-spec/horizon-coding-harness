@@ -12,6 +12,12 @@ for public releases; unreleased work must not be presented as a published releas
   and path Recall@5 18/20 while retaining the missed multi-file paths and three degraded cases;
   eight holdout cases remain sealed. The evaluator executes no repository code and makes no model
   or network call.
+- Added reproducible source materialization for the 16 development cases. A strict manifest pins
+  public GitHub repositories, commits, archive roots, file/byte counts, and content-tree digests;
+  the CLI uses bare Git caches, rejects holdout by default, and never checks out or executes
+  upstream code. Frozen baseline verification excludes machine-specific timings but compares every
+  deterministic ranking, status, child report, and aggregate metric. A dedicated main-only workflow
+  uploads receipts and reports without publishing third-party source trees or indexes.
 
 ## 0.3.0 - 2026-10-24
 

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from horizon.adapters.retrieval.sqlite_fts import SQLiteCodeRetriever
+from horizon.domain.common import digest
 from horizon.domain.errors import IntegrityError
 from horizon.domain.evaluation import (
     RetrievalEvalAtK,
@@ -217,3 +220,134 @@ def build_retrieval_suite_report(
         warm_duration_p95_ms=_nearest_rank(warm_durations, 0.95),
         cases=cases,
     )
+
+
+def _baseline_projection(report: RetrievalEvalSuiteReport) -> dict[str, Any]:
+    expected_path_count = report.metrics_at_k[0].expected_path_count
+    return {
+        "suite_id": report.suite_id,
+        "selection_commit": report.selection_commit,
+        "aggregate": {
+            "case_count": report.case_count,
+            "expected_path_count": expected_path_count,
+            "mean_reciprocal_rank": report.mean_reciprocal_rank,
+            "leakage_count": report.leakage_count,
+            "empty_count": report.empty_count,
+            "degraded_count": report.degraded_count,
+        },
+        "metrics_at_k": [metric.model_dump(mode="json") for metric in report.metrics_at_k],
+        "cases": [
+            {
+                "case_id": result.case_id,
+                "expected_paths": list(result.report.cases[0].expected_paths),
+                "returned_paths": list(result.report.cases[0].returned_paths),
+                "first_relevant_rank": result.report.cases[0].first_relevant_rank,
+                "relevant_path_count": result.report.cases[0].relevant_path_count,
+                "path_recall_at_8": result.report.cases[0].path_recall_at_k,
+                "retrieval_status": result.report.cases[0].retrieval_status,
+                "degradation_reasons": list(result.report.cases[0].degradation_reasons),
+                "report_ref": result.report_ref,
+            }
+            for result in report.cases
+        ],
+    }
+
+
+def _stored_baseline_projection(baseline: Mapping[str, Any]) -> dict[str, Any]:
+    try:
+        aggregate = baseline["aggregate"]
+        if not isinstance(aggregate, Mapping):
+            raise TypeError
+        metrics = baseline["metrics_at_k"]
+        cases = baseline["cases"]
+        if not isinstance(metrics, Sequence) or isinstance(metrics, (str, bytes)):
+            raise TypeError
+        if not isinstance(cases, Sequence) or isinstance(cases, (str, bytes)):
+            raise TypeError
+        return {
+            "suite_id": baseline["suite_id"],
+            "selection_commit": baseline["selection_commit"],
+            "aggregate": {
+                key: aggregate[key]
+                for key in (
+                    "case_count",
+                    "expected_path_count",
+                    "mean_reciprocal_rank",
+                    "leakage_count",
+                    "empty_count",
+                    "degraded_count",
+                )
+            },
+            "metrics_at_k": [
+                {
+                    key: metric[key]
+                    for key in (
+                        "cutoff",
+                        "hit_count",
+                        "hit_rate",
+                        "expected_path_count",
+                        "relevant_path_count",
+                        "micro_path_recall",
+                        "mean_average_precision",
+                        "mean_ndcg",
+                    )
+                }
+                for metric in metrics
+            ],
+            "cases": [
+                {
+                    key: case[key]
+                    for key in (
+                        "case_id",
+                        "expected_paths",
+                        "returned_paths",
+                        "first_relevant_rank",
+                        "relevant_path_count",
+                        "path_recall_at_8",
+                        "retrieval_status",
+                        "degradation_reasons",
+                        "report_ref",
+                    )
+                }
+                for case in cases
+            ],
+        }
+    except (KeyError, TypeError) as exc:
+        raise IntegrityError("Retrieval baseline is missing stable evidence fields") from exc
+
+
+def _first_difference(expected: Any, actual: Any, path: str = "$") -> str | None:
+    if type(expected) is not type(actual):
+        return f"{path}: expected type {type(expected).__name__}, got {type(actual).__name__}"
+    if isinstance(expected, dict):
+        if expected.keys() != actual.keys():
+            return f"{path}: field names differ"
+        for key in expected:
+            difference = _first_difference(expected[key], actual[key], f"{path}.{key}")
+            if difference is not None:
+                return difference
+        return None
+    if isinstance(expected, list):
+        if len(expected) != len(actual):
+            return f"{path}: expected {len(expected)} items, got {len(actual)}"
+        for index, (expected_item, actual_item) in enumerate(zip(expected, actual, strict=True)):
+            difference = _first_difference(expected_item, actual_item, f"{path}[{index}]")
+            if difference is not None:
+                return difference
+        return None
+    if expected != actual:
+        return f"{path}: expected {expected!r}, got {actual!r}"
+    return None
+
+
+def verify_retrieval_suite_baseline(
+    report: RetrievalEvalSuiteReport,
+    baseline: Mapping[str, Any],
+) -> str:
+    """Verify deterministic rankings and metrics while excluding machine-specific timings."""
+    expected = _stored_baseline_projection(baseline)
+    actual = _baseline_projection(report)
+    difference = _first_difference(expected, actual)
+    if difference is not None:
+        raise IntegrityError(f"Retrieval suite does not match its frozen baseline: {difference}")
+    return digest(actual)

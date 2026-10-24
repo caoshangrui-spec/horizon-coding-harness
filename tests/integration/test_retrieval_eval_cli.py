@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import yaml
 from typer.testing import CliRunner
 
 from horizon.interfaces.cli.app import app
@@ -202,6 +203,54 @@ cases:
         assert (state / "artifacts" / report_ref[:2] / report_ref).is_file()
     suite_ref = payload["report_ref"]
     assert (state / "artifacts" / suite_ref[:2] / suite_ref).is_file()
+
+    baseline = {
+        "suite_id": report["suite_id"],
+        "selection_commit": report["selection_commit"],
+        "aggregate": {
+            "case_count": report["case_count"],
+            "expected_path_count": report["metrics_at_k"][0]["expected_path_count"],
+            "mean_reciprocal_rank": report["mean_reciprocal_rank"],
+            "leakage_count": report["leakage_count"],
+            "empty_count": report["empty_count"],
+            "degraded_count": report["degraded_count"],
+        },
+        "metrics_at_k": report["metrics_at_k"],
+        "cases": [
+            {
+                "case_id": case["case_id"],
+                "expected_paths": case["report"]["cases"][0]["expected_paths"],
+                "returned_paths": case["report"]["cases"][0]["returned_paths"],
+                "first_relevant_rank": case["report"]["cases"][0]["first_relevant_rank"],
+                "relevant_path_count": case["report"]["cases"][0]["relevant_path_count"],
+                "path_recall_at_8": case["report"]["cases"][0]["path_recall_at_k"],
+                "retrieval_status": case["report"]["cases"][0]["retrieval_status"],
+                "degradation_reasons": case["report"]["cases"][0]["degradation_reasons"],
+                "report_ref": case["report_ref"],
+            }
+            for case in report["cases"]
+        ],
+    }
+    baseline_path = suite_root / "baseline.yaml"
+    baseline_path.write_text(yaml.safe_dump(baseline, sort_keys=False), encoding="utf-8")
+    verified = runner.invoke(
+        app,
+        [
+            "eval",
+            "retrieval-suite",
+            str(suite),
+            "--sources-root",
+            str(sources_root),
+            "--state-dir",
+            str(tmp_path / "verified-state"),
+            "--baseline",
+            str(baseline_path),
+        ],
+    )
+    assert verified.exit_code == 0, verified.output
+    verified_payload = json.loads(verified.stdout)
+    assert verified_payload["baseline_verified"] is True
+    assert len(verified_payload["baseline_projection_digest"]) == 64
 
     repeated = runner.invoke(
         app,

@@ -31,6 +31,7 @@ metrics_at_k:
   - cutoff: 1
     hit_count: 11
     hit_rate: 0.6875
+    expected_path_count: 20
     relevant_path_count: 11
     micro_path_recall: 0.55
     mean_average_precision: 0.6375
@@ -38,6 +39,7 @@ metrics_at_k:
   - cutoff: 3
     hit_count: 15
     hit_rate: 0.9375
+    expected_path_count: 20
     relevant_path_count: 17
     micro_path_recall: 0.85
     mean_average_precision: 0.777083
@@ -45,6 +47,7 @@ metrics_at_k:
   - cutoff: 5
     hit_count: 16
     hit_rate: 1.0
+    expected_path_count: 20
     relevant_path_count: 18
     micro_path_recall: 0.9
     mean_average_precision: 0.792708
@@ -52,6 +55,7 @@ metrics_at_k:
   - cutoff: 8
     hit_count: 16
     hit_rate: 1.0
+    expected_path_count: 20
     relevant_path_count: 18
     micro_path_recall: 0.9
     mean_average_precision: 0.792708

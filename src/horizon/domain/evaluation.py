@@ -10,6 +10,14 @@ from horizon.domain.task import Identifier, Text, relative_pattern
 
 Sha256 = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
 GitCommit = Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
+GitHubRepositoryUrl = Annotated[
+    str,
+    Field(
+        min_length=20,
+        max_length=240,
+        pattern=r"^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?$",
+    ),
+]
 Ratio = Annotated[float, Field(ge=0.0, le=1.0)]
 Count = Annotated[StrictInt, Field(ge=0)]
 Milliseconds = Annotated[float, Field(ge=0.0)]
@@ -185,6 +193,82 @@ class RetrievalEvalSuiteManifest(Contract):
     @property
     def sha256(self) -> str:
         return digest(self)
+
+
+class RetrievalSourceCaseSpec(Contract):
+    case_id: Identifier
+    repository_url: GitHubRepositoryUrl
+    buggy_commit: GitCommit
+    archive_paths: Annotated[tuple[Text, ...], Field(min_length=1, max_length=10)]
+    expected_file_count: Annotated[StrictInt, Field(gt=0)]
+    expected_byte_count: Annotated[StrictInt, Field(gt=0)]
+    expected_tree_digest: Sha256
+
+    @field_validator("archive_paths")
+    @classmethod
+    def validate_archive_paths(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        for value in values:
+            _literal_path(value)
+        folded = tuple(value.casefold() for value in values)
+        if len(folded) != len(set(folded)):
+            raise ValueError("Source archive paths must be unique and case-insensitive")
+        for index, path in enumerate(folded):
+            for other in folded[index + 1 :]:
+                if path.startswith(f"{other}/") or other.startswith(f"{path}/"):
+                    raise ValueError("Source archive paths must not overlap")
+        return values
+
+
+class RetrievalSourceManifest(Contract):
+    schema_version: Literal[1] = 1
+    suite_id: Identifier
+    evaluation_suite_path: Text
+    partition: Literal["development", "holdout"]
+    cases: Annotated[tuple[RetrievalSourceCaseSpec, ...], Field(min_length=1, max_length=100)]
+
+    @field_validator("evaluation_suite_path")
+    @classmethod
+    def validate_suite_path(cls, value: str) -> str:
+        return _literal_path(value)
+
+    @model_validator(mode="after")
+    def validate_cases(self) -> Self:
+        case_ids = [case.case_id for case in self.cases]
+        if len(case_ids) != len(set(case_ids)):
+            raise ValueError("Source materialization case IDs must be unique")
+        return self
+
+    @property
+    def sha256(self) -> str:
+        return digest(self)
+
+
+class RetrievalSourceCaseReceipt(Contract):
+    case_id: Identifier
+    repository_url: GitHubRepositoryUrl
+    buggy_commit: GitCommit
+    archive_paths: tuple[Text, ...]
+    file_count: Annotated[StrictInt, Field(gt=0)]
+    byte_count: Annotated[StrictInt, Field(gt=0)]
+    tree_digest: Sha256
+
+
+class RetrievalSourceReceipt(Contract):
+    schema_version: Literal[1] = 1
+    suite_id: Identifier
+    source_manifest_digest: Sha256
+    evaluation_suite_digest: Sha256
+    partition: Literal["development", "holdout"]
+    case_count: Count
+    network_called: bool
+    repository_code_executed: Literal[False] = False
+    cases: tuple[RetrievalSourceCaseReceipt, ...]
+
+    @model_validator(mode="after")
+    def validate_totals(self) -> Self:
+        if self.case_count != len(self.cases):
+            raise ValueError("Source receipt case count does not match its results")
+        return self
 
 
 class RetrievalEvalAtK(Contract):

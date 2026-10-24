@@ -162,6 +162,8 @@ v6 为 Hit@1=2/2、MRR=1.0、leakage=0。它们都是实现者编写的小样例
 - Typed Gateway 输出内容寻址 EvidencePack，workspace revision 前后不变；
 - scoped evaluation snapshot 不读取 allowed scope 外的大缓存文件；
 - 固定 manifest 的 Hit/Recall/MRR/leakage/empty/degraded 汇总与 report Artifact；
+- 16 个外部 development 案例按固定 URL/commit/package 和内容树 digest 从公开 Git 仓库重新
+  物化，拒绝 holdout、路径/link 与内容漂移，再逐案例核对冻结排名和聚合指标；
 - Scripted Agent 实际调用 `retrieve_code → replace_text → submit → protected validation`；
 - 未知 `retrieve_code` intent 经显式 read-only retry 后恢复，不重放原模型调用。
 

@@ -306,12 +306,20 @@ uv run --locked --cache-dir .uv-cache horizon eval retrieval `
   benchmarks/retrieval/youtube-dl-identifier-variants-v1.yaml `
   --source benchmarks/run_ab/full/youtube-dl-3-unescape-html/fixture
 
-# 16 个外部 development 定位案例；sources-root 由 selection 中的 buggy commits 物化，
+# 从 7 个公开 GitHub 仓库物化 16 个固定 buggy commit 的 production package；
+# 只执行 Git，不执行仓库代码。目标目录必须是新目录，holdout 默认拒绝。
+uv run --locked --cache-dir .uv-cache horizon eval materialize-retrieval-suite `
+  benchmarks/retrieval/external-development-v3/source-materialization.yaml `
+  --sources-root .horizon/retrieval-v3/sources `
+  --cache-dir .horizon/retrieval-v3/git-cache
+
+# 对物化结果运行 16 个 development 定位案例，并逐项核对冻结排名/指标；
 # state-dir 必须是新目录，以保证首次/缓存复用耗时口径不混淆。
 uv run --locked --cache-dir .uv-cache horizon eval retrieval-suite `
   benchmarks/retrieval/external-development-v3/development-suite.yaml `
   --sources-root .horizon/retrieval-v3/sources `
-  --state-dir .horizon/retrieval-v3/development-<run-id>
+  --state-dir .horizon/retrieval-v3/development-<run-id> `
+  --baseline benchmarks/retrieval/external-development-v3/baseline-v0.3.0.yaml
 
 # 冻结控制器策略 Trace；不加载模型、不联网、不打开或执行 fixture 仓库。
 uv run --locked --cache-dir .uv-cache horizon eval reliability `

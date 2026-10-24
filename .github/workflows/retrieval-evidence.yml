@@ -1,0 +1,130 @@
+name: External retrieval evidence
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/retrieval-evidence.yml
+      - benchmarks/retrieval/**
+      - src/horizon/adapters/retrieval/**
+      - src/horizon/adapters/workspace/**
+      - src/horizon/application/retrieval_*.py
+      - src/horizon/domain/evaluation.py
+      - src/horizon/interfaces/cli/app.py
+      - uv.lock
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  external-development-v3:
+    name: Rebuild and verify 16 development cases
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pinned uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.11.18"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install Python
+        run: uv python install 3.12
+
+      - name: Sync locked dependencies
+        run: uv sync --locked --python 3.12
+
+      - name: Materialize pinned production packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=.horizon/retrieval-v3-evidence
+          mkdir -p "$evidence"
+          uv run --locked horizon eval materialize-retrieval-suite \
+            benchmarks/retrieval/external-development-v3/source-materialization.yaml \
+            --sources-root .horizon/retrieval-v3/sources \
+            --cache-dir .horizon/retrieval-v3/git-cache \
+            | tee "$evidence/materialization-cli.json"
+          cp \
+            .horizon/retrieval-v3/sources/materialization-receipt.json \
+            "$evidence/materialization-receipt.json"
+
+      - name: Run and verify frozen retrieval baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --locked horizon eval retrieval-suite \
+            benchmarks/retrieval/external-development-v3/development-suite.yaml \
+            --sources-root .horizon/retrieval-v3/sources \
+            --state-dir .horizon/retrieval-v3/eval-state \
+            --baseline benchmarks/retrieval/external-development-v3/baseline-v0.3.0.yaml \
+            | tee .horizon/retrieval-v3-evidence/retrieval-suite.json
+
+      - name: Validate evidence boundary and publish summary
+        shell: bash
+        run: |
+          uv run --locked python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          evidence = Path(".horizon/retrieval-v3-evidence")
+          materialization = json.loads(
+              (evidence / "materialization-cli.json").read_text(encoding="utf-8")
+          )
+          evaluation = json.loads(
+              (evidence / "retrieval-suite.json").read_text(encoding="utf-8")
+          )
+          receipt = materialization["receipt"]
+          report = evaluation["report"]
+          metrics = {metric["cutoff"]: metric for metric in report["metrics_at_k"]}
+          if receipt["case_count"] != 16 or receipt["repository_code_executed"]:
+              raise SystemExit("Source materialization evidence boundary failed")
+          if not evaluation["baseline_verified"]:
+              raise SystemExit("Frozen retrieval baseline was not verified")
+          if report["paid_model_called"] or report["network_called"]:
+              raise SystemExit("Offline retrieval evaluator made a forbidden external call")
+          if report["repository_code_executed"]:
+              raise SystemExit("Retrieval evaluator executed upstream repository code")
+          if metrics[1]["hit_count"] != 11 or metrics[5]["hit_count"] != 16:
+              raise SystemExit("Frozen retrieval metrics changed unexpectedly")
+
+          lines = [
+              "## External retrieval development evidence",
+              "",
+              f"- Materialized source cases: `{receipt['case_count']}`",
+              f"- Source preparation network used: `{receipt['network_called']}`",
+              "- Repository code executed: `false`",
+              f"- Baseline projection: `{evaluation['baseline_projection_digest']}`",
+              f"- Hit@1: `{metrics[1]['hit_count']}/{report['case_count']}`",
+              f"- Hit@5: `{metrics[5]['hit_count']}/{report['case_count']}`",
+              f"- Micro recall@8: `{metrics[8]['micro_path_recall']}`",
+              f"- MRR: `{report['mean_reciprocal_rank']}`",
+              f"- Leakage / empty / degraded: `{report['leakage_count']}/"
+              f"{report['empty_count']}/{report['degraded_count']}`",
+              "- Holdout: `sealed and not materialized`",
+          ]
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
+              summary.write("\n".join(lines) + "\n")
+          PY
+
+      - name: Upload source receipt and retrieval report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: external-retrieval-development-v3
+          path: .horizon/retrieval-v3-evidence
+          if-no-files-found: warn
+          include-hidden-files: true
+          compression-level: 9
+          retention-days: 30

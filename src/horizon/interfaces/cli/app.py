@@ -72,7 +72,12 @@ from horizon.application.recovery import RecoveryService
 from horizon.application.recovery_eval import RecoveryMatrixEvaluator
 from horizon.application.reliability_eval import ReliabilityEvaluator
 from horizon.application.reservation_analysis import analyze_reservation_traces
-from horizon.application.retrieval_eval import RetrievalEvaluator, build_retrieval_suite_report
+from horizon.application.retrieval_eval import (
+    RetrievalEvaluator,
+    build_retrieval_suite_report,
+    verify_retrieval_suite_baseline,
+)
+from horizon.application.retrieval_sources import RetrievalSourceMaterializer
 from horizon.application.run_ab_eval import (
     RunABEvaluator,
     build_run_ab_suite_report,
@@ -109,6 +114,7 @@ from horizon.domain.evaluation import (
     RetrievalEvalSuiteCaseResult,
     RetrievalEvalSuiteCaseSpec,
     RetrievalEvalSuiteManifest,
+    RetrievalSourceManifest,
 )
 from horizon.domain.human import HumanGuidanceRequest, HumanPlanRequest
 from horizon.domain.model import ModelPolicyBinding
@@ -367,11 +373,18 @@ def evaluate_retrieval_suite(
         Path,
         typer.Option(help="Derived suite artifacts and per-case FTS caches."),
     ] = Path(".horizon/retrieval-suite"),
+    baseline: Annotated[
+        Path | None,
+        typer.Option(help="Optional frozen YAML baseline for deterministic evidence checks."),
+    ] = None,
 ):
     """Evaluate a frozen multi-repository localization suite without executing source code."""
     suite_path = path.resolve(strict=True)
     suite_root = suite_path.parent
     manifest = RetrievalEvalSuiteManifest.model_validate(read_yaml(suite_path))
+    baseline_payload = read_yaml(baseline.resolve(strict=True)) if baseline is not None else None
+    if baseline_payload is not None and not isinstance(baseline_payload, dict):
+        raise ValueError("Retrieval suite baseline must be a YAML mapping")
     sources_root = sources_root.resolve(strict=True)
     if not sources_root.is_dir():
         raise ValueError("Retrieval suite sources root must be a directory")
@@ -440,12 +453,73 @@ def evaluate_retrieval_suite(
         )
 
     suite_report = build_retrieval_suite_report(manifest, tuple(case_results))
+    baseline_projection_digest = (
+        verify_retrieval_suite_baseline(suite_report, baseline_payload)
+        if baseline_payload is not None
+        else None
+    )
     report_ref = artifacts.put(canonical_json(suite_report).encode("utf-8"))
     typer.echo(
         canonical_json(
             {
                 "report": suite_report.model_dump(mode="json"),
                 "report_ref": report_ref,
+                "baseline_verified": baseline_payload is not None,
+                "baseline_projection_digest": baseline_projection_digest,
+            }
+        )
+    )
+
+
+@evaluations.command("materialize-retrieval-suite")
+@guarded
+def materialize_retrieval_suite(
+    path: Path,
+    sources_root: Annotated[
+        Path,
+        typer.Option(help="New destination for pinned per-case source snapshots."),
+    ],
+    cache_dir: Annotated[
+        Path,
+        typer.Option(help="Reusable bare Git object cache; never evaluated as source."),
+    ] = Path(".horizon/retrieval-source-cache"),
+    allow_holdout: Annotated[
+        bool,
+        typer.Option(help="Explicitly permit a manifest marked as holdout."),
+    ] = False,
+):
+    """Materialize content-verified source packages without running repository code."""
+    source_manifest_path = path.resolve(strict=True)
+    source_manifest_root = source_manifest_path.parent
+    source_manifest = RetrievalSourceManifest.model_validate(read_yaml(source_manifest_path))
+
+    suite_path = (source_manifest_root / source_manifest.evaluation_suite_path).resolve(strict=True)
+    if not suite_path.is_relative_to(source_manifest_root):
+        raise ValueError("Evaluation suite path escaped the source manifest directory")
+    evaluation_suite = RetrievalEvalSuiteManifest.model_validate(read_yaml(suite_path))
+    suite_root = suite_path.parent
+    case_manifests: dict[str, RetrievalEvalManifest] = {}
+    for spec in evaluation_suite.cases:
+        case_path = (suite_root / spec.manifest_path).resolve(strict=True)
+        if not case_path.is_relative_to(suite_root):
+            raise ValueError("Retrieval case manifest escaped the suite directory")
+        case_manifests[spec.case_id] = RetrievalEvalManifest.model_validate(read_yaml(case_path))
+
+    destination = sources_root.resolve()
+    receipt = RetrievalSourceMaterializer().materialize(
+        source_manifest,
+        evaluation_suite,
+        case_manifests,
+        destination=destination,
+        cache_root=cache_dir.resolve(),
+        allow_holdout=allow_holdout,
+    )
+    typer.echo(
+        canonical_json(
+            {
+                "receipt": receipt.model_dump(mode="json"),
+                "receipt_path": str(destination / "materialization-receipt.json"),
+                "sources_root": str(destination),
             }
         )
     )

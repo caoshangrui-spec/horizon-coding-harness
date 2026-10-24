@@ -6,13 +6,19 @@ import yaml
 from horizon.adapters.persistence.artifacts import ArtifactStore
 from horizon.adapters.retrieval.sqlite_fts import SQLiteCodeRetriever
 from horizon.adapters.workspace.snapshot import SnapshotManager
-from horizon.application.retrieval_eval import RetrievalEvaluator, build_retrieval_suite_report
+from horizon.application.retrieval_eval import (
+    RetrievalEvaluator,
+    build_retrieval_suite_report,
+    verify_retrieval_suite_baseline,
+)
+from horizon.domain.errors import IntegrityError
 from horizon.domain.evaluation import (
     RetrievalEvalCaseResult,
     RetrievalEvalManifest,
     RetrievalEvalReport,
     RetrievalEvalSuiteCaseResult,
     RetrievalEvalSuiteManifest,
+    RetrievalSourceManifest,
 )
 
 
@@ -285,6 +291,39 @@ def test_retrieval_suite_aggregates_cutoff_curves_and_path_ranking():
     assert report.network_called is False
     assert report.paid_model_called is False
 
+    baseline = {
+        "suite_id": report.suite_id,
+        "selection_commit": report.selection_commit,
+        "aggregate": {
+            "case_count": report.case_count,
+            "expected_path_count": 3,
+            "mean_reciprocal_rank": report.mean_reciprocal_rank,
+            "leakage_count": report.leakage_count,
+            "empty_count": report.empty_count,
+            "degraded_count": report.degraded_count,
+        },
+        "metrics_at_k": [metric.model_dump(mode="json") for metric in report.metrics_at_k],
+        "cases": [
+            {
+                "case_id": result.case_id,
+                "expected_paths": list(result.report.cases[0].expected_paths),
+                "returned_paths": list(result.report.cases[0].returned_paths),
+                "first_relevant_rank": result.report.cases[0].first_relevant_rank,
+                "relevant_path_count": result.report.cases[0].relevant_path_count,
+                "path_recall_at_8": result.report.cases[0].path_recall_at_k,
+                "retrieval_status": result.report.cases[0].retrieval_status,
+                "degradation_reasons": list(result.report.cases[0].degradation_reasons),
+                "report_ref": result.report_ref,
+            }
+            for result in report.cases
+        ],
+    }
+    assert len(verify_retrieval_suite_baseline(report, baseline)) == 64
+
+    baseline["cases"][0]["returned_paths"] = ["src/wrong.py"]
+    with pytest.raises(IntegrityError, match=r"cases\[0\]\.returned_paths"):
+        verify_retrieval_suite_baseline(report, baseline)
+
 
 @pytest.mark.parametrize(
     "cutoffs",
@@ -322,6 +361,9 @@ def test_checked_in_external_v3_suite_preserves_selection_and_sealed_holdout():
     suite = RetrievalEvalSuiteManifest.model_validate(
         yaml.safe_load((benchmark_root / "development-suite.yaml").read_text(encoding="utf-8"))
     )
+    sources = RetrievalSourceManifest.model_validate(
+        yaml.safe_load((benchmark_root / "source-materialization.yaml").read_text(encoding="utf-8"))
+    )
     selected = {case["case_id"]: case for case in selection["cases"]}
     development = {
         case_id for case_id, case in selected.items() if case["partition"] == "development"
@@ -332,16 +374,34 @@ def test_checked_in_external_v3_suite_preserves_selection_and_sealed_holdout():
     assert len(development) == 16
     assert len(holdout) == 8
     assert {case.case_id for case in suite.cases} == development
+    assert tuple(case.case_id for case in sources.cases) == tuple(
+        case.case_id for case in suite.cases
+    )
+    assert sources.suite_id == suite.suite_id
+    assert sources.partition == suite.partition == "development"
+    assert sources.evaluation_suite_path == "development-suite.yaml"
     assert suite.selection_commit == "57776b89d1f7a99723f61c5a8b15db5c5ff579ae"
     assert all("expected_paths" not in selected[case_id] for case_id in holdout)
     assert not any((benchmark_root / "cases" / f"{case_id}.yaml").exists() for case_id in holdout)
 
     for spec in suite.cases:
         source = selected[spec.case_id]
+        source_spec = next(case for case in sources.cases if case.case_id == spec.case_id)
         manifest = RetrievalEvalManifest.model_validate(
             yaml.safe_load((benchmark_root / spec.manifest_path).read_text(encoding="utf-8"))
         )
         assert spec.buggy_commit == source["buggy_commit"]
+        assert source_spec.buggy_commit == source["buggy_commit"]
+        assert source_spec.repository_url.removesuffix(".git") == source[
+            "repository_url"
+        ].removesuffix(".git")
+        assert all(
+            any(
+                expected == root or expected.startswith(f"{root}/")
+                for root in source_spec.archive_paths
+            )
+            for expected in manifest.cases[0].expected_paths
+        )
         assert manifest.cases[0].case_id == spec.case_id
         assert manifest.cases[0].query == source["query"]
         assert manifest.cases[0].max_chunks == 8

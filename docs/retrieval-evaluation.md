@@ -230,3 +230,18 @@ MRR 为 `0.817708`，leakage/empty 均为 0，3 个 Luigi 案例因跳过非 UTF
 `__init__.py` 与 `pycompat.py` 未召回，因此 K=8 总 recall 停在 0.90。这个 development 集已经
 揭示 gold，后续检索改动可以在它上面诊断，但不能把调参后的分数称为独立泛化证据。只有候选
 规则在 development 上冻结后，才允许一次性揭示并运行剩余 8 个 holdout。
+
+源码准备现在也进入可复现合同，而不再依赖人工描述。`source-materialization.yaml` 为每个
+development 案例固定公开 GitHub URL、buggy commit、production package 根、文件数、字节数和
+跨平台内容树 SHA-256。`horizon eval materialize-retrieval-suite` 按仓库合并 shallow fetch，使用
+bare Git cache 和 `git archive` 生成全新目录；它拒绝 credential URL、路径穿越、link、内容哈希
+漂移和已有目标目录，默认也拒绝 holdout manifest。该阶段需要 GitHub 网络，但不 checkout、import
+或执行上游代码。16/16 案例已从网络重新物化并与原快照逐字节证据一致。
+
+`retrieval-suite --baseline baseline-v0.3.0.yaml` 进一步逐项核对稳定证据：全部 path ranking、
+gold 覆盖、状态、degradation reason、子报告 ref 和聚合指标；机器相关的 cold/warm 时间及 suite
+report ref 不进入相等判定。本机重建后的稳定投影 digest 为
+`eb4bc0d03038f6dc3706e138b1df420af5bf105b153ce0586f9f6197657716b4`。独立
+`retrieval-evidence.yml` 只在 main 的相关路径变更或手工触发时重新下载 development 源码、执行
+冻结比较并上传 source receipt 与报告；第三方源码、Git cache 和检索索引不上传。这个 CI 闭环
+验证数据准备和排名可复现，仍不是 holdout、真实 Agent query 或端到端修复证据。
