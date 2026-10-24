@@ -1,6 +1,10 @@
 import pytest
 
-from horizon.adapters.retrieval.query_normalization import normalize_retrieval_query
+from horizon.adapters.retrieval.query_normalization import (
+    normalize_retrieval_query,
+    normalize_retrieval_query_selectively,
+    retrieval_query_normalization_gate,
+)
 
 
 @pytest.mark.parametrize(
@@ -68,7 +72,53 @@ def test_normalization_preserves_an_unmapped_non_ascii_query():
     assert result.applied_rules == ("preserve_unmapped_query_v1",)
 
 
+@pytest.mark.parametrize(
+    ("query", "reason"),
+    [
+        ("test_generate_context_decodes_non_ascii_chars", "test_identifier_v1"),
+        ("SchedulerApiTest test_status_wont_override", "test_identifier_v1"),
+        ("test_custom_repr_single", "test_identifier_v1"),
+        ("HTTPClientCommonTestCase test_redirect_put_without_body", "test_identifier_v1"),
+        ("生成上下文时无法解码非 ASCII 字符", "cjk_text_v1"),
+        ("调度器状态不应覆盖已有状态", "cjk_text_v1"),
+        ("单个值的自定义表示失败", "cjk_text_v1"),
+        ("HTTP 客户端重定向无请求体的 PUT 失败", "cjk_text_v1"),
+    ],
+)
+def test_selective_gate_accepts_only_frozen_target_shapes(query, reason):
+    assert retrieval_query_normalization_gate(query) == reason
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "context generation should decode non ascii characters",
+        "scheduler api status override regression",
+        "custom repr formatting failed for one value",
+        "redirect put without body request failure",
+        "integration test failure",
+    ],
+)
+def test_selective_gate_bypasses_ordinary_english(query):
+    assert retrieval_query_normalization_gate(query) is None
+    result = normalize_retrieval_query_selectively(query)
+
+    assert result.original_query == query
+    assert result.normalized_query == query
+    assert result.terms == ()
+    assert result.applied_rules == ("gate_bypass_v1",)
+
+
+def test_selective_normalization_records_gate_reason():
+    result = normalize_retrieval_query_selectively("test_custom_repr_single")
+
+    assert result.normalized_query == "customReprSingle custom repr representation single"
+    assert result.applied_rules[0] == "gate_test_identifier_v1"
+
+
 @pytest.mark.parametrize("query", ["", "x" * 201])
 def test_normalization_rejects_queries_outside_runtime_contract(query):
     with pytest.raises(ValueError, match="1 to 200"):
         normalize_retrieval_query(query)
+    with pytest.raises(ValueError, match="1 to 200"):
+        normalize_retrieval_query_selectively(query)

@@ -5,7 +5,10 @@ import pytest
 import yaml
 
 from horizon.adapters.persistence.artifacts import ArtifactStore
-from horizon.adapters.retrieval.query_normalization import normalize_retrieval_query
+from horizon.adapters.retrieval.query_normalization import (
+    normalize_retrieval_query,
+    normalize_retrieval_query_selectively,
+)
 from horizon.adapters.retrieval.sqlite_fts import SQLiteCodeRetriever
 from horizon.adapters.workspace.snapshot import SnapshotManager
 from horizon.application.retrieval_eval import (
@@ -604,6 +607,50 @@ def test_checked_in_query_normalization_treatment_preserves_non_query_contracts(
             assert normalized.forbidden_paths == original.forbidden_paths
             assert normalized.max_chunks == original.max_chunks
             assert normalized.query == rewrite.normalized_query
+
+
+def test_checked_in_selective_query_normalization_preserves_non_query_contracts():
+    root = Path(__file__).resolve().parents[2]
+    benchmark_root = root / "benchmarks/retrieval/external-development-v3"
+    treatment_root = benchmark_root / "query-normalization-gate-v1"
+    selection = yaml.safe_load((treatment_root / "selection.yaml").read_text(encoding="utf-8"))
+    changed_queries = 0
+
+    assert selection["partition"] == "development"
+    assert selection["model_called"] is False
+    assert selection["holdout_status"] == "sealed"
+    assert selection["implementation"]["external_model_or_service"] is False
+    assert selection["implementation"]["accepted_shapes"] == [
+        "cjk_text_v1",
+        "test_identifier_v1",
+    ]
+    assert len(selection["cases"]) == 4
+
+    for selected in selection["cases"]:
+        baseline_path = (treatment_root / selected["baseline_manifest"]).resolve()
+        treatment_path = (treatment_root / selected["treatment_manifest"]).resolve()
+        assert baseline_path.is_relative_to(benchmark_root)
+        assert treatment_path.is_relative_to(treatment_root)
+        baseline = RetrievalEvalManifest.model_validate(
+            yaml.safe_load(baseline_path.read_text(encoding="utf-8"))
+        )
+        treatment = RetrievalEvalManifest.model_validate(
+            yaml.safe_load(treatment_path.read_text(encoding="utf-8"))
+        )
+
+        assert treatment.allowed_paths == baseline.allowed_paths
+        assert treatment.denied_paths == baseline.denied_paths
+        assert len(treatment.cases) == len(baseline.cases) == 4
+        for original, normalized in zip(baseline.cases, treatment.cases, strict=True):
+            rewrite = normalize_retrieval_query_selectively(original.query)
+            assert normalized.case_id == original.case_id
+            assert normalized.expected_paths == original.expected_paths
+            assert normalized.forbidden_paths == original.forbidden_paths
+            assert normalized.max_chunks == original.max_chunks
+            assert normalized.query == rewrite.normalized_query
+            changed_queries += normalized.query != original.query
+
+    assert changed_queries == 8
 
 
 def test_checked_in_query_normalization_result_recomputes_ab_deltas():

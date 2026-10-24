@@ -1,0 +1,21 @@
+schema_version: 1
+benchmark_id: tornado-2-query-normalization-gate-v1
+allowed_paths: [tornado/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: tornado-2-raw-identifier
+    query: httpClientCommon http client common redirectPutWithoutBody redirect put without body
+    expected_paths: [tornado/http1connection.py]
+    max_chunks: 8
+  - case_id: tornado-2-english-paraphrase
+    query: http client redirect preserves put request without body
+    expected_paths: [tornado/http1connection.py]
+    max_chunks: 8
+  - case_id: tornado-2-failure-description
+    query: redirect put without body request failure
+    expected_paths: [tornado/http1connection.py]
+    max_chunks: 8
+  - case_id: tornado-2-chinese-description
+    query: http client redirect without request body put failure
+    expected_paths: [tornado/http1connection.py]
+    max_chunks: 8

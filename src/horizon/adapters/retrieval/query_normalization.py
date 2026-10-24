@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 ASCII_IDENTIFIER = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
 IDENTIFIER_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+CJK_CHARACTER = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
 MAX_QUERY_CHARS = 200
 MAX_QUERY_TERMS = 20
 
@@ -104,10 +105,31 @@ def _chinese_events(query: str) -> tuple[tuple[int, tuple[str, ...]], ...]:
     return tuple(events)
 
 
-def normalize_retrieval_query(query: str) -> RetrievalQueryNormalization:
-    """Produce a bounded, deterministic lexical query without a model or source inspection."""
+def _validate_query(query: str) -> None:
     if not query or len(query) > MAX_QUERY_CHARS:
         raise ValueError("Retrieval query normalization requires 1 to 200 characters")
+
+
+def retrieval_query_normalization_gate(query: str) -> str | None:
+    """Return the narrow normalization reason, or ``None`` for an exact bypass."""
+    _validate_query(query)
+    if CJK_CHARACTER.search(query):
+        return "cjk_text_v1"
+
+    for match in ASCII_IDENTIFIER.finditer(query):
+        identifier = match.group()
+        structured = "_" in identifier or IDENTIFIER_BOUNDARY.search(identifier) is not None
+        if not structured:
+            continue
+        parts = _identifier_parts(identifier)
+        if any(part in TEST_SCAFFOLD_TERMS for part in parts):
+            return "test_identifier_v1"
+    return None
+
+
+def normalize_retrieval_query(query: str) -> RetrievalQueryNormalization:
+    """Produce a bounded, deterministic lexical query without a model or source inspection."""
+    _validate_query(query)
 
     events: list[tuple[int, tuple[str, ...]]] = list(_chinese_events(query))
     rules: list[str] = []
@@ -166,4 +188,24 @@ def normalize_retrieval_query(query: str) -> RetrievalQueryNormalization:
         normalized_query=normalized_query,
         terms=tuple(terms),
         applied_rules=tuple(dict.fromkeys(rules)),
+    )
+
+
+def normalize_retrieval_query_selectively(query: str) -> RetrievalQueryNormalization:
+    """Normalize only CJK text or explicit structured test identifiers."""
+    gate_reason = retrieval_query_normalization_gate(query)
+    if gate_reason is None:
+        return RetrievalQueryNormalization(
+            original_query=query,
+            normalized_query=query,
+            terms=(),
+            applied_rules=("gate_bypass_v1",),
+        )
+
+    normalized = normalize_retrieval_query(query)
+    return RetrievalQueryNormalization(
+        original_query=normalized.original_query,
+        normalized_query=normalized.normalized_query,
+        terms=normalized.terms,
+        applied_rules=(f"gate_{gate_reason}", *normalized.applied_rules),
     )
