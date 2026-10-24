@@ -57,7 +57,7 @@ Worker 可能仍存活时，Harness 先用持久化 launch ID、PID、Lease、ep
 |---|---|---|
 | 离线回归 | `470 passed, 11 skipped` | skipped Docker 合同不计入本地通过 |
 | 主作品集 Demo | `SUCCEEDED`，final epoch 3，77 events；删除三库后独立 verifier 通过 | 冻结 Scripted Model，外部模型费用 0 |
-| 标准 CI（候选准备基线） | [run 40092106530](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40092106530) 通过，并上传 `horizon-portfolio-evidence` | 该 run 位于候选发布门禁加入前；最终发布提交仍须有自己的成功 run |
+| 标准 CI（候选门禁提交 `18e0f66`） | [run 40093679210](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40093679210) 全部通过；包含构建、独立 wheel 安装、三重版本一致性与安装后 `doctor` | 最终改为 `0.3.0` 的发布提交仍须有自己的成功 run |
 | Docker 证据（最新 runtime 基线） | [run 40092106536](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40092106536) 通过 5 项完整 checkout、3 项多阶段及既有故障切片 | 禁网、非 root 的有限合同，不是恶意代码安全认证 |
 | wheel smoke（本地候选准备） | wheel 构建成功；新虚拟环境安装后，元数据／公共版本一致且 `horizon doctor` 成功 | 当前验证的是尚未改号的 `0.2.0` 候选代码 |
 | 真实模型 Pilot | 七轮均未修复成功，费用与 Trace 保留 | 明确负结果，不提供真实 Issue 成功率 |
@@ -65,6 +65,10 @@ Worker 可能仍存活时，Harness 先用持久化 launch ID、PID、Lease、ep
 标准 CI 现在还会在构建后创建干净 Python 3.12 环境，只安装锁定的生产依赖和刚生成的唯一
 wheel，校验 `pyproject.toml`、installed metadata、`horizon.__version__` 三者一致，解析安装后
 `horizon doctor` 的 JSON，并把 wheel、sdist 与 receipt 保存为 14 天 artifact。它不会自动发布。
+候选门禁 run 的 `horizon-built-distributions` artifact ID 为 `12559931713`，大小 1,007,557
+bytes，digest 为
+`sha256:b8bbd6c6f71b0b9f71557fd91fb9b6d01a3c000e73cf776d9a6e39aa10c392f0`，保留至
+2026-11-07；同一 run 的 portfolio 与 timeout EvidencePack 也均生成成功。
 
 ## 本地候选复现
 
