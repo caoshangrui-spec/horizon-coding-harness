@@ -23,6 +23,11 @@ for public releases; unreleased work must not be presented as a published releas
   paraphrases retrieve 8/8 production paths by K=8, while Chinese descriptions retrieve only 1/8;
   the one Chinese hit retains Latin `HTTP` and `PUT` terms. The negative result is preserved as a
   lexical multilingual limitation, not presented as holdout or Agent-query evidence.
+- Added a zero-model deterministic query-normalization development A/B. Across the same 16
+  observations it moves Hit@8 from 13/16 to 16/16, path recall from 23/32 to 28/32, and MRR from
+  0.362574 to 0.653646. Chinese path recall rises from 1/8 to 7/8, but English-paraphrase and
+  failure-description recall each regress from 8/8 to 7/8 on PySnooper, so the normalizer remains
+  experimental and the default runtime policy is unchanged.
 
 ## 0.3.0 - 2026-10-24
 

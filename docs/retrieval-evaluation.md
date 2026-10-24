@@ -270,3 +270,34 @@ report ref 不进入相等判定。本机重建后的稳定投影 digest 为
 反面证据更重要：三个纯中文描述未命中；Tornado 的中文描述之所以命中，是查询仍保留 `HTTP`
 和 `PUT` 两个拉丁词项。当前实现是英文代码上的词法检索，不应包装成多语言 semantic RAG。
 该切片按已知弱点选择且 gold 已揭示，只用于确定下一步优先级，不能称为泛化或独立 holdout。
+
+## 12. 确定性查询规范化 development A/B
+
+在查看 treatment 结果前，commit `109b268b1515a2f1e6b2f5ee5dfd37b7daaaeb89` 先冻结了
+`query_normalization.py`、16 条 treatment 查询和 A/B 协议。规范化器只接收 query：拆分
+snake/camel identifier，删除测试脚手架与少量低信息词，扩展一个小型英文别名表，并用固定中文
+软件术语表生成英文 lexical terms。它不接收 case ID、仓库名、源码、路径、gold 或 patch，也不调用
+模型和网络。完整结果见
+[`query-normalization-v1/result-v1.yaml`](../benchmarks/retrieval/external-development-v3/query-normalization-v1/result-v1.yaml)。
+
+| K | Baseline Hit | Treatment Hit | Baseline path recall | Treatment path recall |
+|---:|---:|---:|---:|---:|
+| 1 | 3/16 | 7/16 | 3/32 = 0.09375 | 7/32 = 0.21875 |
+| 3 | 6/16 | 13/16 | 12/32 = 0.375 | 21/32 = 0.65625 |
+| 5 | 11/16 | 15/16 | 21/32 = 0.65625 | 27/32 = 0.84375 |
+| 8 | 13/16 | 16/16 | 23/32 = 0.71875 | 28/32 = 0.875 |
+
+MRR 从 `0.362574` 提至 `0.653646`；empty 从 1 降至 0，degraded 仍为 4。按查询形式看：
+
+| 查询形式 | Baseline Recall@8 | Treatment Recall@8 | Baseline MRR | Treatment MRR |
+|---|---:|---:|---:|---:|
+| raw identifier | 6/8 | 7/8 | 0.460714 | 0.520833 |
+| English paraphrase | 8/8 | 7/8 | 0.520833 | 0.750000 |
+| failure description | 8/8 | 7/8 | 0.406250 | 0.593750 |
+| 中文描述 | 1/8 | 7/8 | 0.062500 | 0.750000 |
+
+这里不能只看总分：English paraphrase 与 failure description 都因 PySnooper 的 `__init__.py` 掉出
+前 8 而从 8/8 回退到 7/8；Tornado failure description 仍到 rank 8 才命中；4 个 Luigi 查询继续
+因跳过不支持文件而标记 degraded。中文提升也只覆盖这个已知的四案例固定词表，不能外推成通用
+多语言 RAG。因此本轮**不改变默认 runtime policy**，规范化器只作为实验组件保留。下一步应冻结
+并测试一个更窄的 gate：仅对含中文或明确测试标识符脚手架的 query 启用，普通英文自然语言保持原样。

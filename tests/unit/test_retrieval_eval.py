@@ -604,3 +604,182 @@ def test_checked_in_query_normalization_treatment_preserves_non_query_contracts(
             assert normalized.forbidden_paths == original.forbidden_paths
             assert normalized.max_chunks == original.max_chunks
             assert normalized.query == rewrite.normalized_query
+
+
+def test_checked_in_query_normalization_result_recomputes_ab_deltas():
+    root = Path(__file__).resolve().parents[2]
+    benchmark_root = root / "benchmarks/retrieval/external-development-v3"
+    treatment_root = benchmark_root / "query-normalization-v1"
+    selection = yaml.safe_load((treatment_root / "selection.yaml").read_text(encoding="utf-8"))
+    result = yaml.safe_load((treatment_root / "result-v1.yaml").read_text(encoding="utf-8"))
+    baseline = yaml.safe_load(
+        (benchmark_root / "query-robustness-v1/result-v1.yaml").read_text(encoding="utf-8")
+    )
+    source_manifest = RetrievalSourceManifest.model_validate(
+        yaml.safe_load((benchmark_root / "source-materialization.yaml").read_text(encoding="utf-8"))
+    )
+    observations = []
+    changed_queries = 0
+    variant_names = (
+        "raw_identifier",
+        "english_paraphrase",
+        "failure_description",
+        "chinese_description",
+    )
+
+    assert result["selection_commit"] == "109b268b1515a2f1e6b2f5ee5dfd37b7daaaeb89"
+    assert result["execution"]["holdout_status"] == "sealed"
+    assert result["execution"]["source_manifest_digest"] == source_manifest.sha256
+    assert result["execution"]["evaluator_network_called"] is False
+    assert result["execution"]["paid_model_called"] is False
+    assert result["execution"]["repository_code_executed"] is False
+    assert len({group["report_ref"] for group in result["groups"]}) == 4
+
+    for selected, group, baseline_group in zip(
+        selection["cases"], result["groups"], baseline["groups"], strict=True
+    ):
+        original_manifest = RetrievalEvalManifest.model_validate(
+            yaml.safe_load(
+                (treatment_root / selected["baseline_manifest"]).read_text(encoding="utf-8")
+            )
+        )
+        treatment_manifest = RetrievalEvalManifest.model_validate(
+            yaml.safe_load(
+                (treatment_root / selected["treatment_manifest"]).read_text(encoding="utf-8")
+            )
+        )
+        assert group["base_case_id"] == baseline_group["base_case_id"]
+        relevant_in_group = 0
+        hits_in_group = 0
+        reciprocal_ranks = []
+
+        for original, treatment, case_result, baseline_case in zip(
+            original_manifest.cases,
+            treatment_manifest.cases,
+            group["cases"],
+            baseline_group["cases"],
+            strict=True,
+        ):
+            variant = next(
+                name for name in variant_names if treatment.case_id.endswith(name.replace("_", "-"))
+            )
+            expected = set(treatment.expected_paths)
+            returned = tuple(case_result["returned_paths_after"])
+            unique_returned = tuple(dict.fromkeys(returned))
+            first_rank = next(
+                (rank for rank, path in enumerate(returned, start=1) if path in expected),
+                None,
+            )
+            relevant_count = len(expected.intersection(returned))
+
+            assert case_result["variant"] == baseline_case["variant"] == variant
+            assert case_result["normalized_query"] == treatment.query
+            assert treatment.query == normalize_retrieval_query(original.query).normalized_query
+            assert case_result["first_relevant_rank_before"] == baseline_case["first_relevant_rank"]
+            assert case_result["relevant_path_count_before"] == baseline_case["relevant_path_count"]
+            assert case_result["first_relevant_rank_after"] == first_rank
+            assert case_result["relevant_path_count_after"] == relevant_count
+
+            changed_queries += treatment.query != original.query
+            relevant_in_group += relevant_count
+            hits_in_group += first_rank is not None
+            reciprocal_ranks.append(1 / first_rank if first_rank is not None else 0.0)
+            observations.append(
+                {
+                    "variant": variant,
+                    "expected": expected,
+                    "returned": unique_returned,
+                    "first_rank": first_rank,
+                }
+            )
+
+        assert group["hit_count"] == hits_in_group
+        assert group["micro_path_recall_at_8"] == relevant_in_group / sum(
+            len(case.expected_paths) for case in treatment_manifest.cases
+        )
+        assert group["mean_reciprocal_rank"] == pytest.approx(
+            sum(reciprocal_ranks) / len(reciprocal_ranks), abs=1e-6
+        )
+
+    aggregate = result["aggregate"]
+    assert result["execution"]["normalized_query_count"] == changed_queries == 14
+    assert aggregate["query_case_count"] == len(observations) == 16
+    assert aggregate["expected_path_count"] == sum(
+        len(observation["expected"]) for observation in observations
+    )
+    treatment_mrr = sum(
+        1 / observation["first_rank"] if observation["first_rank"] is not None else 0.0
+        for observation in observations
+    ) / len(observations)
+    assert (
+        aggregate["mean_reciprocal_rank"]["baseline"]
+        == baseline["aggregate"]["mean_reciprocal_rank"]
+    )
+    assert aggregate["mean_reciprocal_rank"]["treatment"] == pytest.approx(treatment_mrr, abs=1e-6)
+    assert aggregate["mean_reciprocal_rank"]["delta"] == pytest.approx(
+        treatment_mrr - baseline["aggregate"]["mean_reciprocal_rank"], abs=1e-6
+    )
+    assert aggregate["empty_count"]["treatment"] == sum(
+        group["empty_count"] for group in result["groups"]
+    )
+    assert aggregate["degraded_count"]["treatment"] == sum(
+        group["degraded_count"] for group in result["groups"]
+    )
+
+    for metric, baseline_metric in zip(
+        aggregate["metrics_at_k"], baseline["aggregate"]["metrics_at_k"], strict=True
+    ):
+        cutoff = metric["cutoff"]
+        hit_count = 0
+        relevant_path_count = 0
+        average_precisions = []
+        ndcgs = []
+        for observation in observations:
+            expected = observation["expected"]
+            returned = observation["returned"][:cutoff]
+            relevant = expected.intersection(returned)
+            hit_count += bool(relevant)
+            relevant_path_count += len(relevant)
+            hits = 0
+            precision_sum = 0.0
+            for rank, path in enumerate(returned, start=1):
+                if path in expected:
+                    hits += 1
+                    precision_sum += hits / rank
+            average_precisions.append(precision_sum / len(expected))
+            dcg = sum(
+                1 / math.log2(rank + 1)
+                for rank, path in enumerate(returned, start=1)
+                if path in expected
+            )
+            ideal_dcg = sum(
+                1 / math.log2(rank + 1) for rank in range(1, min(len(expected), cutoff) + 1)
+            )
+            ndcgs.append(dcg / ideal_dcg)
+
+        treatment_values = {
+            "hit_count": hit_count,
+            "relevant_path_count": relevant_path_count,
+            "micro_path_recall": relevant_path_count / aggregate["expected_path_count"],
+            "mean_average_precision": sum(average_precisions) / len(average_precisions),
+            "mean_ndcg": sum(ndcgs) / len(ndcgs),
+        }
+        for name, actual in treatment_values.items():
+            assert metric[name]["baseline"] == baseline_metric[name]
+            assert metric[name]["treatment"] == pytest.approx(actual, abs=1e-6)
+            assert metric[name]["delta"] == pytest.approx(actual - baseline_metric[name], abs=1e-6)
+
+    for variant, summary in result["by_variant"].items():
+        subset = [item for item in observations if item["variant"] == variant]
+        hits = sum(item["first_rank"] is not None for item in subset)
+        relevant = sum(len(item["expected"].intersection(item["returned"][:8])) for item in subset)
+        expected = sum(len(item["expected"]) for item in subset)
+        reciprocal_rank = sum(
+            1 / item["first_rank"] if item["first_rank"] is not None else 0.0 for item in subset
+        ) / len(subset)
+        assert summary["hit_at_8"]["treatment"] == f"{hits}/{len(subset)}"
+        assert summary["relevant_paths_at_8"]["treatment"] == f"{relevant}/{expected}"
+        assert summary["micro_path_recall_at_8"]["treatment"] == relevant / expected
+        assert summary["mean_reciprocal_rank"]["treatment"] == pytest.approx(
+            reciprocal_rank, abs=1e-6
+        )

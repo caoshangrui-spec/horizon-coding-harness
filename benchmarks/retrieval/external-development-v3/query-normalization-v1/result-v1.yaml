@@ -1,0 +1,307 @@
+schema_version: 1
+suite_id: external-development-query-normalization-v1
+selection_commit: 109b268b1515a2f1e6b2f5ee5dfd37b7daaaeb89
+evaluated_at: "2026-10-24"
+
+execution:
+  partition: development
+  holdout_status: sealed
+  source_manifest_digest: 74a87b4dbf6c54f8f9fd003473dcc0a7995f5b7be9953e080a1f5d672ec16431
+  evaluator_network_called: false
+  paid_model_called: false
+  repository_code_executed: false
+  normalized_query_count: 14
+  interpretation: Adaptive development A/B on four known-hard cases; not independent holdout evidence.
+
+normalizer:
+  implementation: src/horizon/adapters/retrieval/query_normalization.py
+  mode: deterministic lexical v1
+  model_or_external_service_used: false
+  input_fields: [query]
+  excluded_inputs: [case_id, repository, source_code, source_paths, gold_paths, patch]
+
+aggregate:
+  query_case_count: 16
+  expected_path_count: 32
+  mean_reciprocal_rank:
+    baseline: 0.362574
+    treatment: 0.653646
+    delta: 0.291072
+  empty_count:
+    baseline: 1
+    treatment: 0
+    delta: -1
+  degraded_count:
+    baseline: 4
+    treatment: 4
+    delta: 0
+  metrics_at_k:
+    - cutoff: 1
+      hit_count:
+        baseline: 3
+        treatment: 7
+        delta: 4
+      relevant_path_count:
+        baseline: 3
+        treatment: 7
+        delta: 4
+      micro_path_recall:
+        baseline: 0.09375
+        treatment: 0.21875
+        delta: 0.125
+      mean_average_precision:
+        baseline: 0.0375
+        treatment: 0.2375
+        delta: 0.2
+      mean_ndcg:
+        baseline: 0.1875
+        treatment: 0.4375
+        delta: 0.25
+    - cutoff: 3
+      hit_count:
+        baseline: 6
+        treatment: 13
+        delta: 7
+      relevant_path_count:
+        baseline: 12
+        treatment: 21
+        delta: 9
+      micro_path_recall:
+        baseline: 0.375
+        treatment: 0.65625
+        delta: 0.28125
+      mean_average_precision:
+        baseline: 0.195833
+        treatment: 0.514583
+        delta: 0.31875
+      mean_ndcg:
+        baseline: 0.297616
+        treatment: 0.665916
+        delta: 0.3683
+    - cutoff: 5
+      hit_count:
+        baseline: 11
+        treatment: 15
+        delta: 4
+      relevant_path_count:
+        baseline: 21
+        treatment: 27
+        delta: 6
+      micro_path_recall:
+        baseline: 0.65625
+        treatment: 0.84375
+        delta: 0.1875
+      mean_average_precision:
+        baseline: 0.320833
+        treatment: 0.595833
+        delta: 0.275
+      mean_ndcg:
+        baseline: 0.412134
+        treatment: 0.686949
+        delta: 0.274815
+    - cutoff: 8
+      hit_count:
+        baseline: 13
+        treatment: 16
+        delta: 3
+      relevant_path_count:
+        baseline: 23
+        treatment: 28
+        delta: 5
+      micro_path_recall:
+        baseline: 0.71875
+        treatment: 0.875
+        delta: 0.15625
+      mean_average_precision:
+        baseline: 0.337574
+        treatment: 0.603646
+        delta: 0.266072
+      mean_ndcg:
+        baseline: 0.452684
+        treatment: 0.706665
+        delta: 0.253981
+
+by_variant:
+  raw_identifier:
+    hit_at_8: {baseline: 4/4, treatment: 4/4, delta_cases: 0}
+    relevant_paths_at_8: {baseline: 6/8, treatment: 7/8}
+    micro_path_recall_at_8: {baseline: 0.75, treatment: 0.875, delta: 0.125}
+    mean_reciprocal_rank: {baseline: 0.460714, treatment: 0.520833, delta: 0.060119}
+  english_paraphrase:
+    hit_at_8: {baseline: 4/4, treatment: 4/4, delta_cases: 0}
+    relevant_paths_at_8: {baseline: 8/8, treatment: 7/8}
+    micro_path_recall_at_8: {baseline: 1, treatment: 0.875, delta: -0.125}
+    mean_reciprocal_rank: {baseline: 0.520833, treatment: 0.75, delta: 0.229167}
+  failure_description:
+    hit_at_8: {baseline: 4/4, treatment: 4/4, delta_cases: 0}
+    relevant_paths_at_8: {baseline: 8/8, treatment: 7/8}
+    micro_path_recall_at_8: {baseline: 1, treatment: 0.875, delta: -0.125}
+    mean_reciprocal_rank: {baseline: 0.40625, treatment: 0.59375, delta: 0.1875}
+  chinese_description:
+    hit_at_8: {baseline: 1/4, treatment: 4/4, delta_cases: 3}
+    relevant_paths_at_8: {baseline: 1/8, treatment: 7/8}
+    micro_path_recall_at_8: {baseline: 0.125, treatment: 0.875, delta: 0.75}
+    mean_reciprocal_rank: {baseline: 0.0625, treatment: 0.75, delta: 0.6875}
+
+groups:
+  - base_case_id: cookiecutter-1-non-ascii-context
+    report_ref: 2d40d246f31c4010668daaff994268b1ccaabcffb2f08ef697992da56a6382c2
+    hit_count: 4
+    case_count: 4
+    micro_path_recall_at_8: 1
+    mean_reciprocal_rank: 0.625
+    empty_count: 0
+    degraded_count: 0
+    cases:
+      - variant: raw_identifier
+        normalized_query: generateContextDecodesNonAsciiChars generate context decodes decode non ascii chars character
+        first_relevant_rank_before: 2
+        first_relevant_rank_after: 2
+        relevant_path_count_before: 1
+        relevant_path_count_after: 1
+        returned_paths_after: [cookiecutter/extensions.py, cookiecutter/generate.py, cookiecutter/vcs.py, cookiecutter/prompt.py, cookiecutter/main.py, cookiecutter/hooks.py, cookiecutter/cli.py, cookiecutter/exceptions.py]
+      - variant: english_paraphrase
+        normalized_query: context generation generate decode non ascii characters character
+        first_relevant_rank_before: 3
+        first_relevant_rank_after: 2
+        relevant_path_count_before: 1
+        relevant_path_count_after: 1
+        returned_paths_after: [cookiecutter/extensions.py, cookiecutter/generate.py, cookiecutter/vcs.py, cookiecutter/prompt.py, cookiecutter/main.py, cookiecutter/hooks.py, cookiecutter/cli.py, cookiecutter/exceptions.py]
+      - variant: failure_description
+        normalized_query: generated generate context fails decode unicode characters character
+        first_relevant_rank_before: 4
+        first_relevant_rank_after: 1
+        relevant_path_count_before: 1
+        relevant_path_count_after: 1
+        returned_paths_after: [cookiecutter/generate.py, cookiecutter/vcs.py, cookiecutter/exceptions.py, cookiecutter/prompt.py, cookiecutter/environment.py, cookiecutter/main.py, cookiecutter/cli.py, cookiecutter/hooks.py]
+      - variant: chinese_description
+        normalized_query: generate context decode non ascii character
+        first_relevant_rank_before: null
+        first_relevant_rank_after: 2
+        relevant_path_count_before: 0
+        relevant_path_count_after: 1
+        returned_paths_after: [cookiecutter/extensions.py, cookiecutter/generate.py, cookiecutter/vcs.py, cookiecutter/prompt.py, cookiecutter/main.py, cookiecutter/hooks.py, cookiecutter/cli.py, cookiecutter/exceptions.py]
+
+  - base_case_id: luigi-7-status-wont-override
+    report_ref: e144adbb88cfa9c4227f6c92da4befe3340305c77d278d7e396bce815b1c20fc
+    hit_count: 4
+    case_count: 4
+    micro_path_recall_at_8: 1
+    mean_reciprocal_rank: 0.625
+    empty_count: 0
+    degraded_count: 4
+    cases:
+      - variant: raw_identifier
+        normalized_query: schedulerApi scheduler api statusWontOverride status wont not override
+        first_relevant_rank_before: 5
+        first_relevant_rank_after: 4
+        relevant_path_count_before: 1
+        relevant_path_count_after: 1
+        returned_paths_after: [luigi/worker.py, luigi/tools/luigi_grep.py, luigi/server.py, luigi/scheduler.py, luigi/contrib/salesforce.py, luigi/interface.py, luigi/contrib/kubernetes.py, luigi/task.py]
+      - variant: english_paraphrase
+        normalized_query: scheduler status not override existing
+        first_relevant_rank_before: 4
+        first_relevant_rank_after: 1
+        relevant_path_count_before: 1
+        relevant_path_count_after: 1
+        returned_paths_after: [luigi/scheduler.py, luigi/interface.py, luigi/contrib/esindex.py, luigi/task.py, luigi/tools/luigi_grep.py, luigi/contrib/salesforce.py, luigi/worker.py, luigi/contrib/sqla.py]
+      - variant: failure_description
+        normalized_query: scheduler api status override regression
+        first_relevant_rank_before: 4
+        first_relevant_rank_after: 4
+        relevant_path_count_before: 1
+        relevant_path_count_after: 1
+        returned_paths_after: [luigi/worker.py, luigi/tools/luigi_grep.py, luigi/server.py, luigi/scheduler.py, luigi/contrib/salesforce.py, luigi/interface.py, luigi/contrib/kubernetes.py, luigi/task.py]
+      - variant: chinese_description
+        normalized_query: scheduler status not override existing
+        first_relevant_rank_before: null
+        first_relevant_rank_after: 1
+        relevant_path_count_before: 0
+        relevant_path_count_after: 1
+        returned_paths_after: [luigi/scheduler.py, luigi/interface.py, luigi/contrib/esindex.py, luigi/task.py, luigi/tools/luigi_grep.py, luigi/contrib/salesforce.py, luigi/worker.py, luigi/contrib/sqla.py]
+
+  - base_case_id: pysnooper-2-custom-repr
+    report_ref: 55e867682f4aeeff8d0851724d9786d965c62c706597ccd4abf6bc6889a8216a
+    hit_count: 4
+    case_count: 4
+    micro_path_recall_at_8: 0.8
+    mean_reciprocal_rank: 1
+    empty_count: 0
+    degraded_count: 0
+    cases:
+      - variant: raw_identifier
+        normalized_query: customReprSingle custom repr representation single
+        first_relevant_rank_before: 1
+        first_relevant_rank_after: 1
+        relevant_path_count_before: 3
+        relevant_path_count_after: 4
+        returned_paths_after: [pysnooper/pycompat.py, pysnooper/utils.py, pysnooper/tracer.py, pysnooper/variables.py, pysnooper/tracer.py, pysnooper/tracer.py, pysnooper/variables.py, pysnooper/tracer.py]
+      - variant: english_paraphrase
+        normalized_query: custom representation repr single value
+        first_relevant_rank_before: 1
+        first_relevant_rank_after: 1
+        relevant_path_count_before: 5
+        relevant_path_count_after: 4
+        returned_paths_after: [pysnooper/pycompat.py, pysnooper/variables.py, pysnooper/tracer.py, pysnooper/utils.py, pysnooper/tracer.py, pysnooper/tracer.py, pysnooper/variables.py, pysnooper/tracer.py]
+      - variant: failure_description
+        normalized_query: custom repr representation formatting format failed failure one value
+        first_relevant_rank_before: 1
+        first_relevant_rank_after: 1
+        relevant_path_count_before: 5
+        relevant_path_count_after: 4
+        returned_paths_after: [pysnooper/utils.py, pysnooper/pycompat.py, pysnooper/variables.py, pysnooper/tracer.py, pysnooper/tracer.py, pysnooper/variables.py, pysnooper/tracer.py, pysnooper/tracer.py]
+      - variant: chinese_description
+        normalized_query: single value custom representation repr failure
+        first_relevant_rank_before: null
+        first_relevant_rank_after: 1
+        relevant_path_count_before: 0
+        relevant_path_count_after: 4
+        returned_paths_after: [pysnooper/pycompat.py, pysnooper/variables.py, pysnooper/tracer.py, pysnooper/utils.py, pysnooper/tracer.py, pysnooper/tracer.py, pysnooper/variables.py, pysnooper/tracer.py]
+
+  - base_case_id: tornado-2-redirect-put-without-body
+    report_ref: 6c0dbae3e5b1e9c56fe0d4faeed12aef5e74766b1a61c08b9855fa3414f59a9d
+    hit_count: 4
+    case_count: 4
+    micro_path_recall_at_8: 1
+    mean_reciprocal_rank: 0.364583
+    empty_count: 0
+    degraded_count: 0
+    cases:
+      - variant: raw_identifier
+        normalized_query: httpClientCommon http client common redirectPutWithoutBody redirect put without body
+        first_relevant_rank_before: 7
+        first_relevant_rank_after: 3
+        relevant_path_count_before: 1
+        relevant_path_count_after: 1
+        returned_paths_after: [tornado/auth.py, tornado/queues.py, tornado/http1connection.py, tornado/simple_httpclient.py, tornado/curl_httpclient.py, tornado/web.py, tornado/httpclient.py, tornado/locks.py]
+      - variant: english_paraphrase
+        normalized_query: http client redirect preserves preserve put request without body
+        first_relevant_rank_before: 2
+        first_relevant_rank_after: 2
+        relevant_path_count_before: 1
+        relevant_path_count_after: 1
+        returned_paths_after: [tornado/auth.py, tornado/http1connection.py, tornado/simple_httpclient.py, tornado/curl_httpclient.py, tornado/queues.py, tornado/httputil.py, tornado/web.py, tornado/httpclient.py]
+      - variant: failure_description
+        normalized_query: redirect put without body request failure
+        first_relevant_rank_before: 8
+        first_relevant_rank_after: 8
+        relevant_path_count_before: 1
+        relevant_path_count_after: 1
+        returned_paths_after: [tornado/queues.py, tornado/platform/twisted.py, tornado/curl_httpclient.py, tornado/auth.py, tornado/simple_httpclient.py, tornado/web.py, tornado/httpclient.py, tornado/http1connection.py]
+      - variant: chinese_description
+        normalized_query: http client redirect without request body put failure
+        first_relevant_rank_before: 4
+        first_relevant_rank_after: 2
+        relevant_path_count_before: 1
+        relevant_path_count_after: 1
+        returned_paths_after: [tornado/auth.py, tornado/http1connection.py, tornado/simple_httpclient.py, tornado/curl_httpclient.py, tornado/testing.py, tornado/queues.py, tornado/platform/twisted.py, tornado/web.py]
+
+negative_results:
+  - English-paraphrase and failure-description path recall each fall from 8/8 to 7/8 because PySnooper __init__.py drops out of the top eight.
+  - Tornado failure-description still reaches the target only at rank 8, and all four Luigi observations remain degraded because source indexing skips unsupported files.
+  - The large Chinese gain is measured on four adaptive development queries covered by the frozen glossary; it does not establish general multilingual retrieval.
+
+decision:
+  default_runtime_policy: unchanged
+  statement: Do not enable normalization for every query. Retain it as an experimental component and next test a deterministic gate limited to Chinese text or explicit test-identifier scaffolding.
+

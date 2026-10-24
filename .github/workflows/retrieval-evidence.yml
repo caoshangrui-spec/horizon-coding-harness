@@ -107,6 +107,35 @@ jobs:
             tornado-2-redirect-put-without-body \
             benchmarks/retrieval/external-development-v3/query-robustness-v1/cases/tornado-2.yaml
 
+      - name: Run frozen query-normalization treatment
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=.horizon/retrieval-v3-evidence/query-normalization
+          mkdir -p "$evidence"
+
+          run_treatment_group() {
+            local base_case_id="$1"
+            local manifest="$2"
+            uv run --locked horizon eval retrieval "$manifest" \
+              --source ".horizon/retrieval-v3/sources/$base_case_id" \
+              --state-dir ".horizon/retrieval-v3/normalization-$base_case_id" \
+              | tee "$evidence/$base_case_id.json"
+          }
+
+          run_treatment_group \
+            cookiecutter-1-non-ascii-context \
+            benchmarks/retrieval/external-development-v3/query-normalization-v1/cases/cookiecutter-1.yaml
+          run_treatment_group \
+            luigi-7-status-wont-override \
+            benchmarks/retrieval/external-development-v3/query-normalization-v1/cases/luigi-7.yaml
+          run_treatment_group \
+            pysnooper-2-custom-repr \
+            benchmarks/retrieval/external-development-v3/query-normalization-v1/cases/pysnooper-2.yaml
+          run_treatment_group \
+            tornado-2-redirect-put-without-body \
+            benchmarks/retrieval/external-development-v3/query-normalization-v1/cases/tornado-2.yaml
+
       - name: Validate evidence boundary and publish summary
         shell: bash
         run: |
@@ -164,6 +193,34 @@ jobs:
               if query_report["paid_model_called"] or query_report["network_called"]:
                   raise SystemExit("Query robustness evaluator made an external call")
 
+          normalization = yaml.safe_load(
+              Path(
+                  "benchmarks/retrieval/external-development-v3/"
+                  "query-normalization-v1/result-v1.yaml"
+              ).read_text(encoding="utf-8")
+          )
+          if (
+              normalization["execution"]["source_manifest_digest"]
+              != receipt["source_manifest_digest"]
+          ):
+              raise SystemExit("Query normalization source manifest digest drifted")
+          normalization_root = evidence / "query-normalization"
+          for group in normalization["groups"]:
+              payload = json.loads(
+                  (normalization_root / f"{group['base_case_id']}.json").read_text(
+                      encoding="utf-8"
+                  )
+              )
+              treatment_report = payload["report"]
+              if payload["report_ref"] != group["report_ref"]:
+                  raise SystemExit(
+                      f"Query normalization report drifted for {group['base_case_id']}"
+                  )
+              if treatment_report["paid_model_called"] or treatment_report["network_called"]:
+                  raise SystemExit("Query normalization evaluator made an external call")
+          if normalization["decision"]["default_runtime_policy"] != "unchanged":
+              raise SystemExit("Development treatment unexpectedly changed runtime policy")
+
           lines = [
               "## External retrieval development evidence",
               "",
@@ -188,6 +245,22 @@ jobs:
                   f"{robustness['by_variant']['chinese_description']['hit_at_8']} / "
                   f"{robustness['by_variant']['chinese_description']['micro_path_recall_at_8']}`"
               ),
+              (
+                  "- Query normalization Hit@8 / path recall@8: `"
+                  f"{normalization['aggregate']['metrics_at_k'][3]['hit_count']['baseline']}"
+                  " -> "
+                  f"{normalization['aggregate']['metrics_at_k'][3]['hit_count']['treatment']} / "
+                  f"{normalization['aggregate']['metrics_at_k'][3]['micro_path_recall']['baseline']}"
+                  " -> "
+                  f"{normalization['aggregate']['metrics_at_k'][3]['micro_path_recall']['treatment']}`"
+              ),
+              (
+                  "- Normalized Chinese path recall@8: `"
+                  f"{normalization['by_variant']['chinese_description']['micro_path_recall_at_8']['baseline']}"
+                  " -> "
+                  f"{normalization['by_variant']['chinese_description']['micro_path_recall_at_8']['treatment']}`"
+              ),
+              "- Query normalization default runtime policy: `unchanged`",
               "- Holdout: `sealed and not materialized`",
           ]
           with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
