@@ -1,0 +1,46 @@
+schema_version: 1
+suite_id: external-development-query-normalization-v1
+selected_at: "2026-10-24"
+partition: development
+base_query_suite: ../query-robustness-v1/selection.yaml
+base_result: ../query-robustness-v1/result-v1.yaml
+model_called: false
+holdout_status: sealed
+
+protocol:
+  purpose: Compare a deterministic lexical query normalizer with the frozen raw queries on the same 16 known-hard development observations.
+  treatment_rule: Split snake/camel identifiers, remove generic test scaffolding and low-signal words, add a small frozen English alias table, and map a small frozen Chinese software-term glossary to English tokens.
+  leakage_rule: The normalizer receives query text only; source paths, gold paths, source code, patches, repository identity, and case identity are not inputs.
+  interpretation: Adaptive development A/B only. The cases, baseline failures, and gold paths were known before treatment design.
+
+implementation:
+  module: src/horizon/adapters/retrieval/query_normalization.py
+  function: normalize_retrieval_query
+  output_limit_chars: 200
+  output_limit_terms: 20
+  external_model_or_service: false
+
+cases:
+  - base_case_id: cookiecutter-1-non-ascii-context
+    baseline_manifest: ../query-robustness-v1/cases/cookiecutter-1.yaml
+    treatment_manifest: cases/cookiecutter-1.yaml
+    source_subdir: cookiecutter-1-non-ascii-context
+  - base_case_id: luigi-7-status-wont-override
+    baseline_manifest: ../query-robustness-v1/cases/luigi-7.yaml
+    treatment_manifest: cases/luigi-7.yaml
+    source_subdir: luigi-7-status-wont-override
+  - base_case_id: pysnooper-2-custom-repr
+    baseline_manifest: ../query-robustness-v1/cases/pysnooper-2.yaml
+    treatment_manifest: cases/pysnooper-2.yaml
+    source_subdir: pysnooper-2-custom-repr
+  - base_case_id: tornado-2-redirect-put-without-body
+    baseline_manifest: ../query-robustness-v1/cases/tornado-2.yaml
+    treatment_manifest: cases/tornado-2.yaml
+    source_subdir: tornado-2-redirect-put-without-body
+
+evidence_boundary:
+  repository_code_executed: false
+  evaluator_network_called: false
+  paid_model_called: false
+  holdout_materialized: false
+  statement: Freeze this selection, implementation, and all treatment queries in Git before running the A/B.

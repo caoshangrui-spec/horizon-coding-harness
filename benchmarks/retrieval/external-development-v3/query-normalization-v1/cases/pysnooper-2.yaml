@@ -1,0 +1,21 @@
+schema_version: 1
+benchmark_id: pysnooper-2-query-normalization-v1
+allowed_paths: [pysnooper/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: pysnooper-2-raw-identifier
+    query: customReprSingle custom repr representation single
+    expected_paths: [pysnooper/__init__.py, pysnooper/pycompat.py, pysnooper/tracer.py, pysnooper/utils.py, pysnooper/variables.py]
+    max_chunks: 8
+  - case_id: pysnooper-2-english-paraphrase
+    query: custom representation repr single value
+    expected_paths: [pysnooper/__init__.py, pysnooper/pycompat.py, pysnooper/tracer.py, pysnooper/utils.py, pysnooper/variables.py]
+    max_chunks: 8
+  - case_id: pysnooper-2-failure-description
+    query: custom repr representation formatting format failed failure one value
+    expected_paths: [pysnooper/__init__.py, pysnooper/pycompat.py, pysnooper/tracer.py, pysnooper/utils.py, pysnooper/variables.py]
+    max_chunks: 8
+  - case_id: pysnooper-2-chinese-description
+    query: single value custom representation repr failure
+    expected_paths: [pysnooper/__init__.py, pysnooper/pycompat.py, pysnooper/tracer.py, pysnooper/utils.py, pysnooper/variables.py]
+    max_chunks: 8
