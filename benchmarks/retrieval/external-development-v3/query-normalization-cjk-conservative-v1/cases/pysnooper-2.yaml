@@ -1,0 +1,9 @@
+schema_version: 1
+benchmark_id: pysnooper-2-query-normalization-cjk-conservative-v1
+allowed_paths: [pysnooper/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: pysnooper-2-chinese-additive
+    query: 单个值的自定义表示失败 single value custom representation repr failure
+    expected_paths: [pysnooper/__init__.py, pysnooper/pycompat.py, pysnooper/tracer.py, pysnooper/utils.py, pysnooper/variables.py]
+    max_chunks: 8

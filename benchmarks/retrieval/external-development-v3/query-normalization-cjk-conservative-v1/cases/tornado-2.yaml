@@ -1,0 +1,9 @@
+schema_version: 1
+benchmark_id: tornado-2-query-normalization-cjk-conservative-v1
+allowed_paths: [tornado/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: tornado-2-chinese-additive
+    query: HTTP 客户端重定向无请求体的 PUT 失败 http client redirect without request body put failure
+    expected_paths: [tornado/http1connection.py]
+    max_chunks: 8

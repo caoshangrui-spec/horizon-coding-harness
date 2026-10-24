@@ -2,6 +2,7 @@ import pytest
 
 from horizon.adapters.retrieval.query_normalization import (
     normalize_retrieval_query,
+    normalize_retrieval_query_conservatively,
     normalize_retrieval_query_selectively,
     retrieval_query_normalization_gate,
 )
@@ -116,9 +117,66 @@ def test_selective_normalization_records_gate_reason():
     assert result.applied_rules[0] == "gate_test_identifier_v1"
 
 
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (
+            "生成上下文时无法解码非 ASCII 字符",
+            "生成上下文时无法解码非 ASCII 字符 generate context decode non ascii character",
+        ),
+        (
+            "调度器状态不应覆盖已有状态",
+            "调度器状态不应覆盖已有状态 scheduler status not override existing",
+        ),
+        (
+            "单个值的自定义表示失败",
+            "单个值的自定义表示失败 single value custom representation repr failure",
+        ),
+        (
+            "HTTP 客户端重定向无请求体的 PUT 失败",
+            "HTTP 客户端重定向无请求体的 PUT 失败 "
+            "http client redirect without request body put failure",
+        ),
+    ],
+)
+def test_conservative_normalization_augments_high_coverage_cjk(query, expected):
+    result = normalize_retrieval_query_conservatively(query)
+
+    assert result.normalized_query == expected
+    assert result.applied_rules[0] == "gate_cjk_additive_v1"
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "下载时无法生成唯一文件名",
+        "主机头被覆盖",
+        "项目解析长分隔符转义失败",
+        "git push 无法匹配 Bitbucket",
+        "静态文件范围起点为负且结束小于起点",
+    ],
+)
+def test_conservative_normalization_bypasses_low_coverage_cjk(query):
+    result = normalize_retrieval_query_conservatively(query)
+
+    assert result.normalized_query == query
+    assert result.terms == ()
+    assert result.applied_rules == ("gate_cjk_insufficient_coverage_v1",)
+
+
+def test_conservative_normalization_keeps_test_identifier_branch():
+    query = "test_custom_repr_single"
+
+    assert normalize_retrieval_query_conservatively(query) == normalize_retrieval_query_selectively(
+        query
+    )
+
+
 @pytest.mark.parametrize("query", ["", "x" * 201])
 def test_normalization_rejects_queries_outside_runtime_contract(query):
     with pytest.raises(ValueError, match="1 to 200"):
         normalize_retrieval_query(query)
     with pytest.raises(ValueError, match="1 to 200"):
         normalize_retrieval_query_selectively(query)
+    with pytest.raises(ValueError, match="1 to 200"):
+        normalize_retrieval_query_conservatively(query)

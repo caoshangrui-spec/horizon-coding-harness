@@ -8,6 +8,7 @@ IDENTIFIER_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z
 CJK_CHARACTER = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
 MAX_QUERY_CHARS = 200
 MAX_QUERY_TERMS = 20
+MIN_CJK_GLOSSARY_MATCHES = 2
 
 LOW_SIGNAL_TERMS = frozenset({"a", "an", "for", "of", "should", "test", "tests", "the", "to"})
 TEST_SCAFFOLD_TERMS = frozenset({"test", "tests", "testcase"})
@@ -208,4 +209,36 @@ def normalize_retrieval_query_selectively(query: str) -> RetrievalQueryNormaliza
         normalized_query=normalized.normalized_query,
         terms=normalized.terms,
         applied_rules=(f"gate_{gate_reason}", *normalized.applied_rules),
+    )
+
+
+def normalize_retrieval_query_conservatively(query: str) -> RetrievalQueryNormalization:
+    """Preserve CJK input and augment it only when the frozen glossary has enough coverage."""
+    gate_reason = retrieval_query_normalization_gate(query)
+    if gate_reason != "cjk_text_v1":
+        return normalize_retrieval_query_selectively(query)
+
+    glossary_matches = sum(bool(terms) for _, terms in _chinese_events(query))
+    if glossary_matches < MIN_CJK_GLOSSARY_MATCHES:
+        return RetrievalQueryNormalization(
+            original_query=query,
+            normalized_query=query,
+            terms=(),
+            applied_rules=("gate_cjk_insufficient_coverage_v1",),
+        )
+
+    normalized = normalize_retrieval_query(query)
+    augmented_query = f"{query} {normalized.normalized_query}"
+    if len(augmented_query) > MAX_QUERY_CHARS:
+        return RetrievalQueryNormalization(
+            original_query=query,
+            normalized_query=query,
+            terms=(),
+            applied_rules=("gate_cjk_output_limit_bypass_v1",),
+        )
+    return RetrievalQueryNormalization(
+        original_query=query,
+        normalized_query=augmented_query,
+        terms=normalized.terms,
+        applied_rules=("gate_cjk_additive_v1", *normalized.applied_rules),
     )

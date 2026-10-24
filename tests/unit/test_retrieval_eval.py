@@ -7,6 +7,7 @@ import yaml
 from horizon.adapters.persistence.artifacts import ArtifactStore
 from horizon.adapters.retrieval.query_normalization import (
     normalize_retrieval_query,
+    normalize_retrieval_query_conservatively,
     normalize_retrieval_query_selectively,
 )
 from horizon.adapters.retrieval.sqlite_fts import SQLiteCodeRetriever
@@ -1256,3 +1257,61 @@ def test_checked_in_broad_gate_result_recomputes_from_paired_ranks():
     assert result["gate_contract"]["observed_bypass_count"] == 24
     assert result["gate_contract"]["false_activation_count"] == 0
     assert result["gate_contract"]["false_bypass_count"] == 0
+
+
+def test_checked_in_conservative_cjk_treatment_preserves_contracts_and_bypasses_low_coverage():
+    root = Path(__file__).resolve().parents[2]
+    benchmark_root = root / "benchmarks/retrieval/external-development-v3"
+    treatment_root = benchmark_root / "query-normalization-cjk-conservative-v1"
+    broad_root = benchmark_root / "query-normalization-gate-broad-v1"
+    selection = yaml.safe_load((treatment_root / "selection.yaml").read_text(encoding="utf-8"))
+    broad_selection = yaml.safe_load((broad_root / "selection.yaml").read_text(encoding="utf-8"))
+
+    assert selection["partition"] == "development"
+    assert selection["holdout_status"] == "sealed"
+    assert selection["implementation"]["minimum_cjk_glossary_matches"] == 2
+    assert selection["implementation"]["preserve_original_query"] is True
+    assert selection["implementation"]["external_model_or_service"] is False
+    assert len(selection["cases"]) == 4
+
+    for selected in selection["cases"]:
+        baseline = RetrievalEvalManifest.model_validate(
+            yaml.safe_load(
+                (treatment_root / selected["baseline_manifest"]).read_text(encoding="utf-8")
+            )
+        )
+        treatment = RetrievalEvalManifest.model_validate(
+            yaml.safe_load(
+                (treatment_root / selected["treatment_manifest"]).read_text(encoding="utf-8")
+            )
+        )
+        original = next(
+            case for case in baseline.cases if case.case_id.endswith("chinese-description")
+        )
+        additive = treatment.cases[0]
+        rewrite = normalize_retrieval_query_conservatively(original.query)
+
+        assert treatment.allowed_paths == baseline.allowed_paths
+        assert treatment.denied_paths == baseline.denied_paths
+        assert len(treatment.cases) == 1
+        assert additive.expected_paths == original.expected_paths
+        assert additive.forbidden_paths == original.forbidden_paths
+        assert additive.max_chunks == original.max_chunks == 8
+        assert additive.query == rewrite.normalized_query
+        assert additive.query.startswith(f"{original.query} ")
+        assert rewrite.applied_rules[0] == "gate_cjk_additive_v1"
+
+    low_coverage_bypass_count = 0
+    for selected in broad_selection["cases"]:
+        manifest = RetrievalEvalManifest.model_validate(
+            yaml.safe_load((broad_root / selected["paired_manifest"]).read_text(encoding="utf-8"))
+        )
+        original = next(
+            case for case in manifest.cases if case.case_id.endswith("chinese-baseline")
+        )
+        rewrite = normalize_retrieval_query_conservatively(original.query)
+        assert rewrite.normalized_query == original.query
+        assert rewrite.applied_rules == ("gate_cjk_insufficient_coverage_v1",)
+        low_coverage_bypass_count += 1
+
+    assert low_coverage_bypass_count == 12

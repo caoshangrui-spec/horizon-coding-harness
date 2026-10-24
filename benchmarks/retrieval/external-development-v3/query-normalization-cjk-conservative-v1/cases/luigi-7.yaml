@@ -1,0 +1,9 @@
+schema_version: 1
+benchmark_id: luigi-7-query-normalization-cjk-conservative-v1
+allowed_paths: [luigi/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: luigi-7-chinese-additive
+    query: 调度器状态不应覆盖已有状态 scheduler status not override existing
+    expected_paths: [luigi/scheduler.py]
+    max_chunks: 8

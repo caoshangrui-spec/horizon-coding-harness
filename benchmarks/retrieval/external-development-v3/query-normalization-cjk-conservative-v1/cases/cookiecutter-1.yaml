@@ -1,0 +1,9 @@
+schema_version: 1
+benchmark_id: cookiecutter-1-query-normalization-cjk-conservative-v1
+allowed_paths: [cookiecutter/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: cookiecutter-1-chinese-additive
+    query: 生成上下文时无法解码非 ASCII 字符 generate context decode non ascii character
+    expected_paths: [cookiecutter/generate.py]
+    max_chunks: 8

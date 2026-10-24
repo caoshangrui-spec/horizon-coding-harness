@@ -1,0 +1,48 @@
+schema_version: 1
+suite_id: external-development-query-normalization-cjk-conservative-v1
+selected_at: "2026-10-24"
+partition: development
+base_query_suite: ../query-robustness-v1/selection.yaml
+replacement_result: ../query-normalization-v1/result-v1.yaml
+low_coverage_control_suite: ../query-normalization-gate-broad-v1/selection.yaml
+low_coverage_control_result: ../query-normalization-gate-broad-v1/result-v1.yaml
+holdout_status: sealed
+
+protocol:
+  purpose: Test a conservative repair for the non-generalizing CJK replacement branch without changing structured test-identifier behavior.
+  high_coverage_rule: With at least two glossary phrase matches, preserve the original query and append deterministic mapped terms.
+  low_coverage_rule: With fewer than two glossary phrase matches, preserve the original query exactly.
+  treatment_scope: Four high-coverage Chinese queries from the original gate-design slice; the 12 broader low-coverage Chinese queries are static bypass controls whose baseline rankings are already frozen.
+  interpretation: Adaptive development treatment designed after inspecting the broader negative result; not independent holdout evidence.
+
+implementation:
+  module: src/horizon/adapters/retrieval/query_normalization.py
+  function: normalize_retrieval_query_conservatively
+  minimum_cjk_glossary_matches: 2
+  preserve_original_query: true
+  external_model_or_service: false
+
+cases:
+  - base_case_id: cookiecutter-1-non-ascii-context
+    baseline_manifest: ../query-robustness-v1/cases/cookiecutter-1.yaml
+    treatment_manifest: cases/cookiecutter-1.yaml
+    source_subdir: cookiecutter-1-non-ascii-context
+  - base_case_id: luigi-7-status-wont-override
+    baseline_manifest: ../query-robustness-v1/cases/luigi-7.yaml
+    treatment_manifest: cases/luigi-7.yaml
+    source_subdir: luigi-7-status-wont-override
+  - base_case_id: pysnooper-2-custom-repr
+    baseline_manifest: ../query-robustness-v1/cases/pysnooper-2.yaml
+    treatment_manifest: cases/pysnooper-2.yaml
+    source_subdir: pysnooper-2-custom-repr
+  - base_case_id: tornado-2-redirect-put-without-body
+    baseline_manifest: ../query-robustness-v1/cases/tornado-2.yaml
+    treatment_manifest: cases/tornado-2.yaml
+    source_subdir: tornado-2-redirect-put-without-body
+
+evidence_boundary:
+  repository_code_executed: false
+  evaluator_network_called: false
+  paid_model_called: false
+  holdout_materialized: false
+  statement: Freeze the implementation, four additive queries, 12 low-coverage bypass controls, and tests in Git before executing treatment retrieval.
