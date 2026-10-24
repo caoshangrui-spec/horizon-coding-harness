@@ -1,0 +1,21 @@
+schema_version: 1
+benchmark_id: cookiecutter-1-query-robustness-v1
+allowed_paths: [cookiecutter/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: cookiecutter-1-raw-identifier
+    query: test_generate_context_decodes_non_ascii_chars
+    expected_paths: [cookiecutter/generate.py]
+    max_chunks: 8
+  - case_id: cookiecutter-1-english-paraphrase
+    query: context generation should decode non ascii characters
+    expected_paths: [cookiecutter/generate.py]
+    max_chunks: 8
+  - case_id: cookiecutter-1-failure-description
+    query: generated context fails to decode unicode characters
+    expected_paths: [cookiecutter/generate.py]
+    max_chunks: 8
+  - case_id: cookiecutter-1-chinese-description
+    query: 生成上下文时无法解码非 ASCII 字符
+    expected_paths: [cookiecutter/generate.py]
+    max_chunks: 8

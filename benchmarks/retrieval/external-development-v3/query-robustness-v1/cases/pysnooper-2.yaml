@@ -1,0 +1,21 @@
+schema_version: 1
+benchmark_id: pysnooper-2-query-robustness-v1
+allowed_paths: [pysnooper/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: pysnooper-2-raw-identifier
+    query: test_custom_repr_single
+    expected_paths: [pysnooper/__init__.py, pysnooper/pycompat.py, pysnooper/tracer.py, pysnooper/utils.py, pysnooper/variables.py]
+    max_chunks: 8
+  - case_id: pysnooper-2-english-paraphrase
+    query: custom representation for a single value
+    expected_paths: [pysnooper/__init__.py, pysnooper/pycompat.py, pysnooper/tracer.py, pysnooper/utils.py, pysnooper/variables.py]
+    max_chunks: 8
+  - case_id: pysnooper-2-failure-description
+    query: custom repr formatting failed for one value
+    expected_paths: [pysnooper/__init__.py, pysnooper/pycompat.py, pysnooper/tracer.py, pysnooper/utils.py, pysnooper/variables.py]
+    max_chunks: 8
+  - case_id: pysnooper-2-chinese-description
+    query: 单个值的自定义表示失败
+    expected_paths: [pysnooper/__init__.py, pysnooper/pycompat.py, pysnooper/tracer.py, pysnooper/utils.py, pysnooper/variables.py]
+    max_chunks: 8

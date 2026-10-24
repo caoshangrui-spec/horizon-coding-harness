@@ -1,0 +1,42 @@
+schema_version: 1
+suite_id: external-development-query-robustness-v1
+selected_at: "2026-10-24"
+partition: development
+base_suite: ../development-suite.yaml
+model_called: false
+holdout_status: sealed
+
+protocol:
+  purpose: Measure how the frozen lexical retriever reacts to query form changes on known-hard development cases.
+  selection_rule: Choose the rank-2, rank-3, rank-4, and multi-file-recall development cases from the frozen v0.3.0 baseline.
+  query_authoring_rule: Use only the public failing-test identifier and plain-language paraphrases; do not copy source paths, implementation symbols, or patch content into a query.
+  interpretation: Diagnostic development evidence only; the cases and gold paths were known before this selection.
+  variant_kinds:
+    - raw_identifier
+    - english_paraphrase
+    - failure_description
+    - chinese_description
+
+cases:
+  - base_case_id: cookiecutter-1-non-ascii-context
+    source_subdir: cookiecutter-1-non-ascii-context
+    manifest_path: cases/cookiecutter-1.yaml
+    known_baseline_issue: target first appears at rank 2
+  - base_case_id: luigi-7-status-wont-override
+    source_subdir: luigi-7-status-wont-override
+    manifest_path: cases/luigi-7.yaml
+    known_baseline_issue: target first appears at rank 4
+  - base_case_id: pysnooper-2-custom-repr
+    source_subdir: pysnooper-2-custom-repr
+    manifest_path: cases/pysnooper-2.yaml
+    known_baseline_issue: only 3 of 5 production gold paths appear by chunk 8
+  - base_case_id: tornado-2-redirect-put-without-body
+    source_subdir: tornado-2-redirect-put-without-body
+    manifest_path: cases/tornado-2.yaml
+    known_baseline_issue: target first appears at rank 3
+
+evidence_boundary:
+  repository_code_executed: false
+  evaluator_network_called: false
+  paid_model_called: false
+  statement: Queries are frozen before running this robustness slice; the slice is not independent holdout evidence.

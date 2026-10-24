@@ -416,3 +416,40 @@ def test_checked_in_external_v3_suite_preserves_selection_and_sealed_holdout():
     assert baseline["metrics_at_k"][0]["hit_count"] == 11
     assert baseline["metrics_at_k"][2]["hit_count"] == 16
     assert baseline["metrics_at_k"][2]["micro_path_recall"] == 0.9
+
+
+def test_checked_in_query_robustness_selection_has_four_frozen_variants_per_case():
+    root = Path(__file__).resolve().parents[2]
+    benchmark_root = root / "benchmarks/retrieval/external-development-v3"
+    base_suite = RetrievalEvalSuiteManifest.model_validate(
+        yaml.safe_load((benchmark_root / "development-suite.yaml").read_text(encoding="utf-8"))
+    )
+    selection_path = benchmark_root / "query-robustness-v1/selection.yaml"
+    selection = yaml.safe_load(selection_path.read_text(encoding="utf-8"))
+    expected_kinds = {
+        "raw-identifier",
+        "english-paraphrase",
+        "failure-description",
+        "chinese-description",
+    }
+    base_cases = {case.case_id: case for case in base_suite.cases}
+
+    assert selection["partition"] == "development"
+    assert selection["holdout_status"] == "sealed"
+    assert selection["model_called"] is False
+    assert len(selection["cases"]) == 4
+    for selected in selection["cases"]:
+        assert selected["base_case_id"] in base_cases
+        assert selected["source_subdir"] == base_cases[selected["base_case_id"]].source_subdir
+        manifest_path = (selection_path.parent / selected["manifest_path"]).resolve()
+        assert manifest_path.is_relative_to(selection_path.parent)
+        manifest = RetrievalEvalManifest.model_validate(
+            yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+        )
+        assert len(manifest.cases) == 4
+        assert len({case.query for case in manifest.cases}) == 4
+        assert {
+            next(kind for kind in expected_kinds if case.case_id.endswith(kind))
+            for case in manifest.cases
+        } == expected_kinds
+        assert all(case.max_chunks == 8 for case in manifest.cases)

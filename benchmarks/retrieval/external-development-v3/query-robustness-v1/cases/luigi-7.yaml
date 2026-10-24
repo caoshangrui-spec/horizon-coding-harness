@@ -1,0 +1,21 @@
+schema_version: 1
+benchmark_id: luigi-7-query-robustness-v1
+allowed_paths: [luigi/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: luigi-7-raw-identifier
+    query: SchedulerApiTest test_status_wont_override
+    expected_paths: [luigi/scheduler.py]
+    max_chunks: 8
+  - case_id: luigi-7-english-paraphrase
+    query: scheduler status should not override an existing status
+    expected_paths: [luigi/scheduler.py]
+    max_chunks: 8
+  - case_id: luigi-7-failure-description
+    query: scheduler api status override regression
+    expected_paths: [luigi/scheduler.py]
+    max_chunks: 8
+  - case_id: luigi-7-chinese-description
+    query: 调度器状态不应覆盖已有状态
+    expected_paths: [luigi/scheduler.py]
+    max_chunks: 8
