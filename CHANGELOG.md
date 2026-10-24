@@ -5,6 +5,12 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Strengthened the release gate without publishing a new version. Standard CI now installs the
+  single built wheel into a fresh Python 3.12 environment with the locked production dependency
+  set, requires `pyproject.toml`, installed metadata and `horizon.__version__` to agree, parses a
+  successful installed-package `horizon doctor` receipt, and uploads that receipt with the wheel
+  and sdist as a 14-day artifact. This does not create a tag, GitHub Release or package-registry
+  publication.
 - Added `horizon demo verify-portfolio` as a standalone verifier for the primary interview demo.
   The command checks the portable file manifest, replays the JSONL Trace, rebuilds the final Run,
   and revalidates retrieval-to-write lineage plus the hard-crash marker and exact recovery receipt

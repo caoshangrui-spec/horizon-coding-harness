@@ -80,3 +80,37 @@ jobs:
 
       - name: Build wheel and source distribution
         run: uv build
+
+      - name: Smoke-test installed wheel
+        shell: bash
+        run: |
+          mapfile -t wheels < <(find dist -maxdepth 1 -type f -name '*.whl' -print)
+          test "${#wheels[@]}" -eq 1
+          wheel="${wheels[0]}"
+          uv export --locked --no-dev --no-emit-project \
+            --format requirements.txt \
+            --output-file .horizon/wheel-smoke-requirements.txt
+          uv venv .horizon/wheel-smoke --python 3.12
+          uv pip install \
+            --python .horizon/wheel-smoke/bin/python \
+            --require-hashes \
+            --requirements .horizon/wheel-smoke-requirements.txt
+          uv pip install \
+            --python .horizon/wheel-smoke/bin/python \
+            --no-deps \
+            "$wheel"
+          .horizon/wheel-smoke/bin/python -c 'from importlib.metadata import version; from pathlib import Path; import tomllib; import horizon; expected = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]; assert horizon.__version__ == version("horizon-coding-harness") == expected; print(expected)'
+          .horizon/wheel-smoke/bin/horizon doctor > .horizon/wheel-smoke-doctor.json
+          .horizon/wheel-smoke/bin/python -c 'import json; from importlib.metadata import version; from pathlib import Path; payload = json.loads(Path(".horizon/wheel-smoke-doctor.json").read_text(encoding="utf-8")); assert payload["horizon"] == version("horizon-coding-harness"); print(json.dumps({"installed_wheel": payload["horizon"], "doctor": "passed"}))'
+
+      - name: Upload built distributions and wheel smoke receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: horizon-built-distributions
+          path: |
+            dist/*
+            .horizon/wheel-smoke-doctor.json
+          if-no-files-found: error
+          include-hidden-files: true
+          compression-level: 9
+          retention-days: 14
