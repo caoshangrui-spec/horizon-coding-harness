@@ -1,0 +1,29 @@
+schema_version: 1
+benchmark_id: luigi-3-query-normalization-gate-broad-v1
+allowed_paths: [luigi/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: luigi-3-raw-baseline
+    query: TestSerializeTupleParameter testSerialize
+    expected_paths: [luigi/parameter.py]
+    max_chunks: 8
+  - case_id: luigi-3-raw-selective
+    query: serializeTupleParameter serialize tuple parameter
+    expected_paths: [luigi/parameter.py]
+    max_chunks: 8
+  - case_id: luigi-3-english-bypass
+    query: serialize tuple parameter
+    expected_paths: [luigi/parameter.py]
+    max_chunks: 8
+  - case_id: luigi-3-bare-test-bypass
+    query: tuple parameter serialization test failure
+    expected_paths: [luigi/parameter.py]
+    max_chunks: 8
+  - case_id: luigi-3-chinese-baseline
+    query: 元组参数序列化失败
+    expected_paths: [luigi/parameter.py]
+    max_chunks: 8
+  - case_id: luigi-3-chinese-selective
+    query: failure
+    expected_paths: [luigi/parameter.py]
+    max_chunks: 8

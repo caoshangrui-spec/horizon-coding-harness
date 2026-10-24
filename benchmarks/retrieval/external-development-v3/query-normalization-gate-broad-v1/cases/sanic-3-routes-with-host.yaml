@@ -1,0 +1,29 @@
+schema_version: 1
+benchmark_id: sanic-3-query-normalization-gate-broad-v1
+allowed_paths: [sanic/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: sanic-3-raw-baseline
+    query: test_routes_with_host
+    expected_paths: [sanic/app.py]
+    max_chunks: 8
+  - case_id: sanic-3-raw-selective
+    query: routesWithHost routes with host
+    expected_paths: [sanic/app.py]
+    max_chunks: 8
+  - case_id: sanic-3-english-bypass
+    query: routes with host
+    expected_paths: [sanic/app.py]
+    max_chunks: 8
+  - case_id: sanic-3-bare-test-bypass
+    query: routing test fails when a host is present
+    expected_paths: [sanic/app.py]
+    max_chunks: 8
+  - case_id: sanic-3-chinese-baseline
+    query: 带主机的路由失败
+    expected_paths: [sanic/app.py]
+    max_chunks: 8
+  - case_id: sanic-3-chinese-selective
+    query: failure
+    expected_paths: [sanic/app.py]
+    max_chunks: 8

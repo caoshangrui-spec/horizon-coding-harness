@@ -1,0 +1,29 @@
+schema_version: 1
+benchmark_id: httpie-1-query-normalization-gate-broad-v1
+allowed_paths: [httpie/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: httpie-1-raw-baseline
+    query: TestDownloadUtils test_unique_filename
+    expected_paths: [httpie/downloads.py]
+    max_chunks: 8
+  - case_id: httpie-1-raw-selective
+    query: downloadUtils download utils uniqueFilename unique filename
+    expected_paths: [httpie/downloads.py]
+    max_chunks: 8
+  - case_id: httpie-1-english-bypass
+    query: download unique filename
+    expected_paths: [httpie/downloads.py]
+    max_chunks: 8
+  - case_id: httpie-1-bare-test-bypass
+    query: download test fails to create a unique filename
+    expected_paths: [httpie/downloads.py]
+    max_chunks: 8
+  - case_id: httpie-1-chinese-baseline
+    query: 下载时无法生成唯一文件名
+    expected_paths: [httpie/downloads.py]
+    max_chunks: 8
+  - case_id: httpie-1-chinese-selective
+    query: generate
+    expected_paths: [httpie/downloads.py]
+    max_chunks: 8

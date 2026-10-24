@@ -1,0 +1,29 @@
+schema_version: 1
+benchmark_id: httpie-4-query-normalization-gate-broad-v1
+allowed_paths: [httpie/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: httpie-4-raw-baseline
+    query: test_Host_header_overwrite
+    expected_paths: [httpie/models.py]
+    max_chunks: 8
+  - case_id: httpie-4-raw-selective
+    query: hostHeaderOverwrite host header overwrite
+    expected_paths: [httpie/models.py]
+    max_chunks: 8
+  - case_id: httpie-4-english-bypass
+    query: host header overwrite
+    expected_paths: [httpie/models.py]
+    max_chunks: 8
+  - case_id: httpie-4-bare-test-bypass
+    query: regression test for host header overwrite
+    expected_paths: [httpie/models.py]
+    max_chunks: 8
+  - case_id: httpie-4-chinese-baseline
+    query: 主机头被覆盖
+    expected_paths: [httpie/models.py]
+    max_chunks: 8
+  - case_id: httpie-4-chinese-selective
+    query: override
+    expected_paths: [httpie/models.py]
+    max_chunks: 8

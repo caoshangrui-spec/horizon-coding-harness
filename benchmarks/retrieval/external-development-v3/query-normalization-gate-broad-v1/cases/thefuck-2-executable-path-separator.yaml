@@ -1,0 +1,29 @@
+schema_version: 1
+benchmark_id: thefuck-2-query-normalization-gate-broad-v1
+allowed_paths: [thefuck/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: thefuck-2-raw-baseline
+    query: test_get_all_executables_pathsep
+    expected_paths: [thefuck/utils.py]
+    max_chunks: 8
+  - case_id: thefuck-2-raw-selective
+    query: getAllExecutablesPathsep get all executables pathsep
+    expected_paths: [thefuck/utils.py]
+    max_chunks: 8
+  - case_id: thefuck-2-english-bypass
+    query: get all executables path separator
+    expected_paths: [thefuck/utils.py]
+    max_chunks: 8
+  - case_id: thefuck-2-bare-test-bypass
+    query: executable discovery test fails with path separator
+    expected_paths: [thefuck/utils.py]
+    max_chunks: 8
+  - case_id: thefuck-2-chinese-baseline
+    query: 可执行文件路径分隔符处理失败
+    expected_paths: [thefuck/utils.py]
+    max_chunks: 8
+  - case_id: thefuck-2-chinese-selective
+    query: failure
+    expected_paths: [thefuck/utils.py]
+    max_chunks: 8

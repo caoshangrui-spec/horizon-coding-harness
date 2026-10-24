@@ -1,0 +1,29 @@
+schema_version: 1
+benchmark_id: cookiecutter-3-query-normalization-gate-broad-v1
+allowed_paths: [cookiecutter/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: cookiecutter-3-raw-baseline
+    query: test_read_user_choice test_click_invocation
+    expected_paths: [cookiecutter/prompt.py]
+    max_chunks: 8
+  - case_id: cookiecutter-3-raw-selective
+    query: readUserChoice read user choice clickInvocation click invocation
+    expected_paths: [cookiecutter/prompt.py]
+    max_chunks: 8
+  - case_id: cookiecutter-3-english-bypass
+    query: read user choice click invocation
+    expected_paths: [cookiecutter/prompt.py]
+    max_chunks: 8
+  - case_id: cookiecutter-3-bare-test-bypass
+    query: test failure when reading user choice after click invocation
+    expected_paths: [cookiecutter/prompt.py]
+    max_chunks: 8
+  - case_id: cookiecutter-3-chinese-baseline
+    query: 读取用户选择时点击调用失败
+    expected_paths: [cookiecutter/prompt.py]
+    max_chunks: 8
+  - case_id: cookiecutter-3-chinese-selective
+    query: failure
+    expected_paths: [cookiecutter/prompt.py]
+    max_chunks: 8

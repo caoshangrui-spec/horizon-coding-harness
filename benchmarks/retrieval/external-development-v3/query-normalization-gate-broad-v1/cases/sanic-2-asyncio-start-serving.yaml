@@ -1,0 +1,29 @@
+schema_version: 1
+benchmark_id: sanic-2-query-normalization-gate-broad-v1
+allowed_paths: [sanic/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: sanic-2-raw-baseline
+    query: test_asyncio_server_start_serving
+    expected_paths: [sanic/server.py]
+    max_chunks: 8
+  - case_id: sanic-2-raw-selective
+    query: asyncioServerStartServing asyncio server start serving
+    expected_paths: [sanic/server.py]
+    max_chunks: 8
+  - case_id: sanic-2-english-bypass
+    query: asyncio server start serving
+    expected_paths: [sanic/server.py]
+    max_chunks: 8
+  - case_id: sanic-2-bare-test-bypass
+    query: asyncio server test fails to start serving
+    expected_paths: [sanic/server.py]
+    max_chunks: 8
+  - case_id: sanic-2-chinese-baseline
+    query: asyncio 服务器启动服务失败
+    expected_paths: [sanic/server.py]
+    max_chunks: 8
+  - case_id: sanic-2-chinese-selective
+    query: asyncio failure
+    expected_paths: [sanic/server.py]
+    max_chunks: 8

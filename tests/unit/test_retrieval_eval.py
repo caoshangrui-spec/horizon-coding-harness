@@ -1034,3 +1034,85 @@ def test_checked_in_selective_query_normalization_result_recomputes_comparison()
         assert summary["relevant_paths_at_8"]["selective"] == f"{relevant}/{expected}"
         assert summary["micro_path_recall_at_8"]["selective"] == relevant / expected
         assert summary["mean_reciprocal_rank"]["selective"] == pytest.approx(mrr, abs=1e-6)
+
+
+def test_checked_in_broad_gate_suite_uses_remaining_development_cases_and_frozen_pairs():
+    root = Path(__file__).resolve().parents[2]
+    benchmark_root = root / "benchmarks/retrieval/external-development-v3"
+    broad_root = benchmark_root / "query-normalization-gate-broad-v1"
+    base_suite = RetrievalEvalSuiteManifest.model_validate(
+        yaml.safe_load((benchmark_root / "development-suite.yaml").read_text(encoding="utf-8"))
+    )
+    design_selection = yaml.safe_load(
+        (benchmark_root / "query-normalization-gate-v1/selection.yaml").read_text(encoding="utf-8")
+    )
+    selection = yaml.safe_load((broad_root / "selection.yaml").read_text(encoding="utf-8"))
+    base_case_ids = {case.case_id for case in base_suite.cases}
+    design_case_ids = {case["base_case_id"] for case in design_selection["cases"]}
+    selected_case_ids = {case["base_case_id"] for case in selection["cases"]}
+    gate_positive_count = 0
+    bypass_count = 0
+
+    assert selection["partition"] == "development"
+    assert selection["holdout_status"] == "sealed"
+    assert selection["relationship_to_gate_design"] == (
+        "out-of-design cases with post-design frozen queries"
+    )
+    assert selected_case_ids == base_case_ids - design_case_ids
+    assert len(selected_case_ids) == 12
+    assert selected_case_ids.isdisjoint(design_case_ids)
+
+    suffixes = (
+        "raw-baseline",
+        "raw-selective",
+        "english-bypass",
+        "bare-test-bypass",
+        "chinese-baseline",
+        "chinese-selective",
+    )
+    for selected in selection["cases"]:
+        base_path = (broad_root / selected["base_manifest"]).resolve()
+        paired_path = (broad_root / selected["paired_manifest"]).resolve()
+        assert base_path.is_relative_to(benchmark_root)
+        assert paired_path.is_relative_to(broad_root)
+        base = RetrievalEvalManifest.model_validate(
+            yaml.safe_load(base_path.read_text(encoding="utf-8"))
+        )
+        paired = RetrievalEvalManifest.model_validate(
+            yaml.safe_load(paired_path.read_text(encoding="utf-8"))
+        )
+        cases = {
+            suffix: next(case for case in paired.cases if case.case_id.endswith(suffix))
+            for suffix in suffixes
+        }
+
+        assert len(base.cases) == 1
+        assert len(paired.cases) == len(suffixes)
+        assert paired.allowed_paths == base.allowed_paths
+        assert paired.denied_paths == base.denied_paths
+        assert cases["english-bypass"].query == base.cases[0].query
+        for case in paired.cases:
+            assert case.expected_paths == base.cases[0].expected_paths
+            assert case.forbidden_paths == base.cases[0].forbidden_paths
+            assert case.max_chunks == base.cases[0].max_chunks == 8
+
+        raw = normalize_retrieval_query_selectively(cases["raw-baseline"].query)
+        chinese = normalize_retrieval_query_selectively(cases["chinese-baseline"].query)
+        english = normalize_retrieval_query_selectively(cases["english-bypass"].query)
+        bare_test = normalize_retrieval_query_selectively(cases["bare-test-bypass"].query)
+
+        assert raw.applied_rules[0] == "gate_test_identifier_v1"
+        assert raw.normalized_query == cases["raw-selective"].query
+        assert chinese.applied_rules[0] == "gate_cjk_text_v1"
+        assert chinese.normalized_query == cases["chinese-selective"].query
+        assert english.applied_rules == ("gate_bypass_v1",)
+        assert english.normalized_query == cases["english-bypass"].query
+        assert bare_test.applied_rules == ("gate_bypass_v1",)
+        assert bare_test.normalized_query == cases["bare-test-bypass"].query
+        assert "test" in cases["bare-test-bypass"].query.casefold().split()
+
+        gate_positive_count += 2
+        bypass_count += 2
+
+    assert gate_positive_count == 24
+    assert bypass_count == 24

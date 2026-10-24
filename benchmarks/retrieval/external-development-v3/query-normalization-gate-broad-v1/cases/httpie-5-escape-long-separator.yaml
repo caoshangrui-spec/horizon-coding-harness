@@ -1,0 +1,29 @@
+schema_version: 1
+benchmark_id: httpie-5-query-normalization-gate-broad-v1
+allowed_paths: [httpie/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: httpie-5-raw-baseline
+    query: TestItemParsing test_escape_longsep
+    expected_paths: [httpie/cli.py]
+    max_chunks: 8
+  - case_id: httpie-5-raw-selective
+    query: itemParsing item parsing escapeLongsep escape longsep
+    expected_paths: [httpie/cli.py]
+    max_chunks: 8
+  - case_id: httpie-5-english-bypass
+    query: item parsing escape long separator
+    expected_paths: [httpie/cli.py]
+    max_chunks: 8
+  - case_id: httpie-5-bare-test-bypass
+    query: item parsing test fails on a long separator
+    expected_paths: [httpie/cli.py]
+    max_chunks: 8
+  - case_id: httpie-5-chinese-baseline
+    query: 项目解析长分隔符转义失败
+    expected_paths: [httpie/cli.py]
+    max_chunks: 8
+  - case_id: httpie-5-chinese-selective
+    query: failure
+    expected_paths: [httpie/cli.py]
+    max_chunks: 8

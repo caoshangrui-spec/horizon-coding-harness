@@ -1,0 +1,29 @@
+schema_version: 1
+benchmark_id: luigi-2-query-normalization-gate-broad-v1
+allowed_paths: [luigi/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: luigi-2-raw-baseline
+    query: BeamDataflowTest test_get_target_path
+    expected_paths: [luigi/contrib/beam_dataflow.py]
+    max_chunks: 8
+  - case_id: luigi-2-raw-selective
+    query: beamDataflow beam dataflow getTargetPath get target path
+    expected_paths: [luigi/contrib/beam_dataflow.py]
+    max_chunks: 8
+  - case_id: luigi-2-english-bypass
+    query: beam dataflow get target path
+    expected_paths: [luigi/contrib/beam_dataflow.py]
+    max_chunks: 8
+  - case_id: luigi-2-bare-test-bypass
+    query: beam dataflow test cannot get target path
+    expected_paths: [luigi/contrib/beam_dataflow.py]
+    max_chunks: 8
+  - case_id: luigi-2-chinese-baseline
+    query: Beam 数据流无法获取目标路径
+    expected_paths: [luigi/contrib/beam_dataflow.py]
+    max_chunks: 8
+  - case_id: luigi-2-chinese-selective
+    query: beam
+    expected_paths: [luigi/contrib/beam_dataflow.py]
+    max_chunks: 8

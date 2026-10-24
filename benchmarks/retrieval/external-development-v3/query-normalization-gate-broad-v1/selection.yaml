@@ -1,0 +1,79 @@
+schema_version: 1
+suite_id: external-development-query-normalization-gate-broad-v1
+selected_at: "2026-10-24"
+partition: development
+relationship_to_gate_design: out-of-design cases with post-design frozen queries
+base_development_suite: ../development-suite.yaml
+gate_design_suite: ../query-normalization-gate-v1/selection.yaml
+holdout_status: sealed
+
+protocol:
+  purpose: Measure gate contract behavior and paired lexical retrieval on the 12 development cases not used to design the selective gate.
+  query_rule: Derive raw identifiers and English paraphrases from frozen failing-test labels, add one ordinary English sentence containing the bare word test, and add one Chinese description without using source paths, source code, patches, or gold paths.
+  paired_rule: Each manifest contains raw and Chinese baseline/selective pairs plus single shared observations for the two exact-bypass English variants.
+  gate_positive_variants: [raw_identifier, chinese_description]
+  gate_negative_variants: [english_paraphrase, bare_test_sentence]
+  interpretation: Out-of-design by base case, but still authored and evaluated on the revealed development partition; this is not an independent holdout.
+
+implementation:
+  module: src/horizon/adapters/retrieval/query_normalization.py
+  function: normalize_retrieval_query_selectively
+  gate_function: retrieval_query_normalization_gate
+  external_model_or_service_during_evaluation: false
+
+cases:
+  - base_case_id: cookiecutter-3-read-user-choice
+    base_manifest: ../cases/cookiecutter-3-read-user-choice.yaml
+    paired_manifest: cases/cookiecutter-3-read-user-choice.yaml
+    source_subdir: cookiecutter-3-read-user-choice
+  - base_case_id: httpie-1-unique-download-filename
+    base_manifest: ../cases/httpie-1-unique-download-filename.yaml
+    paired_manifest: cases/httpie-1-unique-download-filename.yaml
+    source_subdir: httpie-1-unique-download-filename
+  - base_case_id: httpie-4-host-header-overwrite
+    base_manifest: ../cases/httpie-4-host-header-overwrite.yaml
+    paired_manifest: cases/httpie-4-host-header-overwrite.yaml
+    source_subdir: httpie-4-host-header-overwrite
+  - base_case_id: httpie-5-escape-long-separator
+    base_manifest: ../cases/httpie-5-escape-long-separator.yaml
+    paired_manifest: cases/httpie-5-escape-long-separator.yaml
+    source_subdir: httpie-5-escape-long-separator
+  - base_case_id: luigi-2-beam-target-path
+    base_manifest: ../cases/luigi-2-beam-target-path.yaml
+    paired_manifest: cases/luigi-2-beam-target-path.yaml
+    source_subdir: luigi-2-beam-target-path
+  - base_case_id: luigi-3-serialize-tuple-parameter
+    base_manifest: ../cases/luigi-3-serialize-tuple-parameter.yaml
+    paired_manifest: cases/luigi-3-serialize-tuple-parameter.yaml
+    source_subdir: luigi-3-serialize-tuple-parameter
+  - base_case_id: sanic-2-asyncio-start-serving
+    base_manifest: ../cases/sanic-2-asyncio-start-serving.yaml
+    paired_manifest: cases/sanic-2-asyncio-start-serving.yaml
+    source_subdir: sanic-2-asyncio-start-serving
+  - base_case_id: sanic-3-routes-with-host
+    base_manifest: ../cases/sanic-3-routes-with-host.yaml
+    paired_manifest: cases/sanic-3-routes-with-host.yaml
+    source_subdir: sanic-3-routes-with-host
+  - base_case_id: sanic-5-root-logger-config
+    base_manifest: ../cases/sanic-5-root-logger-config.yaml
+    paired_manifest: cases/sanic-5-root-logger-config.yaml
+    source_subdir: sanic-5-root-logger-config
+  - base_case_id: thefuck-2-executable-path-separator
+    base_manifest: ../cases/thefuck-2-executable-path-separator.yaml
+    paired_manifest: cases/thefuck-2-executable-path-separator.yaml
+    source_subdir: thefuck-2-executable-path-separator
+  - base_case_id: thefuck-5-git-push-bitbucket
+    base_manifest: ../cases/thefuck-5-git-push-bitbucket.yaml
+    paired_manifest: cases/thefuck-5-git-push-bitbucket.yaml
+    source_subdir: thefuck-5-git-push-bitbucket
+  - base_case_id: tornado-4-static-range-bounds
+    base_manifest: ../cases/tornado-4-static-range-bounds.yaml
+    paired_manifest: cases/tornado-4-static-range-bounds.yaml
+    source_subdir: tornado-4-static-range-bounds
+
+evidence_boundary:
+  repository_code_executed: false
+  evaluator_network_called: false
+  paid_model_called: false
+  holdout_materialized: false
+  statement: Freeze all 48 source queries, 24 selective outputs, expected gate labels, and non-query contracts in Git before retrieval execution.

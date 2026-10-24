@@ -1,0 +1,29 @@
+schema_version: 1
+benchmark_id: thefuck-5-query-normalization-gate-broad-v1
+allowed_paths: [thefuck/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: thefuck-5-raw-baseline
+    query: test_git_push test_match_bitbucket
+    expected_paths: [thefuck/rules/git_push.py]
+    max_chunks: 8
+  - case_id: thefuck-5-raw-selective
+    query: gitPush git push matchBitbucket match bitbucket
+    expected_paths: [thefuck/rules/git_push.py]
+    max_chunks: 8
+  - case_id: thefuck-5-english-bypass
+    query: git push match bitbucket
+    expected_paths: [thefuck/rules/git_push.py]
+    max_chunks: 8
+  - case_id: thefuck-5-bare-test-bypass
+    query: git push test fails to match bitbucket
+    expected_paths: [thefuck/rules/git_push.py]
+    max_chunks: 8
+  - case_id: thefuck-5-chinese-baseline
+    query: git push 无法匹配 Bitbucket
+    expected_paths: [thefuck/rules/git_push.py]
+    max_chunks: 8
+  - case_id: thefuck-5-chinese-selective
+    query: git push bitbucket
+    expected_paths: [thefuck/rules/git_push.py]
+    max_chunks: 8

@@ -1,0 +1,29 @@
+schema_version: 1
+benchmark_id: tornado-4-query-normalization-gate-broad-v1
+allowed_paths: [tornado/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: tornado-4-raw-baseline
+    query: StaticFileTest test_static_with_range_neg_past_start test_static_unsatisfiable_range_end_less_than_start
+    expected_paths: [tornado/web.py]
+    max_chunks: 8
+  - case_id: tornado-4-raw-selective
+    query: staticFile static file staticWithRangeNegPastStart with range neg past start staticUnsatisfiableRangeEndLessThanStart unsatisfiable end less than
+    expected_paths: [tornado/web.py]
+    max_chunks: 8
+  - case_id: tornado-4-english-bypass
+    query: static file range negative past start unsatisfiable range end less than start
+    expected_paths: [tornado/web.py]
+    max_chunks: 8
+  - case_id: tornado-4-bare-test-bypass
+    query: static file range test fails for negative and unsatisfiable bounds
+    expected_paths: [tornado/web.py]
+    max_chunks: 8
+  - case_id: tornado-4-chinese-baseline
+    query: 静态文件范围起点为负且结束小于起点
+    expected_paths: [tornado/web.py]
+    max_chunks: 8
+  - case_id: tornado-4-chinese-selective
+    query: 静态文件范围起点为负且结束小于起点
+    expected_paths: [tornado/web.py]
+    max_chunks: 8
