@@ -191,3 +191,42 @@ Agent 会生成同样的查询，更不能证明能够完成计划、修改和�
 冻结的查询在 82/872/382 文件上游仓库中都返回目标生产文件 rank 1；分别有 73/870/327 个文件
 可索引、9/2/55 个因非 UTF-8 或超限被跳过，因此 EvidencePack 正确保留为 `degraded`。它验证外部仓库
 执行路径，不是盲测或真实模型查询质量。
+
+## 10. 24 案例外部定位集与 v0.3.0 development 基线
+
+为避免继续用 3 个外部案例支撑过强结论，新增
+[`external-development-v3/selection.yaml`](../benchmarks/retrieval/external-development-v3/selection.yaml)。
+它在查看新案例的生产 gold path 前单独提交为
+`57776b89d1f7a99723f61c5a8b15db5c5ff579ae`，包含 Cookiecutter、HTTPie、Luigi、PySnooper、
+Sanic、The Fuck 和 Tornado 共 7 个项目、24 个 BugsInPy bug。查询只把 failing-test 的类名与
+测试名规范化为词组，不读取 Issue 补丁内容，也不调用模型。16 个案例划入 development，另 8 个
+holdout 继续保持 sealed；本轮没有读取 holdout 的变更路径或物化其源码。
+
+新增 `horizon eval retrieval-suite`：每个案例仍调用原 `RetrievalEvaluator` 和 revision-bound
+EvidencePack，只在外层聚合不同 source snapshot。报告按去重后的 path ranking 给出
+Hit/Recall/MAP/nDCG@1/3/5/8、MRR、empty/degraded/leakage，以及首次建立索引与同进程缓存复用的
+P50/P95。命令要求全新的 `--state-dir`，避免把已有磁盘缓存误报为 cold run；同一案例的 warm
+报告必须与首次报告逐字段相等。评测不执行仓库源码、不加载 provider，也不发起网络请求。
+
+v0.3.0 词法检索在 16 个 development 案例、20 个 production gold path 上的冻结结果为：
+
+| K | Hit | Micro path recall | MAP | nDCG |
+|---:|---:|---:|---:|---:|
+| 1 | 11/16 = 0.6875 | 11/20 = 0.55 | 0.6375 | 0.6875 |
+| 3 | 15/16 = 0.9375 | 17/20 = 0.85 | 0.777083 | 0.837049 |
+| 5 | 16/16 = 1.0 | 18/20 = 0.90 | 0.792708 | 0.846637 |
+| 8 | 16/16 = 1.0 | 18/20 = 0.90 | 0.792708 | 0.846637 |
+
+MRR 为 `0.817708`，leakage/empty 均为 0，3 个 Luigi 案例因跳过非 UTF-8 或超长行保持
+`degraded`。全新状态目录的首次评测 P50/P95 为 `464.589 / 3745.464 ms`，同进程缓存复用为
+`288.675 / 1897.468 ms`；这只是本机 16 案例的冷索引+查询与 warm 查询观察，不是跨机器性能
+承诺。内容寻址 suite report ref 为
+`8f68016ce398da6464e669aadb8855de2bb850beb9c6ba78d993bd9291a653a5`，完整案例、返回路径和
+子报告 ref 保存在
+[`baseline-v0.3.0.yaml`](../benchmarks/retrieval/external-development-v3/baseline-v0.3.0.yaml)。
+
+负结果继续保留：Luigi-7 的目标 `luigi/scheduler.py` 到 rank 4 才出现；PySnooper-2 的修复
+跨 5 个 production path，前 8 个 chunk 只覆盖 `utils.py`、`tracer.py`、`variables.py`，
+`__init__.py` 与 `pycompat.py` 未召回，因此 K=8 总 recall 停在 0.90。这个 development 集已经
+揭示 gold，后续检索改动可以在它上面诊断，但不能把调参后的分数称为独立泛化证据。只有候选
+规则在 development 上冻结后，才允许一次性揭示并运行剩余 8 个 holdout。

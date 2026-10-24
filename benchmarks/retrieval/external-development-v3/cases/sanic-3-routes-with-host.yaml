@@ -1,0 +1,9 @@
+schema_version: 1
+benchmark_id: sanic-3-routes-with-host-v3
+allowed_paths: [sanic/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: sanic-3-routes-with-host
+    query: routes with host
+    expected_paths: [sanic/app.py]
+    max_chunks: 8

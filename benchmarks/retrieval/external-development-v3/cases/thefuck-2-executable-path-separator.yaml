@@ -1,0 +1,9 @@
+schema_version: 1
+benchmark_id: thefuck-2-executable-path-separator-v3
+allowed_paths: [thefuck/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: thefuck-2-executable-path-separator
+    query: get all executables path separator
+    expected_paths: [thefuck/utils.py]
+    max_chunks: 8

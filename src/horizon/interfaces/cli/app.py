@@ -4,6 +4,7 @@ import functools
 import json
 import platform
 import sqlite3
+import time
 from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
@@ -71,7 +72,7 @@ from horizon.application.recovery import RecoveryService
 from horizon.application.recovery_eval import RecoveryMatrixEvaluator
 from horizon.application.reliability_eval import ReliabilityEvaluator
 from horizon.application.reservation_analysis import analyze_reservation_traces
-from horizon.application.retrieval_eval import RetrievalEvaluator
+from horizon.application.retrieval_eval import RetrievalEvaluator, build_retrieval_suite_report
 from horizon.application.run_ab_eval import (
     RunABEvaluator,
     build_run_ab_suite_report,
@@ -103,7 +104,12 @@ from horizon.domain.errors import (
     RunCancellationRequested,
     RunDeadlineExceeded,
 )
-from horizon.domain.evaluation import RetrievalEvalManifest
+from horizon.domain.evaluation import (
+    RetrievalEvalManifest,
+    RetrievalEvalSuiteCaseResult,
+    RetrievalEvalSuiteCaseSpec,
+    RetrievalEvalSuiteManifest,
+)
 from horizon.domain.human import HumanGuidanceRequest, HumanPlanRequest
 from horizon.domain.model import ModelPolicyBinding
 from horizon.domain.pilot import RealModelPilotManifest
@@ -341,6 +347,104 @@ def evaluate_retrieval(
         canonical_json(
             {
                 "report": report.model_dump(mode="json"),
+                "report_ref": report_ref,
+            }
+        )
+    )
+
+
+@evaluations.command("retrieval-suite")
+@guarded
+def evaluate_retrieval_suite(
+    path: Path,
+    sources_root: Annotated[
+        Path,
+        typer.Option(
+            help="Parent directory containing one immutable source snapshot per suite case."
+        ),
+    ],
+    state_dir: Annotated[
+        Path,
+        typer.Option(help="Derived suite artifacts and per-case FTS caches."),
+    ] = Path(".horizon/retrieval-suite"),
+):
+    """Evaluate a frozen multi-repository localization suite without executing source code."""
+    suite_path = path.resolve(strict=True)
+    suite_root = suite_path.parent
+    manifest = RetrievalEvalSuiteManifest.model_validate(read_yaml(suite_path))
+    sources_root = sources_root.resolve(strict=True)
+    if not sources_root.is_dir():
+        raise ValueError("Retrieval suite sources root must be a directory")
+    state_root = state_dir.resolve()
+    if state_root.exists():
+        raise ValueError("Retrieval suite state directory must be new for cold-cache timing")
+
+    resolved_cases: list[tuple[RetrievalEvalSuiteCaseSpec, Path, RetrievalEvalManifest]] = []
+    for spec in manifest.cases:
+        case_manifest_path = (suite_root / spec.manifest_path).resolve(strict=True)
+        if not case_manifest_path.is_relative_to(suite_root):
+            raise ValueError("Retrieval suite manifest path escaped the suite directory")
+        source = (sources_root / spec.source_subdir).resolve(strict=True)
+        if not source.is_relative_to(sources_root) or not source.is_dir():
+            raise ValueError("Retrieval suite source path escaped the sources root")
+        if state_root.is_relative_to(source):
+            raise ValueError("Retrieval suite state cannot live inside a source snapshot")
+        case_manifest = RetrievalEvalManifest.model_validate(read_yaml(case_manifest_path))
+        if len(case_manifest.cases) != 1 or case_manifest.cases[0].case_id != spec.case_id:
+            raise ValueError("Retrieval suite manifests must contain their matching single case")
+        if case_manifest.cases[0].max_chunks < max(manifest.cutoffs):
+            raise ValueError("Retrieval suite case max_chunks is below its largest cutoff")
+        resolved_cases.append((spec, source, case_manifest))
+
+    artifacts = ArtifactStore(state_root / "artifacts")
+    snapshots = SnapshotManager(artifacts)
+    case_results: list[RetrievalEvalSuiteCaseResult] = []
+    for spec, source, case_manifest in resolved_cases:
+        snapshot, source_manifest_ref = snapshots.capture(
+            source,
+            allowed_paths=case_manifest.allowed_paths,
+            denied_paths=case_manifest.denied_paths,
+        )
+        retriever = SQLiteCodeRetriever(
+            state_root / "cases" / spec.case_id / "retrieval.sqlite3",
+            snapshots,
+        )
+        evaluator = RetrievalEvaluator(retriever)
+        cold_started = time.perf_counter_ns()
+        report = evaluator.evaluate(
+            case_manifest,
+            source_manifest_ref=source_manifest_ref,
+            workspace_revision=snapshot.workspace_revision,
+        )
+        cold_duration_ms = round((time.perf_counter_ns() - cold_started) / 1_000_000, 3)
+
+        warm_started = time.perf_counter_ns()
+        warm_report = evaluator.evaluate(
+            case_manifest,
+            source_manifest_ref=source_manifest_ref,
+            workspace_revision=snapshot.workspace_revision,
+        )
+        warm_duration_ms = round((time.perf_counter_ns() - warm_started) / 1_000_000, 3)
+        if warm_report != report:
+            raise ValueError("Warm retrieval changed the immutable case report")
+        report_ref = artifacts.put(canonical_json(report).encode("utf-8"))
+        case_results.append(
+            RetrievalEvalSuiteCaseResult(
+                case_id=spec.case_id,
+                buggy_commit=spec.buggy_commit,
+                report_ref=report_ref,
+                cold_duration_ms=cold_duration_ms,
+                warm_duration_ms=warm_duration_ms,
+                report=report,
+            )
+        )
+
+    suite_report = build_retrieval_suite_report(manifest, tuple(case_results))
+    report_ref = artifacts.put(canonical_json(suite_report).encode("utf-8"))
+    typer.echo(
+        canonical_json(
+            {
+                "report": suite_report.model_dump(mode="json"),
                 "report_ref": report_ref,
             }
         )

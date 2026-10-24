@@ -1,0 +1,9 @@
+schema_version: 1
+benchmark_id: sanic-5-root-logger-config-v3
+allowed_paths: [sanic/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: sanic-5-root-logger-config
+    query: logging modified root logger config
+    expected_paths: [sanic/log.py]
+    max_chunks: 8

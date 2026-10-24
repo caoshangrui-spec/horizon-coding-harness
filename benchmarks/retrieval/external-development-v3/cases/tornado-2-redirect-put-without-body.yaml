@@ -1,0 +1,9 @@
+schema_version: 1
+benchmark_id: tornado-2-redirect-put-without-body-v3
+allowed_paths: [tornado/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: tornado-2-redirect-put-without-body
+    query: http client redirect put without body
+    expected_paths: [tornado/http1connection.py]
+    max_chunks: 8

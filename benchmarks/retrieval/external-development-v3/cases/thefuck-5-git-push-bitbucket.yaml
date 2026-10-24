@@ -1,0 +1,9 @@
+schema_version: 1
+benchmark_id: thefuck-5-git-push-bitbucket-v3
+allowed_paths: [thefuck/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: thefuck-5-git-push-bitbucket
+    query: git push match bitbucket
+    expected_paths: [thefuck/rules/git_push.py]
+    max_chunks: 8

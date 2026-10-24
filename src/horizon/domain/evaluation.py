@@ -9,8 +9,10 @@ from horizon.domain.common import Contract, digest
 from horizon.domain.task import Identifier, Text, relative_pattern
 
 Sha256 = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
+GitCommit = Annotated[str, Field(pattern=r"^[a-f0-9]{40}$")]
 Ratio = Annotated[float, Field(ge=0.0, le=1.0)]
 Count = Annotated[StrictInt, Field(ge=0)]
+Milliseconds = Annotated[float, Field(ge=0.0)]
 
 
 def _literal_path(value: str) -> str:
@@ -135,4 +137,116 @@ class RetrievalEvalReport(Contract):
             raise ValueError("Evaluation empty count does not match its results")
         if self.degraded_count != sum(case.retrieval_status == "degraded" for case in self.cases):
             raise ValueError("Evaluation degraded count does not match its results")
+        return self
+
+
+class RetrievalEvalSuiteCaseSpec(Contract):
+    case_id: Identifier
+    manifest_path: Text
+    source_subdir: Text
+    buggy_commit: GitCommit
+
+    @field_validator("manifest_path", "source_subdir")
+    @classmethod
+    def validate_literal_paths(cls, value: str) -> str:
+        return _literal_path(value)
+
+
+class RetrievalEvalSuiteManifest(Contract):
+    schema_version: Literal[1] = 1
+    suite_id: Identifier
+    selection_commit: GitCommit
+    partition: Literal["development", "holdout"]
+    cutoffs: Annotated[tuple[StrictInt, ...], Field(min_length=1, max_length=8)] = (1, 3, 5, 8)
+    cases: Annotated[tuple[RetrievalEvalSuiteCaseSpec, ...], Field(min_length=1, max_length=100)]
+
+    @field_validator("cutoffs")
+    @classmethod
+    def validate_cutoffs(cls, values: tuple[int, ...]) -> tuple[int, ...]:
+        if any(value < 1 or value > 8 for value in values):
+            raise ValueError("Retrieval suite cutoffs must be between 1 and 8")
+        if tuple(sorted(set(values))) != values:
+            raise ValueError("Retrieval suite cutoffs must be sorted and unique")
+        return values
+
+    @model_validator(mode="after")
+    def validate_cases(self) -> Self:
+        case_ids = [case.case_id for case in self.cases]
+        manifest_paths = [case.manifest_path.casefold() for case in self.cases]
+        source_subdirs = [case.source_subdir.casefold() for case in self.cases]
+        if len(case_ids) != len(set(case_ids)):
+            raise ValueError("Retrieval suite case IDs must be unique")
+        if len(manifest_paths) != len(set(manifest_paths)):
+            raise ValueError("Retrieval suite manifest paths must be unique")
+        if len(source_subdirs) != len(set(source_subdirs)):
+            raise ValueError("Retrieval suite source directories must be unique")
+        return self
+
+    @property
+    def sha256(self) -> str:
+        return digest(self)
+
+
+class RetrievalEvalAtK(Contract):
+    cutoff: Annotated[StrictInt, Field(ge=1, le=8)]
+    hit_count: Count
+    hit_rate: Ratio
+    expected_path_count: Count
+    relevant_path_count: Count
+    micro_path_recall: Ratio
+    mean_average_precision: Ratio
+    mean_ndcg: Ratio
+
+
+class RetrievalEvalSuiteCaseResult(Contract):
+    case_id: Identifier
+    buggy_commit: GitCommit
+    report_ref: Sha256
+    cold_duration_ms: Milliseconds
+    warm_duration_ms: Milliseconds
+    report: RetrievalEvalReport
+
+    @model_validator(mode="after")
+    def validate_report(self) -> Self:
+        if self.report.case_count != 1 or len(self.report.cases) != 1:
+            raise ValueError("Retrieval suite case reports must contain exactly one case")
+        if self.report.cases[0].case_id != self.case_id:
+            raise ValueError("Retrieval suite case ID does not match the nested report")
+        return self
+
+
+class RetrievalEvalSuiteReport(Contract):
+    schema_version: Literal[1] = 1
+    suite_id: Identifier
+    suite_manifest_digest: Sha256
+    selection_commit: GitCommit
+    partition: Literal["development", "holdout"]
+    case_count: Count
+    metrics_at_k: Annotated[tuple[RetrievalEvalAtK, ...], Field(min_length=1, max_length=8)]
+    mean_reciprocal_rank: Ratio
+    leakage_count: Count
+    empty_count: Count
+    degraded_count: Count
+    cold_duration_p50_ms: Milliseconds
+    cold_duration_p95_ms: Milliseconds
+    warm_duration_p50_ms: Milliseconds
+    warm_duration_p95_ms: Milliseconds
+    paid_model_called: Literal[False] = False
+    network_called: Literal[False] = False
+    repository_code_executed: Literal[False] = False
+    cases: tuple[RetrievalEvalSuiteCaseResult, ...]
+
+    @model_validator(mode="after")
+    def validate_totals(self) -> Self:
+        if self.case_count != len(self.cases):
+            raise ValueError("Retrieval suite case count does not match its results")
+        if self.leakage_count != sum(case.report.leakage_count for case in self.cases):
+            raise ValueError("Retrieval suite leakage count does not match its results")
+        if self.empty_count != sum(case.report.empty_count for case in self.cases):
+            raise ValueError("Retrieval suite empty count does not match its results")
+        if self.degraded_count != sum(case.report.degraded_count for case in self.cases):
+            raise ValueError("Retrieval suite degraded count does not match its results")
+        cutoffs = tuple(metric.cutoff for metric in self.metrics_at_k)
+        if cutoffs != tuple(sorted(set(cutoffs))):
+            raise ValueError("Retrieval suite report cutoffs must be sorted and unique")
         return self

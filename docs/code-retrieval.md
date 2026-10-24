@@ -190,5 +190,7 @@ holdout。随后独立冻结的 Luigi/Sanic/Tornado 三案例在 v7 上均为 ra
 - Evidence snippet 进入 Agent transcript/Trace Artifact；生产级敏感信息分类与脱敏仍未完成，
   因此 TaskSpec path scope 必须继续最小化。
 - 第二批独立 holdout 没有复现 rank-1 缺口，当前不引入 symbol-aware/embedding/vector 索引。
-  下一步验证 Agent 是否能消费已有 EvidencePack 并产生有效修改；只有更多新样本再次稳定暴露
-  语义排序失败，才重开检索架构。现有结果不能单独支持“RAG 效果完成”的结论。
+  新增 16 个外部 development 案例后，Hit@1 为 11/16、MRR 为 0.817708，并保留一个多文件
+  Recall@8=0.6 的失败案例；因此下一步先在 development 上诊断排序/多文件覆盖，再按预先冻结的
+  8 个 holdout 做一次确认。是否引入 symbol-aware/embedding/vector 索引仍由冻结对照结果决定，
+  不能仅凭功能完整感重开架构。现有结果也不能单独支持“RAG 效果完成”的结论。

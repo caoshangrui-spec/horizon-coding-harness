@@ -1,0 +1,9 @@
+schema_version: 1
+benchmark_id: luigi-3-serialize-tuple-parameter-v3
+allowed_paths: [luigi/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: luigi-3-serialize-tuple-parameter
+    query: serialize tuple parameter
+    expected_paths: [luigi/parameter.py]
+    max_chunks: 8

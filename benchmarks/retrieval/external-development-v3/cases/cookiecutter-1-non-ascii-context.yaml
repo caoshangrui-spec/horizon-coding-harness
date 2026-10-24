@@ -1,0 +1,9 @@
+schema_version: 1
+benchmark_id: cookiecutter-1-non-ascii-context-v3
+allowed_paths: [cookiecutter/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: cookiecutter-1-non-ascii-context
+    query: generate context decodes non ascii chars
+    expected_paths: [cookiecutter/generate.py]
+    max_chunks: 8

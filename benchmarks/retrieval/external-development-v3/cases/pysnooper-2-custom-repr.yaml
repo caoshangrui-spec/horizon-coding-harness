@@ -1,0 +1,14 @@
+schema_version: 1
+benchmark_id: pysnooper-2-custom-repr-v3
+allowed_paths: [pysnooper/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: pysnooper-2-custom-repr
+    query: custom repr single
+    expected_paths:
+      - pysnooper/__init__.py
+      - pysnooper/pycompat.py
+      - pysnooper/tracer.py
+      - pysnooper/utils.py
+      - pysnooper/variables.py
+    max_chunks: 8

@@ -1,0 +1,9 @@
+schema_version: 1
+benchmark_id: httpie-1-unique-download-filename-v3
+allowed_paths: [httpie/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: httpie-1-unique-download-filename
+    query: download unique filename
+    expected_paths: [httpie/downloads.py]
+    max_chunks: 8

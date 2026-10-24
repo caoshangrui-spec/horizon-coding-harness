@@ -1,0 +1,9 @@
+schema_version: 1
+benchmark_id: luigi-7-status-wont-override-v3
+allowed_paths: [luigi/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: luigi-7-status-wont-override
+    query: scheduler api status wont override
+    expected_paths: [luigi/scheduler.py]
+    max_chunks: 8

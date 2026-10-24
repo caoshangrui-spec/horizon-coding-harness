@@ -5,6 +5,14 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Added a frozen 24-case external code-localization set across seven BugsInPy projects. The first
+  16 development cases now run through `horizon eval retrieval-suite`, which preserves per-case
+  content-addressed reports and aggregates Hit/Recall/MAP/nDCG at K=1/3/5/8, MRR, degradation,
+  leakage, and fresh-versus-cached P50/P95 timing. The v0.3.0 lexical baseline reaches Hit@5 16/16
+  and path Recall@5 18/20 while retaining the missed multi-file paths and three degraded cases;
+  eight holdout cases remain sealed. The evaluator executes no repository code and makes no model
+  or network call.
+
 ## 0.3.0 - 2026-10-24
 
 - Strengthened the release gate. Standard CI now installs the

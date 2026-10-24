@@ -1,7 +1,7 @@
 # 开发进度与验证记录
 
-更新：2026-10-24。已发布版本和主干包元数据均为 0.2.0；版本范围与发布证据见
-[v0.2.0 release notes](release-v0.2.0.md)。2026-09-30 的
+更新：2026-10-24。已发布版本和主干包元数据均为 0.3.0；版本范围与发布证据见
+[v0.3.0 release notes](release-v0.3.0.md)。2026-09-30 的
 可靠性内核证据保留，本次在其上增加 Provider 垂直切片和首个受控 Coding Agent 闭环。
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
@@ -35,7 +35,7 @@
 | 确定性 ContextProjection + MandatoryFactLedger | [context.py](../src/horizon/application/context.py)、[context.py](../src/horizon/domain/context.py) | 完整 transcript 留存；候选投影同时满足字符上限与覆盖工具 Schema 的完整请求保守 token 上界，执行期再按 Run/Campaign/单调用最小 CNY 余量收窄 effective cap，近期完整单元在任一硬上限需要时只折叠最少数量，incomplete 单元绝不折叠；新 Projection/Reservation 使用 Adapter 实际 OpenAI-compatible body 字节，绑定版本化 estimator、payload hash/字段分量、上界与 effective cap，并按 estimator ID 恢复 v1；Task/Plan/权限/验收/预算/策略/工具 Schema/workspace 另做内容寻址绑定；不是精确 tokenizer、语义压缩或 Project Memory |
 | 证据驱动的 Run Memory | [memory.py](../src/horizon/application/memory.py)、[memory.py](../src/horizon/domain/memory.py) | 从工具事件和内容寻址输出派生；保留失败/unknown，按 workspace revision 失效并绑定模型请求恢复边界；仅 run scope，不是 Project Memory |
 | 精确模式无进展保护 | [agent_loop.py](../src/horizon/application/agent_loop.py) | 同一 revision 下，相同精确动作第 3 次、period-2 第 5 步、period-3/4 第 3p-1 步软阻断；继续模式分别在第 4/6/3p 步进入可恢复人工等待；最小周期校验防止短周期重复冒充长周期；不是语义或任意周期检测 |
-| Revision-aware 词法 Code RAG | [retrieval.py](../src/horizon/domain/retrieval.py)、[sqlite_fts.py](../src/horizon/adapters/retrieval/sqlite_fts.py)、[retrieval_eval.py](../src/horizon/application/retrieval_eval.py) | SQLite FTS5/BM25、有界 EvidencePack、权限/revision/hash 回查、显式 scan fallback；camelCase/snake_case、同名定义路径语境和不同文件优先已测，内部 5+2+2 与外部 3 案例的成功/负结果均记录；dirty revision 可重建新排名并重放旧证据；外部盲测仍为 Hit@1 0/3，且无 AST/向量/symbol 图或真实模型收益结论 |
+| Revision-aware 词法 Code RAG | [retrieval.py](../src/horizon/domain/retrieval.py)、[sqlite_fts.py](../src/horizon/adapters/retrieval/sqlite_fts.py)、[retrieval_eval.py](../src/horizon/application/retrieval_eval.py) | SQLite FTS5/BM25、有界 EvidencePack、权限/revision/hash 回查、显式 scan fallback；内部/命名变体/同名符号与两批外部小样本均保留成功和负结果。新增 7 项目 24 案例冻结集：16 个 development 的 Hit@1=11/16、Hit@5=16/16、Recall@5=18/20、MRR=0.817708，3 个 degraded，另 8 个 holdout 仍密封；无 AST/向量/symbol 图、Agent 查询生成或真实模型收益结论 |
 | 冻结控制器策略评测 | [reliability.py](../src/horizon/domain/reliability.py)、[reliability_eval.py](../src/horizon/application/reliability_eval.py) | 14 案例/62 判断覆盖精确 period-1/2/3/4 NoProgress 与单次 replan 接受/拒绝；生产路径共享判定函数、报告内容寻址、零外部调用；不是模型或真实 Issue 效果评测 |
 | 有界恢复矩阵 v3 | [recovery_evaluation.py](../src/horizon/domain/recovery_evaluation.py)、[recovery_eval.py](../src/horizon/application/recovery_eval.py)、[horizon-recovery-matrix-v3.yaml](../benchmarks/recovery/horizon-recovery-matrix-v3.yaml)、[recovery-matrix-evaluation.md](recovery-matrix-evaluation.md) | 保留 v1/v2 digest；新增 promotion effect→receipt 前真实硬退出，与既有写入/模型响应硬退出及 18 个三工具状态/决策组合合计 21/21。自动恢复 11/11、安全阻塞 10/10、incorrect resume/redispatch/重复副作用均 0；三条 Trace replay。仍非完整设计故障矩阵、主机故障或 exactly-once 验收 |
 | 完整 Run A/B 与来源绑定 Suite | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[scripted.py](../src/horizon/adapters/model/scripted.py) | 同一 Task/Plan/workspace 的 baseline 与单次 replan arm；先真实确认初始失败，再检查 EventLog/预算/Gateway/Trace；1 个内部、v2 的 5 个 BugsInPy 依赖裁剪案例，以及 tqdm 82 files、youtube-dl 872 files、Luigi 382 files、FastAPI 629 files、Tornado 301 files 五个完整 checkout。依赖裁剪 v2 与完整 checkout v3 均有 test-only 本地真实回归，并由公开 CI 在禁网 Docker 中通过 5/5 与 5/5、上传内容寻址证据。完整案例还验证干净 Git HEAD 与 Code RAG，仍是脚本模型 |
@@ -1037,8 +1037,9 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 6. **真实效果与验收**：七个真实模型 Pilot Run 分别因迭代上限、上下文硬门限、三次 Campaign
    费用硬门限和两次单 Run 费用硬门限停止；它们证明了费用/Trace/source isolation 路径，也分别暴露
    并修复了 Plan/搜索反馈、大文件读取/上下文/租约、Plan 假设路径/请求膨胀，以及范围参数协议
-   缺口和完整 inventory 路径准入，但仍没有完成目标修复或 protected validation。仍缺固定 20～30 个真实任务、长程/检索/记忆诊断、
-   A/B/C/D 与消融、关键安全独立复核。单个负样本不能替代这些证据。
+   缺口和完整 inventory 路径准入，但仍没有完成目标修复或 protected validation。定位层已有 24 个
+   预冻结外部案例（16 development 已跑、8 holdout 密封），但仍缺固定 20～30 个可执行端到端真实
+   任务、Agent 查询生成与修复成功率对照、长程/记忆消融和关键安全独立复核。单个负样本不能替代这些证据。
 
 七轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，

@@ -1,0 +1,9 @@
+schema_version: 1
+benchmark_id: httpie-4-host-header-overwrite-v3
+allowed_paths: [httpie/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: httpie-4-host-header-overwrite
+    query: host header overwrite
+    expected_paths: [httpie/models.py]
+    max_chunks: 8

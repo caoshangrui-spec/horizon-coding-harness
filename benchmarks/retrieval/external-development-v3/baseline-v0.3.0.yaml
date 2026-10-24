@@ -1,0 +1,209 @@
+schema_version: 1
+suite_id: external-development-localization-v3
+selection_commit: 57776b89d1f7a99723f61c5a8b15db5c5ff579ae
+retrieval_code_commit: de712fd83ab8146fc06dfe47dcaddd9a6b3bd77b
+evaluated_at: "2026-10-24"
+
+execution:
+  partition: development
+  holdout_status: sealed
+  source_preparation_network_used: true
+  evaluator_network_called: false
+  paid_model_called: false
+  repository_code_executed: false
+  source_materialization: Git archive of each buggy commit, limited to its production package.
+  gold_reveal: Production path names only, after the selection commit; patch content was not used to form queries.
+
+aggregate:
+  case_count: 16
+  expected_path_count: 20
+  mean_reciprocal_rank: 0.817708
+  leakage_count: 0
+  empty_count: 0
+  degraded_count: 3
+  cold_duration_p50_ms: 464.589
+  cold_duration_p95_ms: 3745.464
+  warm_duration_p50_ms: 288.675
+  warm_duration_p95_ms: 1897.468
+  report_ref: 8f68016ce398da6464e669aadb8855de2bb850beb9c6ba78d993bd9291a653a5
+
+metrics_at_k:
+  - cutoff: 1
+    hit_count: 11
+    hit_rate: 0.6875
+    relevant_path_count: 11
+    micro_path_recall: 0.55
+    mean_average_precision: 0.6375
+    mean_ndcg: 0.6875
+  - cutoff: 3
+    hit_count: 15
+    hit_rate: 0.9375
+    relevant_path_count: 17
+    micro_path_recall: 0.85
+    mean_average_precision: 0.777083
+    mean_ndcg: 0.837049
+  - cutoff: 5
+    hit_count: 16
+    hit_rate: 1.0
+    relevant_path_count: 18
+    micro_path_recall: 0.9
+    mean_average_precision: 0.792708
+    mean_ndcg: 0.846637
+  - cutoff: 8
+    hit_count: 16
+    hit_rate: 1.0
+    relevant_path_count: 18
+    micro_path_recall: 0.9
+    mean_average_precision: 0.792708
+    mean_ndcg: 0.846637
+
+cases:
+  - case_id: cookiecutter-1-non-ascii-context
+    expected_paths: [cookiecutter/generate.py]
+    returned_paths: [cookiecutter/extensions.py, cookiecutter/generate.py, cookiecutter/main.py, cookiecutter/hooks.py, cookiecutter/cli.py, cookiecutter/exceptions.py, cookiecutter/replay.py, cookiecutter/environment.py]
+    first_relevant_rank: 2
+    relevant_path_count: 1
+    path_recall_at_8: 1.0
+    retrieval_status: ok
+    degradation_reasons: []
+    report_ref: fe68c2783215444883186d9dab42961e5b798b19805d6a08f9e86febd8d9ab03
+  - case_id: cookiecutter-3-read-user-choice
+    expected_paths: [cookiecutter/prompt.py]
+    returned_paths: [cookiecutter/prompt.py, cookiecutter/cli.py, cookiecutter/generate.py, cookiecutter/utils.py, cookiecutter/zipfile.py, cookiecutter/config.py, cookiecutter/environment.py, cookiecutter/hooks.py]
+    first_relevant_rank: 1
+    relevant_path_count: 1
+    path_recall_at_8: 1.0
+    retrieval_status: ok
+    degradation_reasons: []
+    report_ref: 834d0fb1fd73d9605f2e0362dbf8bd42adbd3930b5673fc1feb4366f4046f669
+  - case_id: httpie-1-unique-download-filename
+    expected_paths: [httpie/downloads.py]
+    returned_paths: [httpie/downloads.py, httpie/cli.py, httpie/input.py, httpie/core.py, httpie/downloads.py, httpie/downloads.py, httpie/cli.py, httpie/downloads.py]
+    first_relevant_rank: 1
+    relevant_path_count: 1
+    path_recall_at_8: 1.0
+    retrieval_status: ok
+    degradation_reasons: []
+    report_ref: 46238faee1870217249ea3deb2f3ceaf4606d40e7e1d449142ea4d529e10e5ad
+  - case_id: httpie-4-host-header-overwrite
+    expected_paths: [httpie/models.py]
+    returned_paths: [httpie/sessions.py, httpie/models.py, httpie/input.py, httpie/downloads.py, httpie/plugins/builtin.py, httpie/context.py, httpie/cli.py, httpie/output/formatters/colors.py]
+    first_relevant_rank: 2
+    relevant_path_count: 1
+    path_recall_at_8: 1.0
+    retrieval_status: ok
+    degradation_reasons: []
+    report_ref: a5769b0b1a25a92e72b4d287ed4d9f12cf59da0fce1b21b2ff2457ca82289c2d
+  - case_id: httpie-5-escape-long-separator
+    expected_paths: [httpie/cli.py]
+    returned_paths: [httpie/cli.py, httpie/solarized.py, httpie/cli.py]
+    first_relevant_rank: 1
+    relevant_path_count: 1
+    path_recall_at_8: 1.0
+    retrieval_status: ok
+    degradation_reasons: []
+    report_ref: 8741453c1744e843454763e8c54e39ea86a740a358afaa8ed8b5103e8b619af6
+  - case_id: luigi-2-beam-target-path
+    expected_paths: [luigi/contrib/beam_dataflow.py]
+    returned_paths: [luigi/contrib/beam_dataflow.py, luigi/contrib/opener.py, luigi/contrib/mongodb.py, luigi/contrib/s3.py, luigi/contrib/ftp.py, luigi/contrib/ssh.py, luigi/contrib/bigquery_avro.py, luigi/contrib/gcs.py]
+    first_relevant_rank: 1
+    relevant_path_count: 1
+    path_recall_at_8: 1.0
+    retrieval_status: degraded
+    degradation_reasons: [non_utf8_file_skipped, oversized_line_skipped]
+    report_ref: 33234a7a7ddb07d62b0c8139dffc8a8676ab00c64444aacb4bea8cd49ae00e2f
+  - case_id: luigi-3-serialize-tuple-parameter
+    expected_paths: [luigi/parameter.py]
+    returned_paths: [luigi/parameter.py, luigi/task.py, luigi/execution_summary.py, luigi/contrib/salesforce.py, luigi/task_register.py, luigi/contrib/hadoop.py, luigi/scheduler.py, luigi/contrib/hive.py]
+    first_relevant_rank: 1
+    relevant_path_count: 1
+    path_recall_at_8: 1.0
+    retrieval_status: degraded
+    degradation_reasons: [non_utf8_file_skipped, oversized_line_skipped]
+    report_ref: 83e884682a2657e7d77ae31ef2bc79c79067da57d2723de2215224ef4fa4af06
+  - case_id: luigi-7-status-wont-override
+    expected_paths: [luigi/scheduler.py]
+    returned_paths: [luigi/worker.py, luigi/tools/luigi_grep.py, luigi/server.py, luigi/scheduler.py, luigi/contrib/salesforce.py, luigi/interface.py, luigi/contrib/kubernetes.py, luigi/task.py]
+    first_relevant_rank: 4
+    relevant_path_count: 1
+    path_recall_at_8: 1.0
+    retrieval_status: degraded
+    degradation_reasons: [non_utf8_file_skipped, oversized_line_skipped]
+    report_ref: 8f86e1ac3bb9f3e43e2421ef5b4a500f0cdfb08fcf72fe43a55d0571a3984fef
+  - case_id: pysnooper-2-custom-repr
+    expected_paths: [pysnooper/__init__.py, pysnooper/pycompat.py, pysnooper/tracer.py, pysnooper/utils.py, pysnooper/variables.py]
+    returned_paths: [pysnooper/utils.py, pysnooper/tracer.py, pysnooper/variables.py, pysnooper/tracer.py, pysnooper/tracer.py, pysnooper/variables.py, pysnooper/tracer.py]
+    first_relevant_rank: 1
+    relevant_path_count: 3
+    path_recall_at_8: 0.6
+    retrieval_status: ok
+    degradation_reasons: []
+    report_ref: 0da6f0f6b7f7bd40590ecfde7bcd7f51d550f0367b3f82402976b0f62ceb0fc6
+  - case_id: sanic-2-asyncio-start-serving
+    expected_paths: [sanic/server.py]
+    returned_paths: [sanic/server.py, sanic/app.py, sanic/worker.py, sanic/asgi.py, sanic/handlers.py, sanic/testing.py, sanic/response.py, sanic/reloader_helpers.py]
+    first_relevant_rank: 1
+    relevant_path_count: 1
+    path_recall_at_8: 1.0
+    retrieval_status: ok
+    degradation_reasons: []
+    report_ref: 2e220e9cb869d4faae7074593cfaf648031c05e90d36151974afbddb5be8846e
+  - case_id: sanic-3-routes-with-host
+    expected_paths: [sanic/app.py]
+    returned_paths: [sanic/router.py, sanic/app.py, sanic/blueprints.py, sanic/testing.py, sanic/websocket.py, sanic/server.py, sanic/static.py, sanic/headers.py]
+    first_relevant_rank: 2
+    relevant_path_count: 1
+    path_recall_at_8: 1.0
+    retrieval_status: ok
+    degradation_reasons: []
+    report_ref: 66f67596c815c98fac87446dfb5f1fab729f08947fd764e1d573e95d6a497ef3
+  - case_id: sanic-5-root-logger-config
+    expected_paths: [sanic/log.py]
+    returned_paths: [sanic/log.py, sanic/app.py, sanic/static.py, sanic/reloader_helpers.py, sanic/config.py, sanic/worker.py, sanic/helpers.py, sanic/server.py]
+    first_relevant_rank: 1
+    relevant_path_count: 1
+    path_recall_at_8: 1.0
+    retrieval_status: ok
+    degradation_reasons: []
+    report_ref: 6f2fbcf3157557d2b96922ece97435f7f618107022ebdd896d3d863968bad540
+  - case_id: thefuck-2-executable-path-separator
+    expected_paths: [thefuck/utils.py]
+    returned_paths: [thefuck/utils.py, thefuck/rules/no_command.py, thefuck/rules/missing_space_before_subcommand.py, thefuck/entrypoints/fix_command.py, thefuck/shells/fish.py, thefuck/corrector.py, thefuck/rules/path_from_history.py, thefuck/rules/workon_doesnt_exists.py]
+    first_relevant_rank: 1
+    relevant_path_count: 1
+    path_recall_at_8: 1.0
+    retrieval_status: ok
+    degradation_reasons: []
+    report_ref: 9b54c5070d4d220bbf766f3ffae3abbdc6ece08390c69d1479ffdaa7c9f71c84
+  - case_id: thefuck-5-git-push-bitbucket
+    expected_paths: [thefuck/rules/git_push.py]
+    returned_paths: [thefuck/rules/git_push.py, thefuck/rules/git_push_force.py, thefuck/rules/git_push_different_branch_names.py, thefuck/rules/git_push_pull.py, thefuck/rules/git_push_without_commits.py, thefuck/const.py, thefuck/rules/adb_unknown_command.py, thefuck/rules/git_branch_list.py]
+    first_relevant_rank: 1
+    relevant_path_count: 1
+    path_recall_at_8: 1.0
+    retrieval_status: ok
+    degradation_reasons: []
+    report_ref: cdba958a318326033cadb2594f5169e33bb714be95fb8ed1dd283429863334df
+  - case_id: tornado-2-redirect-put-without-body
+    expected_paths: [tornado/http1connection.py]
+    returned_paths: [tornado/auth.py, tornado/queues.py, tornado/http1connection.py, tornado/simple_httpclient.py, tornado/curl_httpclient.py, tornado/httpclient.py, tornado/web.py, tornado/testing.py]
+    first_relevant_rank: 3
+    relevant_path_count: 1
+    path_recall_at_8: 1.0
+    retrieval_status: ok
+    degradation_reasons: []
+    report_ref: 1b4a94de8ee68d2f12b942ef2b0e477aac520f4ddf33e1024e301408d8854908
+  - case_id: tornado-4-static-range-bounds
+    expected_paths: [tornado/web.py]
+    returned_paths: [tornado/web.py, tornado/httputil.py, tornado/template.py, tornado/iostream.py, tornado/autoreload.py, tornado/locks.py, tornado/wsgi.py, tornado/ioloop.py]
+    first_relevant_rank: 1
+    relevant_path_count: 1
+    path_recall_at_8: 1.0
+    retrieval_status: ok
+    degradation_reasons: []
+    report_ref: 7b16704cba19e1be572af34e256c3bb7357dbba29e9fa14c13e6251464fa2397
+
+evidence_boundary:
+  statement: This development set adds 16 external bugs across seven projects and uses only normalized failing-test names as queries. It is not an independent post-tuning holdout and does not measure Agent query generation or repair success.
+  retained_failure: PySnooper-2 retrieves only three of five changed production paths by K=8; two paths remain missed. Luigi-7 first reaches its production target at rank 4.
+  holdout_rule: Eight cases in selection.yaml remain sealed and are not included in this result.

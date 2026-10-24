@@ -1,0 +1,9 @@
+schema_version: 1
+benchmark_id: httpie-5-escape-long-separator-v3
+allowed_paths: [httpie/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  - case_id: httpie-5-escape-long-separator
+    query: item parsing escape long separator
+    expected_paths: [httpie/cli.py]
+    max_chunks: 8

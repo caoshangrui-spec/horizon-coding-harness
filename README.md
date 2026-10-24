@@ -111,6 +111,7 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | Docker 契约 | 11 项已在本机已有镜像和公开 Linux runner 上分别通过 | 有限隔离与恢复合同，不是恶意代码安全认证 |
 | 一键崩溃恢复演示 | 子进程在 `replace_text` 生效后、receipt 前以退出码 86 硬退出；悬空调用先标 unknown，再按精确 manifest 接纳一次并恢复到 epoch 3 | 固定离线脚本与单一写入窗口，不代表任意进程/主机故障恢复 |
 | 有界恢复矩阵 v3 | 21/21；自动恢复 11/11、安全阻塞 10/10、incorrect resume 0、恢复重派/重复副作用 0；含 3 个真实硬退出和 Trace replay | 其余 18 例是生成 fixture 的状态/决策矩阵，不是完整 8 故障点或主机故障验收 |
+| [外部 RAG 定位集 v3](docs/retrieval-evaluation.md#10-24-案例外部定位集与-v030-development-基线) | 先冻结 7 项目 24 个 BugsInPy 案例；当前只揭示 16 个 development：Hit@1 11/16、Hit@5 16/16、Recall@5 18/20、MRR 0.817708，8 个 holdout 仍密封 | 查询来自 failing-test 名称，不代表 Agent 会生成查询；development gold 已揭示，也不是端到端修复成功率 |
 | 外部来源裁剪 A/B v2 | 5 个来源绑定案例的初始失败、Baseline 等待和 Treatment 修复均由本地可信与公开禁网 Docker 执行，证据已上传 | 使用 Scripted Model 和 dependency-reduced fixture，不是 BugsInPy 官方成绩 |
 | [完整 checkout A/B v3](docs/full-checkout-pilot.md) | tqdm 82 files、youtube-dl 872 files、Luigi 382 files、FastAPI 629 files、Tornado 301 files；本地可信与[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40080364921)均为 5/5，Trace replay 和证据上传通过；历史 v2 三例的 RAG 目标均为 rank 1 | 使用 Scripted Model 和 5 个作者选择案例，不是模型能力、泛化率或官方 BugsInPy 成绩 |
 | [三阶段恢复 A/B v4](docs/multi-stage-full-checkout-pilot.md) | youtube-dl 872 files + Luigi 382 files + FastAPI 629 files；三例均含 3 个依赖 WorkItem、2 次持久化 Worker 重启、final epoch 3 和一次只改未完成项的 replan；本地可信与[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40082814779)均为 3/3 | 作者选择的三个案例与 Scripted Model；边界重启不等于任意指令处崩溃，不是模型能力或官方成绩 |
@@ -304,6 +305,13 @@ uv run --locked --cache-dir .uv-cache horizon eval retrieval `
 uv run --locked --cache-dir .uv-cache horizon eval retrieval `
   benchmarks/retrieval/youtube-dl-identifier-variants-v1.yaml `
   --source benchmarks/run_ab/full/youtube-dl-3-unescape-html/fixture
+
+# 16 个外部 development 定位案例；sources-root 由 selection 中的 buggy commits 物化，
+# state-dir 必须是新目录，以保证首次/缓存复用耗时口径不混淆。
+uv run --locked --cache-dir .uv-cache horizon eval retrieval-suite `
+  benchmarks/retrieval/external-development-v3/development-suite.yaml `
+  --sources-root .horizon/retrieval-v3/sources `
+  --state-dir .horizon/retrieval-v3/development-<run-id>
 
 # 冻结控制器策略 Trace；不加载模型、不联网、不打开或执行 fixture 仓库。
 uv run --locked --cache-dir .uv-cache horizon eval reliability `
