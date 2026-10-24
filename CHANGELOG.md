@@ -5,6 +5,13 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Added `horizon demo verify-portfolio` as a standalone verifier for the primary interview demo.
+  The command checks the portable file manifest, replays the JSONL Trace, rebuilds the final Run,
+  and revalidates retrieval-to-write lineage plus the hard-crash marker and exact recovery receipt
+  without SQLite, a model, network, Docker, or live workers. Standard CI now deletes all three demo
+  databases before invoking this verifier and uploads the complete directory as the 14-day
+  `horizon-portfolio-evidence` artifact. The three-minute interview guide now leads with the actual
+  retrieve → typed error → hard crash → exact effect acceptance → protected-validation story.
 - Expanded the clean full-checkout suite from three to five source-bound BugsInPy projects while
   preserving the complete v2 case prefix and digest. v3 adds FastAPI's recursive nested-field clone
   fix over a 629-file checkout and Tornado's handler-to-protocol-to-stream nodelay contract over a

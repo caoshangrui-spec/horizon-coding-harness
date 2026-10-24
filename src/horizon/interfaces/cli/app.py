@@ -58,7 +58,10 @@ from horizon.application.planning import (
     PlanGeneratorConfig,
     build_planning_context,
 )
-from horizon.application.portfolio_demo import PortfolioDemoRunner
+from horizon.application.portfolio_demo import (
+    PortfolioDemoRunner,
+    verify_portfolio_evidence_pack,
+)
 from horizon.application.process_timeout_demo import (
     ProcessTimeoutDemoRunner,
     verify_process_timeout_evidence_pack,
@@ -105,6 +108,7 @@ from horizon.domain.human import HumanGuidanceRequest, HumanPlanRequest
 from horizon.domain.model import ModelPolicyBinding
 from horizon.domain.pilot import RealModelPilotManifest
 from horizon.domain.plan import MAX_EXECUTION_REPLANS, Plan
+from horizon.domain.portfolio_demo import PortfolioDemoReport
 from horizon.domain.promotion import WorkspaceOrigin
 from horizon.domain.recovery_evaluation import RecoveryMatrixManifest
 from horizon.domain.reliability import ReliabilityEvalManifest
@@ -936,6 +940,10 @@ def portfolio_demo_run(
                 "claim_scope": result.report.claim_scope,
                 "recovery_mode": result.report.recovery_mode,
                 "worker_handoffs": result.report.worker_handoffs,
+                "final_lease_epoch": result.report.final_lease_epoch,
+                "event_count": result.report.event_count,
+                "evidence_backed_write": (result.report.verification.evidence_backed_write),
+                "trace_replay_verified": result.report.verification.trace_replay_verified,
                 "hard_crash_recovery_verified": (
                     result.report.verification.hard_crash_recovery_verified
                 ),
@@ -955,6 +963,39 @@ def portfolio_demo_run(
     )
     if not result.report.verification.all_checks_passed:
         raise typer.Exit(3)
+
+
+@demos.command("verify-portfolio")
+@guarded
+def verify_portfolio_demo(path: Path):
+    """Verify portfolio evidence without its databases, model, network, or live workers."""
+
+    pack = verify_portfolio_evidence_pack(path)
+    report_record = next(item for item in pack.files if item.role == "report")
+    report_path = path.resolve(strict=True).parent / report_record.path
+    report = PortfolioDemoReport.model_validate_json(report_path.read_text(encoding="utf-8"))
+    typer.echo(
+        canonical_json(
+            {
+                "verified": True,
+                "demo_id": pack.demo_id,
+                "run_id": pack.run_id,
+                "status": report.status,
+                "all_checks_passed": pack.all_checks_passed,
+                "hard_crash_recovery_verified": (report.verification.hard_crash_recovery_verified),
+                "evidence_backed_write": report.verification.evidence_backed_write,
+                "trace_replay_verified": report.verification.trace_replay_verified,
+                "source_workspace_unchanged": (report.verification.source_workspace_unchanged),
+                "paid_model_called": pack.paid_model_called,
+                "network_called": pack.network_called,
+                "external_cost_cny": str(pack.external_cost_cny),
+                "verification_mode": "offline_hash_trace_semantic_replay",
+                "claim_scope": pack.claim_scope,
+                "excluded_claims": pack.excluded_claims,
+                "evidence_pack": str(path.resolve()),
+            }
+        )
+    )
 
 
 @demos.command("process-timeout")

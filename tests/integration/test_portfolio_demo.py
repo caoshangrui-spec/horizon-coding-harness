@@ -185,6 +185,10 @@ def test_portfolio_demo_cli_is_one_command_and_never_overwrites(tmp_path):
     assert payload["claim_scope"] == "offline_deterministic_harness_demo"
     assert payload["recovery_mode"] == "durable_handoff_and_hard_crash"
     assert payload["worker_handoffs"] == 2
+    assert payload["final_lease_epoch"] == 3
+    assert payload["event_count"] > 0
+    assert payload["evidence_backed_write"] is True
+    assert payload["trace_replay_verified"] is True
     assert payload["hard_crash_recovery_verified"] is True
     assert payload["crashed_worker_exit_code"] == 86
     assert payload["write_recovery_disposition"] == "accept_replace"
@@ -197,3 +201,43 @@ def test_portfolio_demo_cli_is_one_command_and_never_overwrites(tmp_path):
     assert repeated.exit_code == 2
     assert "FileExistsError" in repeated.stderr
     assert pack_path.read_bytes() == original
+
+
+def test_portfolio_demo_cli_verifies_after_databases_are_removed(tmp_path):
+    runner = CliRunner()
+    output = tmp_path / "portfolio-evidence"
+    completed = runner.invoke(app, ["demo", "run", "--output", str(output)])
+    assert completed.exit_code == 0, completed.stdout
+
+    for name in ("control.sqlite3", "campaign.sqlite3", "retrieval.sqlite3"):
+        (output / name).unlink()
+
+    verified = runner.invoke(
+        app,
+        ["demo", "verify-portfolio", str(output / "evidence-pack.json")],
+    )
+
+    assert verified.exit_code == 0, verified.stdout
+    payload = json.loads(verified.stdout)
+    assert payload == {
+        "all_checks_passed": True,
+        "claim_scope": "offline_deterministic_harness_demo",
+        "demo_id": json.loads(completed.stdout)["demo_id"],
+        "evidence_backed_write": True,
+        "evidence_pack": str((output / "evidence-pack.json").resolve()),
+        "excluded_claims": [
+            "real_model_quality",
+            "official_benchmark_score",
+            "untrusted_code_sandboxing",
+        ],
+        "external_cost_cny": "0",
+        "hard_crash_recovery_verified": True,
+        "network_called": False,
+        "paid_model_called": False,
+        "run_id": json.loads(completed.stdout)["run_id"],
+        "source_workspace_unchanged": True,
+        "status": "SUCCEEDED",
+        "trace_replay_verified": True,
+        "verification_mode": "offline_hash_trace_semantic_replay",
+        "verified": True,
+    }

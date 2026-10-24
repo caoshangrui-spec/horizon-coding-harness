@@ -14,8 +14,8 @@ Horizon 是一个面向长程软件工程任务的**可恢复执行控制层**�
 包装成完成。
 
 > **当前状态：** v0.2.0 是已发布版本。离线 Harness 主链路、来源绑定的完整 checkout A/B，以及三 WorkItem/
-> 两次 Worker 重启的恢复场景已有可重放证据；youtube-dl 与 Luigi 独立案例均通过本地可信执行
-> 和公开禁网 Docker。七次真实模型 Pilot 均为负结果，因此目前**不宣称真实 Issue 成功率或
+> 两次 Worker 重启的恢复场景已有可重放证据；youtube-dl、Luigi 与 FastAPI 三个独立案例均通过
+> 本地可信执行和公开禁网 Docker 3/3。七次真实模型 Pilot 均为负结果，因此目前**不宣称真实 Issue 成功率或
 > 官方 benchmark 成绩**。main 的 Unreleased 版本另加入父控制器硬退出后的持久 PID 启动闸门与
 > 精确停止确认，并让来源绑定 suite 直接输出耗时、恢复成功率、恢复重派、重复副作用、Trace
 > 完整性与最终悬空 effect 指标；它尚未发布为新版本。版本范围与证据边界见
@@ -60,7 +60,9 @@ flowchart LR
 
 ```powershell
 uv sync --locked
-uv run --locked --cache-dir .uv-cache horizon demo run
+$result = uv run --locked --cache-dir .uv-cache horizon demo run | ConvertFrom-Json
+uv run --locked --cache-dir .uv-cache horizon demo verify-portfolio `
+  "$($result.evidence_pack)"
 ```
 
 这条命令无需 API Key、Docker 或网络。它先故意触发一次结构化工具错误并完成安全 Worker
@@ -98,8 +100,8 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
-| 公共 CI | main 的[标准 CI](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/ci.yml)运行离线回归和两条演示，并把 timeout 根包发布为保留 14 天的 `horizon-process-timeout-evidence` artifact；[禁网 Docker Evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/full-checkout-evidence.yml)独立运行 | CI 不读取 API Key、不运行付费模型；workflow artifact 通常需要登录 GitHub 下载，不是永久发布资产 |
-| 离线回归 | `469 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 公共 CI | main 的[标准 CI](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/ci.yml)运行离线回归和两条演示；主作品集演示删除数据库后独立复核，并把完整目录发布为保留 14 天的 `horizon-portfolio-evidence`，同时发布 `horizon-process-timeout-evidence`；[禁网 Docker Evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/full-checkout-evidence.yml)独立运行 | CI 不读取 API Key、不运行付费模型；workflow artifact 通常需要登录 GitHub 下载，不是永久发布资产 |
+| 离线回归 | `470 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | [通用终态 EvidencePack](docs/terminal-evidence-pack.md) | `SUCCEEDED`、`FAILED`、`CANCELLED` 均可导出并离线复核 Trace、最终投影和摘要；unknown/open effect 原样列出 | 自洽哈希不是来源签名，也不证明外部 Provider 或副作用已结清 |
 | [终态 Run 顺序汇总](docs/terminal-suite-evaluation.md) | 有序聚合已有终态 Run；递归验证每个子 EvidencePack，分列成功、失败、取消、预算停止与 unknown/open effect | 不执行任务，不是 batch scheduler，也没有并发性能声明 |
 | [本地顺序 Supervisor](docs/local-sequential-supervisor.md)、[正式子进程模式](docs/local-process-supervisor.md)与[父控制器硬退出恢复](docs/parent-controller-crash-recovery.md) | `--supervise` 支持安全轮次接力；`agent run/resume --worker-process` 让每个 slice 由真实直接子进程持有 Lease，并在放行前持久化 PID launch 与启动授权。父 CLI 正常同步回收后再换 epoch；父进程被硬 kill 时，重启后的新 Lease 必须等待 TTL 并精确确认旧 PID 已停止。`Ctrl+C` 与显式 slice timeout 仍先写取消栅栏再停止/reap，pending intent 显式阻塞且零重派 | 只管理一个本地直接子进程；父崩溃恢复依赖操作者核实精确 PID，不自动探活/kill；不覆盖 OS 掉电/内核恢复、PID reuse 自动判定、任意后代进程、跨主机、队列或任意 effect exactly-once |
@@ -147,7 +149,9 @@ uv run --locked --cache-dir .uv-cache horizon demo run
 ```
 
 它会在 `.horizon/demos/` 下创建唯一证据目录且不覆盖旧结果。输出合同、完整性链和声明边界见
-[一键作品集演示与 EvidencePack](docs/portfolio-demo.md)。
+[一键作品集演示与 EvidencePack](docs/portfolio-demo.md)。把命令返回的 `evidence_pack` 交给
+`horizon demo verify-portfolio`，即可在不读取 SQLite、模型、网络、Docker 或存活 Worker 的情况下
+重新验证文件哈希、Trace 投影、检索到写入 lineage 和硬崩溃恢复语义。
 
 要在不运行模型、Docker 或仓库代码的情况下单独展示直接子进程 timeout 取消链，运行：
 
@@ -478,7 +482,7 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **469 passed，11 skipped**；11 项 Docker 合同此前均已指定本机已有镜像
+当前离线全量回归为 **470 passed，11 skipped**；11 项 Docker 合同此前均已指定本机已有镜像
 单独复跑并通过，本轮子进程 Supervisor 增量未启动 Docker。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实
 Issue 效果。新增真实模型 Pilot 单元测试覆盖私有答案拒绝、初始失败证据、内容寻址报告和

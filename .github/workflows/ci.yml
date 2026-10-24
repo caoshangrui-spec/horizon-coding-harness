@@ -44,7 +44,23 @@ jobs:
         run: uv run --locked pytest -q -p no:cacheprovider
 
       - name: Run portfolio demo and verify EvidencePack
-        run: uv run --locked horizon demo run --output .horizon/ci-portfolio-demo
+        run: |
+          uv run --locked horizon demo run --output .horizon/ci-portfolio-demo
+          rm .horizon/ci-portfolio-demo/control.sqlite3
+          rm .horizon/ci-portfolio-demo/campaign.sqlite3
+          rm .horizon/ci-portfolio-demo/retrieval.sqlite3
+          uv run --locked horizon demo verify-portfolio .horizon/ci-portfolio-demo/evidence-pack.json
+
+      - name: Upload portfolio EvidencePack
+        id: portfolio-upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: horizon-portfolio-evidence
+          path: .horizon/ci-portfolio-demo
+          if-no-files-found: error
+          include-hidden-files: true
+          compression-level: 9
+          retention-days: 14
 
       - name: Run direct-child timeout demo and verify EvidencePack
         run: |

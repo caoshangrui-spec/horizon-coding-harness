@@ -57,6 +57,9 @@ uv run --locked --cache-dir .uv-cache horizon demo run `
   "claim_scope": "offline_deterministic_harness_demo",
   "recovery_mode": "durable_handoff_and_hard_crash",
   "worker_handoffs": 2,
+  "final_lease_epoch": 3,
+  "evidence_backed_write": true,
+  "trace_replay_verified": true,
   "hard_crash_recovery_verified": true,
   "crashed_worker_exit_code": 86,
   "write_recovery_disposition": "accept_replace"
@@ -64,6 +67,24 @@ uv run --locked --cache-dir .uv-cache horizon demo run `
 ```
 
 其中 `simulated_model_cost_cny` 只验证 Harness 的费用记账，不是外部账单。
+
+### 2.1 独立脱库复核
+
+`demo run` 返回前会自检一次；交付给其他人后，还可以删除三个 SQLite 数据库并独立复核：
+
+```powershell
+$result = uv run --locked --cache-dir .uv-cache horizon demo run | ConvertFrom-Json
+Remove-Item "$($result.output_dir)/control.sqlite3"
+Remove-Item "$($result.output_dir)/campaign.sqlite3"
+Remove-Item "$($result.output_dir)/retrieval.sqlite3"
+uv run --locked --cache-dir .uv-cache horizon demo verify-portfolio `
+  "$($result.evidence_pack)"
+```
+
+验证器不调用模型、网络、Docker 或存活 Worker，也不读取这些数据库；它从 JSONL Trace 重放最终
+投影，并重读内容寻址检索 Artifact 和 `hard-crash-marker.json` 来复核写入 lineage 与恢复语义。
+因此分发时应保留完整输出目录，而不是只复制 `evidence-pack.json`。标准 CI 会按同样顺序删除
+数据库、运行 verifier，并把完整目录上传为保留 14 天的 `horizon-portfolio-evidence` artifact。
 
 ## 3. 数据流
 

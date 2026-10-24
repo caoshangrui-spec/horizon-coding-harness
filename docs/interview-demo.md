@@ -27,39 +27,36 @@ EvidencePack 才能说明这次运行实际发生了什么。”
 
 ### 1:00～1:50：现场运行真实故障链
 
-“我现在运行的是最窄、最容易复核的版本。它会启动一个阻塞在 stdin gate 的真实直接子进程；
-父进程先把 launch ID、PID、Lease 和 epoch 落入 Trace并持久授权，才放行子进程。子进程只读
-重开 SQLite、复核该授权后发布 ready marker。父进程随后故意触发 slice timeout：先写精确取消
-目标，之后才 terminate/wait、记录两类停止 receipt、释放 Lease并把 Run 置为 CANCELLED。”
+“我运行一条离线命令。第一任 Worker 先做 revision-bound 代码检索，再故意提交一次缺失
+`end_line` 的非法读取，Typed Gateway 把结构化错误持久化。第二任 Worker 从新 Lease 和同一
+AgentSession 继续，用成对范围读取后执行精确写入；文件副作用已经发生、tool receipt 还没提交时，
+真实子进程以 `os._exit(86)` 硬退出。Supervisor 同步确认 PID 已退出，只把悬空 intent 标为
+`unknown`，不会直接 retry。第三任 Worker 核对唯一精确后态，显式 `accept_replace`，再做受保护
+验收和最终提交。”
 
-运行下方命令，并指出输出中的 `process_id`、`lease_epoch`、`event_order`、`status` 和
-`external_cost_cny`。事件序号必须满足：
+运行下方命令，并指出输出中的 `final_lease_epoch=3`、`worker_handoffs=2`、
+`hard_crash_recovery_verified=true`、`evidence_backed_write=true` 和 `external_cost_cny=0`。关键状态流是：
 
 ```text
-launch
-  < PROCESS_WORKER_LAUNCHED
-  < PROCESS_WORKER_START_AUTHORIZED
-  < CANCEL_WORKER_STOP_PENDING
-  < PROCESS_WORKER_STOPPED
-  < CANCEL_WORKER_STOPPED
-  < LEASE_RELEASED
-  < CANCEL_REQUESTED
+retrieve evidence -> structured tool error -> durable handoff
+-> write intent -> file effect -> child exit 86 -> unknown
+-> exact post-state check -> accept existing effect once
+-> protected validation -> SUCCEEDED
 ```
 
 ### 1:50～2:30：展示脱库复核
 
-“演示结束后临时数据库已经删除，只留下 EvidencePack。我再用独立命令检查文件大小和 SHA-256、
-重放 JSONL Trace、复算最终 Run 投影，并把 child-ready 与父进程 observation 重新绑定到同一个
-launch ID、PID、Lease、epoch 和事件链。仅仅修改 PID 并重算文件哈希也会被语义校验拒绝，所以
-它不是只看一个成功字符串。”
+“演示结束后，我删除三个 SQLite 数据库，再用独立命令检查交付文件大小和 SHA-256、重放 JSONL
+Trace、复算最终 Run 投影，并重新验证检索 Artifact → 模型写入上下文 → 目标路径/旧文本/revision
+的 lineage，以及硬退出 marker、悬空 call ID、unknown 分类和单一恢复 receipt。篡改摘要、Trace、
+检索 Artifact 或 crash marker 都会被拒绝，所以它不是只看一个成功字符串。”
 
 ### 2:30～3:00：主动说清边界
 
-“这个案例证明一个本地直接子 Worker 的父侧 timeout、先栅栏后停止和同步回收，不证明父进程或
-操作系统崩溃恢复，也不证明跨主机 exactly-once。更完整的仓库里还实现了 pending effect 对账、
-上下文压缩、Run Memory、Code RAG、预算门禁、有界 operator-guidance HITL 和 protected
-validation，但真实模型七轮 Pilot 都是负结果，所以我把 Harness 可靠性证据与模型修复能力明确
-分开。”
+“这个案例证明一个固定的 `replace_text` effect-before-receipt 窗口可以保守对账并续跑，不证明
+任意崩溃、操作系统重启或跨主机 exactly-once。公开评测另外在 youtube-dl、Luigi、FastAPI 三个
+完整 checkout 上通过三阶段、两次 Worker 重启的 3/3 Scripted Model 合同；真实模型七轮 Pilot
+仍都是负结果，所以我把 Harness 可靠性证据与模型修复能力明确分开。”
 
 ## 现场演示命令
 
@@ -69,38 +66,38 @@ validation，但真实模型七轮 Pilot 都是负结果，所以我把 Harness 
 uv sync --locked
 ```
 
-运行演示并直接取得本次唯一 EvidencePack 路径：
+运行主作品集演示并独立复核本次 EvidencePack：
 
 ```powershell
-$result = uv run --locked --cache-dir .uv-cache horizon demo process-timeout |
+$result = uv run --locked --cache-dir .uv-cache horizon demo run |
   ConvertFrom-Json
 $result | Format-List
-uv run --locked --cache-dir .uv-cache horizon demo verify-process-timeout `
+uv run --locked --cache-dir .uv-cache horizon demo verify-portfolio `
   "$($result.evidence_pack)"
 ```
 
 不指定 `--output` 时会在 `.horizon/demos/` 下创建唯一目录，不覆盖旧证据。两条命令都不调用
-模型、网络、Docker、工具或被测仓库代码，外部费用为 0。若现场时间很短，只展示第一次输出的
-`event_order`，再运行独立 verifier 即可。
+真实模型、网络、Docker 或外部仓库代码，外部费用为 0；演示会运行冻结 Scripted Model、真实
+Harness 工具链和一个故意硬退出的本地子进程。若现场时间很短，只展示第一次输出的恢复字段，
+再运行独立 verifier 即可。
 
 ## 一张图说明数据流
 
 ```mermaid
 flowchart LR
-    T[TaskSpec + Plan] --> E[(Event Log + Checkpoint)]
-    E --> L[Lease / epoch]
-    L --> P[Parent Supervisor]
-    P --> W[Direct Child Worker]
-    W -->|ready: PID + Lease + event hash| P
-    P -->|slice timeout| F[Persist cancellation fence]
-    F --> S[terminate / wait]
-    S --> R[Release Lease + CANCELLED]
-    R --> B[Terminal EvidencePack]
-    B --> X[Root EvidencePack]
-    X --> V[Offline hash + Trace + semantic verifier]
+    T[TaskSpec + WorkItem] --> R[Revision-bound retrieval]
+    R --> E[(Events + Artifacts)]
+    E --> W1[Worker 1: structured error]
+    W1 --> W2[Worker 2: bounded read + exact write]
+    W2 -->|effect before receipt| X[Child os._exit 86]
+    X --> U[Unknown + old Lease fenced]
+    U --> A[Exact post-state accept once]
+    A --> W3[Worker 3: protected validation]
+    W3 --> P[Trace + EvidencePack]
+    P --> V[Offline hash + replay + semantic verifier]
 ```
 
-本演示只执行图中的进程监督与证据链。完整 Agent 主链路还包含以下四个面：
+这条演示执行了检索、上下文、工具错误、写入、进程故障、恢复、验收和证据链。完整系统的四个面为：
 
 | 面 | 当前设计 | 为什么需要 |
 |---|---|---|
@@ -112,15 +109,16 @@ flowchart LR
 ## CI EvidencePack
 
 标准 [CI workflow](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/ci.yml)
-在 Linux runner 上重新运行同一演示和独立 verifier，成功后上传名为
-`horizon-process-timeout-evidence` 的 workflow artifact，保留 14 天。打开一次成功的 workflow
-run，在页面底部下载并解压；根 `evidence-pack.json` 与 `child-ready.json`、
-`supervision-observation.json` 位于同一目录，可再次运行：
+在 Linux runner 上重新运行主作品集演示，删除三个 SQLite 数据库后调用独立 verifier，再上传
+名为 `horizon-portfolio-evidence` 的 workflow artifact，保留 14 天。下载并解压后可再次运行：
 
 ```powershell
-uv run --locked --cache-dir .uv-cache horizon demo verify-process-timeout `
+uv run --locked --cache-dir .uv-cache horizon demo verify-portfolio `
   <解压目录>/evidence-pack.json
 ```
+
+同一个 workflow 还会发布更窄的 `horizon-process-timeout-evidence`，专门证明直接子进程 timeout
+取消栅栏和同步 reap；它不是主作品集故事的替代品。
 
 GitHub Actions artifact 通常需要登录 GitHub 后下载；它是 CI 发布的限时证据，不是匿名永久发布
 资产。包内哈希提供自洽性与防意外修改能力，不是签名、可信时间戳或第三方来源认证。
@@ -173,8 +171,9 @@ scan fallback 会显式标记 degraded，不能把 `evidence_missing` 包装成�
 ### 7. EvidencePack 到底证明了什么？
 
 它证明包内文件的完整性、Trace 可重放、最终投影与指定语义关系一致。这个演示额外证明一次真实
-直接子进程的 timeout 和同步 reap。它不证明官方 SWE-bench 成绩、模型修复能力、恶意代码隔离
-认证、外部系统 exactly-once，也不证明任意崩溃窗口都已覆盖。
+子进程在精确写入 effect 后、receipt 前硬退出，旧调用没有重派，既有后态被精确接纳一次并由新
+epoch 续跑成功。它不证明官方 SWE-bench 成绩、模型修复能力、恶意代码隔离认证、外部系统
+exactly-once，也不证明任意崩溃窗口都已覆盖。
 
 ## 面试时不要说过头
 
@@ -184,6 +183,7 @@ scan fallback 会显式标记 degraded，不能把 `evidence_missing` 包装成�
 - 不把七轮真实模型 Pilot 的可重放失败说成修复成功；它们是保留的负结果。
 - 不把 Docker 限制参数说成安全沙箱认证。
 
-更细的实现合同见[直接子 Worker 超时取消演示](process-timeout-cancellation-demo.md)、
-[能力设计](agent-capabilities-design.md)、[上下文投影](context-projection.md)和
-[Run Memory](run-memory.md)。
+更细的实现合同见[一键作品集演示](portfolio-demo.md)、
+[直接子 Worker 超时取消演示](process-timeout-cancellation-demo.md)、
+[三项目多阶段恢复评测](multi-stage-full-checkout-pilot.md)、
+[能力设计](agent-capabilities-design.md)、[上下文投影](context-projection.md)和[Run Memory](run-memory.md)。
