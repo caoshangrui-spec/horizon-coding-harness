@@ -40,9 +40,6 @@ LUIGI_FULL_MANIFEST_PATH = (
     ROOT / "benchmarks" / "run_ab" / "full" / "luigi-1-metrics-handler" / "manifest.yaml"
 )
 NEW_FULL_MANIFEST_PATHS = {
-    "cookiecutter-1-utf8-context-full": (
-        ROOT / "benchmarks" / "run_ab" / "full" / "cookiecutter-1-utf8-context" / "manifest.yaml"
-    ),
     "fastapi-5-nested-field-clone-full": (
         ROOT / "benchmarks" / "run_ab" / "full" / "fastapi-5-nested-field-clone" / "manifest.yaml"
     ),
@@ -784,7 +781,7 @@ def test_full_checkout_v2_preserves_v1_and_binds_three_exact_case_manifests():
         case.check_manifest(case_manifest)
 
 
-def test_full_checkout_v3_preserves_v2_and_binds_six_exact_case_manifests():
+def test_full_checkout_v3_preserves_v2_and_binds_five_exact_case_manifests():
     v2 = RunABSuiteManifest.model_validate(
         yaml.safe_load(FULL_SUITE_PATH.read_text(encoding="utf-8"))
     )
@@ -793,10 +790,9 @@ def test_full_checkout_v3_preserves_v2_and_binds_six_exact_case_manifests():
     )
 
     assert v2.sha256 == "be359684b9e3adfd676ed06c457197f7aff42bdcd1dbb3913321cebf5ef857b4"
-    assert v3.sha256 == "f686d0e40876e91ff21a1d5da92f4d24699838c4dadf336233d3254aa965e632"
+    assert v3.sha256 == "d878964e246f8fabb6cf162f657791e959ae6c529d61eb1143cc98ea7d4edd8a"
     assert list(v3.cases[:3]) == list(v2.cases)
     assert {case.source.project for case in v3.cases} == {
-        "cookiecutter",
         "fastapi",
         "luigi",
         "tornado",
@@ -806,9 +802,6 @@ def test_full_checkout_v3_preserves_v2_and_binds_six_exact_case_manifests():
     assert all(case.source.reduction == "full_checkout" for case in v3.cases)
 
     expected_digests = {
-        "cookiecutter-1-utf8-context-full": (
-            "4837a19ce22166ebee332a55d143f8c27f23e1cccf12ecad67a950eaa705a6b9"
-        ),
         "fastapi-5-nested-field-clone-full": (
             "a3173ddf170b5e82d580b63a98db6f43e5ff164eccc928ee95cfe673babfdcb1"
         ),
@@ -829,10 +822,6 @@ def test_full_checkout_v3_preserves_v2_and_binds_six_exact_case_manifests():
 
 def test_full_checkout_v3_repairs_match_the_upstream_change_shapes():
     samples = {
-        "cookiecutter-1-utf8-context-full": (
-            "    with open(context_file) as file_handle:\n",
-            ("with open(context_file, encoding='utf-8') as file_handle:",),
-        ),
         "fastapi-5-nested-field-clone-full": (
             "        use_type.__fields__[f.name] = f\n",
             ("use_type.__fields__[f.name] = create_cloned_field(f)",),

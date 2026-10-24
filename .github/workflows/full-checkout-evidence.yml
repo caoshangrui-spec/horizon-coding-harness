@@ -95,11 +95,6 @@ jobs:
             benchmarks/run_ab/full/luigi-1-metrics-handler/fixture \
             382
           prepare_fixture \
-            https://github.com/cookiecutter/cookiecutter.git \
-            c15633745df6abdb24e02746b82aadb20b8cdf8c \
-            benchmarks/run_ab/full/cookiecutter-1-utf8-context/fixture \
-            242
-          prepare_fixture \
             https://github.com/fastapi/fastapi.git \
             7cea84b74ca3106a7f861b774e9d215e5228728f \
             benchmarks/run_ab/full/fastapi-5-nested-field-clone/fixture \
@@ -161,7 +156,7 @@ jobs:
             --state-dir "$state_dir" \
             | tee "$state_dir/cli-result.json"
 
-      - name: Run the six-case full-checkout suite in network-disabled containers
+      - name: Run the five-case full-checkout suite in network-disabled containers
         shell: bash
         run: |
           set -euo pipefail
