@@ -258,7 +258,8 @@ PySnooper bug 3 的 BugsInPy `requirements.txt` 为空，但真实源码导入
 - 脚本模型证明真实模型能自主生成查询、定位缺陷或选择 replan；
 - 5 个作者选择案例足以估计泛化成功率、误触发率或成本收益。
 
-后续增量已把 youtube-dl 案例扩展为[两阶段完整 checkout](multi-stage-full-checkout-pilot.md)，并在
-production WorkItem 通过后换用 epoch 2 Worker，联合观察上下文、Memory、检索、replan 与恢复。
+后续增量已把 youtube-dl、Luigi 与 FastAPI 扩展为[三阶段完整 checkout](multi-stage-full-checkout-pilot.md)，
+每条 arm 均跨两个持久边界到 epoch 3，联合观察上下文、Memory、检索、replan 与恢复；v4 本地可信
+与公开禁网 Docker 均为 3/3。
 真实模型 arm 仍只在用户明确授权费用后执行；当前不增加向量库、无界 replan、分布式队列或
 多 Agent 编排。

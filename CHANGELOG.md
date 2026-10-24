@@ -14,6 +14,16 @@ for public releases; unreleased work must not be presented as a published releas
   symlinks on Linux and remains an explicit negative result: the link/junction snapshot gate was not
   relaxed and excluded files were not presented as a full checkout. The workflow now emits a bounded
   stderr annotation when this suite fails so public evidence remains diagnosable.
+- Expanded the full-checkout multi-stage recovery suite from two to three source-bound tasks while
+  preserving the complete v3 prefix and digest. v4 adds FastAPI's one-line recursive clone fix, an
+  exact 91-line upstream regression file through `create_file`, and a final joint contract check.
+  Both arms cross two persisted Worker boundaries to epoch 3; the baseline safely waits after the
+  first two WorkItems and the treatment preserves them while replanning only the final item. Local
+  trusted execution and the public network-disabled Docker workflow pass 3/3 with six replayable
+  arm traces, 12 total restarts, unchanged source checkouts, and no open effects or paid model call.
+  A Tornado candidate remains an explicit negative result because CRLF defeated the multiline exact
+  replacement and the narrowed anchor appeared twice; the tool contract was not expanded with an
+  nth-occurrence edit solely to admit that benchmark.
 - Added first-class long-horizon reliability metrics to every new source-bound Run A/B suite
   report. Case execution now records monotonic observed duration, while the typed suite aggregate
   reports scenario/arm counts, P95 duration, Worker restarts, injected hard-crash recovery rate,

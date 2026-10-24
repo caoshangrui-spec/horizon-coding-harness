@@ -133,7 +133,7 @@ token、合成成本、workspace manifest 和全部边界检查。Suite 汇总�
 任务；但依赖裁剪会降低仓库规模、检索难度和环境复杂度，脚本模型也预先知道修复动作。因此：
 
 - 可以声称 v2 五个来源合同、本地可信 Harness A/B 和公开禁网 Docker Harness A/B 均通过；
-- 不能声称在完整 Cookiecutter/FastAPI/Luigi/Tornado checkout 上通过；
+- 不能把裁剪 suite 自身声称为完整 checkout；Cookiecutter 仍没有完整 checkout 通过证据；
 - 不能声称真实模型会定位这些文件或自主选择 replan；
 - 不能把 5/5 写成 SWE-bench、BugsInPy 官方跑分或泛化成功率。
 
@@ -141,9 +141,8 @@ token、合成成本、workspace manifest 和全部边界检查。Suite 汇总�
 [完整固定 checkout suite](full-checkout-pilot.md)：CLI
 额外验证 Git HEAD 和清洁度，82/872 文件快照上的 Code RAG 都返回目标文件 rank 1，并显式保留
 9/2 个文件跳过导致的 degraded 状态。重复 CAS blob 校验的规模开销已完成前后对照优化；
-youtube-dl-3 还完成了[两阶段完整 checkout 与 Worker 重启](multi-stage-full-checkout-pilot.md)。
+youtube-dl-3、Luigi-1 与 FastAPI-5 还完成了[三阶段完整 checkout 与 Worker 重启](multi-stage-full-checkout-pilot.md)。
 Luigi-1、FastAPI-5 与 Tornado-1 也已进入[五项目完整 checkout v3](full-checkout-pilot.md)，并与
-tqdm/youtube-dl 一起取得本地可信和公开禁网 Docker 5/5。下一步优先增加一个多阶段完整 checkout
-的真实任务深度，而不是
-继续堆叠同类裁剪案例；在真实模型决策证据出现前，不增加第二次自动 replan、向量库、通用审批流
-或复杂 Planner。
+tqdm/youtube-dl 一起取得本地可信和公开禁网 Docker 5/5。多阶段 v4 也已在三个项目上取得本地
+可信和公开禁网 Docker 3/3。下一步优先增加独立外部任务或作品集演示证据，而不是继续堆叠同类
+裁剪案例；在真实模型决策证据出现前，不增加第二次自动 replan、向量库、通用审批流或复杂 Planner。

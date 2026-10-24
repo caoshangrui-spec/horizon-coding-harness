@@ -1,9 +1,9 @@
-# 完整 Checkout 多阶段 Pilot：youtube-dl-3 与 Luigi-1
+# 完整 Checkout 多阶段 Pilot：youtube-dl-3、Luigi-1 与 FastAPI-5
 
-更新：2026-10-06。本记录保留 v1 两阶段任务的失败与成功证据、v2 的 youtube-dl 三阶段任务，
-并在 v3 增加独立的 Luigi 三阶段任务。两个案例都使用固定的干净历史 checkout，验证两个持久化
+更新：2026-10-24。本记录保留 v1 两阶段任务的失败与成功证据、v2 的 youtube-dl 三阶段任务、
+v3 的 Luigi 三阶段任务，并在 v4 增加 FastAPI 三阶段任务。三个案例都使用固定的干净历史 checkout，验证两个持久化
 Worker 边界、跨 revision Code RAG/Run Memory、只替换最后未完成项的受限 replan、最终全量验收
-和 Trace replay；仍使用冻结脚本模型，不是实际模型或 BugsInPy 官方跑分。youtube-dl 与 Luigi
+和 Trace replay；仍使用冻结脚本模型，不是实际模型或 BugsInPy 官方跑分。三个项目
 现均有本地可信执行和公开禁网 Docker 证据。
 
 ## 1. 冻结输入与 v1 两阶段合同
@@ -322,16 +322,70 @@ collector 阶段与 handler 阶段都把 `luigi/server.py` 排为 rank 1，且�
 `sha256:dfa069250ec2ee85fff1e972ce35c348ad9b576736ae12e42189ccb23a61e1af`。因此 doctor 的
 `source_bound_run_ab_multi_stage_docker_verified_count` 已提升为 2；该运行没有付费模型调用。
 
-## 8. 结论边界与下一步
+## 8. v4 第三个独立任务：FastAPI-5
 
-可以声称：两个完整上游 checkout 上的三阶段任务已在本地可信路径实际通过依赖调度、隔离会话、
+v4 原样保留 v3 的 youtube-dl 与 Luigi case 对象和 digest，再追加 FastAPI 的递归字段 clone
+任务：
+
+- Suite：[`bugsinpy-multi-stage-pilot-v4.yaml`](../benchmarks/run_ab/bugsinpy-multi-stage-pilot-v4.yaml)，
+  digest `7541ec23c1a1d4a0ab6e052ae84cd256c756ecff6b5bb108f9ae086fda43cf17`；
+- Case：[`multi-stage-v4.yaml`](../benchmarks/run_ab/full/fastapi-5-nested-field-clone/multi-stage-v4.yaml)，
+  digest `8ac330a5e7ec07053163695d05572e4c849155297743e742963750e666cb0fe1`；
+- 来源：[FastAPI fix #889](https://github.com/fastapi/fastapi/commit/75a07f24bf01a31225ee687f3e2b3fc1981b67ab)，
+  buggy commit `7cea84b…`，fixed commit `75a07f2…`；
+- 新增回归文件严格复用上游 91 行内容，大小 2,429 bytes，SHA-256 为
+  `f64fb11b78917f494f3101424f30219be3d8e761bff6da437f9ccd586b372c50`。
+
+三个依赖 WorkItem 依次完成：修改 `fastapi/utils.py` 中的一行递归 clone、通过 `create_file`
+写入上游回归测试、联合关闭生产与回归合同。Baseline 完成前两项后在最终证据检索上停滞；
+Treatment 保留已通过项，仅修订第三项后成功。两条 arm 都在模型调用 3 和 6 后释放并重取 Lease，
+所以各自经历两次真实持久化 Worker 重启并到达 final epoch 3。
+
+### 8.1 本地可信完整运行
+
+| 指标 | Baseline | Single replan |
+|---|---:|---:|
+| Run | `run_f912b31acae44763bdaad671564a8f0c` | `run_cd272212fed04ccd8067fa5202293f3b` |
+| 最终状态 | `WAITING_FOR_USER` | `SUCCEEDED` |
+| Worker restarts / final lease epoch | 2 / 3 | 2 / 3 |
+| 已通过 WorkItem | production + regression file | 全部三项 |
+| Plan version / replans | 1 / 0 | 2 / 1 |
+| Model calls | 10 | 12 |
+| Tool calls / steps | 12 / 12 | 17 / 17 |
+| Event count | 124 | 158 |
+| Trace ref | `47da61cccdd0effb3855794b304850d9a738f4c0beece9b06d27b7f45870572f` | `3059f06f8d273558fd2a7a237b488f178572d83973ebfd8d0b4c8404d96f297d` |
+
+原始 checkout 的三个检查全部失败，Treatment 最终三个检查全部通过；两条 Trace 均可脱离
+SQLite 重放，unknown model/tool call、开放 reservation 与最终 open effect 都为 0，固定上游
+checkout 保持 clean。该运行记录 `paid_model_called=false`、`network_called=false`。
+
+### 8.2 公开禁网 Docker 与负候选
+
+提交 `3bd73948813640938aff745997228702e1eb56c1` 的
+[标准 CI #40082814607](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40082814607)
+和[禁网 Docker #40082814779](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40082814779)
+均成功。Docker workflow 顺序运行三个多阶段案例并通过 3/3；6 条 arm Trace 全部重放一致，
+合计 12 次 Worker 重启，source unchanged rate 与 Trace replay rate 均为 1.0，最终 open effect
+为 0。统一 artifact ID `12556305483`，大小 155,736,676 bytes，digest 为
+`sha256:832ee064281dfcf954cb4840b60bcfdb24d817ab02d4a4716ce8f0dea8e2cb6a`，计划保留至
+2026-11-23。doctor 的 `source_bound_run_ab_multi_stage_case_count` 与
+`source_bound_run_ab_multi_stage_docker_verified_count` 因而均为 3。
+
+本批还评估过 Tornado 多阶段候选。首版多行替换受 Windows CRLF 影响无法精确匹配；缩成单行后，
+同一 `assert self.stream is not None` 在文件中出现两次，现有 exact replacement 合同无法无歧义地
+只选 handler 位置。项目没有为这一个 benchmark 引入“第 N 次 occurrence”工具语义，而是保留
+失败状态并改选 FastAPI；这是一项明确的负结果与防止过度工程化的范围决策。
+
+## 9. 结论边界与下一步
+
+可以声称：三个完整上游 checkout 上的三阶段任务已在本地可信路径实际通过依赖调度、隔离会话、
 跨 revision 检索、Run Memory、两个 WorkItem 边界 Worker 更替、完成项保留 replan、最终三项
 全量检查、公开禁网 Docker 验证和离线重放。不能声称：
 
 - 冻结脚本证明真实模型能自主分解、查询、修复或选择 replan；
 - 源码断言等价于运行 youtube-dl 原 Python 版本的完整 pytest；
 - 协作式释放/重取 Lease 等同于 OS 在任意指令处崩溃，或证明所有任意副作用都能恢复；
-- 两个作者选择任务足以给出泛化成功率。
+- 三个作者选择任务足以给出泛化成功率。
 
 后续增量已为悬空 `run_check` 加入 tool-call-ID 标签容器、显式丢弃合同，以及自然退出、清理前
 停止容器的精确 success/error 结果恢复。控制器可查询状态，且只有显式授权才终止仍运行的精确

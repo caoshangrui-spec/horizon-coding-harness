@@ -57,20 +57,20 @@
 |---|---|---:|---|
 | `bugsinpy-reduced-v2` | Cookiecutter、FastAPI、tqdm、Luigi、Tornado | 5 | dependency-reduced A/B；用于较快回归 |
 | `bugsinpy-full-checkout-pilot-v3` | tqdm、youtube-dl、Luigi、FastAPI、Tornado | 5 | 82 / 872 / 382 / 629 / 301 tracked-file 完整 checkout |
-| `bugsinpy-multi-stage-pilot-v3` | youtube-dl、Luigi | 2 | 每条 arm 为 3 WorkItem、2 次 Worker 重启；合计 4 条 Trace、8 次重启 |
+| `bugsinpy-multi-stage-pilot-v4` | youtube-dl、Luigi、FastAPI | 3 | 每条 arm 为 3 WorkItem、2 次 Worker 重启；合计 6 条 Trace、12 次重启 |
 | `bugsinpy-multi-stage-hard-crash-v1` | Luigi | 1 | 两条 arm 均真实写入后、receipt 前退出，再跨两个 WorkItem 边界；合计 2 次恢复尝试、6 次重启 |
 
-同一 bug 在不同 suite 中用于不同实验变量，因此不能把上述 13 个场景宣传成 13 个独立真实任务。
+同一 bug 在不同 suite 中用于不同实验变量，因此不能把上述 14 个场景宣传成 14 个独立真实任务。
 按 `(benchmark, project, bug_id, buggy_commit)` 去重后也仍是作者选择的小样本。当前项目继续保留
 “尚无 20～30 个独立真实任务和真实模型成功率”的负面边界。
 
 ## 4. 运行与读取
 
-以两个完整 checkout、三阶段场景为例：
+以三个完整 checkout、三阶段场景为例：
 
 ```powershell
 uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
-  benchmarks/run_ab/bugsinpy-multi-stage-pilot-v3.yaml `
+  benchmarks/run_ab/bugsinpy-multi-stage-pilot-v4.yaml `
   --image python:3.12-alpine `
   --state-dir .horizon/multi-stage-metrics
 ```
@@ -90,7 +90,7 @@ report、JSONL Trace、content-addressed Artifact 与顶层 CLI JSON，可对摘
 
 ## 5. 验收门槛
 
-CI 不只检查 `all_expectations_met`。三阶段 suite 还必须满足：两个 timed scenario、Trace replay
+CI 不只检查 `all_expectations_met`。三阶段 suite 还必须满足：三个 timed scenario、Trace replay
 rate 1.0、source unchanged rate 1.0、final open effect 0。写入硬崩溃 suite 必须满足：两个故障
 arm 全部恢复、recovery rate 1.0、redispatch 0、duplicate side effect 0、Trace replay rate 1.0、
 final open effect 0。任一条件失败都会让证据发布步骤失败，而不是只在 Markdown 中显示警告。

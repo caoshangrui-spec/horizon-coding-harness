@@ -39,9 +39,9 @@
 | 冻结控制器策略评测 | [reliability.py](../src/horizon/domain/reliability.py)、[reliability_eval.py](../src/horizon/application/reliability_eval.py) | 14 案例/62 判断覆盖精确 period-1/2/3/4 NoProgress 与单次 replan 接受/拒绝；生产路径共享判定函数、报告内容寻址、零外部调用；不是模型或真实 Issue 效果评测 |
 | 有界恢复矩阵 v3 | [recovery_evaluation.py](../src/horizon/domain/recovery_evaluation.py)、[recovery_eval.py](../src/horizon/application/recovery_eval.py)、[horizon-recovery-matrix-v3.yaml](../benchmarks/recovery/horizon-recovery-matrix-v3.yaml)、[recovery-matrix-evaluation.md](recovery-matrix-evaluation.md) | 保留 v1/v2 digest；新增 promotion effect→receipt 前真实硬退出，与既有写入/模型响应硬退出及 18 个三工具状态/决策组合合计 21/21。自动恢复 11/11、安全阻塞 10/10、incorrect resume/redispatch/重复副作用均 0；三条 Trace replay。仍非完整设计故障矩阵、主机故障或 exactly-once 验收 |
 | 完整 Run A/B 与来源绑定 Suite | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[scripted.py](../src/horizon/adapters/model/scripted.py) | 同一 Task/Plan/workspace 的 baseline 与单次 replan arm；先真实确认初始失败，再检查 EventLog/预算/Gateway/Trace；1 个内部、v2 的 5 个 BugsInPy 依赖裁剪案例，以及 tqdm 82 files、youtube-dl 872 files、Luigi 382 files、FastAPI 629 files、Tornado 301 files 五个完整 checkout。依赖裁剪 v2 与完整 checkout v3 均有 test-only 本地真实回归，并由公开 CI 在禁网 Docker 中通过 5/5 与 5/5、上传内容寻址证据。完整案例还验证干净 Git HEAD 与 Code RAG，仍是脚本模型 |
-| 完整 checkout 多阶段/重启 A/B | [bugsinpy-multi-stage-pilot-v3.yaml](../benchmarks/run_ab/bugsinpy-multi-stage-pilot-v3.yaml) | youtube-dl 872 files 与 Luigi 382 files 上各有三个依赖 WorkItem；四条 arm 均跨两个持久边界到 epoch 3，并覆盖跨 revision RAG、active/stale Run Memory、完成项保留 replan、最终三项 required checks 与 Trace replay。本地可信与公开禁网 Docker 均为 2/2，doctor 的 Docker 计数为 2。v1 的 CRLF 精确替换失败和 60 秒重启 Lease 到期负结果继续保留 |
+| 完整 checkout 多阶段/重启 A/B | [bugsinpy-multi-stage-pilot-v4.yaml](../benchmarks/run_ab/bugsinpy-multi-stage-pilot-v4.yaml) | youtube-dl 872 files、Luigi 382 files 与 FastAPI 629 files 上各有三个依赖 WorkItem；六条 arm 均跨两个持久边界到 epoch 3，合计 12 次重启，并覆盖跨 revision RAG、active/stale Run Memory、完成项保留 replan、最终三项 required checks 与 Trace replay。本地可信与公开禁网 Docker 均为 3/3，doctor 的 case/Docker 计数均为 3。v1 的 CRLF、60 秒 Lease 以及本轮 Tornado 歧义替换负结果继续保留 |
 | 源码绑定的写入硬崩溃 A/B | [bugsinpy-multi-stage-hard-crash-v1.yaml](../benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v1.yaml)、[设计与证据](source-bound-hard-crash-recovery.md) | Luigi 382-file checkout 的两条 arm 都由真实子进程在第一个生产写入 effect 后、receipt 前退出；父进程先记录 unknown、围栏旧 lease，再按精确后态 `accept_replace`，不重派模型，并继续两个 WorkItem 边界到 epoch 4。本地可信与公开禁网 Docker 均为 1/1、Trace replay、source unchanged、unknown/open 0；doctor 的 Docker 计数为 1 |
-| 公开仓库长程可靠性指标 | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[指标合同](long-horizon-reliability-metrics.md) | 新生成的每个 case 记录单调时钟观测耗时；suite typed aggregate 直接给出 scenario/arm、P95、Worker 重启、硬崩溃恢复率、恢复重派、重复副作用、Trace replay、source isolation 与最终 open effect。旧报告仍可读取，冻结 manifest digest 不变；公开 Docker workflow 将多阶段与硬崩溃关键指标设为失败门槛并写入 Job Summary。13 个 suite 场景含重复 bug，仍无 20～30 个独立真实任务或真实模型成功率证据 |
+| 公开仓库长程可靠性指标 | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[指标合同](long-horizon-reliability-metrics.md) | 新生成的每个 case 记录单调时钟观测耗时；suite typed aggregate 直接给出 scenario/arm、P95、Worker 重启、硬崩溃恢复率、恢复重派、重复副作用、Trace replay、source isolation 与最终 open effect。旧报告仍可读取，冻结 manifest digest 不变；公开 Docker workflow 将多阶段与硬崩溃关键指标设为失败门槛并写入 Job Summary。14 个 suite 场景含重复 bug，仍无 20～30 个独立真实任务或真实模型成功率证据 |
 | 真实模型 Pilot | [pilot.py](../src/horizon/domain/pilot.py)、[pilot.py](../src/horizon/application/pilot.py)、[real-model-pilot.md](real-model-pilot.md) | 离线预检绑定完整干净 checkout、初始失败、source snapshot、Docker image、Provider policy、Harness 源码指纹、费用 cap 和首次规划保守预留。七个付费 Run 均无编辑/验证、Trace 可重放且 source 未变；第七轮 Planner 直接定位真实 `__init__.py`，execution 再次取得 rank-1 证据，但消费回执前因 Campaign 预留不足停止。当前实际累计为 `CNY 0.2064492`，没有自动复跑或真实 Issue 成功 |
 | 模型预留压力诊断 | [reservation_analysis.py](../src/horizon/application/reservation_analysis.py)、[reservation-diagnostics.md](reservation-diagnostics.md) | `trace reservation-report` 在 replay/hash-chain 校验后关联 reservation、settlement 和新 BudgetStop 请求尺寸；七轮 22 次调用的聚合预留/结算比为 6.860516。候选 `request_bytes + 1024` 可回放 5 次，并按旧领域 JSON / 当前 wire basis 分层；当前口径仅 2 次、0 次观测低估、中位比 4.230001。生产 estimator、费用门禁和付费预算均未改变 |
 | 安全轮次续跑 | [agent.py](../src/horizon/domain/agent.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 消息 Artifact + event/revision 绑定；新 Worker 续跑；PLANNING/READY 也可恢复，任意崩溃窗口对账未完成 |
@@ -114,8 +114,36 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 - 原候选 Cookiecutter 的七个 tracked 文档符号链接在 Windows 被物化为普通文件，在 Linux 保持
   符号链接并被快照安全门拒绝。最终 v3 不计入该候选；没有放宽 link/junction 拒绝规则，也没有
   排除文件后冒充完整 checkout。工作流同时新增有界 stderr 注解，使这类公开失败可直接诊断。
-- 当前 13 个执行场景含重复上游 bug；新增的是 Harness 可靠性和任务多样性证据，不是模型自主
+- 当前 14 个执行场景含重复上游 bug；新增的是 Harness 可靠性和任务多样性证据，不是模型自主
   修复成功率、官方 BugsInPy/SWE-bench 分数或可外推的泛化率。
+
+### 2026-10-24 三阶段完整 Checkout 恢复 A/B v4：FastAPI
+
+- `bugsinpy-multi-stage-pilot-v4.yaml` 原样保留 v3 的 youtube-dl 与 Luigi 前缀及 digest，再追加
+  FastAPI-5；suite digest 为
+  `7541ec23c1a1d4a0ab6e052ae84cd256c756ecff6b5bb108f9ae086fda43cf17`，新 case digest 为
+  `8ac330a5e7ec07053163695d05572e4c849155297743e742963750e666cb0fe1`。
+- 三个依赖 WorkItem 依次完成 `fastapi/utils.py` 一行递归 clone、`create_file` 写入上游 91 行回归
+  文件、联合关闭生产与回归合同。新文件为 2,429 bytes，SHA-256
+  `f64fb11b78917f494f3101424f30219be3d8e761bff6da437f9ccd586b372c50`，与固定上游内容一致。
+- 本地可信 Baseline `run_f912b31acae44763bdaad671564a8f0c` 完成前两项后进入
+  `WAITING_FOR_USER`，Plan v1、10/12/12 model/tool/step、124 events；Treatment
+  `run_cd272212fed04ccd8067fa5202293f3b` 保留前两项并仅修订末项后 `SUCCEEDED`，Plan v2、
+  12/17/17 model/tool/step、158 events。两条 arm 都重启 2 次并到达 epoch 3，Trace ref 分别为
+  `47da61cccdd0effb3855794b304850d9a738f4c0beece9b06d27b7f45870572f` 与
+  `3059f06f8d273558fd2a7a237b488f178572d83973ebfd8d0b4c8404d96f297d`。
+- 三个初始检查全部失败、Treatment 最终三个检查全部通过；两条 Trace 重放一致，unknown model/tool
+  和开放 reservation 为 0，source checkout 保持 clean，`paid_model_called=false`、
+  `network_called=false`。
+- 提交 `3bd7394` 的[标准 CI](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40082814607)
+  与[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40082814779)
+  均成功；多阶段 v4 为 3/3、6 条 arm Trace、12 次总重启。统一 artifact ID `12556305483`，
+  大小 155,736,676 bytes，digest
+  `sha256:832ee064281dfcf954cb4840b60bcfdb24d817ab02d4a4716ce8f0dea8e2cb6a`，计划保留至
+  2026-11-23。
+- Tornado 多阶段候选保留为负结果：多行 exact replacement 受 CRLF 影响，缩为单行后同一锚点出现
+  两次，无法在现有合同下无歧义选中 handler。没有为单个 benchmark 引入“第 N 次 occurrence”
+  工具语义；改用 FastAPI，避免为扩样本过度工程化。
 
 ### 2026-10-23 父控制器硬退出后的持久 Process Worker 恢复
 
@@ -999,8 +1027,8 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 七轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 468 passed；全量入口对应
-468 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
+当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 469 passed；全量入口对应
+469 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
 `run_model_cost_limit` 进入 `FAILED`。没有工具、编辑、checkpoint 或验证，Trace 14 事件可重放，
@@ -1020,8 +1048,8 @@ source 未变。第六轮 Run `run_7fab106a71174c77bb0a82a8a054d3ed` 使用该 v
 依赖裁剪 v2 与完整 checkout v3 均已有公开禁网 Docker 5/5 报告和统一证据 artifact。完整 suite
 中历史三例给出 Code RAG rank 1，以及 9/2/55 个文件跳过的显式降级证据；新增两例不在缺少
 artifact 明细时追写排名。重复 CAS blob 校验的
-规模开销已完成前后对照优化。完整 checkout 的两阶段 production → regression-test 任务及其
-WorkItem 边界 epoch 1 → 2 Worker 恢复也已通过。`run_check` 已有不自动重派的窄丢弃合同、
+规模开销已完成前后对照优化。三个完整 checkout 的三阶段任务及其两个 WorkItem 边界、
+epoch 1 → 2 → 3 Worker 恢复也已通过。`run_check` 已有不自动重派的窄丢弃合同、
 可查询标签 attempt、显式 create/start 边界、created 状态的窄丢弃路径与自然退出结果恢复；正常主路径把停止容器保留到
 tool receipt 提交后再清理。真实子进程覆盖 running/pre-create/created，并保留“外部删除后 missing
 不足以证明未执行”的负证据。
