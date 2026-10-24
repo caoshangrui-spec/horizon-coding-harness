@@ -1,0 +1,100 @@
+schema_version: 1
+suite_id: bugsinpy-full-checkout-pilot-v3
+
+# v3 preserves all three frozen v2 cases and adds three distinct full-checkout repair shapes.
+cases:
+  - case_id: tqdm-1-tenumerate-start-full
+    manifest_path: full/tqdm-1-tenumerate-start/manifest.yaml
+    source:
+      benchmark: BugsInPy
+      project: tqdm
+      bug_id: "1"
+      repository_url: https://github.com/tqdm/tqdm
+      buggy_commit: 8cc777fe8401a05d07f2c97e65d15e4460feab88
+      fixed_commit: c0dcf39b046d1b4ff6de14ac99ad9a1b10487512
+      fix_url: https://github.com/tqdm/tqdm/commit/c0dcf39b046d1b4ff6de14ac99ad9a1b10487512
+      upstream_test: tqdm/tests/tests_contrib.py::test_enumerate
+      license_spdx: MPL-2.0
+      license_url: https://github.com/tqdm/tqdm/blob/8cc777fe8401a05d07f2c97e65d15e4460feab88/LICENCE
+      reduction: full_checkout
+      reduction_note: Uses the clean 82-file upstream checkout at the exact buggy commit; the protected regression command is dependency-free and stricter than the historical test because it asserts the nonzero start value.
+
+  - case_id: youtube-dl-3-unescape-html-full
+    manifest_path: full/youtube-dl-3-unescape-html/manifest.yaml
+    source:
+      benchmark: BugsInPy
+      project: youtube-dl
+      bug_id: "3"
+      repository_url: https://github.com/ytdl-org/youtube-dl
+      buggy_commit: f5469da9e6e259c1690c7ef54f1da1c19f65036f
+      fixed_commit: 95f3f7c20a05e7ac490e768b8470b20538ef8581
+      fix_url: https://github.com/ytdl-org/youtube-dl/commit/95f3f7c20a05e7ac490e768b8470b20538ef8581
+      upstream_test: test/test_utils.py::TestUtil.test_unescape_html
+      license_spdx: Unlicense
+      license_url: https://github.com/ytdl-org/youtube-dl/blob/f5469da9e6e259c1690c7ef54f1da1c19f65036f/LICENSE
+      reduction: full_checkout
+      reduction_note: Uses the clean 872-file upstream checkout at the exact buggy commit and executes a dependency-free assertion equivalent to the fixed commit's nested HTML-entity regression.
+
+  - case_id: luigi-1-metrics-handler-full
+    manifest_path: full/luigi-1-metrics-handler/manifest.yaml
+    source:
+      benchmark: BugsInPy
+      project: luigi
+      bug_id: "1"
+      repository_url: https://github.com/spotify/luigi
+      buggy_commit: 1164eb6b85b8a70f596dbb99452bec513e72c12e
+      fixed_commit: aec5dc2ed8db53fc282a0bd24aabe59031b6d1ba
+      fix_url: https://github.com/spotify/luigi/commit/aec5dc2ed8db53fc282a0bd24aabe59031b6d1ba
+      upstream_test: test/server_test.py::MetricsHandlerTest::test_get
+      license_spdx: Apache-2.0
+      license_url: https://github.com/spotify/luigi/blob/1164eb6b85b8a70f596dbb99452bec513e72c12e/LICENSE
+      reduction: full_checkout
+      reduction_note: Uses the clean 382-file upstream checkout at the exact buggy commit; the protected command extracts and executes the real MetricsHandler class with only standard-library fakes so no historical dependency stack is installed.
+
+  - case_id: cookiecutter-1-utf8-context-full
+    manifest_path: full/cookiecutter-1-utf8-context/manifest.yaml
+    source:
+      benchmark: BugsInPy
+      project: cookiecutter
+      bug_id: "1"
+      repository_url: https://github.com/cookiecutter/cookiecutter
+      buggy_commit: c15633745df6abdb24e02746b82aadb20b8cdf8c
+      fixed_commit: 7f6804c4953a18386809f11faf4d86898570debc
+      fix_url: https://github.com/cookiecutter/cookiecutter/commit/7f6804c4953a18386809f11faf4d86898570debc
+      upstream_test: tests/test_generate_context.py::test_generate_context_decodes_non_ascii_chars
+      license_spdx: BSD-3-Clause
+      license_url: https://github.com/cookiecutter/cookiecutter/blob/c15633745df6abdb24e02746b82aadb20b8cdf8c/LICENSE
+      reduction: full_checkout
+      reduction_note: Uses the clean 242-file upstream checkout at the exact buggy commit; the protected standard-library check executes the real generate_context function while forcing an ASCII platform default.
+
+  - case_id: fastapi-5-nested-field-clone-full
+    manifest_path: full/fastapi-5-nested-field-clone/manifest.yaml
+    source:
+      benchmark: BugsInPy
+      project: fastapi
+      bug_id: "5"
+      repository_url: https://github.com/fastapi/fastapi
+      buggy_commit: 7cea84b74ca3106a7f861b774e9d215e5228728f
+      fixed_commit: 75a07f24bf01a31225ee687f3e2b3fc1981b67ab
+      fix_url: https://github.com/fastapi/fastapi/commit/75a07f24bf01a31225ee687f3e2b3fc1981b67ab
+      upstream_test: tests/test_filter_pydantic_sub_model.py::test_filter_sub_model
+      license_spdx: MIT
+      license_url: https://github.com/fastapi/fastapi/blob/7cea84b74ca3106a7f861b774e9d215e5228728f/LICENSE
+      reduction: full_checkout
+      reduction_note: Uses the clean 629-file upstream checkout at the exact buggy commit; the protected check extracts the real clone function and supplies standard-library field/model fakes to expose nested object aliasing.
+
+  - case_id: tornado-1-websocket-nodelay-full
+    manifest_path: full/tornado-1-websocket-nodelay/manifest.yaml
+    source:
+      benchmark: BugsInPy
+      project: tornado
+      bug_id: "1"
+      repository_url: https://github.com/tornadoweb/tornado
+      buggy_commit: 6a5a0bfa370b6c0d3dbbf9589a560a98202d2baa
+      fixed_commit: 4677c54cc18bbfbdf0f4dadf11610fab6203fd63
+      fix_url: https://github.com/tornadoweb/tornado/commit/4677c54cc18bbfbdf0f4dadf11610fab6203fd63
+      upstream_test: tornado.test.websocket_test.WebSocketTest.test_nodelay
+      license_spdx: Apache-2.0
+      license_url: https://github.com/tornadoweb/tornado/blob/6a5a0bfa370b6c0d3dbbf9589a560a98202d2baa/LICENSE
+      reduction: full_checkout
+      reduction_note: Uses the clean 301-file upstream checkout at the exact buggy commit; the protected AST check executes the real handler and protocol delegation methods without importing Tornado's historical dependency stack.

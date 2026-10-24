@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/workflows/full-checkout-evidence.yml"
       - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v2.yaml"
+      - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v3.yaml"
       - "benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v1.yaml"
       - "benchmarks/run_ab/bugsinpy-multi-stage-pilot-v*.yaml"
       - "benchmarks/run_ab/bugsinpy-reduced-v2.yaml"
@@ -93,6 +94,21 @@ jobs:
             1164eb6b85b8a70f596dbb99452bec513e72c12e \
             benchmarks/run_ab/full/luigi-1-metrics-handler/fixture \
             382
+          prepare_fixture \
+            https://github.com/cookiecutter/cookiecutter.git \
+            c15633745df6abdb24e02746b82aadb20b8cdf8c \
+            benchmarks/run_ab/full/cookiecutter-1-utf8-context/fixture \
+            242
+          prepare_fixture \
+            https://github.com/fastapi/fastapi.git \
+            7cea84b74ca3106a7f861b774e9d215e5228728f \
+            benchmarks/run_ab/full/fastapi-5-nested-field-clone/fixture \
+            629
+          prepare_fixture \
+            https://github.com/tornadoweb/tornado.git \
+            6a5a0bfa370b6c0d3dbbf9589a560a98202d2baa \
+            benchmarks/run_ab/full/tornado-1-websocket-nodelay/fixture \
+            301
 
       - name: Pull the validation image
         run: docker pull python:3.12-alpine
@@ -145,15 +161,15 @@ jobs:
             --state-dir "$state_dir" \
             | tee "$state_dir/cli-result.json"
 
-      - name: Run the frozen suite in network-disabled containers
+      - name: Run the six-case full-checkout suite in network-disabled containers
         shell: bash
         run: |
           set -euo pipefail
-          state_dir=.horizon/full-checkout-docker-v2
+          state_dir=.horizon/full-checkout-docker-v3
           mkdir -p "$state_dir"
           docker image inspect python:3.12-alpine --format '{{.Id}}'
           uv run --locked horizon eval run-ab-suite \
-            benchmarks/run_ab/bugsinpy-full-checkout-pilot-v2.yaml \
+            benchmarks/run_ab/bugsinpy-full-checkout-pilot-v3.yaml \
             --image python:3.12-alpine \
             --state-dir "$state_dir" \
             | tee "$state_dir/cli-result.json"
@@ -195,7 +211,7 @@ jobs:
             .horizon/docker-worker-crash-evidence
             .horizon/docker-worker-crash-cli.json
             .horizon/reduced-docker-v2
-            .horizon/full-checkout-docker-v2
+            .horizon/full-checkout-docker-v3
             .horizon/multi-stage-docker-v3
             .horizon/multi-stage-hard-crash-docker-v1
           if-no-files-found: warn
@@ -246,7 +262,7 @@ jobs:
               Path(".horizon/reduced-docker-v2/cli-result.json").read_text(encoding="utf-8")
           )
           full = json.loads(
-              Path(".horizon/full-checkout-docker-v2/cli-result.json").read_text(
+              Path(".horizon/full-checkout-docker-v3/cli-result.json").read_text(
                   encoding="utf-8"
               )
           )

@@ -1,0 +1,104 @@
+schema_version: 1
+benchmark_id: fastapi-5-nested-field-clone-full
+fixture_path: fixture
+
+task:
+  task_id: fastapi-nested-field-clone-full
+  title: Recursively clone nested response fields in the full upstream checkout
+  objective: Prevent cloned response models from retaining aliases to nested source fields
+  repository:
+    source: local
+    path: /fixture
+    base_commit: 7cea84b74ca3106a7f861b774e9d215e5228728f
+  constraints:
+    allowed_paths: ["**"]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+  acceptance:
+    - id: fastapi-nested-clone-full
+      command: >-
+        python -B -c "import ast,pathlib,types; from typing import Type; source=pathlib.Path('fastapi/utils.py').read_text(encoding='utf-8'); tree=ast.parse(source); node=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='create_cloned_field'); BaseModel=type('BaseModel',(),{}); make_field=lambda name,type_=None,**kwargs:types.SimpleNamespace(name=name,type_=type_,has_alias=False,alias=name,class_validators={},default=None,required=False,model_config=None,field_info=None,allow_none=False,validate_always=False,sub_fields=[],key_field=None,validators=[],pre_validators=[],post_validators=[],parse_json=False,shape=1,populate_validators=lambda:None); make_model=lambda name,fields:type(name,(BaseModel,),{'__config__':object(),'__fields__':fields,'__validators__':{}}); namespace={'ModelField':make_field,'BaseModel':BaseModel,'BaseConfig':object,'FieldInfo':lambda *args:None,'PYDANTIC_1':True,'Type':Type,'is_dataclass':lambda value:False,'lenient_issubclass':lambda value,parent:isinstance(value,type) and issubclass(value,parent),'cast':lambda kind,value:value,'create_model':lambda name,__config__:make_model(name,{})}; exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),'fastapi/utils.py','exec'),namespace); leaf=make_field('username',str); Nested=make_model('ModelB',{'username':leaf}); nested=make_field('model_b',Nested); Root=make_model('ModelA',{'model_b':nested}); root=make_field('root',Root); cloned=namespace['create_cloned_field'](root); cloned_nested=cloned.type_.__fields__['model_b']; cloned_leaf=cloned_nested.type_.__fields__['username']; assert cloned_nested is not nested and cloned_leaf is not leaf"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 20
+    max_model_calls: 10
+    max_tool_calls: 20
+    max_wall_time_seconds: 600
+    max_cost_usd: "1.00"
+    max_input_tokens: 100000
+    max_output_tokens: 5000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+
+initial_plan:
+  version: 1
+  items:
+    - work_item_id: locate-field-clone-full
+      title: Locate nested field cloning in the upstream checkout
+      objective: Retrieve revision-bound evidence before changing clone recursion
+      dependencies: []
+      expected_artifacts: [Code EvidencePack, fastapi-nested-clone-full receipt]
+      acceptance_ids: [fastapi-nested-clone-full]
+      allowed_tools: [retrieve_code]
+
+expected_initial_failed_checks: [fastapi-nested-clone-full]
+
+arms:
+  - arm_id: no-replan
+    role: baseline
+    description: Continue the stalled source retrieval until deterministic guidance is required.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items: []
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 4
+    expected_tool_calls: 4
+    expected_steps: 4
+    actions:
+      - &retrieve_target
+        tool: retrieve_code
+        arguments:
+          query: create_cloned_field nested model fields recursive alias
+          max_chunks: 4
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+
+  - arm_id: single-replan
+    role: single_replan
+    description: Replace the stalled investigation with the bounded upstream recursive clone repair.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items: [repair-field-clone-full]
+    expected_model_calls: 6
+    expected_tool_calls: 7
+    expected_steps: 7
+    actions:
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+      - tool: revise_plan
+        arguments:
+          reason: Repeated retrieval produced no new evidence; recursively clone nested fields as upstream did.
+          items:
+            - work_item_id: repair-field-clone-full
+              title: Recursively clone nested fields
+              objective: Remove nested aliases from the cloned response-field graph
+              dependencies: []
+              expected_artifacts: [Code EvidencePack, fastapi-nested-clone-full receipt]
+              acceptance_ids: [fastapi-nested-clone-full]
+              allowed_tools: [retrieve_code, replace_text, run_check]
+      - tool: replace_text
+        arguments:
+          path: fastapi/utils.py
+          old: "use_type.__fields__[f.name] = f"
+          new: "use_type.__fields__[f.name] = create_cloned_field(f)"
+      - tool: submit
+        arguments:
+          summary: Recursively cloned nested response fields and ran the protected regression check.

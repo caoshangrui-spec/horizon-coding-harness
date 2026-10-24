@@ -1,0 +1,114 @@
+schema_version: 1
+benchmark_id: tornado-1-websocket-nodelay-full
+fixture_path: fixture
+
+task:
+  task_id: tornado-websocket-nodelay-full
+  title: Route WebSocket nodelay through the active protocol in the full upstream checkout
+  objective: Expose protocol-level nodelay and delegate it to the underlying stream
+  repository:
+    source: local
+    path: /fixture
+    base_commit: 6a5a0bfa370b6c0d3dbbf9589a560a98202d2baa
+  constraints:
+    allowed_paths: ["**"]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+  acceptance:
+    - id: tornado-websocket-nodelay-full
+      command: >-
+        python -B -c "import ast,pathlib,types; tree=ast.parse(pathlib.Path('tornado/websocket.py').read_text(encoding='utf-8')); classes={node.name:node for node in tree.body if isinstance(node,ast.ClassDef)}; method=lambda class_name:next(node for node in classes[class_name].body if isinstance(node,ast.FunctionDef) and node.name=='set_nodelay'); handler_method=method('WebSocketHandler'); protocol_method=method('WebSocketProtocol'); protocol13_method=method('WebSocketProtocol13'); assert any(ast.unparse(item)=='abc.abstractmethod' for item in protocol_method.decorator_list); handler_method.decorator_list=[]; protocol13_method.decorator_list=[]; namespace={}; exec(compile(ast.fix_missing_locations(ast.Module(body=[handler_method],type_ignores=[])),'tornado/websocket.py','exec'),namespace); handler_set_nodelay=namespace['set_nodelay']; exec(compile(ast.fix_missing_locations(ast.Module(body=[protocol13_method],type_ignores=[])),'tornado/websocket.py','exec'),namespace); protocol_set_nodelay=namespace['set_nodelay']; values=[]; stream=types.SimpleNamespace(set_nodelay=lambda value:values.append(value)); connection=types.SimpleNamespace(set_nodelay=lambda value:stream.set_nodelay(value)); handler=types.SimpleNamespace(stream=None,ws_connection=connection); protocol=types.SimpleNamespace(stream=stream); handler_set_nodelay(handler,True); protocol_set_nodelay(protocol,False); assert values==[True,False]"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 20
+    max_model_calls: 12
+    max_tool_calls: 24
+    max_wall_time_seconds: 600
+    max_cost_usd: "1.00"
+    max_input_tokens: 100000
+    max_output_tokens: 5000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+
+initial_plan:
+  version: 1
+  items:
+    - work_item_id: locate-websocket-nodelay-full
+      title: Locate WebSocket nodelay delegation in the upstream checkout
+      objective: Retrieve revision-bound evidence before changing the protocol boundary
+      dependencies: []
+      expected_artifacts: [Code EvidencePack, tornado-websocket-nodelay-full receipt]
+      acceptance_ids: [tornado-websocket-nodelay-full]
+      allowed_tools: [retrieve_code]
+
+expected_initial_failed_checks: [tornado-websocket-nodelay-full]
+
+arms:
+  - arm_id: no-replan
+    role: baseline
+    description: Continue the stalled source retrieval until deterministic guidance is required.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items: []
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 4
+    expected_tool_calls: 4
+    expected_steps: 4
+    actions:
+      - &retrieve_target
+        tool: retrieve_code
+        arguments:
+          query: WebSocketHandler set_nodelay WebSocketProtocol stream
+          max_chunks: 4
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+
+  - arm_id: single-replan
+    role: single_replan
+    description: Replace the stalled investigation with the bounded upstream protocol repair.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items: [repair-websocket-nodelay-full]
+    expected_model_calls: 8
+    expected_tool_calls: 9
+    expected_steps: 9
+    actions:
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+      - tool: revise_plan
+        arguments:
+          reason: Repeated retrieval produced no new evidence; route nodelay through the active protocol as upstream did.
+          items:
+            - work_item_id: repair-websocket-nodelay-full
+              title: Delegate nodelay through the protocol
+              objective: Make the active WebSocket protocol own transport nodelay
+              dependencies: []
+              expected_artifacts: [Code EvidencePack, tornado-websocket-nodelay-full receipt]
+              acceptance_ids: [tornado-websocket-nodelay-full]
+              allowed_tools: [retrieve_code, replace_text, run_check]
+      - tool: replace_text
+        arguments:
+          path: tornado/websocket.py
+          old: "        assert self.stream is not None\n        self.stream.set_nodelay(value)"
+          new: "        assert self.ws_connection is not None\n        self.ws_connection.set_nodelay(value)"
+      - tool: replace_text
+        arguments:
+          path: tornado/websocket.py
+          old: "    @abc.abstractmethod\n    async def _receive_frame_loop(self) -> None:\n        raise NotImplementedError()"
+          new: "    @abc.abstractmethod\n    async def _receive_frame_loop(self) -> None:\n        raise NotImplementedError()\n\n    @abc.abstractmethod\n    def set_nodelay(self, x: bool) -> None:\n        raise NotImplementedError()"
+      - tool: replace_text
+        arguments:
+          path: tornado/websocket.py
+          old: "        self.last_ping = now"
+          new: "        self.last_ping = now\n\n    def set_nodelay(self, x: bool) -> None:\n        self.stream.set_nodelay(x)"
+      - tool: submit
+        arguments:
+          summary: Routed nodelay through the abstract and concrete protocol layers and ran the protected regression check.

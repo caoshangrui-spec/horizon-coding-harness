@@ -35,9 +35,21 @@ SUITE_V1_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-reduced-v1.yaml"
 SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-reduced-v2.yaml"
 FULL_SUITE_V1_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v1.yaml"
 FULL_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v2.yaml"
+FULL_SUITE_V3_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v3.yaml"
 LUIGI_FULL_MANIFEST_PATH = (
     ROOT / "benchmarks" / "run_ab" / "full" / "luigi-1-metrics-handler" / "manifest.yaml"
 )
+NEW_FULL_MANIFEST_PATHS = {
+    "cookiecutter-1-utf8-context-full": (
+        ROOT / "benchmarks" / "run_ab" / "full" / "cookiecutter-1-utf8-context" / "manifest.yaml"
+    ),
+    "fastapi-5-nested-field-clone-full": (
+        ROOT / "benchmarks" / "run_ab" / "full" / "fastapi-5-nested-field-clone" / "manifest.yaml"
+    ),
+    "tornado-1-websocket-nodelay-full": (
+        ROOT / "benchmarks" / "run_ab" / "full" / "tornado-1-websocket-nodelay" / "manifest.yaml"
+    ),
+}
 MULTI_STAGE_V1_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-pilot-v1.yaml"
 MULTI_STAGE_V2_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-pilot-v2.yaml"
 MULTI_STAGE_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-pilot-v3.yaml"
@@ -770,6 +782,88 @@ def test_full_checkout_v2_preserves_v1_and_binds_three_exact_case_manifests():
             yaml.safe_load(case_path.read_text(encoding="utf-8"))
         )
         case.check_manifest(case_manifest)
+
+
+def test_full_checkout_v3_preserves_v2_and_binds_six_exact_case_manifests():
+    v2 = RunABSuiteManifest.model_validate(
+        yaml.safe_load(FULL_SUITE_PATH.read_text(encoding="utf-8"))
+    )
+    v3 = RunABSuiteManifest.model_validate(
+        yaml.safe_load(FULL_SUITE_V3_PATH.read_text(encoding="utf-8"))
+    )
+
+    assert v2.sha256 == "be359684b9e3adfd676ed06c457197f7aff42bdcd1dbb3913321cebf5ef857b4"
+    assert v3.sha256 == "f686d0e40876e91ff21a1d5da92f4d24699838c4dadf336233d3254aa965e632"
+    assert list(v3.cases[:3]) == list(v2.cases)
+    assert {case.source.project for case in v3.cases} == {
+        "cookiecutter",
+        "fastapi",
+        "luigi",
+        "tornado",
+        "tqdm",
+        "youtube-dl",
+    }
+    assert all(case.source.reduction == "full_checkout" for case in v3.cases)
+
+    expected_digests = {
+        "cookiecutter-1-utf8-context-full": (
+            "4837a19ce22166ebee332a55d143f8c27f23e1cccf12ecad67a950eaa705a6b9"
+        ),
+        "fastapi-5-nested-field-clone-full": (
+            "a3173ddf170b5e82d580b63a98db6f43e5ff164eccc928ee95cfe673babfdcb1"
+        ),
+        "tornado-1-websocket-nodelay-full": (
+            "b94488b52b91dc0a8d7ba3b13060ee6526bd07ddaadff929b75626f09e4d6afc"
+        ),
+    }
+    for case in v3.cases[3:]:
+        case_path = FULL_SUITE_V3_PATH.parent / case.manifest_path
+        manifest = RunABEvalManifest.model_validate(
+            yaml.safe_load(case_path.read_text(encoding="utf-8"))
+        )
+        case.check_manifest(manifest)
+        assert manifest.sha256 == expected_digests[case.case_id]
+        assert manifest.task.acceptance[0].command.startswith('python -B -c "')
+        assert manifest.expected_initial_failed_checks == (manifest.task.acceptance[0].id,)
+
+
+def test_full_checkout_v3_repairs_match_the_upstream_change_shapes():
+    samples = {
+        "cookiecutter-1-utf8-context-full": (
+            "    with open(context_file) as file_handle:\n",
+            ("with open(context_file, encoding='utf-8') as file_handle:",),
+        ),
+        "fastapi-5-nested-field-clone-full": (
+            "        use_type.__fields__[f.name] = f\n",
+            ("use_type.__fields__[f.name] = create_cloned_field(f)",),
+        ),
+        "tornado-1-websocket-nodelay-full": (
+            "        assert self.stream is not None\n"
+            "        self.stream.set_nodelay(value)\n"
+            "\n"
+            "    @abc.abstractmethod\n"
+            "    async def _receive_frame_loop(self) -> None:\n"
+            "        raise NotImplementedError()\n"
+            "\n"
+            "        self.last_ping = now\n",
+            (
+                "assert self.ws_connection is not None",
+                "def set_nodelay(self, x: bool) -> None:",
+                "self.stream.set_nodelay(x)",
+            ),
+        ),
+    }
+
+    for case_id, (source, expected_markers) in samples.items():
+        manifest = RunABEvalManifest.model_validate(
+            yaml.safe_load(NEW_FULL_MANIFEST_PATHS[case_id].read_text(encoding="utf-8"))
+        )
+        edits = [action for action in manifest.arms[1].actions if action.tool == "replace_text"]
+        for edit in edits:
+            expected_occurrences = edit.arguments.get("expected_occurrences", 1)
+            assert source.count(edit.arguments["old"]) == expected_occurrences
+            source = source.replace(edit.arguments["old"], edit.arguments["new"])
+        assert all(marker in source for marker in expected_markers)
 
 
 def test_luigi_full_checkout_repair_is_line_ending_independent():
