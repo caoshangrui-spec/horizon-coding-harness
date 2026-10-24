@@ -1,0 +1,184 @@
+schema_version: 1
+suite_id: external-development-query-robustness-v1
+selection_commit: 03261ed2f68a99f9a48e82bf9781590232e959d0
+evaluated_at: "2026-10-24"
+
+execution:
+  partition: development
+  holdout_status: sealed
+  source_manifest_digest: 8276c3818736d428bdc3a5ba84ec04640979846f22aebed5e294ed1127254302
+  source_preparation_network_used: true
+  evaluator_network_called: false
+  paid_model_called: false
+  repository_code_executed: false
+  interpretation: Known-hard development slice selected from the revealed v0.3.0 baseline; not independent holdout evidence.
+
+aggregate:
+  query_case_count: 16
+  expected_path_count: 32
+  mean_reciprocal_rank: 0.362574
+  leakage_count: 0
+  empty_count: 1
+  degraded_count: 4
+  metrics_at_k:
+    - cutoff: 1
+      hit_count: 3
+      hit_rate: 0.1875
+      relevant_path_count: 3
+      micro_path_recall: 0.09375
+      mean_average_precision: 0.0375
+      mean_ndcg: 0.1875
+    - cutoff: 3
+      hit_count: 6
+      hit_rate: 0.375
+      relevant_path_count: 12
+      micro_path_recall: 0.375
+      mean_average_precision: 0.195833
+      mean_ndcg: 0.297616
+    - cutoff: 5
+      hit_count: 11
+      hit_rate: 0.6875
+      relevant_path_count: 21
+      micro_path_recall: 0.65625
+      mean_average_precision: 0.320833
+      mean_ndcg: 0.412134
+    - cutoff: 8
+      hit_count: 13
+      hit_rate: 0.8125
+      relevant_path_count: 23
+      micro_path_recall: 0.71875
+      mean_average_precision: 0.337574
+      mean_ndcg: 0.452684
+
+by_variant:
+  raw_identifier:
+    hit_at_8: 4/4
+    relevant_paths_at_8: 6/8
+    micro_path_recall_at_8: 0.75
+    mean_reciprocal_rank: 0.460714
+  english_paraphrase:
+    hit_at_8: 4/4
+    relevant_paths_at_8: 8/8
+    micro_path_recall_at_8: 1.0
+    mean_reciprocal_rank: 0.520833
+  failure_description:
+    hit_at_8: 4/4
+    relevant_paths_at_8: 8/8
+    micro_path_recall_at_8: 1.0
+    mean_reciprocal_rank: 0.40625
+  chinese_description:
+    hit_at_8: 1/4
+    relevant_paths_at_8: 1/8
+    micro_path_recall_at_8: 0.125
+    mean_reciprocal_rank: 0.0625
+
+groups:
+  - base_case_id: cookiecutter-1-non-ascii-context
+    report_ref: dd0da840557f98b91b1da7fadbc90aa6124ba91aea406471825d64a924b5b442
+    hit_count: 3
+    case_count: 4
+    micro_path_recall_at_8: 0.75
+    mean_reciprocal_rank: 0.270833
+    empty_count: 0
+    degraded_count: 0
+    cases:
+      - variant: raw_identifier
+        first_relevant_rank: 2
+        relevant_path_count: 1
+        returned_paths: [cookiecutter/extensions.py, cookiecutter/generate.py, cookiecutter/main.py, cookiecutter/hooks.py, cookiecutter/cli.py, cookiecutter/exceptions.py, cookiecutter/replay.py, cookiecutter/environment.py]
+      - variant: english_paraphrase
+        first_relevant_rank: 3
+        relevant_path_count: 1
+        returned_paths: [cookiecutter/extensions.py, cookiecutter/vcs.py, cookiecutter/generate.py, cookiecutter/exceptions.py, cookiecutter/prompt.py, cookiecutter/cli.py, cookiecutter/utils.py, cookiecutter/zipfile.py]
+      - variant: failure_description
+        first_relevant_rank: 4
+        relevant_path_count: 1
+        returned_paths: [cookiecutter/vcs.py, cookiecutter/exceptions.py, cookiecutter/prompt.py, cookiecutter/generate.py, cookiecutter/environment.py, cookiecutter/cli.py, cookiecutter/main.py, cookiecutter/hooks.py]
+      - variant: chinese_description
+        first_relevant_rank: null
+        relevant_path_count: 0
+        returned_paths: [cookiecutter/extensions.py, cookiecutter/extensions.py]
+
+  - base_case_id: luigi-7-status-wont-override
+    report_ref: 8d0d2d6225959382faddac7402527215b347af030a992c14df29abcb0c71b205
+    hit_count: 3
+    case_count: 4
+    micro_path_recall_at_8: 0.75
+    mean_reciprocal_rank: 0.175
+    empty_count: 0
+    degraded_count: 4
+    cases:
+      - variant: raw_identifier
+        first_relevant_rank: 5
+        relevant_path_count: 1
+        returned_paths: [luigi/server.py, luigi/task.py, luigi/worker.py, luigi/tools/luigi_grep.py, luigi/scheduler.py, luigi/contrib/salesforce.py, luigi/static/visualiser/mockdata/fetch_error, luigi/interface.py]
+      - variant: english_paraphrase
+        first_relevant_rank: 4
+        relevant_path_count: 1
+        returned_paths: [luigi/task.py, luigi/parameter.py, luigi/contrib/esindex.py, luigi/scheduler.py, luigi/contrib/external_program.py, luigi/contrib/salesforce.py, luigi/interface.py, luigi/worker.py]
+      - variant: failure_description
+        first_relevant_rank: 4
+        relevant_path_count: 1
+        returned_paths: [luigi/worker.py, luigi/tools/luigi_grep.py, luigi/server.py, luigi/scheduler.py, luigi/contrib/salesforce.py, luigi/interface.py, luigi/contrib/kubernetes.py, luigi/task.py]
+      - variant: chinese_description
+        first_relevant_rank: null
+        relevant_path_count: 0
+        returned_paths: []
+
+  - base_case_id: pysnooper-2-custom-repr
+    report_ref: c476bd10fe22c833058854e5171226ab55a1cb24eca85a01d8a58788e96a0158
+    hit_count: 3
+    case_count: 4
+    micro_path_recall_at_8: 0.65
+    mean_reciprocal_rank: 0.75
+    empty_count: 1
+    degraded_count: 0
+    cases:
+      - variant: raw_identifier
+        first_relevant_rank: 1
+        relevant_path_count: 3
+        returned_paths: [pysnooper/utils.py, pysnooper/tracer.py, pysnooper/variables.py, pysnooper/tracer.py, pysnooper/tracer.py, pysnooper/variables.py, pysnooper/tracer.py]
+      - variant: english_paraphrase
+        first_relevant_rank: 1
+        relevant_path_count: 5
+        returned_paths: [pysnooper/pycompat.py, pysnooper/tracer.py, pysnooper/variables.py, pysnooper/__init__.py, pysnooper/utils.py, pysnooper/tracer.py, pysnooper/variables.py, pysnooper/variables.py]
+      - variant: failure_description
+        first_relevant_rank: 1
+        relevant_path_count: 5
+        returned_paths: [pysnooper/utils.py, pysnooper/variables.py, pysnooper/tracer.py, pysnooper/__init__.py, pysnooper/pycompat.py, pysnooper/tracer.py, pysnooper/tracer.py, pysnooper/variables.py]
+      - variant: chinese_description
+        first_relevant_rank: null
+        relevant_path_count: 0
+        returned_paths: []
+
+  - base_case_id: tornado-2-redirect-put-without-body
+    report_ref: 2333251a9a3cf01a655d759d8caafe010ddb1ac9553914798c881f9b8cf3c771
+    hit_count: 4
+    case_count: 4
+    micro_path_recall_at_8: 1.0
+    mean_reciprocal_rank: 0.254464
+    empty_count: 0
+    degraded_count: 0
+    cases:
+      - variant: raw_identifier
+        first_relevant_rank: 7
+        relevant_path_count: 1
+        returned_paths: [tornado/auth.py, tornado/testing.py, tornado/curl_httpclient.py, tornado/simple_httpclient.py, tornado/queues.py, tornado/web.py, tornado/http1connection.py, tornado/httputil.py]
+      - variant: english_paraphrase
+        first_relevant_rank: 2
+        relevant_path_count: 1
+        returned_paths: [tornado/auth.py, tornado/http1connection.py, tornado/simple_httpclient.py, tornado/curl_httpclient.py, tornado/queues.py, tornado/httputil.py, tornado/web.py, tornado/httpclient.py]
+      - variant: failure_description
+        first_relevant_rank: 8
+        relevant_path_count: 1
+        returned_paths: [tornado/queues.py, tornado/platform/twisted.py, tornado/curl_httpclient.py, tornado/auth.py, tornado/simple_httpclient.py, tornado/web.py, tornado/httpclient.py, tornado/http1connection.py]
+      - variant: chinese_description
+        first_relevant_rank: 4
+        relevant_path_count: 1
+        returned_paths: [tornado/queues.py, tornado/curl_httpclient.py, tornado/web.py, tornado/http1connection.py, tornado/simple_httpclient.py, tornado/template.py, tornado/websocket.py, tornado/auth.py]
+
+negative_results:
+  - Pure Chinese descriptions miss three of four cases; the only hit retains Latin HTTP and PUT tokens.
+  - Raw test identifiers move Luigi-7 to rank 5 and Tornado-2 to rank 7, so underscore splitting alone does not remove class/test noise.
+  - PySnooper raw identifiers still cover only three of five gold paths, while both English paraphrase variants cover all five.
+  - The sample was deliberately chosen from known-hard development cases and cannot estimate general multilingual or Agent-generated-query quality.

@@ -1,3 +1,4 @@
+import math
 from pathlib import Path
 
 import pytest
@@ -453,3 +454,110 @@ def test_checked_in_query_robustness_selection_has_four_frozen_variants_per_case
             for case in manifest.cases
         } == expected_kinds
         assert all(case.max_chunks == 8 for case in manifest.cases)
+
+
+def test_checked_in_query_robustness_result_recomputes_from_rankings():
+    root = Path(__file__).resolve().parents[2]
+    result_root = root / "benchmarks/retrieval/external-development-v3/query-robustness-v1"
+    selection = yaml.safe_load((result_root / "selection.yaml").read_text(encoding="utf-8"))
+    result = yaml.safe_load((result_root / "result-v1.yaml").read_text(encoding="utf-8"))
+    observations = []
+
+    assert result["selection_commit"] == "03261ed2f68a99f9a48e82bf9781590232e959d0"
+    assert result["execution"]["holdout_status"] == "sealed"
+    assert result["execution"]["evaluator_network_called"] is False
+    assert result["execution"]["paid_model_called"] is False
+    assert result["execution"]["repository_code_executed"] is False
+    assert len({group["report_ref"] for group in result["groups"]}) == 4
+
+    for selected, group in zip(selection["cases"], result["groups"], strict=True):
+        assert group["base_case_id"] == selected["base_case_id"]
+        manifest = RetrievalEvalManifest.model_validate(
+            yaml.safe_load((result_root / selected["manifest_path"]).read_text(encoding="utf-8"))
+        )
+        reciprocal_ranks = []
+        for case, case_result in zip(manifest.cases, group["cases"], strict=True):
+            expected = set(case.expected_paths)
+            returned = tuple(case_result["returned_paths"])
+            first_rank = next(
+                (rank for rank, path in enumerate(returned, start=1) if path in expected),
+                None,
+            )
+            relevant_count = len(expected.intersection(returned))
+            assert case.case_id.endswith(case_result["variant"].replace("_", "-"))
+            assert case_result["first_relevant_rank"] == first_rank
+            assert case_result["relevant_path_count"] == relevant_count
+            reciprocal_ranks.append(1 / first_rank if first_rank is not None else 0.0)
+            observations.append(
+                {
+                    "variant": case_result["variant"],
+                    "expected": expected,
+                    "returned": tuple(dict.fromkeys(returned)),
+                    "first_rank": first_rank,
+                }
+            )
+        assert group["mean_reciprocal_rank"] == pytest.approx(
+            sum(reciprocal_ranks) / len(reciprocal_ranks), abs=1e-6
+        )
+
+    aggregate = result["aggregate"]
+    assert aggregate["query_case_count"] == len(observations) == 16
+    assert aggregate["expected_path_count"] == sum(
+        len(observation["expected"]) for observation in observations
+    )
+    assert aggregate["mean_reciprocal_rank"] == pytest.approx(
+        sum(
+            1 / observation["first_rank"] if observation["first_rank"] is not None else 0.0
+            for observation in observations
+        )
+        / len(observations),
+        abs=1e-6,
+    )
+    assert aggregate["empty_count"] == sum(group["empty_count"] for group in result["groups"])
+    assert aggregate["degraded_count"] == sum(group["degraded_count"] for group in result["groups"])
+
+    for metric in aggregate["metrics_at_k"]:
+        cutoff = metric["cutoff"]
+        hit_count = 0
+        relevant_path_count = 0
+        average_precisions = []
+        ndcgs = []
+        for observation in observations:
+            expected = observation["expected"]
+            returned = observation["returned"][:cutoff]
+            relevant = expected.intersection(returned)
+            hit_count += bool(relevant)
+            relevant_path_count += len(relevant)
+            hits = 0
+            precision_sum = 0.0
+            for rank, path in enumerate(returned, start=1):
+                if path in expected:
+                    hits += 1
+                    precision_sum += hits / rank
+            average_precisions.append(precision_sum / len(expected))
+            dcg = sum(
+                1 / math.log2(rank + 1)
+                for rank, path in enumerate(returned, start=1)
+                if path in expected
+            )
+            ideal_dcg = sum(
+                1 / math.log2(rank + 1) for rank in range(1, min(len(expected), cutoff) + 1)
+            )
+            ndcgs.append(dcg / ideal_dcg)
+        assert metric["hit_count"] == hit_count
+        assert metric["hit_rate"] == hit_count / len(observations)
+        assert metric["relevant_path_count"] == relevant_path_count
+        assert metric["micro_path_recall"] == relevant_path_count / aggregate["expected_path_count"]
+        assert metric["mean_average_precision"] == pytest.approx(
+            sum(average_precisions) / len(average_precisions), abs=1e-6
+        )
+        assert metric["mean_ndcg"] == pytest.approx(sum(ndcgs) / len(ndcgs), abs=1e-6)
+
+    for variant, summary in result["by_variant"].items():
+        subset = [item for item in observations if item["variant"] == variant]
+        hits = sum(item["first_rank"] is not None for item in subset)
+        relevant = sum(len(item["expected"].intersection(item["returned"][:8])) for item in subset)
+        expected = sum(len(item["expected"]) for item in subset)
+        assert summary["hit_at_8"] == f"{hits}/{len(subset)}"
+        assert summary["relevant_paths_at_8"] == f"{relevant}/{expected}"
+        assert summary["micro_path_recall_at_8"] == relevant / expected

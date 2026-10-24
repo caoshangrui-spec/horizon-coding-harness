@@ -70,6 +70,35 @@ jobs:
             --baseline benchmarks/retrieval/external-development-v3/baseline-v0.3.0.yaml \
             | tee .horizon/retrieval-v3-evidence/retrieval-suite.json
 
+      - name: Run frozen query-robustness slice
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=.horizon/retrieval-v3-evidence/query-robustness
+          mkdir -p "$evidence"
+
+          run_variant_group() {
+            local base_case_id="$1"
+            local manifest="$2"
+            uv run --locked horizon eval retrieval "$manifest" \
+              --source ".horizon/retrieval-v3/sources/$base_case_id" \
+              --state-dir ".horizon/retrieval-v3/query-$base_case_id" \
+              | tee "$evidence/$base_case_id.json"
+          }
+
+          run_variant_group \
+            cookiecutter-1-non-ascii-context \
+            benchmarks/retrieval/external-development-v3/query-robustness-v1/cases/cookiecutter-1.yaml
+          run_variant_group \
+            luigi-7-status-wont-override \
+            benchmarks/retrieval/external-development-v3/query-robustness-v1/cases/luigi-7.yaml
+          run_variant_group \
+            pysnooper-2-custom-repr \
+            benchmarks/retrieval/external-development-v3/query-robustness-v1/cases/pysnooper-2.yaml
+          run_variant_group \
+            tornado-2-redirect-put-without-body \
+            benchmarks/retrieval/external-development-v3/query-robustness-v1/cases/tornado-2.yaml
+
       - name: Validate evidence boundary and publish summary
         shell: bash
         run: |
@@ -77,6 +106,8 @@ jobs:
           import json
           import os
           from pathlib import Path
+
+          import yaml
 
           evidence = Path(".horizon/retrieval-v3-evidence")
           materialization = json.loads(
@@ -99,6 +130,27 @@ jobs:
           if metrics[1]["hit_count"] != 11 or metrics[5]["hit_count"] != 16:
               raise SystemExit("Frozen retrieval metrics changed unexpectedly")
 
+          robustness = yaml.safe_load(
+              Path(
+                  "benchmarks/retrieval/external-development-v3/"
+                  "query-robustness-v1/result-v1.yaml"
+              ).read_text(encoding="utf-8")
+          )
+          robustness_root = evidence / "query-robustness"
+          for group in robustness["groups"]:
+              payload = json.loads(
+                  (robustness_root / f"{group['base_case_id']}.json").read_text(
+                      encoding="utf-8"
+                  )
+              )
+              query_report = payload["report"]
+              if payload["report_ref"] != group["report_ref"]:
+                  raise SystemExit(
+                      f"Query robustness report drifted for {group['base_case_id']}"
+                  )
+              if query_report["paid_model_called"] or query_report["network_called"]:
+                  raise SystemExit("Query robustness evaluator made an external call")
+
           lines = [
               "## External retrieval development evidence",
               "",
@@ -112,6 +164,17 @@ jobs:
               f"- MRR: `{report['mean_reciprocal_rank']}`",
               f"- Leakage / empty / degraded: `{report['leakage_count']}/"
               f"{report['empty_count']}/{report['degraded_count']}`",
+              (
+                  "- Query robustness Hit@8 / path recall@8: `"
+                  f"{robustness['aggregate']['metrics_at_k'][3]['hit_count']}/"
+                  f"{robustness['aggregate']['query_case_count']} / "
+                  f"{robustness['aggregate']['metrics_at_k'][3]['micro_path_recall']}`"
+              ),
+              (
+                  "- Chinese-description Hit@8 / path recall@8: `"
+                  f"{robustness['by_variant']['chinese_description']['hit_at_8']} / "
+                  f"{robustness['by_variant']['chinese_description']['micro_path_recall_at_8']}`"
+              ),
               "- Holdout: `sealed and not materialized`",
           ]
           with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:

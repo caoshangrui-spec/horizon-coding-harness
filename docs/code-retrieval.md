@@ -185,6 +185,8 @@ holdout。随后独立冻结的 Luigi/Sanic/Tornado 三案例在 v7 上均为 ra
 
 - 当前只有 camelCase/snake_case 子词与 `def/class` 文本启发式，没有 AST、符号表、import
   解析或调用图；超过 256 个组合词候选时，定义仍可能被截断。中文长串分词能力有限。
+- 四个已知困难 development 案例的冻结扰动中，纯中文描述仅 Hit@8 1/4、path Recall 1/8；
+  唯一命中仍依赖查询中的 `HTTP/PUT` 拉丁词项，因此当前没有跨语言语义召回能力。
 - 同名定义消歧依赖查询中显式出现的模块/路径词；缺少限定词时仍按 BM25/path 决定，也不会
   生成完整的“候选符号集合”或证明首项语义正确。
 - 当前索引 path + 文本 chunk，不索引 Git history、互联网、Memory 或 benchmark gold。

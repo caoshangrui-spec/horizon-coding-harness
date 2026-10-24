@@ -18,6 +18,10 @@ for public releases; unreleased work must not be presented as a published releas
   upstream code. Frozen baseline verification excludes machine-specific timings but compares every
   deterministic ranking, status, child report, and aggregate metric. A dedicated main-only workflow
   uploads receipts and reports without publishing third-party source trees or indexes.
+- Froze and ran 16 query-form perturbations over four known-hard development cases. English
+  paraphrases retrieve 8/8 production paths by K=8, while Chinese descriptions retrieve only 1/8;
+  the one Chinese hit retains Latin `HTTP` and `PUT` terms. The negative result is preserved as a
+  lexical multilingual limitation, not presented as holdout or Agent-query evidence.
 
 ## 0.3.0 - 2026-10-24
 

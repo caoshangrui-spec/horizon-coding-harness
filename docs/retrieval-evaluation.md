@@ -245,3 +245,25 @@ report ref 不进入相等判定。本机重建后的稳定投影 digest 为
 `retrieval-evidence.yml` 只在 main 的相关路径变更或手工触发时重新下载 development 源码、执行
 冻结比较并上传 source receipt 与报告；第三方源码、Git cache 和检索索引不上传。这个 CI 闭环
 验证数据准备和排名可复现，仍不是 holdout、真实 Agent query 或端到端修复证据。
+
+## 11. 已冻结查询扰动诊断
+
+在已揭示的 development 结果中，选择原基线 rank 2、rank 3、rank 4 和多文件 Recall 不足的
+4 个困难案例；先以 commit `03261ed2f68a99f9a48e82bf9781590232e959d0` 冻结查询，再运行
+`raw_identifier`、`english_paraphrase`、`failure_description`、`chinese_description` 四种形式。
+所有查询只来自 failing-test 标识符和自然语言改写，不复制实现路径、源码符号或 patch 内容。
+
+| 查询形式 | Hit@8 | Path Recall@8 | MRR |
+|---|---:|---:|---:|
+| raw identifier | 4/4 | 6/8 = 0.75 | 0.460714 |
+| English paraphrase | 4/4 | 8/8 = 1.0 | 0.520833 |
+| failure description | 4/4 | 8/8 = 1.0 | 0.40625 |
+| 中文描述 | 1/4 | 1/8 = 0.125 | 0.0625 |
+| 合计 | 13/16 | 23/32 = 0.71875 | 0.362574 |
+
+完整 16 查询在 K=1/3/5/8 的 Hit、Recall、MAP、nDCG、每条返回路径与四个内容寻址报告见
+[`query-robustness-v1/result-v1.yaml`](../benchmarks/retrieval/external-development-v3/query-robustness-v1/result-v1.yaml)。
+英文改写使 PySnooper 的 5 个 production path 全部进入前 8；原始 identifier 仍只有 3 个。
+反面证据更重要：三个纯中文描述未命中；Tornado 的中文描述之所以命中，是查询仍保留 `HTTP`
+和 `PUT` 两个拉丁词项。当前实现是英文代码上的词法检索，不应包装成多语言 semantic RAG。
+该切片按已知弱点选择且 gold 已揭示，只用于确定下一步优先级，不能称为泛化或独立 holdout。
