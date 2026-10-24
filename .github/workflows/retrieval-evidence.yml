@@ -206,6 +206,35 @@ jobs:
           run_broad_group tornado-4-static-range-bounds \
             benchmarks/retrieval/external-development-v3/query-normalization-gate-broad-v1/cases/tornado-4-static-range-bounds.yaml
 
+      - name: Run conservative CJK query treatment
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=.horizon/retrieval-v3-evidence/query-normalization-cjk-conservative
+          mkdir -p "$evidence"
+
+          run_conservative_group() {
+            local base_case_id="$1"
+            local manifest="$2"
+            uv run --locked horizon eval retrieval "$manifest" \
+              --source ".horizon/retrieval-v3/sources/$base_case_id" \
+              --state-dir ".horizon/retrieval-v3/cjk-conservative-$base_case_id" \
+              | tee "$evidence/$base_case_id.json"
+          }
+
+          run_conservative_group \
+            cookiecutter-1-non-ascii-context \
+            benchmarks/retrieval/external-development-v3/query-normalization-cjk-conservative-v1/cases/cookiecutter-1.yaml
+          run_conservative_group \
+            luigi-7-status-wont-override \
+            benchmarks/retrieval/external-development-v3/query-normalization-cjk-conservative-v1/cases/luigi-7.yaml
+          run_conservative_group \
+            pysnooper-2-custom-repr \
+            benchmarks/retrieval/external-development-v3/query-normalization-cjk-conservative-v1/cases/pysnooper-2.yaml
+          run_conservative_group \
+            tornado-2-redirect-put-without-body \
+            benchmarks/retrieval/external-development-v3/query-normalization-cjk-conservative-v1/cases/tornado-2.yaml
+
       - name: Validate evidence boundary and publish summary
         shell: bash
         run: |
@@ -351,6 +380,55 @@ jobs:
           if broad["decision"]["combined_gate_runtime_policy"] != "not_integrated":
               raise SystemExit("Broader evidence unexpectedly changed runtime policy")
 
+          conservative = yaml.safe_load(
+              Path(
+                  "benchmarks/retrieval/external-development-v3/"
+                  "query-normalization-cjk-conservative-v1/result-v1.yaml"
+              ).read_text(encoding="utf-8")
+          )
+          if (
+              conservative["execution"]["source_manifest_digest"]
+              != receipt["source_manifest_digest"]
+          ):
+              raise SystemExit("Conservative CJK source manifest digest drifted")
+          conservative_root = evidence / "query-normalization-cjk-conservative"
+          for group in conservative["groups"]:
+              payload = json.loads(
+                  (conservative_root / f"{group['base_case_id']}.json").read_text(
+                      encoding="utf-8"
+                  )
+              )
+              conservative_report = payload["report"]
+              if payload["report_ref"] != group["report_ref"]:
+                  raise SystemExit(
+                      f"Conservative CJK report drifted for {group['base_case_id']}"
+                  )
+              if conservative_report["paid_model_called"] or conservative_report["network_called"]:
+                  raise SystemExit("Conservative CJK evaluator made an external call")
+              if len(conservative_report["cases"]) != 1:
+                  raise SystemExit("Conservative CJK report shape changed unexpectedly")
+              observed = conservative_report["cases"][0]
+              if (
+                  observed["first_relevant_rank"] != group["additive_rank"]
+                  or observed["relevant_path_count"] != group["additive_relevant_path_count"]
+                  or observed["retrieval_status"] != group["additive_status"]
+                  or observed["returned_paths"] != group["returned_paths"]
+              ):
+                  raise SystemExit(
+                      f"Conservative CJK ranking drifted for {group['base_case_id']}"
+                  )
+          high_coverage = conservative["high_coverage"]
+          if (
+              high_coverage["hit_at_8"]["additive"] != "4/4"
+              or high_coverage["relevant_paths_at_8"]["additive"] != "7/8"
+              or high_coverage["mean_reciprocal_rank"]["additive"] != 0.75
+              or conservative["strategy_contract"]["observed_low_coverage_bypass_count"]
+              != 12
+          ):
+              raise SystemExit("Conservative CJK metrics changed unexpectedly")
+          if conservative["decision"]["default_runtime_policy"] != "not_integrated":
+              raise SystemExit("Conservative CJK evidence unexpectedly changed runtime policy")
+
           lines = [
               "## External retrieval development evidence",
               "",
@@ -420,6 +498,18 @@ jobs:
                   f"{broad['by_variant']['chinese_description']['hit_at_8']['selective']} / "
                   f"{broad['by_variant']['chinese_description']['nonempty_miss_count']['baseline']} -> "
                   f"{broad['by_variant']['chinese_description']['nonempty_miss_count']['selective']}`"
+              ),
+              (
+                  "- Conservative CJK high-coverage Hit@8 / path recall@8: `"
+                  f"{high_coverage['hit_at_8']['baseline']} -> "
+                  f"{high_coverage['hit_at_8']['additive']} / "
+                  f"{high_coverage['micro_path_recall_at_8']['baseline']} -> "
+                  f"{high_coverage['micro_path_recall_at_8']['additive']}`"
+              ),
+              (
+                  "- Conservative CJK applied / exact-bypassed: `"
+                  f"{conservative['strategy_contract']['observed_high_coverage_apply_count']} / "
+                  f"{conservative['strategy_contract']['observed_low_coverage_bypass_count']}`"
               ),
               "- Query normalization default runtime policy: `unchanged`",
               "- Holdout: `sealed and not materialized`",

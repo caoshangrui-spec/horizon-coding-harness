@@ -1,0 +1,149 @@
+schema_version: 1
+suite_id: external-development-query-normalization-cjk-conservative-v1
+selection_commit: e7eeca9501d60411cd1b68eeab4cd67d60bf8303
+evaluated_at: "2026-10-24"
+
+execution:
+  partition: development
+  holdout_status: sealed
+  source_manifest_digest: 74a87b4dbf6c54f8f9fd003473dcc0a7995f5b7be9953e080a1f5d672ec16431
+  executed_treatment_query_count: 4
+  static_low_coverage_control_count: 12
+  evaluator_network_called: false
+  paid_model_called: false
+  repository_code_executed: false
+  interpretation: Adaptive development treatment designed after the broader selective-gate failure; not independent holdout evidence.
+
+strategy_contract:
+  minimum_cjk_glossary_matches: 2
+  preserve_original_query: true
+  expected_high_coverage_apply_count: 4
+  observed_high_coverage_apply_count: 4
+  expected_low_coverage_bypass_count: 12
+  observed_low_coverage_bypass_count: 12
+  false_activation_count: 0
+  false_bypass_count: 0
+  statement: High-coverage CJK queries append deterministic mapped terms; low-coverage CJK queries remain byte-for-byte unchanged.
+
+high_coverage:
+  query_count: 4
+  expected_path_count: 8
+  mean_reciprocal_rank:
+    baseline: 0.0625
+    replacement: 0.75
+    additive: 0.75
+  hit_at_8:
+    baseline: 1/4
+    replacement: 4/4
+    additive: 4/4
+  relevant_paths_at_8:
+    baseline: 1/8
+    replacement: 7/8
+    additive: 7/8
+  micro_path_recall_at_8:
+    baseline: 0.125
+    replacement: 0.875
+    additive: 0.875
+  empty_count:
+    baseline: 1
+    replacement: 0
+    additive: 0
+  degraded_count:
+    baseline: 1
+    replacement: 1
+    additive: 1
+  additive_matches_replacement:
+    first_relevant_rank_count: 4/4
+    relevant_path_count: 4/4
+    returned_paths_count: 4/4
+
+low_coverage_controls:
+  query_count: 12
+  retrieval_rerun: false
+  reason: The conservative function returns each frozen baseline query exactly, so the already frozen baseline observations are reused rather than duplicated.
+  baseline_result: ../query-normalization-gate-broad-v1/result-v1.yaml
+  exact_bypass_count: 12/12
+  hit_at_8: 3/12
+  relevant_paths_at_8: 3/12
+  mean_reciprocal_rank: 0.194444
+  empty_count: 8
+  nonempty_miss_count: 1
+
+combined_projection:
+  caveat: Combines four executed high-coverage treatments with 12 frozen exact-bypass observations; it is a deterministic projection, not an additional retrieval run.
+  query_count: 16
+  expected_path_count: 20
+  hit_at_8:
+    baseline: 4/16
+    conservative: 7/16
+  relevant_paths_at_8:
+    baseline: 4/20
+    conservative: 10/20
+  micro_path_recall_at_8:
+    baseline: 0.2
+    conservative: 0.5
+  mean_reciprocal_rank:
+    baseline: 0.161458
+    conservative: 0.333333
+
+groups:
+  - base_case_id: cookiecutter-1-non-ascii-context
+    report_ref: 858ef76bf88eb417266cb12464fd817e32b1fd48bb6764f14e241d7abc2ac32f
+    baseline_rank: null
+    replacement_rank: 2
+    additive_rank: 2
+    baseline_status: ok
+    replacement_status: ok
+    baseline_relevant_path_count: 0
+    replacement_relevant_path_count: 1
+    additive_relevant_path_count: 1
+    additive_status: ok
+    returned_paths: [cookiecutter/extensions.py, cookiecutter/generate.py, cookiecutter/vcs.py, cookiecutter/prompt.py, cookiecutter/main.py, cookiecutter/hooks.py, cookiecutter/cli.py, cookiecutter/exceptions.py]
+  - base_case_id: luigi-7-status-wont-override
+    report_ref: 27028c60b75c8cda80e36d58118a655a7ca4e1794eb3a191d1a88bb890843614
+    baseline_rank: null
+    replacement_rank: 1
+    additive_rank: 1
+    baseline_status: degraded
+    replacement_status: degraded
+    baseline_relevant_path_count: 0
+    replacement_relevant_path_count: 1
+    additive_relevant_path_count: 1
+    additive_status: degraded
+    returned_paths: [luigi/scheduler.py, luigi/interface.py, luigi/contrib/esindex.py, luigi/task.py, luigi/tools/luigi_grep.py, luigi/contrib/salesforce.py, luigi/worker.py, luigi/contrib/sqla.py]
+  - base_case_id: pysnooper-2-custom-repr
+    report_ref: 0662f9542056a4ab749e4ebad966921f5f4e6e4922eed6933d20d4012d1e6321
+    baseline_rank: null
+    replacement_rank: 1
+    additive_rank: 1
+    baseline_status: empty
+    replacement_status: ok
+    baseline_relevant_path_count: 0
+    replacement_relevant_path_count: 4
+    additive_relevant_path_count: 4
+    additive_status: ok
+    returned_paths: [pysnooper/pycompat.py, pysnooper/variables.py, pysnooper/tracer.py, pysnooper/utils.py, pysnooper/tracer.py, pysnooper/tracer.py, pysnooper/variables.py, pysnooper/tracer.py]
+  - base_case_id: tornado-2-redirect-put-without-body
+    report_ref: 4d9ae6806aa5155bcd7c64bbd99b8bcbce0d8cfc4e690e56589f4f06eb3e82a8
+    baseline_rank: 4
+    replacement_rank: 2
+    additive_rank: 2
+    baseline_status: ok
+    replacement_status: ok
+    baseline_relevant_path_count: 1
+    replacement_relevant_path_count: 1
+    additive_relevant_path_count: 1
+    additive_status: ok
+    returned_paths: [tornado/auth.py, tornado/http1connection.py, tornado/simple_httpclient.py, tornado/curl_httpclient.py, tornado/testing.py, tornado/queues.py, tornado/platform/twisted.py, tornado/web.py]
+
+negative_results:
+  - The additive treatment has identical ranks, relevant-path counts, and returned paths to replacement normalization on all four high-coverage cases; preserving the original CJK text has no measured retrieval gain on this SQLite FTS slice.
+  - The four high-coverage queries are the same adaptive cases used to design the glossary, so 4/4 Hit@8 cannot establish multilingual generalization.
+  - The 12 low-coverage controls are exact static bypasses and were not rerun; their contribution is reused baseline evidence, not a new empirical result.
+  - Luigi remains degraded because source indexing skips unsupported files, and PySnooper still misses one of five expected paths at K=8.
+
+decision:
+  conservative_cjk_branch: development_validated_candidate
+  low_coverage_cjk_policy: exact_bypass
+  default_runtime_policy: not_integrated
+  statement: Keep the conservative function as an experimental candidate. Do not enable it in the Agent runtime or expand the glossary from these adaptive results; require evidence from naturally generated queries or a sealed evaluation before changing the default.

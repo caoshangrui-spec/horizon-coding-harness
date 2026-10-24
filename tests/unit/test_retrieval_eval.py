@@ -1315,3 +1315,156 @@ def test_checked_in_conservative_cjk_treatment_preserves_contracts_and_bypasses_
         low_coverage_bypass_count += 1
 
     assert low_coverage_bypass_count == 12
+
+
+def test_checked_in_conservative_cjk_result_recomputes_from_frozen_evidence():
+    root = Path(__file__).resolve().parents[2]
+    benchmark_root = root / "benchmarks/retrieval/external-development-v3"
+    treatment_root = benchmark_root / "query-normalization-cjk-conservative-v1"
+    selection = yaml.safe_load((treatment_root / "selection.yaml").read_text(encoding="utf-8"))
+    result = yaml.safe_load((treatment_root / "result-v1.yaml").read_text(encoding="utf-8"))
+    baseline = yaml.safe_load(
+        (benchmark_root / "query-robustness-v1/result-v1.yaml").read_text(encoding="utf-8")
+    )
+    replacement = yaml.safe_load(
+        (benchmark_root / "query-normalization-v1/result-v1.yaml").read_text(encoding="utf-8")
+    )
+    broad = yaml.safe_load(
+        (benchmark_root / "query-normalization-gate-broad-v1/result-v1.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    source_manifest = RetrievalSourceManifest.model_validate(
+        yaml.safe_load((benchmark_root / "source-materialization.yaml").read_text(encoding="utf-8"))
+    )
+    baseline_groups = {group["base_case_id"]: group for group in baseline["groups"]}
+    replacement_groups = {group["base_case_id"]: group for group in replacement["groups"]}
+
+    assert result["selection_commit"] == "e7eeca9501d60411cd1b68eeab4cd67d60bf8303"
+    assert result["execution"]["holdout_status"] == "sealed"
+    assert result["execution"]["source_manifest_digest"] == source_manifest.sha256
+    assert result["execution"]["executed_treatment_query_count"] == 4
+    assert result["execution"]["static_low_coverage_control_count"] == 12
+    assert result["execution"]["evaluator_network_called"] is False
+    assert result["execution"]["paid_model_called"] is False
+    assert result["execution"]["repository_code_executed"] is False
+    assert len({group["report_ref"] for group in result["groups"]}) == 4
+
+    expected_path_count = 0
+    matching_ranks = 0
+    matching_relevant_counts = 0
+    matching_returned_paths = 0
+    for selected, frozen in zip(selection["cases"], result["groups"], strict=True):
+        base_case_id = selected["base_case_id"]
+        base_group = baseline_groups[base_case_id]
+        replacement_group = replacement_groups[base_case_id]
+        baseline_case = next(
+            case for case in base_group["cases"] if case["variant"] == "chinese_description"
+        )
+        replacement_case = next(
+            case for case in replacement_group["cases"] if case["variant"] == "chinese_description"
+        )
+        manifest = RetrievalEvalManifest.model_validate(
+            yaml.safe_load(
+                (treatment_root / selected["treatment_manifest"]).read_text(encoding="utf-8")
+            )
+        )
+        expected_path_count += len(manifest.cases[0].expected_paths)
+
+        baseline_status = (
+            "degraded"
+            if base_group["degraded_count"]
+            else "empty"
+            if not baseline_case["returned_paths"]
+            else "ok"
+        )
+        replacement_status = (
+            "degraded"
+            if replacement_group["degraded_count"]
+            else "empty"
+            if not replacement_case["returned_paths_after"]
+            else "ok"
+        )
+
+        assert frozen["base_case_id"] == base_case_id
+        assert frozen["baseline_rank"] == baseline_case["first_relevant_rank"]
+        assert frozen["replacement_rank"] == replacement_case["first_relevant_rank_after"]
+        assert frozen["baseline_status"] == baseline_status
+        assert frozen["replacement_status"] == replacement_status
+        assert frozen["baseline_relevant_path_count"] == baseline_case["relevant_path_count"]
+        assert (
+            frozen["replacement_relevant_path_count"]
+            == replacement_case["relevant_path_count_after"]
+        )
+
+        matching_ranks += frozen["additive_rank"] == frozen["replacement_rank"]
+        matching_relevant_counts += (
+            frozen["additive_relevant_path_count"] == frozen["replacement_relevant_path_count"]
+        )
+        matching_returned_paths += (
+            frozen["returned_paths"] == replacement_case["returned_paths_after"]
+        )
+
+    high = result["high_coverage"]
+    assert high["query_count"] == len(result["groups"]) == 4
+    assert high["expected_path_count"] == expected_path_count == 8
+    for arm in ("baseline", "replacement", "additive"):
+        rank_key = f"{arm}_rank"
+        relevant_key = f"{arm}_relevant_path_count"
+        status_key = f"{arm}_status"
+        ranks = [group[rank_key] for group in result["groups"]]
+        mrr = sum(1 / rank if rank is not None else 0 for rank in ranks) / len(ranks)
+        hit_count = sum(rank is not None and rank <= 8 for rank in ranks)
+        relevant_count = sum(group[relevant_key] for group in result["groups"])
+        empty_count = sum(group[status_key] == "empty" for group in result["groups"])
+        degraded_count = sum(group[status_key] == "degraded" for group in result["groups"])
+
+        assert high["mean_reciprocal_rank"][arm] == pytest.approx(mrr, abs=1e-6)
+        assert high["hit_at_8"][arm] == f"{hit_count}/{len(ranks)}"
+        assert high["relevant_paths_at_8"][arm] == f"{relevant_count}/{expected_path_count}"
+        assert high["micro_path_recall_at_8"][arm] == pytest.approx(
+            relevant_count / expected_path_count, abs=1e-6
+        )
+        assert high["empty_count"][arm] == empty_count
+        assert high["degraded_count"][arm] == degraded_count
+
+    matches = high["additive_matches_replacement"]
+    assert matches["first_relevant_rank_count"] == f"{matching_ranks}/4" == "4/4"
+    assert matches["relevant_path_count"] == f"{matching_relevant_counts}/4" == "4/4"
+    assert matches["returned_paths_count"] == f"{matching_returned_paths}/4" == "4/4"
+
+    low = result["low_coverage_controls"]
+    broad_chinese = broad["by_variant"]["chinese_description"]
+    assert low["retrieval_rerun"] is False
+    assert low["exact_bypass_count"] == "12/12"
+    assert low["hit_at_8"] == broad_chinese["hit_at_8"]["baseline"]
+    assert low["mean_reciprocal_rank"] == broad_chinese["mean_reciprocal_rank"]["baseline"]
+    assert low["empty_count"] == broad_chinese["empty_count"]["baseline"]
+    assert low["nonempty_miss_count"] == broad_chinese["nonempty_miss_count"]["baseline"]
+
+    low_hit_count = int(low["hit_at_8"].split("/", maxsplit=1)[0])
+    low_relevant_count = int(low["relevant_paths_at_8"].split("/", maxsplit=1)[0])
+    combined = result["combined_projection"]
+    assert combined["query_count"] == high["query_count"] + low["query_count"] == 16
+    assert combined["expected_path_count"] == high["expected_path_count"] + 12 == 20
+    for arm, high_arm in (("baseline", "baseline"), ("conservative", "additive")):
+        high_hits = int(high["hit_at_8"][high_arm].split("/", maxsplit=1)[0])
+        high_relevant = int(high["relevant_paths_at_8"][high_arm].split("/", maxsplit=1)[0])
+        combined_mrr = (
+            high["mean_reciprocal_rank"][high_arm] * high["query_count"]
+            + low["mean_reciprocal_rank"] * low["query_count"]
+        ) / combined["query_count"]
+
+        assert combined["hit_at_8"][arm] == f"{high_hits + low_hit_count}/16"
+        assert combined["relevant_paths_at_8"][arm] == f"{high_relevant + low_relevant_count}/20"
+        assert combined["micro_path_recall_at_8"][arm] == pytest.approx(
+            (high_relevant + low_relevant_count) / 20, abs=1e-6
+        )
+        assert combined["mean_reciprocal_rank"][arm] == pytest.approx(combined_mrr, abs=1e-6)
+
+    contract = result["strategy_contract"]
+    assert contract["observed_high_coverage_apply_count"] == 4
+    assert contract["observed_low_coverage_bypass_count"] == 12
+    assert contract["false_activation_count"] == 0
+    assert contract["false_bypass_count"] == 0
+    assert result["decision"]["default_runtime_policy"] == "not_integrated"

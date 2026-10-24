@@ -37,6 +37,11 @@ for public releases; unreleased work must not be presented as a published releas
   queries. The gate passes all 48 constructed apply/bypass controls, but Hit@8 remains 39/48 and
   MRR only moves from 0.655208 to 0.662153. Chinese Hit@8 remains 3/12 while non-empty misses rise
   from one to four, so the combined gate is not integrated into runtime and the holdout stays sealed.
+- Added a conservative CJK candidate that preserves the original query and appends mapped terms only
+  after two glossary matches. The four adaptive high-coverage cases retain 4/4 Hit@8, 7/8 path recall,
+  and 0.75 MRR from replacement normalization, while all 12 broader low-coverage Chinese controls
+  bypass exactly. The treatment remains experimental: it matches rather than improves the prior
+  four-case ranking, reuses frozen baseline evidence for bypasses, and does not unseal the holdout.
 
 ## 0.3.0 - 2026-10-24
 

@@ -227,7 +227,17 @@ def normalize_retrieval_query_conservatively(query: str) -> RetrievalQueryNormal
             applied_rules=("gate_cjk_insufficient_coverage_v1",),
         )
 
-    normalized = normalize_retrieval_query(query)
+    try:
+        normalized = normalize_retrieval_query(query)
+    except ValueError as error:
+        if str(error) != "Normalized retrieval query exceeds 200 characters":
+            raise
+        return RetrievalQueryNormalization(
+            original_query=query,
+            normalized_query=query,
+            terms=(),
+            applied_rules=("gate_cjk_output_limit_bypass_v1",),
+        )
     augmented_query = f"{query} {normalized.normalized_query}"
     if len(augmented_query) > MAX_QUERY_CHARS:
         return RetrievalQueryNormalization(

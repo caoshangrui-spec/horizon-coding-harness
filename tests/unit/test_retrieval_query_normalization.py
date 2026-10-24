@@ -172,6 +172,17 @@ def test_conservative_normalization_keeps_test_identifier_branch():
     )
 
 
+def test_conservative_normalization_bypasses_when_additive_query_would_exceed_limit():
+    query = "生成上下文时无法解码非 ASCII 字符 " + ("x" * 160)
+
+    result = normalize_retrieval_query_conservatively(query)
+
+    assert len(query) <= 200
+    assert result.normalized_query == query
+    assert result.terms == ()
+    assert result.applied_rules == ("gate_cjk_output_limit_bypass_v1",)
+
+
 @pytest.mark.parametrize("query", ["", "x" * 201])
 def test_normalization_rejects_queries_outside_runtime_contract(query):
     with pytest.raises(ValueError, match="1 to 200"):

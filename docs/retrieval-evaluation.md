@@ -363,3 +363,33 @@ MRR 从 `0.833333` 小幅升至 `0.861111`，没有 rank 回退。两类英文�
 development，因此不是独立 holdout。结论是：组合门控不接入 Agent runtime；test identifier
 分支可继续作为独立候选，而 CJK 分支必须先测试“保留原 query，再按覆盖率追加映射词”的保守策略。
 8 个 holdout 继续密封且未物化。
+
+## 15. 保守 CJK 查询增强与低覆盖旁路
+
+commit `e7eeca9501d60411cd1b68eeab4cd67d60bf8303` 在执行前冻结了
+`normalize_retrieval_query_conservatively`、4 条处理查询和 12 条静态旁路控制。规则只读取 query：
+当 CJK query 至少命中两个固定术语短语时，保留原 query 并追加确定性英文映射；不足两个时字节级
+原样旁路。结构化 test identifier 继续复用上一轮分支，普通英文也保持原样。完整结果见
+[`query-normalization-cjk-conservative-v1/result-v1.yaml`](../benchmarks/retrieval/external-development-v3/query-normalization-cjk-conservative-v1/result-v1.yaml)。
+
+| 高覆盖中文指标 | Baseline | 替换式规范化 | 保留原文并追加 |
+|---|---:|---:|---:|
+| Hit@8 | 1/4 | 4/4 | 4/4 |
+| Path Recall@8 | 1/8 = 0.125 | 7/8 = 0.875 | 7/8 = 0.875 |
+| MRR | 0.0625 | 0.75 | 0.75 |
+| empty / degraded | 1 / 1 | 0 / 1 | 0 / 1 |
+
+追加式处理在四例上的 rank、相关路径数和完整返回路径都与替换式处理逐项相同：Cookiecutter、
+Luigi、PySnooper、Tornado 的首个相关路径分别为 rank `2/1/1/2`。因此，保留中文原文在当前
+SQLite FTS 切片上没有额外可测增益；它的价值是避免丢失原始意图，而不是把同分包装成提升。
+
+其余 12 条扩展集中文 query 均只命中零或一个词表短语，保守函数为 `12/12` 精确旁路。因为处理
+query 与已冻结 baseline 完全相同，本轮没有重复执行这 12 次检索，而是复用原证据：Hit@8 `3/12`、
+MRR `0.194444`、empty 8、non-empty miss 1。这消除了上一轮把低覆盖中文压缩成 `failure`、
+`override` 等泛词而制造额外错误候选的执行路径，但不是新的召回提升。
+
+若把四条已执行的高覆盖 treatment 与十二条确定性旁路投影在一起，中文 Hit@8 为 `4/16→7/16`、
+路径 Recall@8 为 `4/20→10/20`、MRR 为 `0.161458→0.333333`。这个数字是两组已冻结证据的
+确定性组合，不是额外一次检索，更不是独立泛化成绩。四条高覆盖 query 正是用于设计词表的自适应
+案例，Luigi 仍 degraded，PySnooper 仍缺 1/5 路径；因此保守分支继续作为实验候选，**不接入默认
+Agent runtime，也不据此扩词表**。8 个 holdout 仍密封且未物化。
