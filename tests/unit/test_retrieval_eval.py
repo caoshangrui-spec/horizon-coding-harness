@@ -960,15 +960,15 @@ def test_checked_in_selective_query_normalization_result_recomputes_comparison()
         1 / observation["first_rank"] if observation["first_rank"] is not None else 0.0
         for observation in observations
     ) / len(observations)
-    assert aggregate["mean_reciprocal_rank"]["baseline"] == baseline["aggregate"][
-        "mean_reciprocal_rank"
-    ]
-    assert aggregate["mean_reciprocal_rank"]["always_on"] == always_on["aggregate"][
-        "mean_reciprocal_rank"
-    ]["treatment"]
-    assert aggregate["mean_reciprocal_rank"]["selective"] == pytest.approx(
-        selective_mrr, abs=1e-6
+    assert (
+        aggregate["mean_reciprocal_rank"]["baseline"]
+        == baseline["aggregate"]["mean_reciprocal_rank"]
     )
+    assert (
+        aggregate["mean_reciprocal_rank"]["always_on"]
+        == always_on["aggregate"]["mean_reciprocal_rank"]["treatment"]
+    )
+    assert aggregate["mean_reciprocal_rank"]["selective"] == pytest.approx(selective_mrr, abs=1e-6)
     assert aggregate["empty_count"]["selective"] == sum(
         group["empty_count"] for group in result["groups"]
     )
@@ -1028,8 +1028,7 @@ def test_checked_in_selective_query_normalization_result_recomputes_comparison()
         relevant = sum(len(item["expected"].intersection(item["returned"][:8])) for item in subset)
         expected = sum(len(item["expected"]) for item in subset)
         mrr = sum(
-            1 / item["first_rank"] if item["first_rank"] is not None else 0.0
-            for item in subset
+            1 / item["first_rank"] if item["first_rank"] is not None else 0.0 for item in subset
         ) / len(subset)
         assert summary["hit_at_8"]["selective"] == f"{hits}/{len(subset)}"
         assert summary["relevant_paths_at_8"]["selective"] == f"{relevant}/{expected}"
