@@ -3,7 +3,7 @@
 [![CI](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/ci.yml)
 [![Docker evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/full-checkout-evidence.yml/badge.svg)](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/full-checkout-evidence.yml)
 ![Python](https://img.shields.io/badge/Python-3.12%20%7C%203.13-3776AB?logo=python&logoColor=white)
-[![Version](https://img.shields.io/badge/version-v0.2.0-2563EB)](https://github.com/caoshangrui-spec/horizon-coding-harness/releases/tag/v0.2.0)
+[![Version](https://img.shields.io/badge/version-v0.3.0-2563EB)](https://github.com/caoshangrui-spec/horizon-coding-harness/releases/tag/v0.3.0)
 ![License](https://img.shields.io/badge/license-MIT-16A34A)
 
 Horizon 是一个面向长程软件工程任务的**可恢复执行控制层**。它让 Coding Agent 在模型调用、
@@ -13,13 +13,12 @@ Horizon 是一个面向长程软件工程任务的**可恢复执行控制层**�
 需要压缩或费用即将耗尽时，如何继续执行而不重复付费、不丢失事实、不越权，也不把部分成功
 包装成完成。
 
-> **当前状态：** v0.2.0 是已发布版本。main 的 Unreleased 版本已有五项目完整 checkout
-> A/B，以及 youtube-dl、Luigi 与 FastAPI 三个独立的三 WorkItem／两次 Worker 重启场景；它们
-> 分别通过本地可信执行和公开禁网 Docker 5/5、3/3。main 还加入父控制器硬退出后的持久 PID
-> 启动闸门与精确停止确认，并让来源绑定 suite 直接输出耗时、恢复成功率、恢复重派、重复副作用、
-> Trace 完整性与最终悬空 effect 指标。七次真实模型 Pilot 均为负结果，因此目前**不宣称真实
-> Issue 成功率或官方 benchmark 成绩**。v0.3.0 仍只是
-> [发布候选](docs/release-v0.3.0-rc.md)，尚未改版本号、创建 tag 或发布。
+> **当前状态：** v0.3.0 是已发布版本。它包含五项目完整 checkout A/B，以及 youtube-dl、
+> Luigi 与 FastAPI 三个独立的三 WorkItem／两次 Worker 重启场景；它们分别通过本地可信执行和
+> 公开禁网 Docker 5/5、3/3。该版本还加入父控制器硬退出后的持久 PID 启动闸门与精确停止确认，
+> 并让来源绑定 suite 直接输出耗时、恢复成功率、恢复重派、重复副作用、Trace 完整性与最终悬空
+> effect 指标。七次真实模型 Pilot 均为负结果，因此目前**不宣称真实 Issue 成功率或官方
+> benchmark 成绩**。完整范围与证据边界见 [v0.3.0 release notes](docs/release-v0.3.0.md)。
 
 ## 为什么值得看
 
@@ -518,9 +517,9 @@ Docker 测试以非 root、禁网、只读根目录、资源限制运行，仅�
 Horizon 原创代码和文档使用 [MIT License](LICENSE)。依赖裁剪的外部 benchmark fixture 继续
 遵循各自上游许可证，来源、固定 commit 与许可证见
 [Third-party notices](THIRD_PARTY_NOTICES.md)。版本变化记录在 [Changelog](CHANGELOG.md)，
-首个公开版本说明见 [v0.1.0 release notes](docs/release-v0.1.0.md)，当前已发布版本范围见
-[v0.2.0 release notes](docs/release-v0.2.0.md)，下一版本的冻结范围与发布门禁见
-[v0.3.0 release candidate](docs/release-v0.3.0-rc.md)。
+首个公开版本说明见 [v0.1.0 release notes](docs/release-v0.1.0.md)，历史版本范围见
+[v0.2.0 release notes](docs/release-v0.2.0.md)，当前版本范围与发布证据见
+[v0.3.0 release notes](docs/release-v0.3.0.md)。
 
 提交修改前请阅读 [Contributing guide](CONTRIBUTING.md)；安全问题和当前隔离边界见
 [Security policy](SECURITY.md)。GitHub CI 只运行锁定依赖下的离线测试、静态检查、一键演示和
@@ -560,7 +559,7 @@ Horizon 原创代码和文档使用 [MIT License](LICENSE)。依赖裁剪的外�
 - [真实模型 Pilot：预检、首轮负结果与付费边界](docs/real-model-pilot.md)
 - [v0.1.0 Release Notes](docs/release-v0.1.0.md)
 - [v0.2.0 Release Notes](docs/release-v0.2.0.md)
-- [v0.3.0 Release Candidate](docs/release-v0.3.0-rc.md)
+- [v0.3.0 Release Notes](docs/release-v0.3.0.md)
 
 既有 79 项需求继续保留。当前采用直接实现、自检和风险触发复核；历史工作流标签不构成
 产品运行时依赖。测试、实现、真实任务效果、独立安全复核分别报告。

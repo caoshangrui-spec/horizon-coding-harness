@@ -1,16 +1,13 @@
-# Horizon v0.3.0 Release Candidate — Controller Recovery and Reproducible Evidence
+# Horizon v0.3.0 — Controller Recovery and Reproducible Evidence
 
-> 候选准备日期：2026-10-24。本文冻结的是下一版本的候选范围，不是已发布版本。
-> 当前 `pyproject.toml`、安装包元数据与 `horizon.__version__` 仍为 `0.2.0`；尚未创建
-> `v0.3.0` tag、GitHub Release 或任何包仓库发布。版本号只在最终发布提交中更新，发布动作仍需
-> 用户明确批准。
+> 发布日期：2026-10-24。本版本通过 GitHub Release 分发 wheel 与 sdist，不发布到 PyPI。
 
-v0.3.0 候选把 v0.2.0 的本地直接子进程监督推进到一个更难的边界：父控制器已硬退出、旧
+v0.3.0 把 v0.2.0 的本地直接子进程监督推进到一个更难的边界：父控制器已硬退出、旧
 Worker 可能仍存活时，Harness 先用持久化 launch ID、PID、Lease、epoch 和事件游标阻止重派，
 只有操作员提交与原记录精确匹配的停止证据后才允许新 epoch 接管。与此同时，真实仓库评测从
 “能跑通几个示例”推进到带可靠性指标、完整 Trace 和脱库 verifier 的可复核作品集证据。
 
-## 相比 v0.2.0 的冻结增量
+## 相比 v0.2.0 的主要增量
 
 ### 1. 父控制器硬退出后的保守接管
 
@@ -51,15 +48,15 @@ Worker 可能仍存活时，Harness 先用持久化 launch ID、PID、Lease、ep
 - 一键演示明确输出 final lease epoch、事件数、evidence-backed write 和 Trace replay 结果，
   方便面试现场解释“恢复”而不是只展示最终状态。
 
-## 候选证据快照
+## 发布证据快照
 
 | 证据 | 当前结果 | 声明边界 |
 |---|---|---|
 | 离线回归 | `470 passed, 11 skipped` | skipped Docker 合同不计入本地通过 |
 | 主作品集 Demo | `SUCCEEDED`，final epoch 3，77 events；删除三库后独立 verifier 通过 | 冻结 Scripted Model，外部模型费用 0 |
-| 标准 CI（候选门禁提交 `18e0f66`） | [run 40093679210](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40093679210) 全部通过；包含构建、独立 wheel 安装、三重版本一致性与安装后 `doctor` | 最终改为 `0.3.0` 的发布提交仍须有自己的成功 run |
+| 标准 CI（候选门禁提交 `18e0f66`） | [run 40093679210](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40093679210) 全部通过；包含构建、独立 wheel 安装、三重版本一致性与安装后 `doctor` | 最终 `0.3.0` 发布提交在 tag 前另行核验 |
 | Docker 证据（最新 runtime 基线） | [run 40092106536](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40092106536) 通过 5 项完整 checkout、3 项多阶段及既有故障切片 | 禁网、非 root 的有限合同，不是恶意代码安全认证 |
-| wheel smoke（本地候选准备） | wheel 构建成功；新虚拟环境安装后，元数据／公共版本一致且 `horizon doctor` 成功 | 当前验证的是尚未改号的 `0.2.0` 候选代码 |
+| wheel smoke（候选准备） | wheel 构建成功；新虚拟环境安装后，元数据／公共版本一致且 `horizon doctor` 成功 | 该记录是改号前门禁；最终 `0.3.0` wheel 在发布前重新安装验证 |
 | 真实模型 Pilot | 七轮均未修复成功，费用与 Trace 保留 | 明确负结果，不提供真实 Issue 成功率 |
 
 标准 CI 现在还会在构建后创建干净 Python 3.12 环境，只安装锁定的生产依赖和刚生成的唯一
@@ -70,7 +67,7 @@ bytes，digest 为
 `sha256:b8bbd6c6f71b0b9f71557fd91fb9b6d01a3c000e73cf776d9a6e39aa10c392f0`，保留至
 2026-11-07；同一 run 的 portfolio 与 timeout EvidencePack 也均生成成功。
 
-## 本地候选复现
+## 本地发布复现
 
 以下 PowerShell 命令不需要 API Key、Docker 或付费模型。项目内 cache 参数避免依赖系统级
 `uv` cache 的权限状态：
@@ -93,7 +90,7 @@ uv --cache-dir .uv-cache pip install `
 .horizon\release-wheel-smoke\Scripts\horizon.exe doctor
 ```
 
-候选目录必须是新路径；上述命令不会覆盖已有虚拟环境。CI 使用 `uv export --locked
+smoke 目录必须是新路径；上述命令不会覆盖已有虚拟环境。CI 使用 `uv export --locked
 --no-dev --no-emit-project` 先安装锁定生产依赖，再以 `--no-deps` 安装 wheel，从而同时验证 lock
 和构建产物，而不是依赖 editable source tree。
 
@@ -107,20 +104,16 @@ uv --cache-dir .uv-cache pip install `
 - Project Memory、向量/图 RAG、通用多用户 HITL、并行 WorkItem、跨主机接管、自动进程存活
   探测和任意外部副作用 exactly-once 仍未实现。
 - EvidencePack 哈希证明文件自洽和 Trace 可重放，不等于数字签名、可信时间戳或第三方来源认证。
-- 本候选没有新增真实模型运行，也没有使用此前付费预算；七轮真实模型负结果保持冻结。
+- 本版本没有新增真实模型运行，也没有使用此前付费预算；七轮真实模型负结果保持冻结。
 
-## 从候选到正式发布的剩余门禁
+## 发布验收合同
 
-以下事项在获得明确发布批准前保持未执行：
+本版本按以下条件发布：
 
-1. 将 `pyproject.toml` 与 `horizon.__version__` 从 `0.2.0` 同步改为 `0.3.0`，刷新并检查
-   `uv.lock`；
-2. 在精确发布提交上通过标准 CI，确认 `horizon-built-distributions` artifact 中的 wheel、sdist
-   与 doctor receipt 都来自该提交；
-3. 保留最新相关 runtime 提交的 Docker success；如果发布前再改 runtime，则必须重跑 Docker，
-   不能用旧 run 冒充；
-4. 从 CI artifact 安装最终 `0.3.0` wheel，再运行版本一致性与 `horizon doctor` smoke；
-5. 用户明确批准后才创建并推送 `v0.3.0` tag、创建 GitHub Release、附加 wheel 与 sdist；
-6. 不发布到 PyPI，除非用户另行明确授权并提供对应凭据与目标。
-
-因此，当前状态是“v0.3.0 范围和门禁已形成候选”，不是“v0.3.0 已发布”。
+1. `pyproject.toml`、`horizon.__version__`、`uv.lock`、wheel 与 sdist 版本一致；
+2. 精确 tag 提交的标准 CI 通过，并产生 distribution、portfolio 与 timeout artifacts；
+3. 最新相关 runtime 提交的公开 Docker evidence 通过；仅文档和版本元数据变化不冒充 runtime
+   复验；
+4. 最终 `0.3.0` wheel 在干净环境中安装，版本一致性与 `horizon doctor` smoke 通过；
+5. 用户已明确批准 `v0.3.0` GitHub Release；
+6. wheel 与 sdist 附加到 GitHub Release，不发布到 PyPI。
