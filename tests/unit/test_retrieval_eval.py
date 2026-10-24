@@ -1116,3 +1116,143 @@ def test_checked_in_broad_gate_suite_uses_remaining_development_cases_and_frozen
 
     assert gate_positive_count == 24
     assert bypass_count == 24
+
+
+def test_checked_in_broad_gate_result_recomputes_from_paired_ranks():
+    root = Path(__file__).resolve().parents[2]
+    benchmark_root = root / "benchmarks/retrieval/external-development-v3"
+    broad_root = benchmark_root / "query-normalization-gate-broad-v1"
+    selection = yaml.safe_load((broad_root / "selection.yaml").read_text(encoding="utf-8"))
+    result = yaml.safe_load((broad_root / "result-v1.yaml").read_text(encoding="utf-8"))
+    source_manifest = RetrievalSourceManifest.model_validate(
+        yaml.safe_load((benchmark_root / "source-materialization.yaml").read_text(encoding="utf-8"))
+    )
+    observations = {"baseline": [], "selective": []}
+    physical_case_count = 0
+    changed_query_count = 0
+    suffixes = {
+        "raw_identifier": ("raw-baseline", "raw-selective"),
+        "english_paraphrase": ("english-bypass", "english-bypass"),
+        "bare_test_sentence": ("bare-test-bypass", "bare-test-bypass"),
+        "chinese_description": ("chinese-baseline", "chinese-selective"),
+    }
+
+    assert result["selection_commit"] == "7bb44b6bce647d1d6b080b4c6a6e2705fa85aa79"
+    assert result["execution"]["holdout_status"] == "sealed"
+    assert result["execution"]["source_manifest_digest"] == source_manifest.sha256
+    assert result["execution"]["evaluator_network_called"] is False
+    assert result["execution"]["paid_model_called"] is False
+    assert result["execution"]["repository_code_executed"] is False
+    assert len({group["report_ref"] for group in result["groups"]}) == 12
+
+    for selected, group in zip(selection["cases"], result["groups"], strict=True):
+        manifest = RetrievalEvalManifest.model_validate(
+            yaml.safe_load((broad_root / selected["paired_manifest"]).read_text(encoding="utf-8"))
+        )
+        physical_case_count += len(manifest.cases)
+        cases = {
+            suffix: next(case for case in manifest.cases if case.case_id.endswith(suffix))
+            for pair in suffixes.values()
+            for suffix in pair
+        }
+        assert group["base_case_id"] == selected["base_case_id"]
+
+        for variant, (baseline_suffix, selective_suffix) in suffixes.items():
+            baseline_case = cases[baseline_suffix]
+            selective_case = cases[selective_suffix]
+            frozen = group["variants"][variant]
+            changed_query_count += baseline_case.query != selective_case.query
+            for arm, case, rank_key, status_key in (
+                ("baseline", baseline_case, "baseline_rank", "baseline_status"),
+                ("selective", selective_case, "selective_rank", "selective_status"),
+            ):
+                observations[arm].append(
+                    {
+                        "variant": variant,
+                        "rank": frozen[rank_key],
+                        "status": frozen[status_key],
+                        "expected_count": len(case.expected_paths),
+                    }
+                )
+
+    execution = result["execution"]
+    assert execution["base_case_count"] == len(selection["cases"]) == 12
+    assert execution["source_query_count"] == 48
+    assert execution["physical_evaluation_case_count"] == physical_case_count == 72
+    assert execution["logical_query_count_per_arm"] == len(observations["baseline"]) == 48
+    assert len(observations["selective"]) == 48
+    assert result["gate_contract"]["query_text_changed_count"] == changed_query_count == 23
+
+    aggregate = result["aggregate"]
+    assert aggregate["expected_path_count_per_arm"] == 48
+    for arm, items in observations.items():
+        mrr = sum(1 / item["rank"] if item["rank"] is not None else 0.0 for item in items) / len(
+            items
+        )
+        empty_count = sum(item["status"] == "empty" for item in items)
+        degraded_count = sum(item["status"] == "degraded" for item in items)
+        nonempty_miss_count = sum(
+            item["rank"] is None and item["status"] != "empty" for item in items
+        )
+        assert aggregate["mean_reciprocal_rank"][arm] == pytest.approx(mrr, abs=1e-6)
+        assert aggregate["empty_count"][arm] == empty_count
+        assert aggregate["degraded_count"][arm] == degraded_count
+        assert aggregate["nonempty_miss_count"][arm] == nonempty_miss_count
+
+        for metric in aggregate["metrics_at_k"]:
+            cutoff = metric["cutoff"]
+            hits = sum(item["rank"] is not None and item["rank"] <= cutoff for item in items)
+            average_precision = sum(
+                1 / item["rank"] if item["rank"] is not None and item["rank"] <= cutoff else 0.0
+                for item in items
+            ) / len(items)
+            ndcg = sum(
+                1 / math.log2(item["rank"] + 1)
+                if item["rank"] is not None and item["rank"] <= cutoff
+                else 0.0
+                for item in items
+            ) / len(items)
+            assert metric["hit_count"][arm] == hits
+            assert metric["micro_path_recall"][arm] == pytest.approx(hits / len(items), abs=1e-6)
+            assert metric["mean_average_precision"][arm] == pytest.approx(
+                average_precision, abs=1e-6
+            )
+            assert metric["mean_ndcg"][arm] == pytest.approx(ndcg, abs=1e-6)
+
+    for variant, summary in result["by_variant"].items():
+        subsets = {
+            arm: [item for item in items if item["variant"] == variant]
+            for arm, items in observations.items()
+        }
+        assert summary["query_count"] == len(subsets["baseline"]) == 12
+        for arm, items in subsets.items():
+            hits = sum(item["rank"] is not None and item["rank"] <= 8 for item in items)
+            mrr = sum(
+                1 / item["rank"] if item["rank"] is not None else 0.0 for item in items
+            ) / len(items)
+            empty_count = sum(item["status"] == "empty" for item in items)
+            assert summary["hit_at_8"][arm] == f"{hits}/{len(items)}"
+            assert summary["mean_reciprocal_rank"][arm] == pytest.approx(mrr, abs=1e-6)
+            assert summary["empty_count"][arm] == empty_count
+
+        paired = zip(subsets["baseline"], subsets["selective"], strict=True)
+        pairs = list(paired)
+        improved = sum(
+            selective["rank"] is not None
+            and (baseline["rank"] is None or selective["rank"] < baseline["rank"])
+            for baseline, selective in pairs
+        )
+        regressed = sum(
+            baseline["rank"] is not None
+            and (selective["rank"] is None or selective["rank"] > baseline["rank"])
+            for baseline, selective in pairs
+        )
+        assert summary["rank_improved_count"] == improved
+        assert summary["rank_regressed_count"] == regressed
+
+    assert result["gate_contract"]["expected_apply_count"] == 24
+    assert result["gate_contract"]["observed_apply_count"] == 24
+    assert result["gate_contract"]["expected_bypass_count"] == 24
+    assert result["gate_contract"]["observed_bypass_count"] == 24
+    assert result["gate_contract"]["false_activation_count"] == 0
+    assert result["gate_contract"]["false_bypass_count"] == 0

@@ -328,3 +328,38 @@ raw／中文仍各缺 1 个路径，4 条 Luigi 结果仍 degraded。
 这证明窄门控能在当前开发切片上避免已观察到的英文 Recall 回退，不证明门控规则可泛化。规则本身
 是在看到这四个 development 案例后设计，8 个 holdout 仍密封且未物化。因此默认 runtime policy
 继续保持不变；该门控只作为显式 opt-in development component，等待更宽的查询集或独立 holdout。
+
+## 14. 未参与门控设计的 12 案例扩展集
+
+为了避免只在 4 个门控设计案例上循环优化，commit
+`7bb44b6bce647d1d6b080b4c6a6e2705fa85aa79` 在执行前冻结了其余 12 个 development 案例。
+每个案例包含 raw test identifier、原冻结英文 query、含普通单词 `test` 的英文句子和中文描述。
+raw／中文是门控正例，另外两类是旁路负例；baseline/selective 共形成每 arm 48 个逻辑观察，实际
+以 12 份六查询 paired manifest 执行 72 次检索。完整结果见
+[`query-normalization-gate-broad-v1/result-v1.yaml`](../benchmarks/retrieval/external-development-v3/query-normalization-gate-broad-v1/result-v1.yaml)。
+
+门控合同本身为 24/24 正例启用、24/24 负例旁路，false activation 和 false bypass 都为 0；
+12 条包含普通单词 `test` 的英文句子全部保持原文。但这是刻意构造的合同控制，不能解释为真实
+Agent query 分布上的误触发率估计。
+
+| 指标 | Baseline | Selective | 变化 |
+|---|---:|---:|---:|
+| Hit@1 | 27/48 | 27/48 | 0 |
+| Hit@3 | 37/48 | 37/48 | 0 |
+| Hit@8 / Path Recall@8 | 39/48 | 39/48 | 0 |
+| MRR | 0.655208 | 0.662153 | +0.006944 |
+| empty | 8 | 5 | -3 |
+| non-empty miss | 1 | 4 | +3 |
+
+raw identifier 的 12/12 Hit@8 保持不变，其中 HTTPie-4 和 Sanic-3 从 rank 3 提至 rank 2，
+MRR 从 `0.833333` 小幅升至 `0.861111`，没有 rank 回退。两类英文旁路的结果逐项不变。
+
+中文分支给出了关键负结果：Hit@8 仍是 `3/12`，MRR 仍是 `0.194444`。六条翻译被压缩成单个
+`failure`，另一些只剩 `generate`、`override` 或 `beam`。三条原本 empty 的查询因此返回了候选，
+却没有命中目标，使 non-empty miss 从 1 增至 4。也就是说，empty 下降并不是质量提升；四个设计
+案例上的中文增益没有扩展到其余 12 个 development 案例。
+
+这些 base case 未参与门控设计，但查询仍是在门控设计之后人工构造，并且 gold 属于已揭示的
+development，因此不是独立 holdout。结论是：组合门控不接入 Agent runtime；test identifier
+分支可继续作为独立候选，而 CJK 分支必须先测试“保留原 query，再按覆盖率追加映射词”的保守策略。
+8 个 holdout 继续密封且未物化。

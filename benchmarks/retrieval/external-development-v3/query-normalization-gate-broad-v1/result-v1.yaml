@@ -1,0 +1,210 @@
+schema_version: 1
+suite_id: external-development-query-normalization-gate-broad-v1
+selection_commit: 7bb44b6bce647d1d6b080b4c6a6e2705fa85aa79
+evaluated_at: "2026-10-24"
+
+execution:
+  partition: development
+  holdout_status: sealed
+  source_manifest_digest: 74a87b4dbf6c54f8f9fd003473dcc0a7995f5b7be9953e080a1f5d672ec16431
+  base_case_count: 12
+  source_query_count: 48
+  physical_evaluation_case_count: 72
+  logical_query_count_per_arm: 48
+  evaluator_network_called: false
+  paid_model_called: false
+  repository_code_executed: false
+  interpretation: The base cases were not used to design the gate, but the queries were authored and frozen after gate design on the revealed development partition; this is not independent holdout evidence.
+
+gate_contract:
+  expected_apply_count: 24
+  observed_apply_count: 24
+  expected_bypass_count: 24
+  observed_bypass_count: 24
+  false_activation_count: 0
+  false_bypass_count: 0
+  query_text_changed_count: 23
+  bare_test_sentence_bypass_count: 12
+  statement: These are constructed contract controls, not estimates of population false-positive or false-negative rates.
+
+aggregate:
+  expected_path_count_per_arm: 48
+  mean_reciprocal_rank:
+    baseline: 0.655208
+    selective: 0.662153
+    delta: 0.006944
+  empty_count:
+    baseline: 8
+    selective: 5
+    delta: -3
+  nonempty_miss_count:
+    baseline: 1
+    selective: 4
+    delta: 3
+  degraded_count:
+    baseline: 8
+    selective: 8
+    delta: 0
+  metrics_at_k:
+    - cutoff: 1
+      hit_count: {baseline: 27, selective: 27, delta: 0}
+      micro_path_recall: {baseline: 0.5625, selective: 0.5625, delta: 0}
+      mean_average_precision: {baseline: 0.5625, selective: 0.5625, delta: 0}
+      mean_ndcg: {baseline: 0.5625, selective: 0.5625, delta: 0}
+    - cutoff: 3
+      hit_count: {baseline: 37, selective: 37, delta: 0}
+      micro_path_recall: {baseline: 0.770833, selective: 0.770833, delta: 0}
+      mean_average_precision: {baseline: 0.645833, selective: 0.652778, delta: 0.006944}
+      mean_ndcg: {baseline: 0.677577, selective: 0.683033, delta: 0.005455}
+    - cutoff: 5
+      hit_count: {baseline: 39, selective: 39, delta: 0}
+      micro_path_recall: {baseline: 0.8125, selective: 0.8125, delta: 0}
+      mean_average_precision: {baseline: 0.655208, selective: 0.662153, delta: 0.006944}
+      mean_ndcg: {baseline: 0.694609, selective: 0.700065, delta: 0.005455}
+    - cutoff: 8
+      hit_count: {baseline: 39, selective: 39, delta: 0}
+      micro_path_recall: {baseline: 0.8125, selective: 0.8125, delta: 0}
+      mean_average_precision: {baseline: 0.655208, selective: 0.662153, delta: 0.006944}
+      mean_ndcg: {baseline: 0.694609, selective: 0.700065, delta: 0.005455}
+
+by_variant:
+  raw_identifier:
+    query_count: 12
+    hit_at_8: {baseline: 12/12, selective: 12/12}
+    mean_reciprocal_rank: {baseline: 0.833333, selective: 0.861111}
+    empty_count: {baseline: 0, selective: 0}
+    rank_improved_count: 2
+    rank_regressed_count: 0
+  english_paraphrase:
+    query_count: 12
+    hit_at_8: {baseline: 12/12, selective: 12/12}
+    mean_reciprocal_rank: {baseline: 0.916667, selective: 0.916667}
+    empty_count: {baseline: 0, selective: 0}
+    rank_improved_count: 0
+    rank_regressed_count: 0
+  bare_test_sentence:
+    query_count: 12
+    hit_at_8: {baseline: 12/12, selective: 12/12}
+    mean_reciprocal_rank: {baseline: 0.676389, selective: 0.676389}
+    empty_count: {baseline: 0, selective: 0}
+    rank_improved_count: 0
+    rank_regressed_count: 0
+  chinese_description:
+    query_count: 12
+    hit_at_8: {baseline: 3/12, selective: 3/12}
+    mean_reciprocal_rank: {baseline: 0.194444, selective: 0.194444}
+    empty_count: {baseline: 8, selective: 5}
+    nonempty_miss_count: {baseline: 1, selective: 4}
+    rank_improved_count: 0
+    rank_regressed_count: 0
+
+groups:
+  - base_case_id: cookiecutter-3-read-user-choice
+    report_ref: 437102d7a8ff59042c01a7601e77ae25a87d52985899569d3435938d59a4a9cc
+    physical_degraded_count: 0
+    variants:
+      raw_identifier: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
+      english_paraphrase: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
+      bare_test_sentence: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
+      chinese_description: {baseline_rank: null, selective_rank: null, baseline_status: empty, selective_status: ok}
+  - base_case_id: httpie-1-unique-download-filename
+    report_ref: ba3f59edfa72cc57539b485b25baabdd77ed3278816a0d4b39752d7a2613e4dc
+    physical_degraded_count: 0
+    variants:
+      raw_identifier: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
+      english_paraphrase: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
+      bare_test_sentence: {baseline_rank: 2, selective_rank: 2, baseline_status: ok, selective_status: ok}
+      chinese_description: {baseline_rank: null, selective_rank: null, baseline_status: empty, selective_status: empty}
+  - base_case_id: httpie-4-host-header-overwrite
+    report_ref: 67af65e3c8fb01f860cc47e66441601aef21367660c2aad98fbb4682f18ae75e
+    physical_degraded_count: 0
+    variants:
+      raw_identifier: {baseline_rank: 3, selective_rank: 2, baseline_status: ok, selective_status: ok}
+      english_paraphrase: {baseline_rank: 2, selective_rank: 2, baseline_status: ok, selective_status: ok}
+      bare_test_sentence: {baseline_rank: 3, selective_rank: 3, baseline_status: ok, selective_status: ok}
+      chinese_description: {baseline_rank: null, selective_rank: null, baseline_status: empty, selective_status: ok}
+  - base_case_id: httpie-5-escape-long-separator
+    report_ref: cc8c2dcd5a5aeb035d040beeec1abb7c5f6970637ec73fed211f386636e037de
+    physical_degraded_count: 0
+    variants:
+      raw_identifier: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
+      english_paraphrase: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
+      bare_test_sentence: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
+      chinese_description: {baseline_rank: null, selective_rank: null, baseline_status: empty, selective_status: empty}
+  - base_case_id: luigi-2-beam-target-path
+    report_ref: 2d933d08f9f98cee9a3101d8222c022e69885df2fc6d879e6ad6b47af000a6b2
+    physical_degraded_count: 6
+    variants:
+      raw_identifier: {baseline_rank: 1, selective_rank: 1, baseline_status: degraded, selective_status: degraded}
+      english_paraphrase: {baseline_rank: 1, selective_rank: 1, baseline_status: degraded, selective_status: degraded}
+      bare_test_sentence: {baseline_rank: 1, selective_rank: 1, baseline_status: degraded, selective_status: degraded}
+      chinese_description: {baseline_rank: 1, selective_rank: 1, baseline_status: degraded, selective_status: degraded}
+  - base_case_id: luigi-3-serialize-tuple-parameter
+    report_ref: 8e807f409228fbe0c021579b58fb65c42d0d49911a8ebbffdc24c95bfa92f39b
+    physical_degraded_count: 6
+    variants:
+      raw_identifier: {baseline_rank: 1, selective_rank: 1, baseline_status: degraded, selective_status: degraded}
+      english_paraphrase: {baseline_rank: 1, selective_rank: 1, baseline_status: degraded, selective_status: degraded}
+      bare_test_sentence: {baseline_rank: 5, selective_rank: 5, baseline_status: degraded, selective_status: degraded}
+      chinese_description: {baseline_rank: null, selective_rank: null, baseline_status: degraded, selective_status: degraded}
+  - base_case_id: sanic-2-asyncio-start-serving
+    report_ref: 0c14ec4e4ff27090ee1a4cbe4dfade20a85a236cb1ef374e348ada5ddfd291b3
+    physical_degraded_count: 0
+    variants:
+      raw_identifier: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
+      english_paraphrase: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
+      bare_test_sentence: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
+      chinese_description: {baseline_rank: 3, selective_rank: 3, baseline_status: ok, selective_status: ok}
+  - base_case_id: sanic-3-routes-with-host
+    report_ref: 0bd636dbc2b9af13849c24ce87594a198d25c43680059928627f7dc796f9e444
+    physical_degraded_count: 0
+    variants:
+      raw_identifier: {baseline_rank: 3, selective_rank: 2, baseline_status: ok, selective_status: ok}
+      english_paraphrase: {baseline_rank: 2, selective_rank: 2, baseline_status: ok, selective_status: ok}
+      bare_test_sentence: {baseline_rank: 4, selective_rank: 4, baseline_status: ok, selective_status: ok}
+      chinese_description: {baseline_rank: null, selective_rank: null, baseline_status: empty, selective_status: empty}
+  - base_case_id: sanic-5-root-logger-config
+    report_ref: 6beacfee1d2c5ec021a994da1514c2e5d7e1b31134ceb88ee0494bb8b20be892
+    physical_degraded_count: 0
+    variants:
+      raw_identifier: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
+      english_paraphrase: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
+      bare_test_sentence: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
+      chinese_description: {baseline_rank: null, selective_rank: null, baseline_status: empty, selective_status: empty}
+  - base_case_id: thefuck-2-executable-path-separator
+    report_ref: 8f8600a7983262254db7e9117602b6c65e2106b6f42039f18c068e3d2395fb47
+    physical_degraded_count: 0
+    variants:
+      raw_identifier: {baseline_rank: 3, selective_rank: 3, baseline_status: ok, selective_status: ok}
+      english_paraphrase: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
+      bare_test_sentence: {baseline_rank: 2, selective_rank: 2, baseline_status: ok, selective_status: ok}
+      chinese_description: {baseline_rank: null, selective_rank: null, baseline_status: empty, selective_status: ok}
+  - base_case_id: thefuck-5-git-push-bitbucket
+    report_ref: e5bef2dee471590c183fa378ffc7a333952cc8eff8e9ab500a3278d7e4a4fb72
+    physical_degraded_count: 0
+    variants:
+      raw_identifier: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
+      english_paraphrase: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
+      bare_test_sentence: {baseline_rank: 3, selective_rank: 3, baseline_status: ok, selective_status: ok}
+      chinese_description: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
+  - base_case_id: tornado-4-static-range-bounds
+    report_ref: d57b03aa50f96dbb8494c7097effd8c539bb17b4915e6c4824caef029af26fa5
+    physical_degraded_count: 0
+    variants:
+      raw_identifier: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
+      english_paraphrase: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
+      bare_test_sentence: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
+      chinese_description: {baseline_rank: null, selective_rank: null, baseline_status: empty, selective_status: empty}
+
+negative_results:
+  - The selective arm does not change Hit@8 or path Recall@8: both remain 39/48 despite 24 gate activations.
+  - Chinese Hit@8 remains 3/12 and MRR remains 0.194444. Three previously empty Chinese queries become non-empty misses after collapsing to generic terms such as failure or override, so fewer empty results do not mean better localization.
+  - Six Chinese treatments collapse to the single term failure; the small glossary improvement observed on the four gate-design cases does not generalize to these 12 out-of-design development cases.
+  - Raw test-identifier normalization improves two ranks from 3 to 2, has no rank regressions, and raises raw MRR only from 0.833333 to 0.861111.
+  - Both Luigi groups remain degraded because unsupported source files are skipped; this result still does not cover real Agent-generated queries or independent holdout cases.
+
+decision:
+  combined_gate_runtime_policy: not_integrated
+  identifier_branch: promising_but_experimental
+  cjk_branch: blocked_by_glossary_coverage
+  statement: Do not expose the combined gate in the Agent runtime. Next evaluate a conservative CJK strategy that preserves the original query and adds mapped terms only when coverage is sufficient; keep structured test-identifier normalization as a separate candidate.

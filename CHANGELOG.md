@@ -33,6 +33,10 @@ for public releases; unreleased work must not be presented as a published releas
   retaining Hit@8 16/16 while lifting path recall from the always-on 28/32 to 30/32. Its MRR is
   0.549479 versus 0.653646 for always-on normalization, and the adaptive four-case result remains
   opt-in with the sealed holdout untouched.
+- Extended the selective-gate evaluation to the other 12 development cases with 48 paired logical
+  queries. The gate passes all 48 constructed apply/bypass controls, but Hit@8 remains 39/48 and
+  MRR only moves from 0.655208 to 0.662153. Chinese Hit@8 remains 3/12 while non-empty misses rise
+  from one to four, so the combined gate is not integrated into runtime and the holdout stays sealed.
 
 ## 0.3.0 - 2026-10-24
 

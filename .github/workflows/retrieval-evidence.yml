@@ -165,6 +165,47 @@ jobs:
             tornado-2-redirect-put-without-body \
             benchmarks/retrieval/external-development-v3/query-normalization-gate-v1/cases/tornado-2.yaml
 
+      - name: Run broader selective-gate development suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=.horizon/retrieval-v3-evidence/query-normalization-gate-broad
+          mkdir -p "$evidence"
+
+          run_broad_group() {
+            local base_case_id="$1"
+            local manifest="$2"
+            uv run --locked horizon eval retrieval "$manifest" \
+              --source ".horizon/retrieval-v3/sources/$base_case_id" \
+              --state-dir ".horizon/retrieval-v3/gate-broad-$base_case_id" \
+              | tee "$evidence/$base_case_id.json"
+          }
+
+          run_broad_group cookiecutter-3-read-user-choice \
+            benchmarks/retrieval/external-development-v3/query-normalization-gate-broad-v1/cases/cookiecutter-3-read-user-choice.yaml
+          run_broad_group httpie-1-unique-download-filename \
+            benchmarks/retrieval/external-development-v3/query-normalization-gate-broad-v1/cases/httpie-1-unique-download-filename.yaml
+          run_broad_group httpie-4-host-header-overwrite \
+            benchmarks/retrieval/external-development-v3/query-normalization-gate-broad-v1/cases/httpie-4-host-header-overwrite.yaml
+          run_broad_group httpie-5-escape-long-separator \
+            benchmarks/retrieval/external-development-v3/query-normalization-gate-broad-v1/cases/httpie-5-escape-long-separator.yaml
+          run_broad_group luigi-2-beam-target-path \
+            benchmarks/retrieval/external-development-v3/query-normalization-gate-broad-v1/cases/luigi-2-beam-target-path.yaml
+          run_broad_group luigi-3-serialize-tuple-parameter \
+            benchmarks/retrieval/external-development-v3/query-normalization-gate-broad-v1/cases/luigi-3-serialize-tuple-parameter.yaml
+          run_broad_group sanic-2-asyncio-start-serving \
+            benchmarks/retrieval/external-development-v3/query-normalization-gate-broad-v1/cases/sanic-2-asyncio-start-serving.yaml
+          run_broad_group sanic-3-routes-with-host \
+            benchmarks/retrieval/external-development-v3/query-normalization-gate-broad-v1/cases/sanic-3-routes-with-host.yaml
+          run_broad_group sanic-5-root-logger-config \
+            benchmarks/retrieval/external-development-v3/query-normalization-gate-broad-v1/cases/sanic-5-root-logger-config.yaml
+          run_broad_group thefuck-2-executable-path-separator \
+            benchmarks/retrieval/external-development-v3/query-normalization-gate-broad-v1/cases/thefuck-2-executable-path-separator.yaml
+          run_broad_group thefuck-5-git-push-bitbucket \
+            benchmarks/retrieval/external-development-v3/query-normalization-gate-broad-v1/cases/thefuck-5-git-push-bitbucket.yaml
+          run_broad_group tornado-4-static-range-bounds \
+            benchmarks/retrieval/external-development-v3/query-normalization-gate-broad-v1/cases/tornado-4-static-range-bounds.yaml
+
       - name: Validate evidence boundary and publish summary
         shell: bash
         run: |
@@ -280,6 +321,36 @@ jobs:
           if gate["decision"]["default_runtime_policy"] != "unchanged":
               raise SystemExit("Selective gate unexpectedly changed runtime policy")
 
+          broad = yaml.safe_load(
+              Path(
+                  "benchmarks/retrieval/external-development-v3/"
+                  "query-normalization-gate-broad-v1/result-v1.yaml"
+              ).read_text(encoding="utf-8")
+          )
+          if broad["execution"]["source_manifest_digest"] != receipt["source_manifest_digest"]:
+              raise SystemExit("Broader selective-gate source manifest digest drifted")
+          broad_root = evidence / "query-normalization-gate-broad"
+          for group in broad["groups"]:
+              payload = json.loads(
+                  (broad_root / f"{group['base_case_id']}.json").read_text(encoding="utf-8")
+              )
+              broad_report = payload["report"]
+              if payload["report_ref"] != group["report_ref"]:
+                  raise SystemExit(
+                      f"Broader selective-gate report drifted for {group['base_case_id']}"
+                  )
+              if broad_report["paid_model_called"] or broad_report["network_called"]:
+                  raise SystemExit("Broader selective-gate evaluator made an external call")
+          broad_at_8 = broad["aggregate"]["metrics_at_k"][3]
+          if (
+              broad_at_8["hit_count"]["baseline"] != 39
+              or broad_at_8["hit_count"]["selective"] != 39
+              or broad["aggregate"]["mean_reciprocal_rank"]["selective"] != 0.662153
+          ):
+              raise SystemExit("Broader selective-gate metrics changed unexpectedly")
+          if broad["decision"]["combined_gate_runtime_policy"] != "not_integrated":
+              raise SystemExit("Broader evidence unexpectedly changed runtime policy")
+
           lines = [
               "## External retrieval development evidence",
               "",
@@ -332,6 +403,24 @@ jobs:
                   f"{gate['aggregate']['mean_reciprocal_rank']['selective']}`"
               ),
               "- Selective gate applied / bypassed queries: `8 / 8`",
+              (
+                  "- Broader gate contract applied / bypassed / errors: `"
+                  f"{broad['gate_contract']['observed_apply_count']} / "
+                  f"{broad['gate_contract']['observed_bypass_count']} / "
+                  f"{broad['gate_contract']['false_activation_count'] + broad['gate_contract']['false_bypass_count']}`"
+              ),
+              (
+                  "- Broader Hit@8 baseline -> selective: `"
+                  f"{broad_at_8['hit_count']['baseline']}/48 -> "
+                  f"{broad_at_8['hit_count']['selective']}/48`"
+              ),
+              (
+                  "- Broader Chinese Hit@8 / non-empty misses baseline -> selective: `"
+                  f"{broad['by_variant']['chinese_description']['hit_at_8']['baseline']} -> "
+                  f"{broad['by_variant']['chinese_description']['hit_at_8']['selective']} / "
+                  f"{broad['by_variant']['chinese_description']['nonempty_miss_count']['baseline']} -> "
+                  f"{broad['by_variant']['chinese_description']['nonempty_miss_count']['selective']}`"
+              ),
               "- Query normalization default runtime policy: `unchanged`",
               "- Holdout: `sealed and not materialized`",
           ]
