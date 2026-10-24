@@ -168,11 +168,19 @@ jobs:
           state_dir=.horizon/full-checkout-docker-v3
           mkdir -p "$state_dir"
           docker image inspect python:3.12-alpine --format '{{.Id}}'
+          set +e
           uv run --locked horizon eval run-ab-suite \
             benchmarks/run_ab/bugsinpy-full-checkout-pilot-v3.yaml \
             --image python:3.12-alpine \
             --state-dir "$state_dir" \
-            | tee "$state_dir/cli-result.json"
+            2>&1 | tee "$state_dir/cli-result.json"
+          suite_status=${PIPESTATUS[0]}
+          set -e
+          if (( suite_status != 0 )); then
+            detail="$(tail -c 2000 "$state_dir/cli-result.json" | tr '\n\r' '  ' | sed 's/%/%25/g')"
+            echo "::error title=Full-checkout v3 failed::$detail"
+            exit "$suite_status"
+          fi
 
       - name: Run the two-case three-stage recovery suite in network-disabled containers
         shell: bash
