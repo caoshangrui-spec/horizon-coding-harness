@@ -50,11 +50,19 @@ jobs:
           set -euo pipefail
           evidence=.horizon/retrieval-v3-evidence
           mkdir -p "$evidence"
+          set +e
           uv run --locked horizon eval materialize-retrieval-suite \
             benchmarks/retrieval/external-development-v3/source-materialization.yaml \
             --sources-root .horizon/retrieval-v3/sources \
             --cache-dir .horizon/retrieval-v3/git-cache \
-            | tee "$evidence/materialization-cli.json"
+            2>&1 | tee "$evidence/materialization-cli.json"
+          materialization_status=${PIPESTATUS[0]}
+          set -e
+          if (( materialization_status != 0 )); then
+            detail="$(tail -c 3000 "$evidence/materialization-cli.json" | tr '\n\r' '  ' | sed 's/%/%25/g')"
+            echo "::error title=Pinned source materialization failed::$detail"
+            exit "$materialization_status"
+          fi
           cp \
             .horizon/retrieval-v3/sources/materialization-receipt.json \
             "$evidence/materialization-receipt.json"
