@@ -90,8 +90,9 @@ E2E 与 `trace replay` 测试承担。
 验收、两份内容寻址 Trace、调用数和合成费用，见[完整 Run A/B](run-ab-evaluation.md)。同一合同
 也已扩展到五个来源绑定的 BugsInPy 依赖裁剪案例；五例本地可信和公开禁网 Docker 均为 5/5，
 见[外部来源 A/B Suite](external-run-ab-suite.md)。
-其中 tqdm-1、youtube-dl-3 与 Luigi-1 又在[完整固定 checkout](full-checkout-pilot.md)上通过并实际
-运行 Code RAG；v2 三例已有本地可信执行和公开禁网 Docker 3/3。重复 CAS blob 校验的
+其中 tqdm-1、youtube-dl-3、Luigi-1、FastAPI-5 与 Tornado-1 又在
+[完整固定 checkout](full-checkout-pilot.md)上通过并实际运行 Code RAG；v3 五例已有本地可信执行和
+公开禁网 Docker 5/5。重复 CAS blob 校验的
 规模开销已优化；youtube-dl-3 的
 [完整 checkout 多阶段任务](multi-stage-full-checkout-pilot.md)现覆盖 youtube-dl 与 Luigi 两个
 作者选择案例，均在三个依赖 WorkItem 之间两次切换 Worker；本地可信与公开禁网 Docker 均为

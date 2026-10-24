@@ -1,6 +1,6 @@
 # 开发进度与验证记录
 
-更新：2026-10-23。已发布版本和主干包元数据均为 0.2.0；版本范围与发布证据见
+更新：2026-10-24。已发布版本和主干包元数据均为 0.2.0；版本范围与发布证据见
 [v0.2.0 release notes](release-v0.2.0.md)。2026-09-30 的
 可靠性内核证据保留，本次在其上增加 Provider 垂直切片和首个受控 Coding Agent 闭环。
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
@@ -38,10 +38,10 @@
 | Revision-aware 词法 Code RAG | [retrieval.py](../src/horizon/domain/retrieval.py)、[sqlite_fts.py](../src/horizon/adapters/retrieval/sqlite_fts.py)、[retrieval_eval.py](../src/horizon/application/retrieval_eval.py) | SQLite FTS5/BM25、有界 EvidencePack、权限/revision/hash 回查、显式 scan fallback；camelCase/snake_case、同名定义路径语境和不同文件优先已测，内部 5+2+2 与外部 3 案例的成功/负结果均记录；dirty revision 可重建新排名并重放旧证据；外部盲测仍为 Hit@1 0/3，且无 AST/向量/symbol 图或真实模型收益结论 |
 | 冻结控制器策略评测 | [reliability.py](../src/horizon/domain/reliability.py)、[reliability_eval.py](../src/horizon/application/reliability_eval.py) | 14 案例/62 判断覆盖精确 period-1/2/3/4 NoProgress 与单次 replan 接受/拒绝；生产路径共享判定函数、报告内容寻址、零外部调用；不是模型或真实 Issue 效果评测 |
 | 有界恢复矩阵 v3 | [recovery_evaluation.py](../src/horizon/domain/recovery_evaluation.py)、[recovery_eval.py](../src/horizon/application/recovery_eval.py)、[horizon-recovery-matrix-v3.yaml](../benchmarks/recovery/horizon-recovery-matrix-v3.yaml)、[recovery-matrix-evaluation.md](recovery-matrix-evaluation.md) | 保留 v1/v2 digest；新增 promotion effect→receipt 前真实硬退出，与既有写入/模型响应硬退出及 18 个三工具状态/决策组合合计 21/21。自动恢复 11/11、安全阻塞 10/10、incorrect resume/redispatch/重复副作用均 0；三条 Trace replay。仍非完整设计故障矩阵、主机故障或 exactly-once 验收 |
-| 完整 Run A/B 与来源绑定 Suite | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[scripted.py](../src/horizon/adapters/model/scripted.py) | 同一 Task/Plan/workspace 的 baseline 与单次 replan arm；先真实确认初始失败，再检查 EventLog/预算/Gateway/Trace；1 个内部、v2 的 5 个 BugsInPy 依赖裁剪案例，以及 tqdm 82 files、youtube-dl 872 files、Luigi 382 files 三个完整 checkout。两个 v2 suite 均有 test-only 本地真实回归，并由统一公开 CI 在禁网 Docker 中通过 5/5 与 3/3、上传内容寻址证据。完整案例还验证干净 Git HEAD 与 Code RAG，仍是脚本模型 |
+| 完整 Run A/B 与来源绑定 Suite | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[scripted.py](../src/horizon/adapters/model/scripted.py) | 同一 Task/Plan/workspace 的 baseline 与单次 replan arm；先真实确认初始失败，再检查 EventLog/预算/Gateway/Trace；1 个内部、v2 的 5 个 BugsInPy 依赖裁剪案例，以及 tqdm 82 files、youtube-dl 872 files、Luigi 382 files、FastAPI 629 files、Tornado 301 files 五个完整 checkout。依赖裁剪 v2 与完整 checkout v3 均有 test-only 本地真实回归，并由公开 CI 在禁网 Docker 中通过 5/5 与 5/5、上传内容寻址证据。完整案例还验证干净 Git HEAD 与 Code RAG，仍是脚本模型 |
 | 完整 checkout 多阶段/重启 A/B | [bugsinpy-multi-stage-pilot-v3.yaml](../benchmarks/run_ab/bugsinpy-multi-stage-pilot-v3.yaml) | youtube-dl 872 files 与 Luigi 382 files 上各有三个依赖 WorkItem；四条 arm 均跨两个持久边界到 epoch 3，并覆盖跨 revision RAG、active/stale Run Memory、完成项保留 replan、最终三项 required checks 与 Trace replay。本地可信与公开禁网 Docker 均为 2/2，doctor 的 Docker 计数为 2。v1 的 CRLF 精确替换失败和 60 秒重启 Lease 到期负结果继续保留 |
 | 源码绑定的写入硬崩溃 A/B | [bugsinpy-multi-stage-hard-crash-v1.yaml](../benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v1.yaml)、[设计与证据](source-bound-hard-crash-recovery.md) | Luigi 382-file checkout 的两条 arm 都由真实子进程在第一个生产写入 effect 后、receipt 前退出；父进程先记录 unknown、围栏旧 lease，再按精确后态 `accept_replace`，不重派模型，并继续两个 WorkItem 边界到 epoch 4。本地可信与公开禁网 Docker 均为 1/1、Trace replay、source unchanged、unknown/open 0；doctor 的 Docker 计数为 1 |
-| 公开仓库长程可靠性指标 | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[指标合同](long-horizon-reliability-metrics.md) | 新生成的每个 case 记录单调时钟观测耗时；suite typed aggregate 直接给出 scenario/arm、P95、Worker 重启、硬崩溃恢复率、恢复重派、重复副作用、Trace replay、source isolation 与最终 open effect。旧报告仍可读取，冻结 manifest digest 不变；公开 Docker workflow 将多阶段与硬崩溃关键指标设为失败门槛并写入 Job Summary。11 个 suite 场景含重复 bug，仍无 20～30 个独立真实任务或真实模型成功率证据 |
+| 公开仓库长程可靠性指标 | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[指标合同](long-horizon-reliability-metrics.md) | 新生成的每个 case 记录单调时钟观测耗时；suite typed aggregate 直接给出 scenario/arm、P95、Worker 重启、硬崩溃恢复率、恢复重派、重复副作用、Trace replay、source isolation 与最终 open effect。旧报告仍可读取，冻结 manifest digest 不变；公开 Docker workflow 将多阶段与硬崩溃关键指标设为失败门槛并写入 Job Summary。13 个 suite 场景含重复 bug，仍无 20～30 个独立真实任务或真实模型成功率证据 |
 | 真实模型 Pilot | [pilot.py](../src/horizon/domain/pilot.py)、[pilot.py](../src/horizon/application/pilot.py)、[real-model-pilot.md](real-model-pilot.md) | 离线预检绑定完整干净 checkout、初始失败、source snapshot、Docker image、Provider policy、Harness 源码指纹、费用 cap 和首次规划保守预留。七个付费 Run 均无编辑/验证、Trace 可重放且 source 未变；第七轮 Planner 直接定位真实 `__init__.py`，execution 再次取得 rank-1 证据，但消费回执前因 Campaign 预留不足停止。当前实际累计为 `CNY 0.2064492`，没有自动复跑或真实 Issue 成功 |
 | 模型预留压力诊断 | [reservation_analysis.py](../src/horizon/application/reservation_analysis.py)、[reservation-diagnostics.md](reservation-diagnostics.md) | `trace reservation-report` 在 replay/hash-chain 校验后关联 reservation、settlement 和新 BudgetStop 请求尺寸；七轮 22 次调用的聚合预留/结算比为 6.860516。候选 `request_bytes + 1024` 可回放 5 次，并按旧领域 JSON / 当前 wire basis 分层；当前口径仅 2 次、0 次观测低估、中位比 4.230001。生产 estimator、费用门禁和付费预算均未改变 |
 | 安全轮次续跑 | [agent.py](../src/horizon/domain/agent.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 消息 Artifact + event/revision 绑定；新 Worker 续跑；PLANNING/READY 也可恢复，任意崩溃窗口对账未完成 |
@@ -95,6 +95,27 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 仍是后续适配约束；不能以该文档代替本项目的实际联调。
 
 ## 验证结果
+
+### 2026-10-24 完整 Checkout Suite v3：五项目
+
+- `bugsinpy-full-checkout-pilot-v3.yaml` 原样保留 v2 的 tqdm、youtube-dl、Luigi 三例，再追加固定
+  BugsInPy buggy commit 的 FastAPI 629-file 与 Tornado 301-file checkout；五项目合计 2,266 个
+  tracked 文件，suite digest 为
+  `d878964e246f8fabb6cf162f657791e959ae6c529d61eb1143cc98ea7d4edd8a`。
+- 新增两例先验证 buggy checkout 失败、fixed checkout 通过。test-only 本地 Harness 执行中两例
+  Baseline 均进入 `WAITING_FOR_USER`，Treatment 均生成 Plan v2 并进入 `SUCCEEDED`；FastAPI
+  Baseline/Treatment 分别为 48/74 个事件，Tornado 为 48/92 个事件，Trace 可重放且 source 未变。
+- 公开 Linux [Source-bound Docker evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40080364921)
+  使用生产 Docker adapter、禁网/非 root/只读根/drop capabilities/资源上限完成 v3 5/5；不读取
+  API Key、不调用付费模型。[标准 CI](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40080364883)
+  同时通过；统一 artifact digest 为
+  `sha256:f3698c74ef95dede7b2f51109c08b006d6e242640947045d1c49bee37faae80c`，大小
+  131,547,546 bytes，计划保留至 2026-11-23。
+- 原候选 Cookiecutter 的七个 tracked 文档符号链接在 Windows 被物化为普通文件，在 Linux 保持
+  符号链接并被快照安全门拒绝。最终 v3 不计入该候选；没有放宽 link/junction 拒绝规则，也没有
+  排除文件后冒充完整 checkout。工作流同时新增有界 stderr 注解，使这类公开失败可直接诊断。
+- 当前 13 个执行场景含重复上游 bug；新增的是 Harness 可靠性和任务多样性证据，不是模型自主
+  修复成功率、官方 BugsInPy/SWE-bench 分数或可外推的泛化率。
 
 ### 2026-10-23 父控制器硬退出后的持久 Process Worker 恢复
 
@@ -978,8 +999,8 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 七轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 466 passed；全量入口对应
-466 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
+当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 468 passed；全量入口对应
+468 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
 `run_model_cost_limit` 进入 `FAILED`。没有工具、编辑、checkpoint 或验证，Trace 14 事件可重放，
@@ -995,9 +1016,10 @@ source 未变。第六轮 Run `run_7fab106a71174c77bb0a82a8a054d3ed` 使用该 v
 都不能自动扩权，任何新付费 Run 仍须取得明确授权。当前优先继续零费用可靠性验证，现有证据不支持立即引入 symbol/vector
 索引、模型摘要或自动 replan。Run Memory 已形成最小垂直切片，
 精确 NoProgress/replan 的冻结策略 Trace 已建立 14 案例基线；内部 A/B、五个来源绑定的依赖裁剪
-案例和三个不同项目的完整 checkout 均已执行初始负例、Trace、验收、调用数和合成费用合同；
-两个 v2 suite 均已有公开禁网 Docker 5/5 与 3/3 报告和统一证据 artifact。完整 suite 给出三个
-Code RAG rank 1，以及 9/2/55 个文件跳过的显式降级证据；重复 CAS blob 校验的
+案例和五个不同项目的完整 checkout 均已执行初始负例、Trace、验收、调用数和合成费用合同；
+依赖裁剪 v2 与完整 checkout v3 均已有公开禁网 Docker 5/5 报告和统一证据 artifact。完整 suite
+中历史三例给出 Code RAG rank 1，以及 9/2/55 个文件跳过的显式降级证据；新增两例不在缺少
+artifact 明细时追写排名。重复 CAS blob 校验的
 规模开销已完成前后对照优化。完整 checkout 的两阶段 production → regression-test 任务及其
 WorkItem 边界 epoch 1 → 2 Worker 恢复也已通过。`run_check` 已有不自动重派的窄丢弃合同、
 可查询标签 attempt、显式 create/start 边界、created 状态的窄丢弃路径与自然退出结果恢复；正常主路径把停止容器保留到

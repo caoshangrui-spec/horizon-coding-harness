@@ -1,6 +1,6 @@
 # 公开仓库长程任务可靠性指标
 
-更新：2026-10-23。本页把 Horizon 已有的来源绑定 Run A/B 证据收敛为一组机器可验证、面试时
+更新：2026-10-24。本页把 Horizon 已有的来源绑定 Run A/B 证据收敛为一组机器可验证、面试时
 可直接解释的指标。指标由 `RunABEvaluator` 在完整 Agent 主链路结束后生成，不再由 CI 中的临时
 脚本根据日志猜测。
 
@@ -56,11 +56,11 @@
 | Suite | 公开来源 | 场景 | 长程/故障结构 |
 |---|---|---:|---|
 | `bugsinpy-reduced-v2` | Cookiecutter、FastAPI、tqdm、Luigi、Tornado | 5 | dependency-reduced A/B；用于较快回归 |
-| `bugsinpy-full-checkout-pilot-v2` | tqdm、youtube-dl、Luigi | 3 | 82 / 872 / 382 tracked-file 完整 checkout |
+| `bugsinpy-full-checkout-pilot-v3` | tqdm、youtube-dl、Luigi、FastAPI、Tornado | 5 | 82 / 872 / 382 / 629 / 301 tracked-file 完整 checkout |
 | `bugsinpy-multi-stage-pilot-v3` | youtube-dl、Luigi | 2 | 每条 arm 为 3 WorkItem、2 次 Worker 重启；合计 4 条 Trace、8 次重启 |
 | `bugsinpy-multi-stage-hard-crash-v1` | Luigi | 1 | 两条 arm 均真实写入后、receipt 前退出，再跨两个 WorkItem 边界；合计 2 次恢复尝试、6 次重启 |
 
-同一 bug 在不同 suite 中用于不同实验变量，因此不能把上述 11 个场景宣传成 11 个独立真实任务。
+同一 bug 在不同 suite 中用于不同实验变量，因此不能把上述 13 个场景宣传成 13 个独立真实任务。
 按 `(benchmark, project, bug_id, buggy_commit)` 去重后也仍是作者选择的小样本。当前项目继续保留
 “尚无 20～30 个独立真实任务和真实模型成功率”的负面边界。
 

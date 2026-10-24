@@ -5,6 +5,15 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Expanded the clean full-checkout suite from three to five source-bound BugsInPy projects while
+  preserving the complete v2 case prefix and digest. v3 adds FastAPI's recursive nested-field clone
+  fix over a 629-file checkout and Tornado's handler-to-protocol-to-stream nodelay contract over a
+  301-file checkout; together the five cases bind 2,266 tracked files. Buggy/fixed protected checks,
+  trusted local A/B, Trace replay, source isolation, and the public network-disabled Docker suite all
+  pass 5/5 without a paid model call. A Cookiecutter candidate exposed seven tracked documentation
+  symlinks on Linux and remains an explicit negative result: the link/junction snapshot gate was not
+  relaxed and excluded files were not presented as a full checkout. The workflow now emits a bounded
+  stderr annotation when this suite fails so public evidence remains diagnosable.
 - Added first-class long-horizon reliability metrics to every new source-bound Run A/B suite
   report. Case execution now records monotonic observed duration, while the typed suite aggregate
   reports scenario/arm counts, P95 duration, Worker restarts, injected hard-crash recovery rate,

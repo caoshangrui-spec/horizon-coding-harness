@@ -1,9 +1,9 @@
-# 完整上游 Checkout Suite：BugsInPy 三项目
+# 完整上游 Checkout Suite：BugsInPy 五项目
 
-更新：2026-10-06。本 suite 把来源绑定 A/B 从依赖裁剪 fixture 推进到三个不同项目的完整历史
-checkout：固定 BugsInPy 声明的 buggy commit，分别保留 tqdm 的 82 个、youtube-dl 的 872 个和
-Luigi 的 382 个 tracked 文件，先执行初始失败门，再运行 Baseline 与单次 replan Treatment。执行
-使用冻结脚本模型，验证的是 Harness、Code RAG、预算、可恢复等待和 Trace 合同，不是模型能力跑分。
+更新：2026-10-24。v3 把来源绑定 A/B 从三个扩到五个不同项目的完整历史 checkout：在原有
+tqdm、youtube-dl、Luigi 上新增 FastAPI 与 Tornado，共保留 2,266 个 tracked 文件。每个案例先
+执行初始失败门，再运行 Baseline 与单次 replan Treatment。执行使用冻结脚本模型，验证的是
+Harness、Code RAG、预算、可恢复等待和 Trace 合同，不是模型能力跑分。
 
 ## 1. 来源门与案例
 
@@ -13,12 +13,17 @@ Luigi 的 382 个 tracked 文件，先执行初始失败门，再运行 Baseline
 - v2：[`bugsinpy-full-checkout-pilot-v2.yaml`](../benchmarks/run_ab/bugsinpy-full-checkout-pilot-v2.yaml)，
   原样保留 v1 两个 case，再追加 Luigi，digest
   `be359684b9e3adfd676ed06c457197f7aff42bdcd1dbb3913321cebf5ef857b4`。
+- v3：[`bugsinpy-full-checkout-pilot-v3.yaml`](../benchmarks/run_ab/bugsinpy-full-checkout-pilot-v3.yaml)，
+  原样保留 v2 三个 case，再追加 FastAPI 与 Tornado，digest
+  `d878964e246f8fabb6cf162f657791e959ae6c529d61eb1143cc98ea7d4edd8a`。
 
 | Case | Buggy → fixed | 完整 checkout | 保护验收 |
 |---|---|---:|---|
 | [`tqdm-1-tenumerate-start-full`](../benchmarks/run_ab/full/tqdm-1-tenumerate-start/manifest.yaml) | [`8cc777f`](https://github.com/tqdm/tqdm/commit/8cc777fe8401a05d07f2c97e65d15e4460feab88) → [`c0dcf39`](https://github.com/tqdm/tqdm/commit/c0dcf39b046d1b4ff6de14ac99ad9a1b10487512) | 82 files | `tenumerate(..., start=42)` 与 `enumerate(..., 42)` 一致 |
 | [`youtube-dl-3-unescape-html-full`](../benchmarks/run_ab/full/youtube-dl-3-unescape-html/manifest.yaml) | [`f5469da`](https://github.com/ytdl-org/youtube-dl/commit/f5469da9e6e259c1690c7ef54f1da1c19f65036f) → [`95f3f7c`](https://github.com/ytdl-org/youtube-dl/commit/95f3f7c20a05e7ac490e768b8470b20538ef8581) | 872 files | `unescapeHTML('&a&quot;') == '&a"'` |
 | [`luigi-1-metrics-handler-full`](../benchmarks/run_ab/full/luigi-1-metrics-handler/manifest.yaml) | [`1164eb6`](https://github.com/spotify/luigi/commit/1164eb6b85b8a70f596dbb99452bec513e72c12e) → [`aec5dc2`](https://github.com/spotify/luigi/commit/aec5dc2ed8db53fc282a0bd24aabe59031b6d1ba) | 382 files | payload 由 collector 生成，HTTP handler 也必须由同一 collector 配置 |
+| [`fastapi-5-nested-field-clone-full`](../benchmarks/run_ab/full/fastapi-5-nested-field-clone/manifest.yaml) | [`7cea84b`](https://github.com/fastapi/fastapi/commit/7cea84b74ca3106a7f861b774e9d215e5228728f) → [`75a07f2`](https://github.com/fastapi/fastapi/commit/75a07f24bf01a31225ee687f3e2b3fc1981b67ab) | 629 files | cloned response model 的嵌套字段不能继续别名指向原字段对象 |
+| [`tornado-1-websocket-nodelay-full`](../benchmarks/run_ab/full/tornado-1-websocket-nodelay/manifest.yaml) | [`6a5a0bf`](https://github.com/tornadoweb/tornado/commit/6a5a0bfa370b6c0d3dbbf9589a560a98202d2baa) → [`4677c54`](https://github.com/tornadoweb/tornado/commit/4677c54cc18bbfbdf0f4dadf11610fab6203fd63) | 301 files | handler → protocol → stream 的 nodelay 委托及抽象合同 |
 
 缺陷元数据来自 [BugsInPy](https://github.com/soarsmu/BugsInPy)。执行前 CLI 会拒绝以下任一情况：
 
@@ -58,21 +63,53 @@ git -C $luigi remote add origin https://github.com/spotify/luigi.git
 git -C $luigi fetch --depth 1 origin 1164eb6b85b8a70f596dbb99452bec513e72c12e
 git -C $luigi checkout --detach FETCH_HEAD
 
+$fastapi = "benchmarks/run_ab/full/fastapi-5-nested-field-clone/fixture"
+New-Item -ItemType Directory -Path $fastapi
+git -C $fastapi init
+git -C $fastapi remote add origin https://github.com/fastapi/fastapi.git
+git -C $fastapi fetch --depth 1 origin 7cea84b74ca3106a7f861b774e9d215e5228728f
+git -C $fastapi checkout --detach FETCH_HEAD
+
+$tornado = "benchmarks/run_ab/full/tornado-1-websocket-nodelay/fixture"
+New-Item -ItemType Directory -Path $tornado
+git -C $tornado init
+git -C $tornado remote add origin https://github.com/tornadoweb/tornado.git
+git -C $tornado fetch --depth 1 origin 6a5a0bfa370b6c0d3dbbf9589a560a98202d2baa
+git -C $tornado checkout --detach FETCH_HEAD
+
 uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
-  benchmarks/run_ab/bugsinpy-full-checkout-pilot-v2.yaml `
+  benchmarks/run_ab/bugsinpy-full-checkout-pilot-v3.yaml `
   --image python:3.12-alpine `
-  --state-dir .horizon/run-ab-suite-full-three-v2
+  --state-dir .horizon/run-ab-suite-full-five-v3
 ```
 
-前两个保护命令直接导入完整 checkout 中的真实生产代码。Luigi 的历史模块导入依赖 Tornado、
-`pkg_resources` 和完整 Luigi 包，因此第三个命令用标准库 AST 从真实 `luigi/server.py` 提取并执行
-`MetricsHandler` 类，再以独立 payload/collector 假对象验证所有权；它不是文本 marker 检查，也
-没有安装历史依赖栈。三个命令均复现修复提交的目标行为，但不运行项目原 Python 版本和完整依赖
-矩阵，不能替代官方 BugsInPy runner。
+前两个保护命令直接导入完整 checkout 中的真实生产代码。其余三个案例为避免安装历史依赖栈，
+使用标准库 AST 从真实生产文件提取目标函数或类后执行：Luigi 验证 `MetricsHandler` 的 collector
+所有权；FastAPI 以最小 stdlib 假对象执行真实 `create_cloned_field`，验证嵌套字段不再复用原对象；
+Tornado 执行真实 handler/protocol 方法，验证抽象合同以及 handler → protocol → stream 的 nodelay
+委托。它们不是文本 marker 检查，但也不运行各项目原 Python 版本和完整依赖矩阵，不能替代官方
+BugsInPy runner。
 
 ## 3. 当前 A/B 证据
 
-### 3.1 v2 三项目公开 Docker 执行
+### 3.1 v3 五项目公开 Docker 执行
+
+2026-10-24 的专用 [Source-bound Docker evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40080364921)
+在 GitHub-hosted Linux runner 上重新 shallow-fetch 五个固定 buggy commit，并逐一检查 HEAD、tracked
+文件数和 clean status。工作流随后在生产 `DockerAcceptanceExecutor` 中运行冻结 v3：5/5 初始检查
+按预期失败，5/5 Baseline 进入 `WAITING_FOR_USER`，5/5 Treatment 进入 `SUCCEEDED`；验收容器使用
+`network=none`、只读根文件系统、非 root 用户、drop all capabilities 与资源上限。工作流不读取
+API Key、不调用付费模型，动作仍来自冻结 Scripted Model。统一 artifact
+`source-bound-docker-evidence` 为 131,547,546 bytes，digest
+`sha256:f3698c74ef95dede7b2f51109c08b006d6e242640947045d1c49bee37faae80c`，计划保留至
+2026-11-23；其中同时包含依赖裁剪、五项目完整 checkout、多阶段和硬崩溃 suite 的报告与 Trace。
+
+同一批本地 test-only 可信执行先独立跑过新增两例：FastAPI 与 Tornado 的 buggy checkout 均未通过
+保护检查，对应 fixed checkout 均通过；两例 Baseline 均产生 48 个事件并进入 `WAITING_FOR_USER`，
+Treatment 分别产生 74 / 92 个事件、生成 Plan v2 并进入 `SUCCEEDED`，Trace 可重放且两个源 checkout
+保持干净。该证据验证的是 Harness 与冻结修复动作，不是模型自主定位能力。
+
+### 3.2 v2 三项目历史公开 Docker 执行
 
 2026-10-06 的专用 [Source-bound Docker evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/37436568589)
 工作流在 GitHub-hosted Linux runner 上重新 shallow-fetch 三个固定 buggy commit，并逐一检查 HEAD、
@@ -92,7 +129,7 @@ tracked 文件数和 clean status。随后它拉取 `python:3.12-alpine`，通�
 BugsInPy 官方 runner 成绩。工作流只在自身、v2 manifests 或直接的 runner/sandbox 合同变化时
 自动执行，也可手动触发；不拖慢每个普通文档提交。
 
-### 3.2 v2 三项目本地可信执行
+### 3.3 v2 三项目历史本地可信执行
 
 2026-10-06 使用 Python 3.12 的 test-only 本地执行器实际运行三个冻结保护命令；Harness 的源码门、
 快照、RAG、Gateway、预算、Run/Trace 和重放路径保持不变，只有生产 Docker acceptance adapter 被
@@ -120,7 +157,7 @@ BugsInPy 官方 runner 成绩。工作流只在自身、v2 manifests 或直接�
 checkout，Gateway 正确返回 `Exact replacement occurrence count did not match`，Treatment 最终失败。
 修正为两个行结尾无关的原子单行替换后，单案和三项目 suite 均通过；没有放宽 exact-match 合同。
 
-### 3.3 v1 双项目历史 Docker 结果
+### 3.4 v1 双项目历史 Docker 结果
 
 2026-10-03 使用本机已有禁网镜像 digest
 `sha256:0687a6bc9716edc2a6ee0fbfb0f87e7ee358b262b67c9215de91bc9b2d38ba71`：
@@ -161,8 +198,9 @@ checkout，Gateway 正确返回 `Exact replacement occurrence count did not matc
 ## 4. 完整仓库 Code RAG
 
 每个 arm 先重复同一条 `retrieve_code` 查询，第三次相同查询由 NoProgressPolicy 阻断；Treatment
-随后显式 replan、精确修改真实生产文件并通过对应保护验收。v2 三例同时有 test-only 本地执行
-和专用公开禁网 Docker 执行，两条路径均保存 revision-bound EvidencePack。
+随后显式 replan、精确修改真实生产文件并通过对应保护验收。v3 五例同时有 test-only 本地执行
+和专用公开禁网 Docker 执行，两条路径均保存 revision-bound EvidencePack。下表只列已从历史 v2
+报告复核过具体检索排名的三例；新增两例不在缺少 artifact 明细时追写排名。
 
 | 项 | tqdm-1 | youtube-dl-3 | Luigi-1 |
 |---|---|---|---|
@@ -197,19 +235,28 @@ checkout，Gateway 正确返回 `Exact replacement occurrence count did not matc
 事件数（每个 Baseline 48、Treatment 74）、预算、source unchanged 与 Trace replay 均未变化。
 这证明加速没有通过跳过 workspace 内容哈希、共享 arm 状态或放宽完整性门取得。
 
-候选选择也保留一个负结果：PySnooper bug 3 的 BugsInPy `requirements.txt` 为空，但真实源码导入
+候选选择保留两个负结果。Cookiecutter bug 3 的历史 checkout 有七个 tracked 文档符号链接：
+`docs/AUTHORS.md`、`docs/BACKERS.md`、`docs/CODE_OF_CONDUCT.md`、`docs/CONTRIBUTING.md`、
+`docs/HISTORY.md`、`docs/README.md` 与 `docs/case_studies.md`。Windows checkout 把它们物化为普通
+文件，因此本地候选曾通过；公开 Linux runner 保留符号链接后，快照安全门正确拒绝
+`Links and junctions are not accepted: AUTHORS.md`。两次诊断运行分别是
+[首次失败](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40079729293)与
+[带公开错误注解的复现](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40080091517)。
+最终 v3 不计入该候选，也没有放宽链接安全门或把七个文件排除后冒充完整 checkout。
+
+PySnooper bug 3 的 BugsInPy `requirements.txt` 为空，但真实源码导入
 `decorator`，官方 `setup.sh` 也会安装它。为避免为一个案例维护专用依赖镜像，本批没有把它包装成
-“依赖无关成功”；该候选被明确放弃，不计入历史 v1 的 2/2 或当前 v2 的 3/3。
+“依赖无关成功”；该候选也被明确放弃，不计入任何 suite。
 
 ## 6. 结论边界
 
-可以声称：三个不同项目、共 1,336 个 tracked 文件的精确完整 checkout 已通过来源门、初始负例、
+可以声称：五个不同项目、共 2,266 个 tracked 文件的精确完整 checkout 已通过来源门、初始负例、
 真实 Code RAG、可恢复等待、单次 replan、本地可信验收、公开禁网 Docker 验收和 Trace replay。
 不能声称：
 
 - 这是 BugsInPy 官方分数、原 Python 版本或完整依赖环境的测试结果；
 - 脚本模型证明真实模型能自主生成查询、定位缺陷或选择 replan；
-- 3 个作者选择案例足以估计泛化成功率、误触发率或成本收益。
+- 5 个作者选择案例足以估计泛化成功率、误触发率或成本收益。
 
 后续增量已把 youtube-dl 案例扩展为[两阶段完整 checkout](multi-stage-full-checkout-pilot.md)，并在
 production WorkItem 通过后换用 epoch 2 Worker，联合观察上下文、Memory、检索、replan 与恢复。
