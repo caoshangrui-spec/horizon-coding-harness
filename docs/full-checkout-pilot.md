@@ -1,8 +1,8 @@
 # 完整上游 Checkout Suite：BugsInPy 六项目
 
 更新：2026-10-25。v4 原样保留 v3 的五个完整历史 checkout，再加入 HTTPie bug 2，共六个
-不同项目、2,336 个 tracked 文件。HTTPie 单案已通过 test-only 本地可信执行；六案例统一公开
-Docker 验收尚待本次提交的 GitHub Actions，因此当前公开已验证结论仍是 v3 的 5/5。每个案例先
+不同项目、2,336 个 tracked 文件。HTTPie 单案已通过 test-only 本地可信执行，六案例也已通过
+GitHub-hosted Linux 上的公开禁网 Docker 统一验收。每个案例先
 执行初始失败门，再运行 Baseline 与单次 replan Treatment。执行使用冻结脚本模型，验证的是
 Harness、Code RAG、预算、可恢复等待和 Trace 合同，不是模型能力跑分。
 
@@ -117,9 +117,16 @@ source checkout 未改变，`paid_model_called=false`、`network_called=false`�
 第一次本地六案例联合执行保留为负结果：结果为 4/6。新 clone 的 Tornado checkout 使用 CRLF，
 冻结 v3 manifest 的 LF 多行 exact replacement 无法匹配；HTTPie 初稿也使用了同类多行锚点。
 HTTPie 随后缩为唯一单行锚点，并在 LF/CRLF 合同测试及上述单案中通过；历史 v3 manifest 没有为
-迎合这次 Windows clone 而改写，且未把 4/6 冒充统一成功。v4 的真实统一门是公开 Linux workflow：
-必须报告 6/6 初始失败、6/6 Treatment 恢复、Trace replay/source isolation 全部通过后，才能把
-公开 Docker verified count 从 5 提升到 6。
+迎合这次 Windows clone 而改写，且未把 4/6 冒充统一成功。
+
+2026-10-25 的[公开 Source-bound Docker evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40200117233)
+重新获取并核对六个固定 buggy commit 的 HEAD、tracked 文件数和 clean status，在生产
+`DockerAcceptanceExecutor` 的禁网、非 root、只读根、drop capabilities 与资源上限下完成 v4。
+工作流硬门确认 case/passed/initial-failure/treatment-recovered 均为 6，六例全部 Trace replay 且
+source isolation 成立；没有读取 API Key 或调用付费模型。统一 artifact ID `12602031276`，大小
+157,416,541 bytes，digest
+`sha256:a70612aab310c6d6c09c9ea0796242da75877fe025b10a9c72d76a525bd3c0e8`，计划保留至
+2026-11-24。该公开结果把 doctor 的 full-checkout Docker verified count 从 5 提升到 6。
 
 ### 3.2 v3 五项目公开 Docker 执行
 
@@ -279,10 +286,10 @@ PySnooper bug 3 的 BugsInPy `requirements.txt` 为空，但真实源码导入
 
 ## 6. 结论边界
 
-已确认可以声称：v3 的五个不同项目、共 2,266 个 tracked 文件的精确完整 checkout 已通过来源
-门、初始负例、真实 Code RAG、可恢复等待、单次 replan、本地可信验收、公开禁网 Docker 验收和
-Trace replay。v4 还可以声称第六个 HTTPie 完整 checkout 已通过同一 Harness 的本地可信单案；在
-公开 v4 workflow 成功前，不能声称六案例统一 Docker 6/6。
+可以声称：v4 的六个不同项目、共 2,336 个 tracked 文件的精确完整 checkout 已通过来源门、初始
+负例、真实 Code RAG 路径、可恢复等待、单次 replan、公开禁网 Docker 验收和 Trace replay；
+HTTPie 另有本地可信单案。第一次 Windows 六案例联合运行的 4/6 负结果仍保留，不用公开 Linux
+成功覆盖不同换行条件下的失败。
 不能声称：
 
 - 这是 BugsInPy 官方分数、原 Python 版本或完整依赖环境的测试结果；

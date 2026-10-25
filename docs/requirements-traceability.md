@@ -107,8 +107,9 @@
 
 > 2026-10-25 FR-1305 主干增量：完整 checkout v4 原样保留上述公开 v3 五例，并增加 HTTPie-2
 > 的 70-file 精确 checkout。HTTPie 本地单案已确认初始失败、Baseline 等待、Treatment 恢复与
-> Trace replay；六案例公开 Docker 统一门尚待通过。因此当前 manifest 场景数为 15，公开统一
-> 验证仍为 14，不能提前声称 v4 6/6。
+> Trace replay；公开 run `40200117233` 又通过六案例禁网 Docker 统一门并发布 digest
+> `sha256:a70612aab310c6d6c09c9ea0796242da75877fe025b10a9c72d76a525bd3c0e8`。当前 15 个
+> manifest 场景均有统一公开验证，但含重复 bug，仍不能作为 15 个独立任务或真实模型成功率。
 
 ## 验收记录合同
 
