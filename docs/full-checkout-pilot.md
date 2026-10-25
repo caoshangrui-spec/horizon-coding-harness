@@ -2,7 +2,7 @@
 
 更新：2026-10-25。v6 原样保留已由公开禁网 Docker 统一通过的 v5 八个完整 checkout，再加入
 PySnooper bug 2，共九个不同项目、2,951 个 tracked 文件。PySnooper 新案例已通过 test-only 本地
-完整 Harness；九案例公开 Docker 统一门尚待运行。每个案例先执行初始失败门，再运行 Baseline 与
+完整 Harness；v6 九案例也已由公开禁网 Docker 统一通过。每个案例先执行初始失败门，再运行 Baseline 与
 单次 replan Treatment。执行使用冻结脚本模型，验证的是 Harness、Code RAG、预算、可恢复等待和
 Trace 合同，不是模型能力跑分。
 
@@ -159,8 +159,16 @@ NoProgress 合同触发 replan，不把重复结果冒充新证据。
 第一次本地 Treatment 因 YAML block scalar 丢失补丁前导缩进而得到 `IndentationError`，失败 report
 ref `78f888cf2444d27b0c7628d3c43fcdf4796990a8cb5314848a866542c37ef269`、Treatment Trace ref
 `9d955973c33f6ec9c5b9b5d70aa8d85c3dead61e8e334a0105dd1ca642494830`；改为显式 `\n` 后才获得上述
-成功。这一负结果保留。当前 doctor 如实报告 9 个来源案例、8 个公开 Docker verified；v6 公开
-九案例门尚未通过，不能声称公开 9/9。
+成功。这一负结果保留。
+
+随后，2026-10-25 的[公开 Source-bound Docker evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40206304099)
+重新获取并核对九个固定 buggy commit 的 HEAD、tracked 文件数和 clean status，在生产
+`DockerAcceptanceExecutor` 的禁网、非 root、只读根、drop capabilities 与资源上限下通过 v6。
+工作流硬门确认 case/passed/initial-failure/treatment-recovered 均为 9，九例全部 Trace replay 且
+source isolation 成立；没有读取 API Key 或调用付费模型。统一 artifact ID `12604040662`、
+167,434,042 bytes、digest
+`sha256:8c991b53d88d2934459e940ca7ba20fcba8dd13f8fd14faf4361cb01c331a224`，计划保留至
+2026-11-24。doctor 的来源案例与公开 Docker verified count 现均为 9。
 
 ### 3.2 v5 两个预冻结来源案例的本地与公开证据
 
@@ -373,8 +381,8 @@ PySnooper bug 3 的 BugsInPy `requirements.txt` 为空，但真实源码导入
 
 可以声称：v5 的八个不同项目、共 2,926 个 tracked 文件的精确完整 checkout 已通过来源门、初始
 负例、真实 Code RAG 路径、可恢复等待、单次 replan、公开禁网 Docker 验收和 Trace replay；v6
-新增的 25-file PySnooper 两文件修复已通过相同本地 Harness 合同，九项目合计 2,951 files，但公开
-九案例门尚待运行。TheFuck、Sanic 与 PySnooper 来自预冻结检索集合，但端到端 manifest 是揭示
+新增的 25-file PySnooper 两文件修复已通过相同本地 Harness 合同，九项目合计 2,951 files，并已
+通过公开九案例统一门。TheFuck、Sanic 与 PySnooper 来自预冻结检索集合，但端到端 manifest 是揭示
 gold 后制作，不能称为新 holdout。第一次 Windows 六案例联合运行的 4/6 和 PySnooper YAML 缩进
 失败均保留，不用后续成功覆盖负结果。
 不能声称：
