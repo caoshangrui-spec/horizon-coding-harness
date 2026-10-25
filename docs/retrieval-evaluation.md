@@ -393,3 +393,34 @@ MRR `0.194444`、empty 8、non-empty miss 1。这消除了上一轮把低覆盖�
 确定性组合，不是额外一次检索，更不是独立泛化成绩。四条高覆盖 query 正是用于设计词表的自适应
 案例，Luigi 仍 degraded，PySnooper 仍缺 1/5 路径；因此保守分支继续作为实验候选，**不接入默认
 Agent runtime，也不据此扩词表**。8 个 holdout 仍密封且未物化。
+
+## 16. 历史真实模型查询形态审计
+
+2026-10-25 对七轮 SiliconFlow Pilot 的 7 份可重放 Trace 做了零费用回溯审计。先用既有
+`trace reservation-report` 重放全部 272 个事件并复算 Trace SHA-256；随后只对
+`TOOL_CALL_RESERVED` 中的 10 次 `retrieve_code` 做参数哈希匹配。Trace 不保存原始工具参数，
+因此审计只接受 `digest({"query": 文档已公开的查询}) == arguments_hash` 的观测，不能匹配的事件
+保持 `UNKNOWN`。冻结明细见
+[`historical-model-query-audit-v1/result-v1.yaml`](../benchmarks/retrieval/historical-model-query-audit-v1/result-v1.yaml)。
+
+| 审计项 | 结果 |
+|---|---:|
+| Trace / 事件 / 已结算模型调用 | 7 / 272 / 22 |
+| `retrieve_code` reservations | 10 |
+| 参数哈希匹配到已公开 query | 6 |
+| 原始参数不可恢复 | 4 |
+| 已匹配的唯一 query | 3 |
+| 保守策略精确旁路 | 6/6 |
+| 已匹配 query 被改写 | 0/6 |
+
+六条可匹配观测由 `unescapeHTML` 4 次、`tenumerate` 1 次和
+`tenumerate definition` 1 次组成，均是紧凑英文标识符或短语；保守 CJK 候选对它们全部返回
+`gate_bypass_v1`，字节级保持原样。第四轮首个查询虽然文档没有重复写出原文，但其 canonical
+arguments hash 与前三轮公开的 `{"query":"unescapeHTML"}` 完全一致，因此只记录为跨 Trace
+哈希匹配，不声称恢复了原始 Provider payload。
+
+这项审计给出的决策是负面的：现有自然生成查询切片没有证据支持把 CJK 规范化接入默认 runtime，
+也没有证据支持继续扩词表。4/10 的查询文本不可恢复；其语言和门控结果仍是 `UNKNOWN`，不能据
+6 条已匹配观测宣称历史查询没有中文。样本还只覆盖 youtube-dl、tqdm、同一模型与 Provider，
+并且是回溯选择，不是预注册的查询分布实验。本轮没有重跑检索、没有调用模型/网络、没有解封
+holdout，也没有增加端到端修复成功证据。

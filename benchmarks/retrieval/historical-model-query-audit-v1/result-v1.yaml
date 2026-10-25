@@ -1,0 +1,181 @@
+schema_version: 1
+audit_id: historical-real-model-retrieval-query-shape-v1
+audited_at: "2026-10-25"
+
+scope:
+  trace_count: 7
+  total_event_count: 272
+  settled_model_call_count: 22
+  retrieve_code_reservation_count: 10
+  documented_argument_count: 6
+  unresolved_argument_count: 4
+  unique_retrieve_argument_hash_count: 6
+  documented_unique_query_count: 3
+  unresolved_unique_argument_hash_count: 3
+  provider_id: siliconflow
+  model: deepseek-ai/DeepSeek-V4-Flash
+  task_count: 2
+  repository_count: 2
+
+method:
+  retrospective: true
+  trace_replay_verified: true
+  trace_hashes_recomputed: true
+  raw_trace_arguments_available: false
+  public_trace_payload_available: false
+  query_recovery: >-
+    Match canonical SHA-256 digest({query: DOCUMENTED_QUERY}) against each
+    retrieve_code TOOL_CALL_RESERVED arguments_hash. Do not guess unmatched arguments.
+  normalization_policy: normalize_retrieval_query_conservatively
+  retrieval_rerun: false
+  evaluator_network_called: false
+  paid_model_called: false
+  repository_code_executed: false
+
+traces:
+  - run_id: run_3e3dc35284c248d6b98afe47528d12ab
+    trace_path: .horizon/real-model-pilot-v1/run_3e3dc35284c248d6b98afe47528d12ab.trace.jsonl
+    trace_sha256: 0547ab42c3006bc7a198b02bc82b9506654ec2a07a84e0a7b6288ad4738ca32b
+    event_count: 79
+    settled_model_call_count: 6
+    retrieve_code_reservation_count: 1
+  - run_id: run_a548388fa62d4a34a49a7086db5610a6
+    trace_path: .horizon/real-model-pilot-retry-v2/run_a548388fa62d4a34a49a7086db5610a6.context-overflow.partial.trace.jsonl
+    trace_sha256: b03f607eb014cb38d5e3e0cbc1a0ae84ae5a719730da61c880fcd573c050ec49
+    event_count: 31
+    settled_model_call_count: 3
+    retrieve_code_reservation_count: 1
+  - run_id: run_f42d1e4bf3d34203b247d56448215f41
+    trace_path: .horizon/real-model-pilot-retry-v3/run_f42d1e4bf3d34203b247d56448215f41.campaign-gate.partial.trace.jsonl
+    trace_sha256: e43595848af2d5509a6ec78e3577adfbd061ec1737b6920b4f1131efa306d245
+    event_count: 36
+    settled_model_call_count: 3
+    retrieve_code_reservation_count: 2
+  - run_id: run_a12c4d0dbdb54e8bb3c49cb143a69392
+    trace_path: .horizon/real-model-pilot-retry-v4/run_a12c4d0dbdb54e8bb3c49cb143a69392.run-budget.partial.trace.jsonl
+    trace_sha256: 02fdf53a0be19d4fd040ac59c0abc308ea171b1790a5114a8bfce6946185b5a4
+    event_count: 66
+    settled_model_call_count: 5
+    retrieve_code_reservation_count: 4
+  - run_id: run_fec07b6bf28d45d5bc428cda120959a3
+    trace_path: .horizon/real-model-pilot-tqdm-v2/run_fec07b6bf28d45d5bc428cda120959a3.trace.jsonl
+    trace_sha256: 4f542b0cc5106b506430b866f7e34274b20351171b71e933b7a5d447950179d8
+    event_count: 14
+    settled_model_call_count: 1
+    retrieve_code_reservation_count: 0
+  - run_id: run_7fab106a71174c77bb0a82a8a054d3ed
+    trace_path: .horizon/real-model-pilot-tqdm-v3/run_7fab106a71174c77bb0a82a8a054d3ed.trace.jsonl
+    trace_sha256: 804bd8644d8d02d1ea3e43421c010c31b5ae35b75a7ecbf9772a84f06bc6e921
+    event_count: 23
+    settled_model_call_count: 2
+    retrieve_code_reservation_count: 1
+  - run_id: run_fc9dd1ce39124f49b0081a4ed8ad2652
+    trace_path: .horizon/real-model-pilot-tqdm-v5/run_fc9dd1ce39124f49b0081a4ed8ad2652.trace.jsonl
+    trace_sha256: 278c74530d5feda0289a19637f606175f56e69e73c8b5568e941df849685283d
+    event_count: 23
+    settled_model_call_count: 2
+    retrieve_code_reservation_count: 1
+
+documented_argument_observations:
+  - run_id: run_3e3dc35284c248d6b98afe47528d12ab
+    event_seq: 75
+    arguments: {query: unescapeHTML}
+    arguments_hash: 70a5be80459752e8dc9fe7cb71144317cf652d79b4ae743b6c6e74c9ae6fc318
+    evidence_basis: documented_query_and_hash_match
+    documentation: docs/real-model-pilot.md section 6
+    query_shape: ascii_identifier
+    normalized_query: unescapeHTML
+    applied_rules: [gate_bypass_v1]
+  - run_id: run_a548388fa62d4a34a49a7086db5610a6
+    event_seq: 19
+    arguments: {query: unescapeHTML}
+    arguments_hash: 70a5be80459752e8dc9fe7cb71144317cf652d79b4ae743b6c6e74c9ae6fc318
+    evidence_basis: documented_query_and_hash_match
+    documentation: docs/real-model-pilot.md section 7
+    query_shape: ascii_identifier
+    normalized_query: unescapeHTML
+    applied_rules: [gate_bypass_v1]
+  - run_id: run_f42d1e4bf3d34203b247d56448215f41
+    event_seq: 19
+    arguments: {query: unescapeHTML}
+    arguments_hash: 70a5be80459752e8dc9fe7cb71144317cf652d79b4ae743b6c6e74c9ae6fc318
+    evidence_basis: documented_query_and_hash_match
+    documentation: docs/real-model-pilot.md section 8
+    query_shape: ascii_identifier
+    normalized_query: unescapeHTML
+    applied_rules: [gate_bypass_v1]
+  - run_id: run_a12c4d0dbdb54e8bb3c49cb143a69392
+    event_seq: 19
+    arguments: {query: unescapeHTML}
+    arguments_hash: 70a5be80459752e8dc9fe7cb71144317cf652d79b4ae743b6c6e74c9ae6fc318
+    evidence_basis: cross_trace_canonical_arguments_hash_match
+    documentation: docs/real-model-pilot.md section 9
+    query_shape: ascii_identifier
+    normalized_query: unescapeHTML
+    applied_rules: [gate_bypass_v1]
+  - run_id: run_7fab106a71174c77bb0a82a8a054d3ed
+    event_seq: 19
+    arguments: {query: tenumerate}
+    arguments_hash: 28af8cbd445f1a04b8025c9a9e2c340df26bf80c4728ebea18a649eb9cf884a5
+    evidence_basis: documented_query_and_hash_match
+    documentation: docs/real-model-pilot.md section 12
+    query_shape: ascii_identifier
+    normalized_query: tenumerate
+    applied_rules: [gate_bypass_v1]
+  - run_id: run_fc9dd1ce39124f49b0081a4ed8ad2652
+    event_seq: 19
+    arguments: {query: tenumerate definition}
+    arguments_hash: 4f6e0579036e20c8c4f385d03bd1384277374592bcce1c36913117df0f286272
+    evidence_basis: documented_query_and_hash_match
+    documentation: docs/real-model-pilot.md section 14
+    query_shape: ascii_phrase
+    normalized_query: tenumerate definition
+    applied_rules: [gate_bypass_v1]
+
+unresolved_argument_observations:
+  - run_id: run_f42d1e4bf3d34203b247d56448215f41
+    event_seq: 32
+    arguments_hash: f32b39164743cd3543385145960086e14210399608f77160dbf9ee8dd5999527
+    status: unknown_raw_arguments
+  - run_id: run_a12c4d0dbdb54e8bb3c49cb143a69392
+    event_seq: 36
+    arguments_hash: 90ade2e92d4341d78ec9f4e1e3a76aacf0901211517f804ada60367bcea0ebc5
+    status: unknown_raw_arguments
+  - run_id: run_a12c4d0dbdb54e8bb3c49cb143a69392
+    event_seq: 49
+    arguments_hash: a7f1d23f2e5fb73572661680cb50048b592da4f73efd69ed2c7bde7151210b83
+    status: unknown_raw_arguments
+  - run_id: run_a12c4d0dbdb54e8bb3c49cb143a69392
+    event_seq: 62
+    arguments_hash: a7f1d23f2e5fb73572661680cb50048b592da4f73efd69ed2c7bde7151210b83
+    status: unknown_raw_arguments
+
+observed_policy_outcome:
+  documented_argument_count: 6
+  exact_bypass_count: 6
+  normalization_change_count: 0
+  known_ascii_identifier_count: 5
+  known_ascii_phrase_count: 1
+  known_cjk_count: 0
+  unresolved_language_shape_count: 4
+  statement: >-
+    Every hash-recovered model query is already a compact English identifier or phrase and
+    remains byte-for-byte unchanged by the conservative policy. Unresolved hashes are not
+    assigned a language or normalization outcome.
+
+negative_results:
+  - Four of ten retrieve_code reservations retain only an arguments hash; their query text, language, and normalization outcome remain UNKNOWN.
+  - The six recovered observations collapse to three query strings across only youtube-dl and tqdm, one provider, and one model.
+  - The audit is retrospective and the documented queries were not prospectively selected for a distribution study.
+  - No recovered query contains CJK, but the four unresolved events prevent a claim that the historical sample contains no CJK queries.
+  - The audit does not rerun retrieval and adds no repair-success, recall, multilingual-generalization, or holdout evidence.
+  - Local Trace payloads are gitignored; checked-in hashes and derived observations are reviewable, but the public repository alone cannot replay the private historical files.
+
+decision:
+  conservative_cjk_branch: keep_experimental
+  default_runtime_policy: unchanged
+  glossary_expansion: not_authorized
+  holdout_status: sealed
+  next_evidence_needed: >-
+    Capture privacy-safe query-shape evidence prospectively in future authorized end-to-end
+    evaluations, and measure task outcomes before considering runtime normalization.
