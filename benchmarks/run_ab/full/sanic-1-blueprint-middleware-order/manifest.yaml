@@ -1,0 +1,104 @@
+schema_version: 1
+benchmark_id: sanic-1-blueprint-middleware-order-full
+fixture_path: fixture
+
+task:
+  task_id: sanic-blueprint-middleware-order-full
+  title: Preserve named response middleware execution order
+  objective: Register named response middleware in reverse insertion order
+  repository:
+    source: local
+    path: /fixture
+    base_commit: e7001b00747b659f7042b0534802b936ee8a53e0
+  constraints:
+    allowed_paths: ["**"]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+  acceptance:
+    - id: sanic-blueprint-middleware-order-full
+      command: >-
+        python -B -c "import ast,pathlib; from collections import deque; tree=ast.parse(pathlib.Path('sanic/app.py').read_text(encoding='utf-8')); owner=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='Sanic'); node=next(n for n in owner.body if isinstance(n,ast.FunctionDef) and n.name=='register_named_middleware'); namespace={'deque':deque}; exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),'sanic/app.py','exec'),namespace); holder=type('Holder',(),{})(); holder.named_request_middleware={}; holder.named_response_middleware={}; first=lambda:1; second=lambda:2; third=lambda:3; [namespace['register_named_middleware'](holder,item,['route'],'response') for item in (first,second,third)]; assert list(holder.named_response_middleware['route'])==[third,second,first]"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 20
+    max_model_calls: 10
+    max_tool_calls: 20
+    max_wall_time_seconds: 600
+    max_cost_usd: "1.00"
+    max_input_tokens: 100000
+    max_output_tokens: 5000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+
+initial_plan:
+  version: 1
+  items:
+    - work_item_id: locate-named-middleware-order-full
+      title: Locate named response middleware registration
+      objective: Retrieve revision-bound evidence before changing middleware ordering
+      dependencies: []
+      expected_artifacts: [Code EvidencePack, sanic-blueprint-middleware-order-full receipt]
+      acceptance_ids: [sanic-blueprint-middleware-order-full]
+      allowed_tools: [retrieve_code]
+
+expected_initial_failed_checks: [sanic-blueprint-middleware-order-full]
+
+arms:
+  - arm_id: no-replan
+    role: baseline
+    description: Continue the stalled source retrieval until deterministic guidance is required.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items: []
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 4
+    expected_tool_calls: 4
+    expected_steps: 4
+    actions:
+      - &retrieve_target
+        tool: retrieve_code
+        arguments:
+          query: register_named_middleware response order appendleft blueprint middleware
+          max_chunks: 4
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+
+  - arm_id: single-replan
+    role: single_replan
+    description: Replace the stalled investigation with the bounded upstream ordering repair.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items: [repair-named-middleware-order-full]
+    expected_model_calls: 6
+    expected_tool_calls: 7
+    expected_steps: 7
+    actions:
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+      - tool: revise_plan
+        arguments:
+          reason: Repeated retrieval produced no new evidence; align named response middleware with application-level reverse insertion order.
+          items:
+            - work_item_id: repair-named-middleware-order-full
+              title: Prepend named response middleware
+              objective: Execute named response middleware in reverse registration order
+              dependencies: []
+              expected_artifacts: [Code EvidencePack, sanic-blueprint-middleware-order-full receipt]
+              acceptance_ids: [sanic-blueprint-middleware-order-full]
+              allowed_tools: [retrieve_code, replace_text, run_check]
+      - tool: replace_text
+        arguments:
+          path: sanic/app.py
+          old: self.named_response_middleware[_rn].append(middleware)
+          new: self.named_response_middleware[_rn].appendleft(middleware)
+      - tool: submit
+        arguments:
+          summary: Prepend named response middleware and ran the protected ordering regression check.

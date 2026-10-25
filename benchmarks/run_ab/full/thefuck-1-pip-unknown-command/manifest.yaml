@@ -1,0 +1,109 @@
+schema_version: 1
+benchmark_id: thefuck-1-pip-unknown-command-full
+fixture_path: fixture
+
+task:
+  task_id: thefuck-pip-unknown-command-full
+  title: Preserve punctuation in pip unknown-command corrections
+  objective: Correct a pip command even when the invalid subcommand contains punctuation
+  repository:
+    source: local
+    path: /fixture
+    base_commit: 2ced7a7f33ae0bec3ffc7a43ce95330bdf6cfcb9
+  constraints:
+    allowed_paths: ["**"]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+  acceptance:
+    - id: thefuck-pip-unknown-command-full
+      command: >-
+        python -B -c "import ast,pathlib,re,types; tree=ast.parse(pathlib.Path('thefuck/rules/pip_unknown_command.py').read_text(encoding='utf-8')); node=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='get_new_command'); namespace={'re':re,'replace_argument':lambda script,broken,suggested:script.replace(broken,suggested,1)}; exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),'thefuck/rules/pip_unknown_command.py','exec'),namespace); quote=chr(34); output=f'ERROR: unknown command {quote}un+install{quote} - maybe you meant {quote}uninstall{quote}'; command=types.SimpleNamespace(script='pip un+install thefuck',output=output); assert namespace['get_new_command'](command)=='pip uninstall thefuck'"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 24
+    max_model_calls: 12
+    max_tool_calls: 24
+    max_wall_time_seconds: 600
+    max_cost_usd: "1.00"
+    max_input_tokens: 100000
+    max_output_tokens: 5000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+
+initial_plan:
+  version: 1
+  items:
+    - work_item_id: locate-pip-command-parser-full
+      title: Locate the pip unknown-command parser
+      objective: Retrieve revision-bound evidence before changing correction parsing
+      dependencies: []
+      expected_artifacts: [Code EvidencePack, thefuck-pip-unknown-command-full receipt]
+      acceptance_ids: [thefuck-pip-unknown-command-full]
+      allowed_tools: [retrieve_code]
+
+expected_initial_failed_checks: [thefuck-pip-unknown-command-full]
+
+arms:
+  - arm_id: no-replan
+    role: baseline
+    description: Continue the stalled source retrieval until deterministic guidance is required.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items: []
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 4
+    expected_tool_calls: 4
+    expected_steps: 4
+    actions:
+      - &retrieve_target
+        tool: retrieve_code
+        arguments:
+          query: pip unknown command un+install suggested replacement get_new_command
+          max_chunks: 4
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+
+  - arm_id: single-replan
+    role: single_replan
+    description: Replace the stalled investigation with the bounded upstream parser repair.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items: [repair-pip-command-parser-full]
+    expected_model_calls: 7
+    expected_tool_calls: 8
+    expected_steps: 8
+    actions:
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+      - tool: revise_plan
+        arguments:
+          reason: Repeated retrieval produced no new evidence; preserve every character inside the quoted pip command and suggestion.
+          items:
+            - work_item_id: repair-pip-command-parser-full
+              title: Parse quoted pip command names without an alphabetic-only restriction
+              objective: Preserve punctuation in both the invalid command and suggested replacement
+              dependencies: []
+              expected_artifacts: [Code EvidencePack, thefuck-pip-unknown-command-full receipt]
+              acceptance_ids: [thefuck-pip-unknown-command-full]
+              allowed_tools: [retrieve_code, replace_text, run_check]
+      - tool: replace_text
+        arguments:
+          path: thefuck/rules/pip_unknown_command.py
+          old: '    broken_cmd = re.findall(r''ERROR: unknown command \"([a-z]+)\"'','
+          new: '    broken_cmd = re.findall(r''ERROR: unknown command "([^"]+)"'','
+      - tool: replace_text
+        arguments:
+          path: thefuck/rules/pip_unknown_command.py
+          old: '    new_cmd = re.findall(r''maybe you meant \"([a-z]+)\"'', command.output)[0]'
+          new: '    new_cmd = re.findall(r''maybe you meant "([^"]+)"'', command.output)[0]'
+      - tool: submit
+        arguments:
+          summary: Broadened both quoted-command captures and ran the protected punctuation regression check.

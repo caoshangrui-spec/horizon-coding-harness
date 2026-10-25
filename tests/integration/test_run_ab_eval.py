@@ -37,6 +37,7 @@ FULL_SUITE_V1_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pi
 FULL_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v2.yaml"
 FULL_SUITE_V3_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v3.yaml"
 FULL_SUITE_V4_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v4.yaml"
+FULL_SUITE_V5_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v5.yaml"
 LUIGI_FULL_MANIFEST_PATH = (
     ROOT / "benchmarks" / "run_ab" / "full" / "luigi-1-metrics-handler" / "manifest.yaml"
 )
@@ -50,6 +51,18 @@ NEW_FULL_MANIFEST_PATHS = {
 }
 HTTPIE_FULL_MANIFEST_PATH = (
     ROOT / "benchmarks" / "run_ab" / "full" / "httpie-2-max-redirects" / "manifest.yaml"
+)
+THEFUCK_FULL_MANIFEST_PATH = (
+    ROOT / "benchmarks" / "run_ab" / "full" / "thefuck-1-pip-unknown-command" / "manifest.yaml"
+)
+SANIC_FULL_MANIFEST_PATH = (
+    ROOT / "benchmarks" / "run_ab" / "full" / "sanic-1-blueprint-middleware-order" / "manifest.yaml"
+)
+BLIND_RETRIEVAL_SELECTION_PATH = (
+    ROOT / "benchmarks" / "retrieval" / "external-blind-v1" / "selection.yaml"
+)
+HOLDOUT_RETRIEVAL_SELECTION_PATH = (
+    ROOT / "benchmarks" / "retrieval" / "external-holdout-v2" / "selection.yaml"
 )
 MULTI_STAGE_V1_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-pilot-v1.yaml"
 MULTI_STAGE_V2_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-pilot-v2.yaml"
@@ -923,6 +936,142 @@ def test_httpie_full_checkout_repair_matches_the_upstream_change_shape():
         assert source.count(edit.arguments["old"]) == 1
         updated = source.replace(edit.arguments["old"], edit.arguments["new"])
         assert updated.count("requests_session.max_redirects = args.max_redirects") == 1
+
+
+def test_full_checkout_v5_preserves_v4_and_binds_prefrozen_additions():
+    v4 = RunABSuiteManifest.model_validate(
+        yaml.safe_load(FULL_SUITE_V4_PATH.read_text(encoding="utf-8"))
+    )
+    v5 = RunABSuiteManifest.model_validate(
+        yaml.safe_load(FULL_SUITE_V5_PATH.read_text(encoding="utf-8"))
+    )
+
+    assert v4.sha256 == "17d12ba657bde272251783d3364b4f809691fa71a5ae55c8d6dce98947b1d99c"
+    assert v5.sha256 == "2dca6b3bcffcb88456ae0f05e833f11fa78a3ee1e0ca6dd081c5d0087c7ab12b"
+    assert list(v5.cases[:6]) == list(v4.cases)
+    assert [case.case_id for case in v5.cases[6:]] == [
+        "thefuck-1-pip-unknown-command-full",
+        "sanic-1-blueprint-middleware-order-full",
+    ]
+    assert {case.source.project for case in v5.cases} == {
+        "fastapi",
+        "httpie",
+        "luigi",
+        "sanic",
+        "thefuck",
+        "tornado",
+        "tqdm",
+        "youtube-dl",
+    }
+    assert all(case.source.reduction == "full_checkout" for case in v5.cases)
+
+    expected = {
+        "thefuck-1-pip-unknown-command-full": (
+            THEFUCK_FULL_MANIFEST_PATH,
+            "e481b6b3a1623fb4f6313474dc29df443bfb1de7f43a1a5042482ecdf2f14c12",
+        ),
+        "sanic-1-blueprint-middleware-order-full": (
+            SANIC_FULL_MANIFEST_PATH,
+            "cc9477a546a6360da2bc3b046fdac6cbea2ec2a41f5c00210a97e166909a20a1",
+        ),
+    }
+    for case in v5.cases[6:]:
+        path, digest = expected[case.case_id]
+        manifest = RunABEvalManifest.model_validate(
+            yaml.safe_load(path.read_text(encoding="utf-8"))
+        )
+        case.check_manifest(manifest)
+        assert manifest.sha256 == digest
+        assert manifest.task.acceptance[0].command.startswith('python -B -c "')
+        assert manifest.expected_initial_failed_checks == (manifest.task.acceptance[0].id,)
+
+
+def test_full_checkout_v5_additions_match_prefrozen_retrieval_sources():
+    suite = RunABSuiteManifest.model_validate(
+        yaml.safe_load(FULL_SUITE_V5_PATH.read_text(encoding="utf-8"))
+    )
+    blind = yaml.safe_load(BLIND_RETRIEVAL_SELECTION_PATH.read_text(encoding="utf-8"))
+    holdout = yaml.safe_load(HOLDOUT_RETRIEVAL_SELECTION_PATH.read_text(encoding="utf-8"))
+
+    thefuck = next(case for case in blind["cases"] if case["case_id"].startswith("thefuck-1"))
+    sanic = next(case for case in holdout["cases"] if case["case_id"].startswith("sanic-1"))
+    sources = {case.source.project: case.source for case in suite.cases}
+
+    assert blind["frozen_at"] == "2026-10-04"
+    assert blind["protocol"]["patch_reveal_status"] == "sealed"
+    assert sources["thefuck"].buggy_commit == thefuck["buggy_commit"]
+    assert sources["thefuck"].fixed_commit == thefuck["fixed_commit"]
+    assert sources["thefuck"].repository_url == thefuck["repository_url"]
+
+    assert holdout["frozen_at"] == "2026-10-04"
+    assert holdout["protocol"]["patch_reveal_status"] == "sealed"
+    assert sources["sanic"].buggy_commit == sanic["buggy_commit"]
+    assert sources["sanic"].fixed_commit == sanic["fixed_commit"]
+    assert sources["sanic"].repository_url == sanic["repository_url"]
+
+
+def test_full_checkout_v5_repairs_match_upstream_and_both_line_endings():
+    thefuck = RunABEvalManifest.model_validate(
+        yaml.safe_load(THEFUCK_FULL_MANIFEST_PATH.read_text(encoding="utf-8"))
+    )
+    thefuck_edits = [action for action in thefuck.arms[1].actions if action.tool == "replace_text"]
+    assert [edit.arguments for edit in thefuck_edits] == [
+        {
+            "path": "thefuck/rules/pip_unknown_command.py",
+            "old": r"""    broken_cmd = re.findall(r'ERROR: unknown command \"([a-z]+)\"',""",
+            "new": """    broken_cmd = re.findall(r'ERROR: unknown command "([^"]+)"',""",
+        },
+        {
+            "path": "thefuck/rules/pip_unknown_command.py",
+            "old": (
+                r"""    new_cmd = re.findall(r'maybe you meant \"([a-z]+)\"', """
+                "command.output)[0]"
+            ),
+            "new": (
+                """    new_cmd = re.findall(r'maybe you meant "([^"]+)"', """
+                "command.output)[0]"
+            ),
+        },
+    ]
+
+    thefuck_lines = [
+        "def get_new_command(command):",
+        thefuck_edits[0].arguments["old"],
+        "                            command.output)[0]",
+        thefuck_edits[1].arguments["old"],
+        "    return replace_argument(command.script, broken_cmd, new_cmd)",
+    ]
+    for newline in ("\n", "\r\n"):
+        source = newline.join(thefuck_lines)
+        for edit in thefuck_edits:
+            assert source.count(edit.arguments["old"]) == 1
+            source = source.replace(edit.arguments["old"], edit.arguments["new"])
+        assert 'unknown command "([^"]+)"' in source
+        assert 'maybe you meant "([^"]+)"' in source
+
+    sanic = RunABEvalManifest.model_validate(
+        yaml.safe_load(SANIC_FULL_MANIFEST_PATH.read_text(encoding="utf-8"))
+    )
+    sanic_edits = [action for action in sanic.arms[1].actions if action.tool == "replace_text"]
+    assert len(sanic_edits) == 1
+    edit = sanic_edits[0]
+    assert edit.arguments == {
+        "path": "sanic/app.py",
+        "old": "self.named_response_middleware[_rn].append(middleware)",
+        "new": "self.named_response_middleware[_rn].appendleft(middleware)",
+    }
+    for newline in ("\n", "\r\n"):
+        source = newline.join(
+            [
+                '        if attach_to == "response":',
+                "            for _rn in route_names:",
+                "                if middleware not in self.named_response_middleware[_rn]:",
+                "                    self.named_response_middleware[_rn].append(middleware)",
+            ]
+        )
+        assert source.count(edit.arguments["old"]) == 1
+        updated = source.replace(edit.arguments["old"], edit.arguments["new"])
+        assert updated.count(edit.arguments["new"]) == 1
 
 
 def test_luigi_full_checkout_repair_is_line_ending_independent():
