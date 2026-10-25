@@ -1,10 +1,10 @@
 # 完整上游 Checkout Suite：BugsInPy 八项目
 
 更新：2026-10-25。v5 原样保留 v4 的六个完整历史 checkout，再加入 TheFuck bug 1 与 Sanic
-bug 1，共八个不同项目、2,926 个 tracked 文件。两个新增案例均已通过 test-only 本地可信执行；
-公开禁网 Docker 的已验证基线仍是 v4 六案例，v5 八案例统一门待本次提交运行。每个案例先
-执行初始失败门，再运行 Baseline 与单次 replan Treatment。执行使用冻结脚本模型，验证的是
-Harness、Code RAG、预算、可恢复等待和 Trace 合同，不是模型能力跑分。
+bug 1，共八个不同项目、2,926 个 tracked 文件。两个新增案例先通过 test-only 本地可信执行，随后
+v5 八案例又由公开禁网 Docker 统一通过。每个案例先执行初始失败门，再运行 Baseline 与单次
+replan Treatment。执行使用冻结脚本模型，验证的是 Harness、Code RAG、预算、可恢复等待和
+Trace 合同，不是模型能力跑分。
 
 ## 1. 来源门与案例
 
@@ -124,7 +124,7 @@ Tornado 执行真实 handler/protocol 方法，验证抽象合同以及 handler 
 
 ## 3. 当前 A/B 证据
 
-### 3.1 v5 两个预冻结来源案例的本地证据
+### 3.1 v5 两个预冻结来源案例的本地与公开证据
 
 新增任务没有从当前失败日志临时挑选：TheFuck-1 来自 2026-10-04 在补丁揭示前提交的
 [三项目外部定位盲测](retrieval-evaluation.md#7-三项目外部定位盲测)，Sanic-1 来自随后独立冻结的
@@ -140,9 +140,16 @@ Harness A/B 得到：
 | Sanic-1 | `WAITING_FOR_USER` | `SUCCEEDED`，一次 replan、一次精确替换 | 48 / 74 | report `6b6bbce8f1df762504516c43cb27b2126b58ebb6d3cc2adf70311252ea664331`；Trace `90ff8db0620c193ba2ea84c20be6d606635fa09db74722cfde21f368267f8fc5` / `bab42affbb3b6152a06d1d9246eb6936ecd1dda7002baf383379c2602c92c3fe` |
 
 四条 Trace 均可重放，两个 source checkout 未改变，unknown/open reservation 为 0，且
-`paid_model_called=false`、`network_called=false`。当前 doctor 因此报告 8 个来源绑定案例、6 个
-公开 Docker verified；只有 v5 公开 workflow 满足 8/8 初始失败、Baseline 等待、Treatment 恢复和
-Trace/source isolation 硬门后，公开 verified 才能提升到 8。
+`paid_model_called=false`、`network_called=false`。
+
+随后，2026-10-25 的[公开 Source-bound Docker evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40203191203)
+重新获取并核对八个固定 buggy commit 的 HEAD、tracked 文件数和 clean status，在生产
+`DockerAcceptanceExecutor` 的禁网、非 root、只读根、drop capabilities 与资源上限下完成 v5。
+工作流硬门确认 case/passed/initial-failure/treatment-recovered 均为 8，八例全部 Trace replay 且
+source isolation 成立；没有读取 API Key 或调用付费模型。统一 artifact ID `12602543425`，大小
+166,866,560 bytes，digest
+`sha256:319ad06ae83d92fb1f921cf49dab71f019987d1bab75533306d334c89ef4c330`，计划保留至
+2026-11-24。doctor 的来源绑定 case count 与公开 Docker verified count 现均为 8。
 
 ### 3.2 v4 第六案例本地证据与统一验收门
 
@@ -326,11 +333,11 @@ PySnooper bug 3 的 BugsInPy `requirements.txt` 为空，但真实源码导入
 
 ## 6. 结论边界
 
-可以声称：v4 的六个不同项目、共 2,336 个 tracked 文件的精确完整 checkout 已通过来源门、初始
-负例、真实 Code RAG 路径、可恢复等待、单次 replan、公开禁网 Docker 验收和 Trace replay；
-HTTPie 另有本地可信单案。v5 还可以声称两个来自预冻结检索集合的新增完整 checkout 已分别通过
-buggy/fixed 保护检查和本地可信 A/B。第一次 Windows 六案例联合运行的 4/6 负结果仍保留，不用
-公开 Linux 成功覆盖不同换行条件下的失败；v5 公开 workflow 成功前也不能声称八案例 Docker 8/8。
+可以声称：v5 的八个不同项目、共 2,926 个 tracked 文件的精确完整 checkout 已通过来源门、初始
+负例、真实 Code RAG 路径、可恢复等待、单次 replan、公开禁网 Docker 验收和 Trace replay；其中
+TheFuck 与 Sanic 来自预冻结检索集合，但其端到端 manifest 是揭示 gold 后制作，不能称为新
+holdout。第一次 Windows 六案例联合运行的 4/6 负结果仍保留，不用公开 Linux 成功覆盖不同换行
+条件下的失败。
 不能声称：
 
 - 这是 BugsInPy 官方分数、原 Python 版本或完整依赖环境的测试结果；
