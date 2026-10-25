@@ -100,7 +100,7 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | main 的[标准 CI](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/ci.yml)运行离线回归和两条演示；主作品集演示删除数据库后独立复核，并把完整目录发布为保留 14 天的 `horizon-portfolio-evidence`，同时发布 `horizon-process-timeout-evidence`；[禁网 Docker Evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/full-checkout-evidence.yml)独立运行 | CI 不读取 API Key、不运行付费模型；workflow artifact 通常需要登录 GitHub 下载，不是永久发布资产 |
-| 离线回归 | `533 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `535 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | [通用终态 EvidencePack](docs/terminal-evidence-pack.md) | `SUCCEEDED`、`FAILED`、`CANCELLED` 均可导出并离线复核 Trace、最终投影和摘要；unknown/open effect 原样列出 | 自洽哈希不是来源签名，也不证明外部 Provider 或副作用已结清 |
 | [终态 Run 顺序汇总](docs/terminal-suite-evaluation.md) | 有序聚合已有终态 Run；递归验证每个子 EvidencePack，分列成功、失败、取消、预算停止与 unknown/open effect | 不执行任务，不是 batch scheduler，也没有并发性能声明 |
 | [本地顺序 Supervisor](docs/local-sequential-supervisor.md)、[正式子进程模式](docs/local-process-supervisor.md)与[父控制器硬退出恢复](docs/parent-controller-crash-recovery.md) | `--supervise` 支持安全轮次接力；`agent run/resume --worker-process` 让每个 slice 由真实直接子进程持有 Lease，并在放行前持久化 PID launch 与启动授权。父 CLI 正常同步回收后再换 epoch；父进程被硬 kill 时，重启后的新 Lease 必须等待 TTL 并精确确认旧 PID 已停止。`Ctrl+C` 与显式 slice timeout 仍先写取消栅栏再停止/reap，pending intent 显式阻塞且零重派 | 只管理一个本地直接子进程；父崩溃恢复依赖操作者核实精确 PID，不自动探活/kill；不覆盖 OS 掉电/内核恢复、PID reuse 自动判定、任意后代进程、跨主机、队列或任意 effect exactly-once |
@@ -113,10 +113,10 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 有界恢复矩阵 v3 | 21/21；自动恢复 11/11、安全阻塞 10/10、incorrect resume 0、恢复重派/重复副作用 0；含 3 个真实硬退出和 Trace replay | 其余 18 例是生成 fixture 的状态/决策矩阵，不是完整 8 故障点或主机故障验收 |
 | [外部 RAG 定位集 v3](docs/retrieval-evaluation.md#10-24-案例外部定位集与-v030-development-基线) | 先冻结 7 项目 24 个 BugsInPy 案例；当前只揭示 16 个 development，8 个 holdout 仍密封。4 个门控设计案例上，选择性策略把 Hit@8 13/16→16/16、路径 Recall 23/32→30/32；其余 12 个案例的 48 条扩展查询则只有两条 identifier rank 3→2，中文仍为 3/12。新的保守 CJK 候选在 4 条高覆盖查询保持 4/4 Hit、7/8 路径召回，并对 12 条低覆盖中文精确旁路；[历史真实模型查询审计](docs/retrieval-evaluation.md#16-历史真实模型查询形态审计)又从 7 份 Trace 的 10 次检索中哈希确认 6 次、3 种公开查询，均为原样旁路 | 保留原文与直接替换在四例排名完全相同，且这四例参与过词表设计；低覆盖旁路复用旧 baseline 而非新运行。真实模型审计仍有 4/10 原文为 `UNKNOWN`，只覆盖两个任务和单一模型。默认 runtime 不变，全部证据仍不代表查询分布泛化或端到端修复成功率 |
 | 外部来源裁剪 A/B v2 | 5 个来源绑定案例的初始失败、Baseline 等待和 Treatment 修复均由本地可信与公开禁网 Docker 执行，证据已上传 | 使用 Scripted Model 和 dependency-reduced fixture，不是 BugsInPy 官方成绩 |
-| [完整 checkout A/B v3](docs/full-checkout-pilot.md) | tqdm 82 files、youtube-dl 872 files、Luigi 382 files、FastAPI 629 files、Tornado 301 files；本地可信与[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40080364921)均为 5/5，Trace replay 和证据上传通过；历史 v2 三例的 RAG 目标均为 rank 1 | 使用 Scripted Model 和 5 个作者选择案例，不是模型能力、泛化率或官方 BugsInPy 成绩 |
+| [完整 checkout A/B v4](docs/full-checkout-pilot.md) | v3 的 tqdm/youtube-dl/Luigi/FastAPI/Tornado [公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40080364921)仍为 5/5；v4 新增 HTTPie 70-file 完整 checkout，本地单案已通过，公开六案例统一门待本次 CI | 使用 Scripted Model 和 6 个作者选择案例；当前不能把历史 5/5 写成 v4 6/6，也不是模型能力、泛化率或官方 BugsInPy 成绩 |
 | [三阶段恢复 A/B v4](docs/multi-stage-full-checkout-pilot.md) | youtube-dl 872 files + Luigi 382 files + FastAPI 629 files；三例均含 3 个依赖 WorkItem、2 次持久化 Worker 重启、final epoch 3 和一次只改未完成项的 replan；本地可信与[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40082814779)均为 3/3 | 作者选择的三个案例与 Scripted Model；边界重启不等于任意指令处崩溃，不是模型能力或官方成绩 |
 | [源码绑定写入硬崩溃 A/B](docs/source-bound-hard-crash-recovery.md) | Luigi 382 files；两条 arm 都在首个生产写入 effect 后、receipt 前真实退出，先标 unknown，再由新 epoch 精确 `accept_replace`，随后跨两个 WorkItem 边界到 epoch 4；本地可信与[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/37569667246)均为 1/1 | 固定第 2 次调用、单个作者选择任务与 Scripted Model；不是任意崩溃、自动恢复策略或官方成绩 |
-| [长程任务可靠性指标](docs/long-horizon-reliability-metrics.md) | 每个来源绑定 suite 的 typed report 直接聚合观测耗时/P95、Worker 重启、硬崩溃恢复率、恢复重派、重复副作用、Trace replay、source isolation 和最终 open effects；公开 Docker workflow 对关键指标设失败门槛 | 14 个执行场景含重复上游 bug，不能宣传为 14 个独立任务；耗时依赖 runner，Scripted Model 指标不是 LLM 成功率 |
+| [长程任务可靠性指标](docs/long-horizon-reliability-metrics.md) | 每个来源绑定 suite 的 typed report 直接聚合观测耗时/P95、Worker 重启、硬崩溃恢复率、恢复重派、重复副作用、Trace replay、source isolation 和最终 open effects；公开 Docker workflow 对关键指标设失败门槛 | 当前 manifest 为 15 个执行场景，公开统一验证仍为原 14 个；场景含重复上游 bug，不能宣传为独立任务数或 LLM 成功率 |
 | 真实模型 Pilot | 七轮均可重放、费用可核对、source 未变 | 七轮均未编辑或验证成功，保留为负结果 |
 | 预算预留诊断 | 7 Trace、22 个已结算调用；聚合预留/结算比 6.860516；候选公式的 5 个可回放样本按旧领域 JSON / 当前 wire basis 分开报告，当前口径只有 2 个 | 新 BudgetStop 保存请求尺寸；样本不足，不自动降低费用安全门槛 |
 | 出站请求尺寸 | 6 类离线边界请求均复用 Adapter 的精确 wire encoder；167～9,061 bytes，含真实四工具 Schema 的检索轮次 | 无 Provider usage，不证明候选公式安全或模型效果 |
@@ -334,9 +334,9 @@ uv run --locked --cache-dir .uv-cache horizon eval run-ab `
 uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
   benchmarks/run_ab/bugsinpy-reduced-v2.yaml --image python:3.12-alpine
 
-# 五个完整 checkout 需先按 docs/full-checkout-pilot.md 固定源码；专用 CI 会自动重建精确 commit。
+# 六个完整 checkout 需先按 docs/full-checkout-pilot.md 固定源码；专用 CI 会自动重建精确 commit。
 uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
-  benchmarks/run_ab/bugsinpy-full-checkout-pilot-v3.yaml --image python:3.12-alpine
+  benchmarks/run_ab/bugsinpy-full-checkout-pilot-v4.yaml --image python:3.12-alpine
 
 # 三个完整 checkout 上的三阶段 A/B；每条 arm 均跨两个持久化 Worker 边界。
 uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
@@ -497,8 +497,9 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **533 passed，11 skipped**；11 项 Docker 合同此前均已指定本机已有镜像
-单独复跑并通过，本轮查询审计未启动 Docker。另有一次真实
+当前离线全量回归为 **535 passed，11 skipped**；11 项 Docker 合同此前均已指定本机已有镜像
+单独复跑并通过。本轮没有启动本机 Docker；HTTPie 使用 test-only 本地可信执行，六案例生产
+Docker 统一门交给公开 workflow。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实
 Issue 效果。新增真实模型 Pilot 单元测试覆盖私有答案拒绝、初始失败证据、内容寻址报告和
 启动时任务/源码/镜像/Provider/Harness 源码漂移拒绝；真实 checkout 的离线 Docker preflight

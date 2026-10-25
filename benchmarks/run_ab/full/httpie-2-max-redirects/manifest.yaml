@@ -1,0 +1,104 @@
+schema_version: 1
+benchmark_id: httpie-2-max-redirects-full
+fixture_path: fixture
+
+task:
+  task_id: httpie-max-redirects-full
+  title: Enforce the configured redirect cap in the full upstream checkout
+  objective: Bind the CLI max-redirects value to the active requests session
+  repository:
+    source: local
+    path: /fixture
+    base_commit: 356e0436510fee70b4071fac58be81c0a0a7db59
+  constraints:
+    allowed_paths: ["**"]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+  acceptance:
+    - id: httpie-max-redirects-full
+      command: >-
+        python -B -c "import ast,pathlib,types; tree=ast.parse(pathlib.Path('httpie/client.py').read_text(encoding='utf-8')); node=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='get_response'); response=object(); session=types.SimpleNamespace(max_redirects=30,request=lambda **kwargs:response); namespace={'get_requests_session':lambda:session,'get_requests_kwargs':lambda args:{},'sessions':types.SimpleNamespace(get_response=lambda **kwargs:response),'dump_request':lambda kwargs:None}; exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),'httpie/client.py','exec'),namespace); args=types.SimpleNamespace(max_redirects=2,session=None,session_read_only=None,debug=False); assert namespace['get_response'](args,'.') is response; assert session.max_redirects==2"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 20
+    max_model_calls: 10
+    max_tool_calls: 20
+    max_wall_time_seconds: 600
+    max_cost_usd: "1.00"
+    max_input_tokens: 100000
+    max_output_tokens: 5000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+
+initial_plan:
+  version: 1
+  items:
+    - work_item_id: locate-max-redirects-full
+      title: Locate redirect-limit handling in the upstream checkout
+      objective: Retrieve revision-bound evidence before changing request-session behavior
+      dependencies: []
+      expected_artifacts: [Code EvidencePack, httpie-max-redirects-full receipt]
+      acceptance_ids: [httpie-max-redirects-full]
+      allowed_tools: [retrieve_code]
+
+expected_initial_failed_checks: [httpie-max-redirects-full]
+
+arms:
+  - arm_id: no-replan
+    role: baseline
+    description: Continue the stalled source retrieval until deterministic guidance is required.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items: []
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 4
+    expected_tool_calls: 4
+    expected_steps: 4
+    actions:
+      - &retrieve_target
+        tool: retrieve_code
+        arguments:
+          query: get_response max_redirects requests Session TooManyRedirects
+          max_chunks: 4
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+
+  - arm_id: single-replan
+    role: single_replan
+    description: Replace the stalled investigation with the bounded upstream session repair.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items: [repair-max-redirects-full]
+    expected_model_calls: 6
+    expected_tool_calls: 7
+    expected_steps: 7
+    actions:
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+      - tool: revise_plan
+        arguments:
+          reason: Repeated retrieval produced no new evidence; apply the configured cap to the active requests session as upstream did.
+          items:
+            - work_item_id: repair-max-redirects-full
+              title: Bind max redirects to the requests session
+              objective: Make every request path enforce the CLI redirect cap
+              dependencies: []
+              expected_artifacts: [Code EvidencePack, httpie-max-redirects-full receipt]
+              acceptance_ids: [httpie-max-redirects-full]
+              allowed_tools: [retrieve_code, replace_text, run_check]
+      - tool: replace_text
+        arguments:
+          path: httpie/client.py
+          old: "    requests_session = get_requests_session()"
+          new: "    requests_session = get_requests_session()\n    requests_session.max_redirects = args.max_redirects"
+      - tool: submit
+        arguments:
+          summary: Bound the CLI redirect cap to the active requests session and ran the protected regression check.

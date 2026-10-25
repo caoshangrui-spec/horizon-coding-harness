@@ -8,6 +8,7 @@ on:
       - ".github/workflows/full-checkout-evidence.yml"
       - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v2.yaml"
       - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v3.yaml"
+      - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v4.yaml"
       - "benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v1.yaml"
       - "benchmarks/run_ab/bugsinpy-multi-stage-pilot-v*.yaml"
       - "benchmarks/run_ab/bugsinpy-reduced-v2.yaml"
@@ -104,6 +105,11 @@ jobs:
             6a5a0bfa370b6c0d3dbbf9589a560a98202d2baa \
             benchmarks/run_ab/full/tornado-1-websocket-nodelay/fixture \
             301
+          prepare_fixture \
+            https://github.com/httpie/cli.git \
+            356e0436510fee70b4071fac58be81c0a0a7db59 \
+            benchmarks/run_ab/full/httpie-2-max-redirects/fixture \
+            70
 
       - name: Pull the validation image
         run: docker pull python:3.12-alpine
@@ -156,16 +162,16 @@ jobs:
             --state-dir "$state_dir" \
             | tee "$state_dir/cli-result.json"
 
-      - name: Run the five-case full-checkout suite in network-disabled containers
+      - name: Run the six-case full-checkout suite in network-disabled containers
         shell: bash
         run: |
           set -euo pipefail
-          state_dir=.horizon/full-checkout-docker-v3
+          state_dir=.horizon/full-checkout-docker-v4
           mkdir -p "$state_dir"
           docker image inspect python:3.12-alpine --format '{{.Id}}'
           set +e
           uv run --locked horizon eval run-ab-suite \
-            benchmarks/run_ab/bugsinpy-full-checkout-pilot-v3.yaml \
+            benchmarks/run_ab/bugsinpy-full-checkout-pilot-v4.yaml \
             --image python:3.12-alpine \
             --state-dir "$state_dir" \
             2>&1 | tee "$state_dir/cli-result.json"
@@ -173,7 +179,7 @@ jobs:
           set -e
           if (( suite_status != 0 )); then
             detail="$(tail -c 2000 "$state_dir/cli-result.json" | tr '\n\r' '  ' | sed 's/%/%25/g')"
-            echo "::error title=Full-checkout v3 failed::$detail"
+            echo "::error title=Full-checkout v4 failed::$detail"
             exit "$suite_status"
           fi
 
@@ -214,7 +220,7 @@ jobs:
             .horizon/docker-worker-crash-evidence
             .horizon/docker-worker-crash-cli.json
             .horizon/reduced-docker-v2
-            .horizon/full-checkout-docker-v3
+            .horizon/full-checkout-docker-v4
             .horizon/multi-stage-docker-v4
             .horizon/multi-stage-hard-crash-docker-v1
           if-no-files-found: warn
@@ -265,7 +271,7 @@ jobs:
               Path(".horizon/reduced-docker-v2/cli-result.json").read_text(encoding="utf-8")
           )
           full = json.loads(
-              Path(".horizon/full-checkout-docker-v3/cli-result.json").read_text(
+              Path(".horizon/full-checkout-docker-v4/cli-result.json").read_text(
                   encoding="utf-8"
               )
           )
@@ -317,6 +323,10 @@ jobs:
           suite_reports = (reduced_report, full_report, multi_report, hard_crash_report)
           all_expectations_met = (
               all(report["all_expectations_met"] for report in suite_reports)
+              and full_report["case_count"] == 6
+              and full_report["passed_case_count"] == 6
+              and full_report["initial_failure_confirmed_count"] == 6
+              and full_report["treatment_recovered_count"] == 6
               and created_resume["verified"]
               and created_resume["created_trace_is_terminal_prefix"]
               and created_resume["protected_validation_passed"]

@@ -1,6 +1,6 @@
 # 公开仓库长程任务可靠性指标
 
-更新：2026-10-24。本页把 Horizon 已有的来源绑定 Run A/B 证据收敛为一组机器可验证、面试时
+更新：2026-10-25。本页把 Horizon 已有的来源绑定 Run A/B 证据收敛为一组机器可验证、面试时
 可直接解释的指标。指标由 `RunABEvaluator` 在完整 Agent 主链路结束后生成，不再由 CI 中的临时
 脚本根据日志猜测。
 
@@ -56,12 +56,13 @@
 | Suite | 公开来源 | 场景 | 长程/故障结构 |
 |---|---|---:|---|
 | `bugsinpy-reduced-v2` | Cookiecutter、FastAPI、tqdm、Luigi、Tornado | 5 | dependency-reduced A/B；用于较快回归 |
-| `bugsinpy-full-checkout-pilot-v3` | tqdm、youtube-dl、Luigi、FastAPI、Tornado | 5 | 82 / 872 / 382 / 629 / 301 tracked-file 完整 checkout |
+| `bugsinpy-full-checkout-pilot-v4` | tqdm、youtube-dl、Luigi、FastAPI、Tornado、HTTPie | 6 | 82 / 872 / 382 / 629 / 301 / 70 tracked-file 完整 checkout；HTTPie 本地单案已通过，统一公开 Docker 待验收 |
 | `bugsinpy-multi-stage-pilot-v4` | youtube-dl、Luigi、FastAPI | 3 | 每条 arm 为 3 WorkItem、2 次 Worker 重启；合计 6 条 Trace、12 次重启 |
 | `bugsinpy-multi-stage-hard-crash-v1` | Luigi | 1 | 两条 arm 均真实写入后、receipt 前退出，再跨两个 WorkItem 边界；合计 2 次恢复尝试、6 次重启 |
 
-同一 bug 在不同 suite 中用于不同实验变量，因此不能把上述 14 个场景宣传成 14 个独立真实任务。
-按 `(benchmark, project, bug_id, buggy_commit)` 去重后也仍是作者选择的小样本。当前项目继续保留
+同一 bug 在不同 suite 中用于不同实验变量，因此不能把当前 15 个场景宣传成 15 个独立真实任务。
+公开 Docker 已统一验证的集合在 v4 成功前仍是原 14 个场景；历史 v1/v2/v3 版本也不重复累加。
+按 `(benchmark, project, bug_id, buggy_commit)` 去重后仍是作者选择的小样本。当前项目继续保留
 “尚无 20～30 个独立真实任务和真实模型成功率”的负面边界。
 
 ## 4. 运行与读取

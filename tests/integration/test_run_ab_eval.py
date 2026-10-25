@@ -36,6 +36,7 @@ SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-reduced-v2.yaml"
 FULL_SUITE_V1_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v1.yaml"
 FULL_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v2.yaml"
 FULL_SUITE_V3_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v3.yaml"
+FULL_SUITE_V4_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v4.yaml"
 LUIGI_FULL_MANIFEST_PATH = (
     ROOT / "benchmarks" / "run_ab" / "full" / "luigi-1-metrics-handler" / "manifest.yaml"
 )
@@ -47,6 +48,9 @@ NEW_FULL_MANIFEST_PATHS = {
         ROOT / "benchmarks" / "run_ab" / "full" / "tornado-1-websocket-nodelay" / "manifest.yaml"
     ),
 }
+HTTPIE_FULL_MANIFEST_PATH = (
+    ROOT / "benchmarks" / "run_ab" / "full" / "httpie-2-max-redirects" / "manifest.yaml"
+)
 MULTI_STAGE_V1_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-pilot-v1.yaml"
 MULTI_STAGE_V2_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-pilot-v2.yaml"
 MULTI_STAGE_V3_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-pilot-v3.yaml"
@@ -857,6 +861,68 @@ def test_full_checkout_v3_repairs_match_the_upstream_change_shapes():
             assert source.count(edit.arguments["old"]) == expected_occurrences
             source = source.replace(edit.arguments["old"], edit.arguments["new"])
         assert all(marker in source for marker in expected_markers)
+
+
+def test_full_checkout_v4_preserves_v3_and_binds_six_exact_case_manifests():
+    v3 = RunABSuiteManifest.model_validate(
+        yaml.safe_load(FULL_SUITE_V3_PATH.read_text(encoding="utf-8"))
+    )
+    v4 = RunABSuiteManifest.model_validate(
+        yaml.safe_load(FULL_SUITE_V4_PATH.read_text(encoding="utf-8"))
+    )
+
+    assert v3.sha256 == "d878964e246f8fabb6cf162f657791e959ae6c529d61eb1143cc98ea7d4edd8a"
+    assert v4.sha256 == "17d12ba657bde272251783d3364b4f809691fa71a5ae55c8d6dce98947b1d99c"
+    assert list(v4.cases[:5]) == list(v3.cases)
+    assert [case.case_id for case in v4.cases[5:]] == ["httpie-2-max-redirects-full"]
+    assert {case.source.project for case in v4.cases} == {
+        "fastapi",
+        "httpie",
+        "luigi",
+        "tornado",
+        "tqdm",
+        "youtube-dl",
+    }
+    assert all(case.source.reduction == "full_checkout" for case in v4.cases)
+
+    case = v4.cases[-1]
+    manifest = RunABEvalManifest.model_validate(
+        yaml.safe_load(HTTPIE_FULL_MANIFEST_PATH.read_text(encoding="utf-8"))
+    )
+    case.check_manifest(manifest)
+    assert manifest.sha256 == "6f01c4403356930507d9a2188cf3c33c940bf6a9f0fe992d0a08fd5b80796920"
+    assert manifest.task.acceptance[0].command.startswith('python -B -c "')
+    assert manifest.expected_initial_failed_checks == (manifest.task.acceptance[0].id,)
+
+
+def test_httpie_full_checkout_repair_matches_the_upstream_change_shape():
+    manifest = RunABEvalManifest.model_validate(
+        yaml.safe_load(HTTPIE_FULL_MANIFEST_PATH.read_text(encoding="utf-8"))
+    )
+    edits = [action for action in manifest.arms[1].actions if action.tool == "replace_text"]
+    assert len(edits) == 1
+    edit = edits[0]
+    assert edit.arguments == {
+        "path": "httpie/client.py",
+        "old": "    requests_session = get_requests_session()",
+        "new": (
+            "    requests_session = get_requests_session()\n"
+            "    requests_session.max_redirects = args.max_redirects"
+        ),
+    }
+
+    lines = [
+        "def get_response(args, base_dir):",
+        "    requests_session = get_requests_session()",
+        "",
+        "    if not args.session and not args.session_read_only:",
+        "        kwargs = get_requests_kwargs(args=args)",
+    ]
+    for newline in ("\n", "\r\n"):
+        source = newline.join(lines)
+        assert source.count(edit.arguments["old"]) == 1
+        updated = source.replace(edit.arguments["old"], edit.arguments["new"])
+        assert updated.count("requests_session.max_redirects = args.max_redirects") == 1
 
 
 def test_luigi_full_checkout_repair_is_line_ending_independent():
