@@ -1,0 +1,150 @@
+schema_version: 1
+benchmark_id: pysnooper-2-custom-repr-full
+fixture_path: fixture
+
+task:
+  task_id: pysnooper-custom-repr-full
+  title: Support a single custom representation rule
+  objective: Apply one type-based custom representation to traced locals and return values
+  repository:
+    source: local
+    path: /fixture
+    base_commit: e21a31162f4c54be693d8ca8260e42393b39abd3
+  constraints:
+    allowed_paths: ["**"]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+  acceptance:
+    - id: pysnooper-custom-repr-full
+      command: >-
+        python -B -c "import collections,collections.abc,io; collections.Mapping=collections.abc.Mapping; collections.Sequence=collections.abc.Sequence; import pysnooper; out=io.StringIO(); traced=pysnooper.snoop(out,custom_repr=(list,lambda value:'items=%d' % len(value)))(lambda value:value); result=traced([1,2,3]); log=out.getvalue(); assert result==[1,2,3]; assert 'value = items=3' in log,log; assert 'Return value:.. items=3' in log,log"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 20
+    max_model_calls: 16
+    max_tool_calls: 20
+    max_wall_time_seconds: 600
+    max_cost_usd: "1.00"
+    max_input_tokens: 100000
+    max_output_tokens: 5000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+
+initial_plan:
+  version: 1
+  items:
+    - work_item_id: locate-custom-repr-flow-full
+      title: Locate custom value representation flow
+      objective: Retrieve revision-bound evidence before changing trace formatting
+      dependencies: []
+      expected_artifacts: [Code EvidencePack, pysnooper-custom-repr-full receipt]
+      acceptance_ids: [pysnooper-custom-repr-full]
+      allowed_tools: [retrieve_code]
+
+expected_initial_failed_checks: [pysnooper-custom-repr-full]
+
+arms:
+  - arm_id: no-replan
+    role: baseline
+    description: Continue the stalled source retrieval until deterministic guidance is required.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items: []
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 4
+    expected_tool_calls: 4
+    expected_steps: 4
+    actions:
+      - &retrieve_target
+        tool: retrieve_code
+        arguments:
+          query: custom repr single get_shortish_repr Tracer custom_repr
+          max_chunks: 8
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+
+  - arm_id: single-replan
+    role: single_replan
+    description: Replace the stalled investigation with the bounded upstream custom-repr repair.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items: [repair-custom-repr-flow-full]
+    expected_model_calls: 13
+    expected_tool_calls: 14
+    expected_steps: 14
+    actions:
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+      - tool: revise_plan
+        arguments:
+          reason: Repeated retrieval produced no new evidence; carry one normalized custom representation rule through local and return formatting.
+          items:
+            - work_item_id: repair-custom-repr-flow-full
+              title: Thread a single custom representation rule through the tracer
+              objective: Normalize one rule and apply it to both local variables and return values
+              dependencies: []
+              expected_artifacts: [pysnooper/utils.py, pysnooper/tracer.py, pysnooper-custom-repr-full receipt]
+              acceptance_ids: [pysnooper-custom-repr-full]
+              allowed_tools: [retrieve_code, replace_text, run_check]
+      - tool: replace_text
+        arguments:
+          path: pysnooper/utils.py
+          old: "def get_shortish_repr(item):"
+          new: |-
+            def get_repr_function(item, custom_repr):
+                for condition, action in custom_repr:
+                    if isinstance(condition, type):
+                        condition = lambda x, y=condition: isinstance(x, y)
+                    if condition(item):
+                        return action
+                return repr
+
+
+            def get_shortish_repr(item, custom_repr=()):
+                repr_function = get_repr_function(item, custom_repr)
+      - tool: replace_text
+        arguments:
+          path: pysnooper/utils.py
+          old: "        r = repr(item)"
+          new: "        r = repr_function(item)"
+      - tool: replace_text
+        arguments:
+          path: pysnooper/tracer.py
+          old: "def get_local_reprs(frame, watch=()):"
+          new: "def get_local_reprs(frame, watch=(), custom_repr=()):"
+      - tool: replace_text
+        arguments:
+          path: pysnooper/tracer.py
+          old: "    result_items = [(key, utils.get_shortish_repr(value)) for key, value in frame.f_locals.items()]"
+          new: "    result_items = [(key, utils.get_shortish_repr(value, custom_repr=custom_repr)) for key, value in frame.f_locals.items()]"
+      - tool: replace_text
+        arguments:
+          path: pysnooper/tracer.py
+          old: "            thread_info=False,"
+          new: "            thread_info=False,\n            custom_repr=(),"
+      - tool: replace_text
+        arguments:
+          path: pysnooper/tracer.py
+          old: "        self.thread_local = threading.local()"
+          new: "        self.thread_local = threading.local()\n        if len(custom_repr) == 2 and callable(custom_repr[1]):\n            custom_repr = (custom_repr,)\n        self.custom_repr = custom_repr"
+      - tool: replace_text
+        arguments:
+          path: pysnooper/tracer.py
+          old: "                                       get_local_reprs(frame, watch=self.watch)"
+          new: "                                       get_local_reprs(frame, watch=self.watch, custom_repr=self.custom_repr)"
+      - tool: replace_text
+        arguments:
+          path: pysnooper/tracer.py
+          old: "                return_value_repr = utils.get_shortish_repr(arg)"
+          new: "                return_value_repr = utils.get_shortish_repr(arg, custom_repr=self.custom_repr)"
+      - tool: submit
+        arguments:
+          summary: Added a normalized single custom representation rule and ran the protected local/return regression check.

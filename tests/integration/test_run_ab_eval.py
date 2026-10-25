@@ -38,6 +38,7 @@ FULL_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot
 FULL_SUITE_V3_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v3.yaml"
 FULL_SUITE_V4_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v4.yaml"
 FULL_SUITE_V5_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v5.yaml"
+FULL_SUITE_V6_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v6.yaml"
 LUIGI_FULL_MANIFEST_PATH = (
     ROOT / "benchmarks" / "run_ab" / "full" / "luigi-1-metrics-handler" / "manifest.yaml"
 )
@@ -58,11 +59,17 @@ THEFUCK_FULL_MANIFEST_PATH = (
 SANIC_FULL_MANIFEST_PATH = (
     ROOT / "benchmarks" / "run_ab" / "full" / "sanic-1-blueprint-middleware-order" / "manifest.yaml"
 )
+PYSNOOPER_FULL_MANIFEST_PATH = (
+    ROOT / "benchmarks" / "run_ab" / "full" / "pysnooper-2-custom-repr" / "manifest.yaml"
+)
 BLIND_RETRIEVAL_SELECTION_PATH = (
     ROOT / "benchmarks" / "retrieval" / "external-blind-v1" / "selection.yaml"
 )
 HOLDOUT_RETRIEVAL_SELECTION_PATH = (
     ROOT / "benchmarks" / "retrieval" / "external-holdout-v2" / "selection.yaml"
+)
+DEVELOPMENT_RETRIEVAL_SELECTION_PATH = (
+    ROOT / "benchmarks" / "retrieval" / "external-development-v3" / "selection.yaml"
 )
 MULTI_STAGE_V1_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-pilot-v1.yaml"
 MULTI_STAGE_V2_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-pilot-v2.yaml"
@@ -1072,6 +1079,86 @@ def test_full_checkout_v5_repairs_match_upstream_and_both_line_endings():
         assert source.count(edit.arguments["old"]) == 1
         updated = source.replace(edit.arguments["old"], edit.arguments["new"])
         assert updated.count(edit.arguments["new"]) == 1
+
+
+def test_full_checkout_v6_preserves_v5_and_binds_prefrozen_two_file_case():
+    v5 = RunABSuiteManifest.model_validate(
+        yaml.safe_load(FULL_SUITE_V5_PATH.read_text(encoding="utf-8"))
+    )
+    v6 = RunABSuiteManifest.model_validate(
+        yaml.safe_load(FULL_SUITE_V6_PATH.read_text(encoding="utf-8"))
+    )
+
+    assert v5.sha256 == "2dca6b3bcffcb88456ae0f05e833f11fa78a3ee1e0ca6dd081c5d0087c7ab12b"
+    assert v6.sha256 == "52afa08518568e0c4e2ab19df6bf4cd267dcf260804152888b301e16f2940428"
+    assert list(v6.cases[:8]) == list(v5.cases)
+    assert [case.case_id for case in v6.cases[8:]] == ["pysnooper-2-custom-repr-full"]
+    assert len(v6.cases) == 9
+    assert len({case.source.project.casefold() for case in v6.cases}) == 9
+
+    case = v6.cases[-1]
+    manifest = RunABEvalManifest.model_validate(
+        yaml.safe_load(PYSNOOPER_FULL_MANIFEST_PATH.read_text(encoding="utf-8"))
+    )
+    case.check_manifest(manifest)
+    assert manifest.sha256 == "b7dbab0c33caefd4eb833d2c5da1d57c29a79815907a3ebb4ea5eb9ab1f5153b"
+    assert manifest.expected_initial_failed_checks == (manifest.task.acceptance[0].id,)
+    assert manifest.arms[1].expected_model_calls == 13
+    assert manifest.arms[1].expected_tool_calls == 14
+
+
+def test_full_checkout_v6_addition_matches_prefrozen_development_source():
+    suite = RunABSuiteManifest.model_validate(
+        yaml.safe_load(FULL_SUITE_V6_PATH.read_text(encoding="utf-8"))
+    )
+    selection = yaml.safe_load(DEVELOPMENT_RETRIEVAL_SELECTION_PATH.read_text(encoding="utf-8"))
+    selected = next(
+        case for case in selection["cases"] if case["case_id"] == "pysnooper-2-custom-repr"
+    )
+    source = suite.cases[-1].source
+
+    assert selection["selected_at"] == "2026-10-24"
+    assert selection["protocol"]["patch_reveal_status"] == "sealed"
+    assert selected["partition"] == "development"
+    assert source.project == selected["project"]
+    assert source.bug_id == selected["bug_id"]
+    assert source.repository_url == selected["repository_url"]
+    assert source.buggy_commit == selected["buggy_commit"]
+    assert source.fixed_commit == selected["fixed_commit"]
+
+
+def test_full_checkout_v6_repair_is_two_file_and_line_ending_independent():
+    manifest = RunABEvalManifest.model_validate(
+        yaml.safe_load(PYSNOOPER_FULL_MANIFEST_PATH.read_text(encoding="utf-8"))
+    )
+    edits = [action for action in manifest.arms[1].actions if action.tool == "replace_text"]
+
+    assert len(edits) == 8
+    assert {edit.arguments["path"] for edit in edits} == {
+        "pysnooper/tracer.py",
+        "pysnooper/utils.py",
+    }
+    assert all("\n" not in edit.arguments["old"] for edit in edits)
+    assert "custom_repr=(list" in manifest.task.acceptance[0].command
+    assert "value = items=3" in manifest.task.acceptance[0].command
+    assert "Return value:.. items=3" in manifest.task.acceptance[0].command
+
+    edits_by_path: dict[str, list] = {}
+    for edit in edits:
+        edits_by_path.setdefault(edit.arguments["path"], []).append(edit)
+    for newline in ("\n", "\r\n"):
+        updated_sources = {}
+        for path, path_edits in edits_by_path.items():
+            source = newline.join(edit.arguments["old"] for edit in path_edits)
+            for edit in path_edits:
+                assert source.count(edit.arguments["old"]) == 1, path
+                before = source
+                source = source.replace(edit.arguments["old"], edit.arguments["new"])
+                assert source != before
+            assert all(edit.arguments["new"] in source for edit in path_edits)
+            updated_sources[path] = source
+        assert "def get_repr_function(item, custom_repr):" in updated_sources["pysnooper/utils.py"]
+        assert "self.custom_repr = custom_repr" in updated_sources["pysnooper/tracer.py"]
 
 
 def test_luigi_full_checkout_repair_is_line_ending_independent():
