@@ -39,6 +39,7 @@ FULL_SUITE_V3_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pi
 FULL_SUITE_V4_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v4.yaml"
 FULL_SUITE_V5_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v5.yaml"
 FULL_SUITE_V6_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v6.yaml"
+FULL_SUITE_V7_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v7.yaml"
 LUIGI_FULL_MANIFEST_PATH = (
     ROOT / "benchmarks" / "run_ab" / "full" / "luigi-1-metrics-handler" / "manifest.yaml"
 )
@@ -61,6 +62,15 @@ SANIC_FULL_MANIFEST_PATH = (
 )
 PYSNOOPER_FULL_MANIFEST_PATH = (
     ROOT / "benchmarks" / "run_ab" / "full" / "pysnooper-2-custom-repr" / "manifest.yaml"
+)
+COOKIECUTTER_FULL_MANIFEST_PATH = (
+    ROOT / "benchmarks" / "run_ab" / "full" / "cookiecutter-1-utf8-context" / "manifest.yaml"
+)
+HTTPIE_HOST_FULL_MANIFEST_PATH = (
+    ROOT / "benchmarks" / "run_ab" / "full" / "httpie-4-host-header-overwrite" / "manifest.yaml"
+)
+LUIGI_TUPLE_FULL_MANIFEST_PATH = (
+    ROOT / "benchmarks" / "run_ab" / "full" / "luigi-3-serialize-tuple-parameter" / "manifest.yaml"
 )
 BLIND_RETRIEVAL_SELECTION_PATH = (
     ROOT / "benchmarks" / "retrieval" / "external-blind-v1" / "selection.yaml"
@@ -1159,6 +1169,118 @@ def test_full_checkout_v6_repair_is_two_file_and_line_ending_independent():
             updated_sources[path] = source
         assert "def get_repr_function(item, custom_repr):" in updated_sources["pysnooper/utils.py"]
         assert "self.custom_repr = custom_repr" in updated_sources["pysnooper/tracer.py"]
+
+
+def test_full_checkout_v7_preserves_v6_and_binds_three_development_cases():
+    v6 = RunABSuiteManifest.model_validate(
+        yaml.safe_load(FULL_SUITE_V6_PATH.read_text(encoding="utf-8"))
+    )
+    v7 = RunABSuiteManifest.model_validate(
+        yaml.safe_load(FULL_SUITE_V7_PATH.read_text(encoding="utf-8"))
+    )
+
+    assert v7.sha256 == "4eb74bfbf8715a1ac5aaf14b5087a5c289cab1915cea3f46e79065b6835edb79"
+    assert list(v7.cases[:9]) == list(v6.cases)
+    assert [case.case_id for case in v7.cases[9:]] == [
+        "cookiecutter-1-utf8-context-full",
+        "httpie-4-host-header-overwrite-full",
+        "luigi-3-serialize-tuple-parameter-full",
+    ]
+    assert len(v7.cases) == 12
+    assert len({case.source.project.casefold() for case in v7.cases}) == 10
+
+    expected = {
+        "cookiecutter-1-utf8-context-full": (
+            COOKIECUTTER_FULL_MANIFEST_PATH,
+            "718854e4db3eddcffb863ccbd2480a53d0f89d7ccd5cf20b6d88632494b2e061",
+            6,
+            7,
+        ),
+        "httpie-4-host-header-overwrite-full": (
+            HTTPIE_HOST_FULL_MANIFEST_PATH,
+            "c03af519f5bced1df1bbab64e426f80a658fd243198dd21d854a5205581caa46",
+            6,
+            7,
+        ),
+        "luigi-3-serialize-tuple-parameter-full": (
+            LUIGI_TUPLE_FULL_MANIFEST_PATH,
+            "af4c7dce31107ca88c83faddb6e6d4367f7f85290b5b584fffa5de7750c06129",
+            7,
+            8,
+        ),
+    }
+    for case in v7.cases[9:]:
+        manifest_path, digest, model_calls, tool_calls = expected[case.case_id]
+        manifest = RunABEvalManifest.model_validate(
+            yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+        )
+        case.check_manifest(manifest)
+        assert manifest.sha256 == digest
+        assert manifest.expected_initial_failed_checks == (manifest.task.acceptance[0].id,)
+        assert manifest.arms[1].expected_model_calls == model_calls
+        assert manifest.arms[1].expected_tool_calls == tool_calls
+
+
+def test_full_checkout_v7_additions_match_prefrozen_development_sources():
+    suite = RunABSuiteManifest.model_validate(
+        yaml.safe_load(FULL_SUITE_V7_PATH.read_text(encoding="utf-8"))
+    )
+    selection = yaml.safe_load(DEVELOPMENT_RETRIEVAL_SELECTION_PATH.read_text(encoding="utf-8"))
+    selected_by_id = {case["case_id"]: case for case in selection["cases"]}
+    source_ids = [
+        "cookiecutter-1-non-ascii-context",
+        "httpie-4-host-header-overwrite",
+        "luigi-3-serialize-tuple-parameter",
+    ]
+
+    assert selection["selected_at"] == "2026-10-24"
+    assert selection["protocol"]["patch_reveal_status"] == "sealed"
+    for case, source_id in zip(suite.cases[9:], source_ids, strict=True):
+        selected = selected_by_id[source_id]
+        assert selected["partition"] == "development"
+        assert case.source.project == selected["project"]
+        assert case.source.bug_id == selected["bug_id"]
+        assert case.source.repository_url == selected["repository_url"]
+        assert case.source.buggy_commit == selected["buggy_commit"]
+        assert case.source.fixed_commit == selected["fixed_commit"]
+
+
+def test_full_checkout_v7_repairs_are_bounded_and_line_ending_independent():
+    manifests = [
+        RunABEvalManifest.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
+        for path in (
+            COOKIECUTTER_FULL_MANIFEST_PATH,
+            HTTPIE_HOST_FULL_MANIFEST_PATH,
+            LUIGI_TUPLE_FULL_MANIFEST_PATH,
+        )
+    ]
+    edits = [
+        action
+        for manifest in manifests
+        for action in manifest.arms[1].actions
+        if action.tool == "replace_text"
+    ]
+
+    assert len(edits) == 4
+    assert {edit.arguments["path"] for edit in edits} == {
+        "cookiecutter/generate.py",
+        "httpie/models.py",
+        "luigi/parameter.py",
+    }
+    assert all("\n" not in edit.arguments["old"] for edit in edits)
+    for newline in ("\n", "\r\n"):
+        for edit in edits:
+            source = f"prefix{newline}{edit.arguments['old']}{newline}suffix"
+            assert source.count(edit.arguments["old"]) == 1
+            updated = source.replace(edit.arguments["old"], edit.arguments["new"])
+            assert updated.count(edit.arguments["new"]) == 1
+
+    cookie_command = manifests[0].task.acceptance[0].command
+    httpie_command = manifests[1].task.acceptance[0].command
+    luigi_command = manifests[2].task.acceptance[0].command
+    assert "encoding':'ascii" in cookie_command
+    assert "count('host:')==1" in httpie_command
+    assert "json.dumps((1,2,3))" in luigi_command
 
 
 def test_luigi_full_checkout_repair_is_line_ending_independent():

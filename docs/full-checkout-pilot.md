@@ -1,10 +1,11 @@
-# 完整上游 Checkout Suite：BugsInPy 九项目
+# 完整上游 Checkout Suite：BugsInPy 十二案例、十项目
 
-更新：2026-10-25。v6 原样保留已由公开禁网 Docker 统一通过的 v5 八个完整 checkout，再加入
-PySnooper bug 2，共九个不同项目、2,951 个 tracked 文件。PySnooper 新案例已通过 test-only 本地
-完整 Harness；v6 九案例也已由公开禁网 Docker 统一通过。每个案例先执行初始失败门，再运行 Baseline 与
-单次 replan Treatment。执行使用冻结脚本模型，验证的是 Harness、Code RAG、预算、可恢复等待和
-Trace 合同，不是模型能力跑分。
+更新：2026-10-26。v7 原样保留已由公开禁网 Docker 统一通过的 v6 九个完整 checkout，再加入
+Cookiecutter bug 1、HTTPie bug 4 与 Luigi bug 3。当前共十二个案例、十个不同项目、3,627 个
+tracked 文件；同一项目的不同 bug 分别计为不同案例，不冒充十二个独立项目。三个新增案例已通过
+test-only 本地完整 Harness，v7 十二案例的公开禁网 Docker 统一门待本次提交后执行。每个案例先执行
+初始失败门，再运行 Baseline 与单次 replan Treatment。执行使用冻结脚本模型，验证的是 Harness、
+Code RAG、预算、可恢复等待和 Trace 合同，不是模型能力跑分。
 
 ## 1. 来源门与案例
 
@@ -26,6 +27,9 @@ Trace 合同，不是模型能力跑分。
 - v6：[`bugsinpy-full-checkout-pilot-v6.yaml`](../benchmarks/run_ab/bugsinpy-full-checkout-pilot-v6.yaml)，
   原样保留 v5 八个 case，再追加 PySnooper，digest
   `52afa08518568e0c4e2ab19df6bf4cd267dcf260804152888b301e16f2940428`。
+- v7：[`bugsinpy-full-checkout-pilot-v7.yaml`](../benchmarks/run_ab/bugsinpy-full-checkout-pilot-v7.yaml)，
+  原样保留 v6 九个 case，再追加 Cookiecutter-1、HTTPie-4 与 Luigi-3，digest
+  `4eb74bfbf8715a1ac5aaf14b5087a5c289cab1915cea3f46e79065b6835edb79`。
 
 | Case | Buggy → fixed | 完整 checkout | 保护验收 |
 |---|---|---:|---|
@@ -38,6 +42,9 @@ Trace 合同，不是模型能力跑分。
 | [`thefuck-1-pip-unknown-command-full`](../benchmarks/run_ab/full/thefuck-1-pip-unknown-command/manifest.yaml) | [`2ced7a7`](https://github.com/nvbn/thefuck/commit/2ced7a7f33ae0bec3ffc7a43ce95330bdf6cfcb9) → [`444908c`](https://github.com/nvbn/thefuck/commit/444908ce1c17767ef4aaf9e0b4950497914f7f63) | 401 files | 带 `+` 的 pip 错误子命令也能被完整提取并替换 |
 | [`sanic-1-blueprint-middleware-order-full`](../benchmarks/run_ab/full/sanic-1-blueprint-middleware-order/manifest.yaml) | [`e7001b0`](https://github.com/sanic-org/sanic/commit/e7001b00747b659f7042b0534802b936ee8a53e0) → [`4497312`](https://github.com/sanic-org/sanic/commit/44973125c15304b4262c51c78b5a86bd1daafa86) | 189 files | named response middleware 必须按注册逆序执行 |
 | [`pysnooper-2-custom-repr-full`](../benchmarks/run_ab/full/pysnooper-2-custom-repr/manifest.yaml) | [`e21a311`](https://github.com/cool-RR/PySnooper/commit/e21a31162f4c54be693d8ca8260e42393b39abd3) → [`814abc3`](https://github.com/cool-RR/PySnooper/commit/814abc34a098c1b98cb327105ac396f985d2413e) | 25 files | 单条 custom repr 规则同时作用于局部变量和返回值 |
+| [`cookiecutter-1-utf8-context-full`](../benchmarks/run_ab/full/cookiecutter-1-utf8-context/manifest.yaml) | [`c156337`](https://github.com/cookiecutter/cookiecutter/commit/c15633745df6abdb24e02746b82aadb20b8cdf8c) → [`7f6804c`](https://github.com/cookiecutter/cookiecutter/commit/7f6804c4953a18386809f11faf4d86898570debc) | 242 files | 平台默认编码为 ASCII 时仍按 UTF-8 解码非 ASCII context JSON |
+| [`httpie-4-host-header-overwrite-full`](../benchmarks/run_ab/full/httpie-4-host-header-overwrite/manifest.yaml) | [`8c892ed`](https://github.com/httpie/cli/commit/8c892edd4fe700a7ca5cc733dcb4817831d253e2) → [`040d981`](https://github.com/httpie/cli/commit/040d981f00c3f6830b2d0db3daf3c64c080e96e3) | 59 files | 大小写不敏感的自定义 Host header 只输出一次，不被默认值覆盖 |
+| [`luigi-3-serialize-tuple-parameter-full`](../benchmarks/run_ab/full/luigi-3-serialize-tuple-parameter/manifest.yaml) | [`a0f1db0`](https://github.com/spotify/luigi/commit/a0f1db01ddab5b4b2bda3fbe58bad09a6d94a7b4) → [`3a0bfbf`](https://github.com/spotify/luigi/commit/3a0bfbff69addfb3be1107adab3d4914bcae3e4b) | 375 files | JSON 中为标量元素的 flat tuple 能恢复为不可变 tuple |
 
 缺陷元数据来自 [BugsInPy](https://github.com/soarsmu/BugsInPy)。执行前 CLI 会拒绝以下任一情况：
 
@@ -119,24 +126,77 @@ git -C $pysnooper remote add origin https://github.com/cool-RR/PySnooper.git
 git -C $pysnooper fetch --depth 1 origin e21a31162f4c54be693d8ca8260e42393b39abd3
 git -C $pysnooper checkout --detach FETCH_HEAD
 
+$cookiecutter = "benchmarks/run_ab/full/cookiecutter-1-utf8-context/fixture"
+New-Item -ItemType Directory -Path $cookiecutter
+git -C $cookiecutter init
+git -C $cookiecutter remote add origin https://github.com/cookiecutter/cookiecutter.git
+git -C $cookiecutter fetch --depth 1 origin c15633745df6abdb24e02746b82aadb20b8cdf8c
+git -C $cookiecutter checkout --detach FETCH_HEAD
+
+$httpieHost = "benchmarks/run_ab/full/httpie-4-host-header-overwrite/fixture"
+New-Item -ItemType Directory -Path $httpieHost
+git -C $httpieHost init
+git -C $httpieHost remote add origin https://github.com/httpie/cli.git
+git -C $httpieHost fetch --depth 1 origin 8c892edd4fe700a7ca5cc733dcb4817831d253e2
+git -C $httpieHost checkout --detach FETCH_HEAD
+
+$luigiTuple = "benchmarks/run_ab/full/luigi-3-serialize-tuple-parameter/fixture"
+New-Item -ItemType Directory -Path $luigiTuple
+git -C $luigiTuple init
+git -C $luigiTuple remote add origin https://github.com/spotify/luigi.git
+git -C $luigiTuple fetch --depth 1 origin a0f1db01ddab5b4b2bda3fbe58bad09a6d94a7b4
+git -C $luigiTuple checkout --detach FETCH_HEAD
+
 uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
-  benchmarks/run_ab/bugsinpy-full-checkout-pilot-v6.yaml `
+  benchmarks/run_ab/bugsinpy-full-checkout-pilot-v7.yaml `
   --image python:3.12-alpine `
-  --state-dir .horizon/run-ab-suite-full-nine-v6
+  --state-dir .horizon/run-ab-suite-full-twelve-v7
 ```
 
 前三个直接导入类案例（tqdm、youtube-dl、PySnooper）运行完整 checkout 中的真实生产代码；
-PySnooper 只为 Python 3.12 注入历史 `collections` 标准库别名，不修改被测逻辑。另外六个案例为
+PySnooper 只为 Python 3.12 注入历史 `collections` 标准库别名，不修改被测逻辑。另外九个案例为
 避免安装历史依赖栈，使用标准库 AST 从真实生产文件提取目标函数或类后执行：Luigi 验证 `MetricsHandler` 的 collector
 所有权；FastAPI 以最小 stdlib 假对象执行真实 `create_cloned_field`，验证嵌套字段不再复用原对象；
 Tornado 执行真实 handler/protocol 方法，验证抽象合同以及 handler → protocol → stream 的 nodelay
 委托；HTTPie 执行真实 `get_response` 并验证 Session 上的 redirect cap；TheFuck 执行真实
-`get_new_command`，Sanic 执行真实 `register_named_middleware`。它们不是文本 marker 检查，但也
+`get_new_command`，Sanic 执行真实 `register_named_middleware`；v7 新增三例分别执行真实
+`generate_context`、`HTTPRequest` 和 `TupleParameter.parse`。它们不是文本 marker 检查，但也
 不运行各项目原 Python 版本和完整依赖矩阵，不能替代官方 BugsInPy runner。
 
 ## 3. 当前 A/B 证据
 
-### 3.1 v6 PySnooper 两文件案例的本地证据
+### 3.1 v7 三种失效模式的本地证据
+
+Cookiecutter-1、HTTPie-4 与 Luigi-3 均来自 2026-10-24 在补丁揭示前冻结的 development
+选择；它们不占用仍密封的八案例 holdout，也不把随后依据 gold 制作的端到端 manifest 称为盲测。
+三个 buggy commit 的保护检查分别以 ASCII 解码错误、重复 Host header 和 flat tuple 的
+`TypeError` 失败，对应 fixed commit 均通过。
+
+test-only 本地完整 Harness 的最终结果如下；六条 Trace 均可重放，三个 source checkout 均未改变，
+且 `paid_model_called=false`、`network_called=false`：
+
+| Case | Baseline | Treatment | 事件数 B/T | report / Trace refs |
+|---|---|---|---:|---|
+| Cookiecutter-1 | `WAITING_FOR_USER` | `SUCCEEDED`，一次 replan、一次逐行精确替换 | 48 / 74 | report `e4530246f19abbae8c2a19b591784ef64cb5f7b7e7b5dd207bdde5804688b762`；Trace `8575a03354d5ad8dc52db366cf332a170162f076ba54835757abb63c99fc2351` / `632c1441aacc7f631cd026860fefd3269e9925d805c8198fb4e09f02f8b5f7bd` |
+| HTTPie-4 | `WAITING_FOR_USER` | `SUCCEEDED`，一次 replan、一次逐行精确替换 | 48 / 74 | report `14d018f0228695f20f329e8bd289fab44d8f2c66f3c217535dce3b44c56d8c81`；Trace `7365c55773a5b4b51dfd12997b4923179afad07cdb9e17bcd289fff85bc03053` / `fa5a001bd094ed089fee02752948fb582ee943ae750b6c6424a4e1ed76c4c4c8` |
+| Luigi-3 | `WAITING_FOR_USER` | `SUCCEEDED`，一次 replan、两次逐行精确替换 | 48 / 83 | report `27c5ca113926f80e18cabedd0da99445b2dbbb0f5b4ed58b6ed29c659404bc83`；Trace `574a22f6ad104619a227a85d1673c2f34b8800ebc71e23e2ef304723b94392fa` / `7df130c10b4c90ed39a2e3c98d859fe8f1e68778ddefc210aa9e6e5d0a575865` |
+
+三个 Treatment 的 revision-aware Code RAG 都把生产目标文件排在 rank 1：Cookiecutter 索引
+229、跳过 12 个非文本文件；HTTPie 索引 57、跳过 2 个；Luigi 索引 320、跳过 55 个。状态均为
+`degraded` 而不是伪装成全量索引；对应 EvidencePack ref 为
+`e336529800b24a2ff5d669204887f34e7cadb928a014cc1a74343f0435c21690`、
+`71160034f4818b9ae333760e6256bb7ec68d957d0edf82d08cbb390eb37c6b86` 与
+`cb41436a54e2d4b69211e6f8a40a7bc3821e9e949fb99b23c5ad7ba288259054`。
+
+本批保留两个本地负结果。第一次 Luigi Treatment 使用文件内出现三次的
+`except ValueError:` 作为“精确”锚点，写工具按 occurrence 合同拒绝修改；失败 report ref 为
+`0dde813853c9fa96c58224b0fff8633fcf4c6149f26c6c04c1feb35029ab8ba9`。最终改成两个唯一、逐行的
+等价修复锚点后才通过。另一次 Windows 十二案例联合尝试中，既有 Tornado 多行 LF 锚点没有命中
+CRLF checkout，随后 Cookiecutter 又在长 state 路径上触发 Win32 path-length 限制，因此该次不能
+记为 12/12；这不覆盖 v6 已有的公开 Linux 9/9，也不替代待执行的 v7 Docker 统一门。当前 doctor
+只把来源案例数提升到 12，公开 Docker verified count 在新公开证据产生前仍保持 9。
+
+### 3.2 v6 PySnooper 两文件案例的本地证据
 
 PySnooper-2 来自 2026-10-24 在补丁揭示前冻结的 development 选择，不占用仍密封的八案例
 holdout，也不把随后依据 gold 制作的端到端 manifest 称为盲测。buggy commit 的真实包导入保护
@@ -170,7 +230,7 @@ source isolation 成立；没有读取 API Key 或调用付费模型。统一 ar
 `sha256:8c991b53d88d2934459e940ca7ba20fcba8dd13f8fd14faf4361cb01c331a224`，计划保留至
 2026-11-24。doctor 的来源案例与公开 Docker verified count 现均为 9。
 
-### 3.2 v5 两个预冻结来源案例的本地与公开证据
+### 3.3 v5 两个预冻结来源案例的本地与公开证据
 
 新增任务没有从当前失败日志临时挑选：TheFuck-1 来自 2026-10-04 在补丁揭示前提交的
 [三项目外部定位盲测](retrieval-evaluation.md#7-三项目外部定位盲测)，Sanic-1 来自随后独立冻结的
@@ -197,7 +257,7 @@ source isolation 成立；没有读取 API Key 或调用付费模型。统一 ar
 `sha256:319ad06ae83d92fb1f921cf49dab71f019987d1bab75533306d334c89ef4c330`，计划保留至
 2026-11-24。doctor 的来源绑定 case count 与公开 Docker verified count 现均为 8。
 
-### 3.3 v4 第六案例本地证据与统一验收门
+### 3.4 v4 第六案例本地证据与统一验收门
 
 HTTPie 单案在完整 70-file checkout 上先确认保护检查失败；Baseline 产生 48 个事件并按预期进入
 `WAITING_FOR_USER`，Treatment 产生 74 个事件、执行一次 replan 后进入 `SUCCEEDED`。report ref 为
@@ -221,7 +281,7 @@ source isolation 成立；没有读取 API Key 或调用付费模型。统一 ar
 `sha256:a70612aab310c6d6c09c9ea0796242da75877fe025b10a9c72d76a525bd3c0e8`，计划保留至
 2026-11-24。该公开结果把 doctor 的 full-checkout Docker verified count 从 5 提升到 6。
 
-### 3.4 v3 五项目公开 Docker 执行
+### 3.5 v3 五项目公开 Docker 执行
 
 2026-10-24 的专用 [Source-bound Docker evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40080364921)
 在 GitHub-hosted Linux runner 上重新 shallow-fetch 五个固定 buggy commit，并逐一检查 HEAD、tracked
@@ -238,7 +298,7 @@ API Key、不调用付费模型，动作仍来自冻结 Scripted Model。统一 
 Treatment 分别产生 74 / 92 个事件、生成 Plan v2 并进入 `SUCCEEDED`，Trace 可重放且两个源 checkout
 保持干净。该证据验证的是 Harness 与冻结修复动作，不是模型自主定位能力。
 
-### 3.5 v2 三项目历史公开 Docker 执行
+### 3.6 v2 三项目历史公开 Docker 执行
 
 2026-10-06 的专用 [Source-bound Docker evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/37436568589)
 工作流在 GitHub-hosted Linux runner 上重新 shallow-fetch 三个固定 buggy commit，并逐一检查 HEAD、
@@ -258,7 +318,7 @@ tracked 文件数和 clean status。随后它拉取 `python:3.12-alpine`，通�
 BugsInPy 官方 runner 成绩。工作流只在自身、v2 manifests 或直接的 runner/sandbox 合同变化时
 自动执行，也可手动触发；不拖慢每个普通文档提交。
 
-### 3.6 v2 三项目历史本地可信执行
+### 3.7 v2 三项目历史本地可信执行
 
 2026-10-06 使用 Python 3.12 的 test-only 本地执行器实际运行三个冻结保护命令；Harness 的源码门、
 快照、RAG、Gateway、预算、Run/Trace 和重放路径保持不变，只有生产 Docker acceptance adapter 被
@@ -286,7 +346,7 @@ BugsInPy 官方 runner 成绩。工作流只在自身、v2 manifests 或直接�
 checkout，Gateway 正确返回 `Exact replacement occurrence count did not match`，Treatment 最终失败。
 修正为两个行结尾无关的原子单行替换后，单案和三项目 suite 均通过；没有放宽 exact-match 合同。
 
-### 3.7 v1 双项目历史 Docker 结果
+### 3.8 v1 双项目历史 Docker 结果
 
 2026-10-03 使用本机已有禁网镜像 digest
 `sha256:0687a6bc9716edc2a6ee0fbfb0f87e7ee358b262b67c9215de91bc9b2d38ba71`：
@@ -382,14 +442,17 @@ PySnooper bug 3 的 BugsInPy `requirements.txt` 为空，但真实源码导入
 可以声称：v5 的八个不同项目、共 2,926 个 tracked 文件的精确完整 checkout 已通过来源门、初始
 负例、真实 Code RAG 路径、可恢复等待、单次 replan、公开禁网 Docker 验收和 Trace replay；v6
 新增的 25-file PySnooper 两文件修复已通过相同本地 Harness 合同，九项目合计 2,951 files，并已
-通过公开九案例统一门。TheFuck、Sanic 与 PySnooper 来自预冻结检索集合，但端到端 manifest 是揭示
-gold 后制作，不能称为新 holdout。第一次 Windows 六案例联合运行的 4/6 和 PySnooper YAML 缩进
+通过公开九案例统一门。v7 又增加三个预冻结 development 案例，十二案例、十项目合计 3,627 files；
+三个新增案例的初始负例、完整本地 Harness、rank-1 生产路径检索、Trace replay 与 source isolation
+均成立，公开十二案例门仍待执行。TheFuck、Sanic、PySnooper 及 v7 新增三例来自预冻结检索集合，
+但端到端 manifest 是揭示 gold 后制作，不能称为新 holdout。第一次 Windows 六案例联合运行的 4/6、
+PySnooper YAML 缩进失败、v7 Luigi 非唯一锚点失败，以及 Windows 十二案例联合运行的 CRLF/长路径
 失败均保留，不用后续成功覆盖负结果。
 不能声称：
 
 - 这是 BugsInPy 官方分数、原 Python 版本或完整依赖环境的测试结果；
 - 脚本模型证明真实模型能自主生成查询、定位缺陷或选择 replan；
-- 9 个作者选择案例足以估计泛化成功率、误触发率或成本收益。
+- 12 个作者选择案例足以估计泛化成功率、误触发率或成本收益。
 
 后续增量已把 youtube-dl、Luigi 与 FastAPI 扩展为[三阶段完整 checkout](multi-stage-full-checkout-pilot.md)，
 每条 arm 均跨两个持久边界到 epoch 3，联合观察上下文、Memory、检索、replan 与恢复；v4 本地可信

@@ -1,0 +1,104 @@
+schema_version: 1
+benchmark_id: httpie-4-host-header-overwrite-full
+fixture_path: fixture
+
+task:
+  task_id: httpie-host-header-overwrite-full
+  title: Preserve a custom Host header
+  objective: Avoid duplicating or replacing a case-insensitive custom Host header
+  repository:
+    source: local
+    path: /fixture
+    base_commit: 8c892edd4fe700a7ca5cc733dcb4817831d253e2
+  constraints:
+    allowed_paths: ["**"]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+  acceptance:
+    - id: httpie-host-header-full
+      command: >-
+        python -B -c "import ast; from pathlib import Path; from types import SimpleNamespace; from urllib.parse import urlsplit; source=Path('httpie/models.py').read_text(encoding='utf-8'); tree=ast.parse(source); nodes=[item for item in tree.body if isinstance(item,ast.ClassDef) and item.name in {'HTTPMessage','HTTPRequest'}]; namespace={'urlsplit':urlsplit,'str':str}; exec(compile(ast.Module(body=nodes,type_ignores=[]),'httpie/models.py','exec'),namespace); Headers=type('Headers',(dict,),{'__contains__':lambda self,key:any(str(existing).lower()==str(key).lower() for existing in self)}); original=SimpleNamespace(url='http://127.0.0.1/resource',method='GET',headers=Headers({'host':'custom.example'}),body=b''); rendered=namespace['HTTPRequest'](original).headers; assert rendered.lower().count('host:')==1,rendered; assert 'host: custom.example' in rendered.lower(),rendered"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 20
+    max_model_calls: 12
+    max_tool_calls: 20
+    max_wall_time_seconds: 600
+    max_cost_usd: "1.00"
+    max_input_tokens: 100000
+    max_output_tokens: 5000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+
+initial_plan:
+  version: 1
+  items:
+    - work_item_id: locate-host-header-flow-full
+      title: Locate Host header rendering
+      objective: Retrieve revision-bound evidence before changing header propagation
+      dependencies: []
+      expected_artifacts: [Code EvidencePack, httpie-host-header-full receipt]
+      acceptance_ids: [httpie-host-header-full]
+      allowed_tools: [retrieve_code]
+
+expected_initial_failed_checks: [httpie-host-header-full]
+
+arms:
+  - arm_id: no-replan
+    role: baseline
+    description: Continue the stalled source retrieval until deterministic guidance is required.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items: []
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 4
+    expected_tool_calls: 4
+    expected_steps: 4
+    actions:
+      - &retrieve_target
+        tool: retrieve_code
+        arguments:
+          query: host header overwrite HTTPRequest headers
+          max_chunks: 8
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+
+  - arm_id: single-replan
+    role: single_replan
+    description: Replace the stalled investigation with the bounded upstream Host repair.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items: [repair-host-header-flow-full]
+    expected_model_calls: 6
+    expected_tool_calls: 7
+    expected_steps: 7
+    actions:
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+      - tool: revise_plan
+        arguments:
+          reason: Repeated retrieval produced no new evidence; check Host membership on the case-insensitive source mapping.
+          items:
+            - work_item_id: repair-host-header-flow-full
+              title: Preserve case-insensitive Host membership
+              objective: Avoid adding a default Host when the original mapping already contains one
+              dependencies: []
+              expected_artifacts: [httpie/models.py, httpie-host-header-full receipt]
+              acceptance_ids: [httpie-host-header-full]
+              allowed_tools: [retrieve_code, replace_text, run_check]
+      - tool: replace_text
+        arguments:
+          path: httpie/models.py
+          old: "        if 'Host' not in headers:"
+          new: "        if 'Host' not in self._orig.headers:"
+      - tool: submit
+        arguments:
+          summary: Preserved a case-insensitive custom Host header and ran the protected rendering regression check.

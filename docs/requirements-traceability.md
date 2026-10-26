@@ -4,8 +4,8 @@
 
 本表是完整开发与验收导航。2026-09-30 已开始基础内核实现，实际证据列记录当前子范围与剩余缺口。目标路径相对 `src/horizon/`；计划测试路径相对 `tests/`；实际证据列的 `tests/` 路径相对仓库根。同一测试文件可验证多个 ID，但不能把子范围通过等同于整项通过。
 
-当前结果：2026-09-30 可靠性内核为 **92 项测试通过**；2026-10-25 的最新离线回归为
-**541 passed，11 skipped**。**11 项真实 Docker 合同**此前已单独补跑并全部通过。另已完成一次 Tool Calling 探针和一次受预算
+当前结果：2026-09-30 可靠性内核为 **92 项测试通过**；2026-10-26 的最新离线回归为
+**544 passed，11 skipped**。**11 项真实 Docker 合同**此前已单独补跑并全部通过。另已完成一次 Tool Calling 探针和一次受预算
 保护的真实单 WorkItem Agent fixture Run。完整长程 Agent 未实现，未做独立安全复核。命令、环境、证据与限制见
 [开发进度](development-progress.md)。仍为“待填”的条目没有实现证据；“部分/初步”不代表
 完整需求通过。普通工作直接自检，关键风险及用户指定验收按需独立复核，
@@ -122,6 +122,14 @@
 > 后 Treatment `SUCCEEDED`，Trace 可重放且 source 未变；首次 YAML 缩进失败被保留。当前 18 个
 > manifest 场景现均有公开统一验证。公开 run `40206304099` 通过九案例禁网 Docker 统一门，
 > artifact digest 为 `sha256:8c991b53d88d2934459e940ca7ba20fcba8dd13f8fd14faf4361cb01c331a224`。
+
+> 2026-10-26 FR-1305 v7 增量（覆盖上表的 v6 数量快照）：完整 checkout 保留九个 v6 case，
+> 新增 Cookiecutter-1、HTTPie-4 与 Luigi-3，共 12 案例、10 项目、3,627 tracked files。
+> 三个 buggy/fixed 保护探针和本地完整 Harness 均已通过，生产目标在 revision-aware Code RAG 中
+> 均为 rank 1，六条 Trace 可重放且 source 未变。第一次 Luigi 修复因锚点不唯一被写工具拒绝，
+> 改为两个唯一逐行锚点后才通过；Windows 联合运行的 CRLF 与长路径失败继续保留。当前 suite 数量
+> 为 21 个 manifest 场景，其中既有 18 个已有公开统一验证，新增 3 个的 v7 公开 12-case 门待执行；
+> 因此此时 doctor 的 source case count 为 12，Docker verified count 仍为 9。
 
 ## 验收记录合同
 

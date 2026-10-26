@@ -11,6 +11,7 @@ on:
       - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v4.yaml"
       - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v5.yaml"
       - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v6.yaml"
+      - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v7.yaml"
       - "benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v1.yaml"
       - "benchmarks/run_ab/bugsinpy-multi-stage-pilot-v*.yaml"
       - "benchmarks/run_ab/bugsinpy-reduced-v2.yaml"
@@ -127,6 +128,21 @@ jobs:
             e21a31162f4c54be693d8ca8260e42393b39abd3 \
             benchmarks/run_ab/full/pysnooper-2-custom-repr/fixture \
             25
+          prepare_fixture \
+            https://github.com/cookiecutter/cookiecutter.git \
+            c15633745df6abdb24e02746b82aadb20b8cdf8c \
+            benchmarks/run_ab/full/cookiecutter-1-utf8-context/fixture \
+            242
+          prepare_fixture \
+            https://github.com/httpie/cli.git \
+            8c892edd4fe700a7ca5cc733dcb4817831d253e2 \
+            benchmarks/run_ab/full/httpie-4-host-header-overwrite/fixture \
+            59
+          prepare_fixture \
+            https://github.com/spotify/luigi.git \
+            a0f1db01ddab5b4b2bda3fbe58bad09a6d94a7b4 \
+            benchmarks/run_ab/full/luigi-3-serialize-tuple-parameter/fixture \
+            375
 
       - name: Pull the validation image
         run: docker pull python:3.12-alpine
@@ -179,16 +195,16 @@ jobs:
             --state-dir "$state_dir" \
             | tee "$state_dir/cli-result.json"
 
-      - name: Run the nine-case full-checkout suite in network-disabled containers
+      - name: Run the twelve-case full-checkout suite in network-disabled containers
         shell: bash
         run: |
           set -euo pipefail
-          state_dir=.horizon/full-checkout-docker-v6
+          state_dir=.horizon/full-checkout-docker-v7
           mkdir -p "$state_dir"
           docker image inspect python:3.12-alpine --format '{{.Id}}'
           set +e
           uv run --locked horizon eval run-ab-suite \
-            benchmarks/run_ab/bugsinpy-full-checkout-pilot-v6.yaml \
+            benchmarks/run_ab/bugsinpy-full-checkout-pilot-v7.yaml \
             --image python:3.12-alpine \
             --state-dir "$state_dir" \
             2>&1 | tee "$state_dir/cli-result.json"
@@ -196,7 +212,7 @@ jobs:
           set -e
           if (( suite_status != 0 )); then
             detail="$(tail -c 2000 "$state_dir/cli-result.json" | tr '\n\r' '  ' | sed 's/%/%25/g')"
-            echo "::error title=Full-checkout v6 failed::$detail"
+            echo "::error title=Full-checkout v7 failed::$detail"
             exit "$suite_status"
           fi
 
@@ -237,7 +253,7 @@ jobs:
             .horizon/docker-worker-crash-evidence
             .horizon/docker-worker-crash-cli.json
             .horizon/reduced-docker-v2
-            .horizon/full-checkout-docker-v6
+            .horizon/full-checkout-docker-v7
             .horizon/multi-stage-docker-v4
             .horizon/multi-stage-hard-crash-docker-v1
           if-no-files-found: warn
@@ -288,7 +304,7 @@ jobs:
               Path(".horizon/reduced-docker-v2/cli-result.json").read_text(encoding="utf-8")
           )
           full = json.loads(
-              Path(".horizon/full-checkout-docker-v6/cli-result.json").read_text(
+              Path(".horizon/full-checkout-docker-v7/cli-result.json").read_text(
                   encoding="utf-8"
               )
           )
@@ -340,10 +356,10 @@ jobs:
           suite_reports = (reduced_report, full_report, multi_report, hard_crash_report)
           all_expectations_met = (
               all(report["all_expectations_met"] for report in suite_reports)
-              and full_report["case_count"] == 9
-              and full_report["passed_case_count"] == 9
-              and full_report["initial_failure_confirmed_count"] == 9
-              and full_report["treatment_recovered_count"] == 9
+              and full_report["case_count"] == 12
+              and full_report["passed_case_count"] == 12
+              and full_report["initial_failure_confirmed_count"] == 12
+              and full_report["treatment_recovered_count"] == 12
               and created_resume["verified"]
               and created_resume["created_trace_is_terminal_prefix"]
               and created_resume["protected_validation_passed"]

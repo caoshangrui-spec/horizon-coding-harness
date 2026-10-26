@@ -1,0 +1,104 @@
+schema_version: 1
+benchmark_id: cookiecutter-1-utf8-context-full
+fixture_path: fixture
+
+task:
+  task_id: cookiecutter-utf8-context-full
+  title: Decode non-ASCII context values consistently
+  objective: Load context JSON as UTF-8 even when the platform default encoding is ASCII
+  repository:
+    source: local
+    path: /fixture
+    base_commit: c15633745df6abdb24e02746b82aadb20b8cdf8c
+  constraints:
+    allowed_paths: ["**"]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+  acceptance:
+    - id: cookiecutter-utf8-full
+      command: >-
+        python -B -c "import ast,builtins,json,logging,os,tempfile; from collections import OrderedDict; from pathlib import Path; source=Path('cookiecutter/generate.py').read_text(encoding='utf-8'); node=next(item for item in ast.parse(source).body if isinstance(item,ast.FunctionDef) and item.name=='generate_context'); namespace={'OrderedDict':OrderedDict,'json':json,'os':os,'ContextDecodingException':RuntimeError,'logger':logging.getLogger('cookiecutter-check')}; exec(compile(ast.Module(body=[node],type_ignores=[]),'cookiecutter/generate.py','exec'),namespace); context_path=Path(tempfile.mkdtemp())/'non_ascii.json'; context_path.write_text('{\"full_name\":\"éèà\"}',encoding='utf-8'); real_open=builtins.open; builtins.open=lambda file,*args,**kwargs: real_open(file,*args,**dict({'encoding':'ascii'},**kwargs)); observed=namespace['generate_context'](context_path); expected=OrderedDict([('non_ascii',OrderedDict([('full_name','éèà')]))]); assert observed==expected,(observed,expected)"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 20
+    max_model_calls: 12
+    max_tool_calls: 20
+    max_wall_time_seconds: 600
+    max_cost_usd: "1.00"
+    max_input_tokens: 100000
+    max_output_tokens: 5000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+
+initial_plan:
+  version: 1
+  items:
+    - work_item_id: locate-context-decoder-full
+      title: Locate context decoding behavior
+      objective: Retrieve revision-bound evidence before changing the context loader
+      dependencies: []
+      expected_artifacts: [Code EvidencePack, cookiecutter-utf8-full receipt]
+      acceptance_ids: [cookiecutter-utf8-full]
+      allowed_tools: [retrieve_code]
+
+expected_initial_failed_checks: [cookiecutter-utf8-full]
+
+arms:
+  - arm_id: no-replan
+    role: baseline
+    description: Continue the stalled source retrieval until deterministic guidance is required.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items: []
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 4
+    expected_tool_calls: 4
+    expected_steps: 4
+    actions:
+      - &retrieve_target
+        tool: retrieve_code
+        arguments:
+          query: generate context decodes non ascii chars generate_context
+          max_chunks: 8
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+
+  - arm_id: single-replan
+    role: single_replan
+    description: Replace the stalled investigation with the bounded upstream UTF-8 repair.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items: [repair-context-decoder-full]
+    expected_model_calls: 6
+    expected_tool_calls: 7
+    expected_steps: 7
+    actions:
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+      - tool: revise_plan
+        arguments:
+          reason: Repeated retrieval produced no new evidence; bind context reads to UTF-8.
+          items:
+            - work_item_id: repair-context-decoder-full
+              title: Bind context reads to UTF-8
+              objective: Make non-ASCII JSON decoding independent of the platform default
+              dependencies: []
+              expected_artifacts: [cookiecutter/generate.py, cookiecutter-utf8-full receipt]
+              acceptance_ids: [cookiecutter-utf8-full]
+              allowed_tools: [retrieve_code, replace_text, run_check]
+      - tool: replace_text
+        arguments:
+          path: cookiecutter/generate.py
+          old: "        with open(context_file) as file_handle:"
+          new: "        with open(context_file, encoding='utf-8') as file_handle:"
+      - tool: submit
+        arguments:
+          summary: Bound context JSON decoding to UTF-8 and ran the protected non-ASCII regression check.
