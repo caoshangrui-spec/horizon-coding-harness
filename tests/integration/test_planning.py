@@ -26,6 +26,7 @@ from horizon.domain.errors import (
     BudgetStopReason,
     PlanProposalError,
     PolicyDenied,
+    ProviderConnectionError,
     RunCancellationRequested,
 )
 from horizon.domain.model import (
@@ -45,6 +46,13 @@ from horizon.domain.run import projection_hash
 from horizon.domain.states import RunStatus
 from horizon.domain.task import TaskSpec
 from horizon.interfaces.cli.app import app
+from horizon.reliability.breaker import (
+    CircuitBreakerPolicy,
+    CircuitOpenError,
+    ProviderHealthKey,
+    ProviderHealthStore,
+    ProviderReliabilityController,
+)
 
 
 class ScriptedPlanner:
@@ -254,6 +262,40 @@ def setup_planner(tmp_path: Path, proposals):
         config=PlanGeneratorConfig(max_output_tokens=512),
     )
     return generator, service, store, ledger, run.run_id, token, context, model, artifacts
+
+
+def test_planner_open_breaker_blocks_before_reservation_and_dispatch(tmp_path):
+    generator, _, store, ledger, run_id, token, context, model, _ = setup_planner(
+        tmp_path,
+        [valid_proposal()],
+    )
+    key = ProviderHealthKey(
+        endpoint="https://provider.example/v1",
+        provider_id="fake-provider",
+        model_id="fake-model",
+        operation="planning",
+        credential_ref="FAKE_API_KEY",
+    )
+    reliability = ProviderReliabilityController(
+        ProviderHealthStore(tmp_path / "health.sqlite3"),
+        key,
+        breaker_policy=CircuitBreakerPolicy(failure_threshold=1),
+    )
+    permit = reliability.acquire()
+    reliability.record_provider_failure(
+        permit,
+        ProviderConnectionError("simulated uncertain disconnect"),
+    )
+    generator.provider_reliability = reliability
+
+    with pytest.raises(CircuitOpenError):
+        generator.generate_and_set(run_id, token, context)
+
+    assert model.requests == []
+    assert ledger.attempts(generator.campaign.campaign_id) == ()
+    current = store.get(run_id)
+    assert current.reservations == {}
+    assert current.model_reservations == {}
 
 
 def test_generated_plan_is_budgeted_validated_and_trace_linked(tmp_path):

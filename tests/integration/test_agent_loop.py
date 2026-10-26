@@ -56,6 +56,13 @@ from horizon.domain.run import projection_hash
 from horizon.domain.states import RunStatus
 from horizon.domain.task import TaskSpec
 from horizon.domain.tools import AcceptanceResult, ToolCallRecord, ToolCallReservation
+from horizon.reliability.breaker import (
+    CircuitBreakerPolicy,
+    CircuitOpenError,
+    ProviderHealthKey,
+    ProviderHealthStore,
+    ProviderReliabilityController,
+)
 from horizon.tools.gateway import WorkspaceToolGateway
 
 
@@ -363,6 +370,41 @@ def setup_loop(tmp_path: Path, task_dict, actions, *, plan=None, checker=None):
         config=AgentLoopConfig(max_model_iterations=8, max_output_tokens=256),
     )
     return runner, store, run.run_id, token, workspace, model
+
+
+def test_agent_open_breaker_blocks_before_reservation_and_dispatch(tmp_path, task_dict):
+    runner, store, run_id, token, _, model = setup_loop(
+        tmp_path,
+        task_dict,
+        [("read_file", {"path": "src/parser.py"})],
+    )
+    key = ProviderHealthKey(
+        endpoint="https://provider.example/v1",
+        provider_id="fake-provider",
+        model_id="fake-model",
+        operation="execution",
+        credential_ref="FAKE_API_KEY",
+    )
+    reliability = ProviderReliabilityController(
+        ProviderHealthStore(tmp_path / "health.sqlite3"),
+        key,
+        breaker_policy=CircuitBreakerPolicy(failure_threshold=1),
+    )
+    permit = reliability.acquire()
+    reliability.record_provider_failure(
+        permit,
+        ProviderConnectionError("simulated uncertain disconnect"),
+    )
+    runner.provider_reliability = reliability
+
+    with pytest.raises(CircuitOpenError):
+        runner.run(run_id, token)
+
+    assert model.requests == []
+    assert runner.campaign_ledger.attempts(runner.campaign.campaign_id) == ()
+    current = store.get(run_id)
+    assert current.reservations == {}
+    assert current.model_reservations == {}
 
 
 def multi_step_contract(task_dict):

@@ -306,6 +306,17 @@ def test_doctor_checks_fts_without_model():
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0, result.output
     data = json.loads(result.stdout)
+    assert data["provider_retry_policy"] is True
+    assert data["provider_retry_profile"] == "single_transport_attempt_unknown_cost_stop"
+    assert data["automatic_provider_retry"] is False
+    assert data["provider_circuit_breaker"] is True
+    assert data["provider_circuit_breaker_profile"] == (
+        "sqlite_persistent_three_failures_one_half_open_probe"
+    )
+    assert data["provider_health_operations"] == ["probe", "planning", "execution"]
+    assert data["model_fallback_policy"] is True
+    assert data["automatic_model_fallback"] is False
+    assert data["degraded_run_summary_contract"] is True
     assert data["autonomous_execution"] is True
     assert data["recovery_safe_cancellation"] is True
     assert data["controller_verified_check_cancellation"] is True

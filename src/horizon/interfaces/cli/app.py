@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from horizon import __version__
 from horizon.adapters.model.config import load_provider_config, resolve_credential
 from horizon.adapters.model.openai_compatible import OpenAICompatibleModelGateway
+from horizon.adapters.model.reliability import build_provider_reliability
 from horizon.adapters.persistence.artifacts import ArtifactStore
 from horizon.adapters.persistence.campaign_budget import CampaignBudgetLedger
 from horizon.adapters.persistence.sqlite import SQLiteEventStore
@@ -1731,7 +1732,11 @@ def model_probe(
     )
     if conservative_input_ceiling(request) > config.request.max_input_tokens:
         raise PolicyDenied("Probe request exceeds the configured input-token budget")
-    result = ModelProbeService(gateway, CampaignBudgetLedger(ledger_path)).run(
+    result = ModelProbeService(
+        gateway,
+        CampaignBudgetLedger(ledger_path),
+        build_provider_reliability(config, "probe"),
+    ).run(
         provider_id=config.provider_id,
         request=request,
         pricing=config.pricing,
@@ -1958,6 +1963,7 @@ def agent_run(
                     max_run_cost=provider.run_budget.max_cost,
                     enable_thinking=provider.request.enable_thinking,
                 ),
+                provider_reliability=build_provider_reliability(provider, "planning"),
             ).generate_and_set(run.run_id, token, planning_context)
         except PlanProposalError as exc:
             latest = service.store.get(run.run_id)
@@ -2085,6 +2091,7 @@ def agent_run(
             pricing=provider.pricing,
             campaign=provider.campaign,
             config=runner_config,
+            provider_reliability=build_provider_reliability(provider, "execution"),
         )
 
     effective_supervision = supervise or worker_process
@@ -2455,6 +2462,7 @@ def agent_resume(
                     max_run_cost=provider.run_budget.max_cost,
                     enable_thinking=provider.request.enable_thinking,
                 ),
+                provider_reliability=build_provider_reliability(provider, "planning"),
             ).generate_and_set(run_id, token, planning_context)
         except PlanProposalError as exc:
             latest = service.store.get(run_id)
@@ -2575,6 +2583,7 @@ def agent_resume(
             pricing=provider.pricing,
             campaign=provider.campaign,
             config=runner_config,
+            provider_reliability=build_provider_reliability(provider, "execution"),
         )
 
     effective_supervision = supervise or worker_process
@@ -3391,6 +3400,17 @@ def doctor():
                 "sqlite": sqlite3.sqlite_version,
                 "fts5": fts5,
                 "model_backend": "openai_compatible",
+                "provider_retry_policy": True,
+                "provider_retry_profile": "single_transport_attempt_unknown_cost_stop",
+                "automatic_provider_retry": False,
+                "provider_circuit_breaker": True,
+                "provider_circuit_breaker_profile": (
+                    "sqlite_persistent_three_failures_one_half_open_probe"
+                ),
+                "provider_health_operations": ["probe", "planning", "execution"],
+                "model_fallback_policy": True,
+                "automatic_model_fallback": False,
+                "degraded_run_summary_contract": True,
                 "autonomous_execution": True,
                 "intent_router": True,
                 "intent_router_profile": "deterministic_rules_authority_contraction",

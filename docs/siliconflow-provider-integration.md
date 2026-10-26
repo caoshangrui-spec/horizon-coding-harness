@@ -182,8 +182,11 @@ Horizon 的可配置请求策略，不冒充模型官方窗口或 tokenizer 精�
 恢复 pending response 时按历史 estimator ID 重新生成并逐字段比较，防止配置或会话漂移。自动
 规划与 probe 也在 Provider 派发前检查该上限，离线 pilot preflight 将其纳入 `ready`。
 
-探针固定为单次请求，不读取 `request.max_attempts` 进行隐式重试。配置中的最多两次尝试是
-未来统一 Retry Gateway 的上限，当前尚未实现；自动 fallback 固定关闭。
+探针固定为单次 transport 请求，不进行隐式重试。`request.max_attempts` 现已绑定统一
+RetryPolicy 的逻辑请求次数上限，但现有 ProviderError 都保持“派发/费用未知”，因此自动决策
+仍为停止而不是再次付费。probe、planning 与 execution 已在 reservation 前接入持久 breaker；
+自动 fallback 固定关闭。详细边界见
+[Provider 重试、熔断与 Fallback 合同](provider-reliability.md)。
 
 ## 5. 已验证与未验证
 

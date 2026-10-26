@@ -67,6 +67,7 @@ from horizon.domain.ports import (
 from horizon.domain.run import Run
 from horizon.domain.states import RunStatus
 from horizon.domain.tools import AcceptanceResult, ToolCallRecord, ToolCallReservation, ToolOutcome
+from horizon.reliability.breaker import ProviderReliabilityController
 
 EXECUTION_REPLAN_TOOL_NAME = "revise_plan"
 MIN_EXECUTION_REPLAN_SESSION_MESSAGES = 5
@@ -265,6 +266,7 @@ class CodingAgentRunner:
         pricing: PriceCard,
         campaign: CampaignBudget,
         config: AgentLoopConfig | None = None,
+        provider_reliability: ProviderReliabilityController | None = None,
     ):
         self.service = service
         self.model = model
@@ -276,6 +278,7 @@ class CodingAgentRunner:
         self.pricing = pricing
         self.campaign = campaign
         self.config = config or AgentLoopConfig()
+        self.provider_reliability = provider_reliability
 
     def _model_tools(self, run: Run) -> tuple[ToolDefinition, ...]:
         definitions = self.tools.definitions
@@ -681,6 +684,9 @@ class CodingAgentRunner:
             request_payload=request_payload,
         )
         request_budget = reservation.budget_evidence(request.max_output_tokens)
+        permit = (
+            self.provider_reliability.acquire() if self.provider_reliability is not None else None
+        )
         try:
             self.campaign_ledger.reserve(
                 self.campaign,
@@ -711,6 +717,8 @@ class CodingAgentRunner:
                 )
                 raise
         except BudgetExceeded as exc:
+            if self.provider_reliability is not None and permit is not None:
+                self.provider_reliability.abandon(permit)
             if exc.stop is None:
                 raise
             raise BudgetExceeded(
@@ -718,6 +726,10 @@ class CodingAgentRunner:
                 stop=exc.stop,
                 model_request_budget=request_budget,
             ) from exc
+        except BaseException:
+            if self.provider_reliability is not None and permit is not None:
+                self.provider_reliability.abandon(permit)
+            raise
         try:
             response = self.model.generate(request, trace_id)
         except ProviderError as exc:
@@ -732,6 +744,8 @@ class CodingAgentRunner:
                 token,
                 f"unknown_{call_id}",
             )
+            if self.provider_reliability is not None and permit is not None:
+                self.provider_reliability.record_provider_failure(permit, exc)
             if classified.status == RunStatus.CANCELLED:
                 raise RunCancellationRequested(run_id) from exc
             raise
@@ -779,6 +793,8 @@ class CodingAgentRunner:
             estimated_cost,
             response.provider_trace_id,
         )
+        if self.provider_reliability is not None and permit is not None:
+            self.provider_reliability.record_success(permit)
         return run, response
 
     def _tool_call(

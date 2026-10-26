@@ -6,6 +6,26 @@
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
 
+## 2026-10-26 Provider 可靠性：持久熔断与保守 Retry/Fallback 合同
+
+- 新增 `reliability/retry.py`：统一限制逻辑请求最多 3 次、累计等待最多 60 秒，并把
+  transport 内层尝试固定为 1。401/403、配置和协议错误直接停止；429/5xx/连接失败虽标记为
+  transient，但现有调用无法证明未派发或未计费，因此决策为
+  `stop / unknown_dispatch_or_cost`，不以 HTTP 标签绕过双账本。
+- 新增 `reliability/breaker.py` 与 `adapters/model/reliability.py`：健康 key 绑定
+  endpoint/provider/model/operation/credential reference，SQLite 投影和追加事件与 Campaign
+  ledger 共库但独立版本。连续 3 次 transient failure 后 OPEN，30 秒后只允许一个 half-open
+  探针；重启保持状态，401 不增加计数。probe、自动 planning、同进程和直接子进程 execution
+  均在费用 reservation 前检查 breaker。
+- 新增 `reliability/fallback.py`：只允许最多一个预授权且工具/Schema/context/API/数据边界/
+  币种/Run 与 Campaign 余量均兼容的 candidate；可比评测、未知费用未保留或 Task/required
+  acceptance hash 改变都拒绝。当前只做资格合同，不实际切换模型。
+- `RunReliabilitySummary` 要求降级保留原错误、策略、quality flag 和限制；required checks
+  未通过或证据未知时不能标 passed。本批新增 29 个测试 case，连同 doctor 入口断言共 30 项
+  相关专项；离线全量 **598 passed，11 skipped**。未联网、未调用付费模型。
+- 详细数据流、状态转换和未实现边界见
+  [Provider 重试、熔断与 Fallback 合同](provider-reliability.md)。
+
 ## 2026-10-26 保守意图入口：零模型分类与权限收窄
 
 - 新增 `domain/intake.py` 与 `application/intake.py`：`IntentEnvelope` 分开记录
@@ -144,6 +164,7 @@
 | 工作项 DAG、required 验收覆盖、候选调度 | [plan.py](../src/horizon/domain/plan.py) | 人工、one-shot 模型计划和单次执行期 revision 都经过领域层验收/工具权限复核；新计划还要求每个 acceptance ID 只有一个 owning WorkItem，历史 Trace 投影保留旧合同兼容；无自动触发或多次 replan |
 | 一次性自动计划与恢复 | [planning.py](../src/horizon/application/planning.py)、[planning.py](../src/horizon/domain/planning.py) | 内容寻址 PlanningContext、1～8 项 DAG、任务级工具 allowlist、权限/验收唯一归属校验、费用记账、settled response 复用；完整 inventory 下拒绝模型猜测的不存在路径，只对同项已授权 `create_file` 且仍在 TaskSpec 范围内的新路径放行，截断 inventory 保持未知；仍无计划成功率评测 |
 | 保守意图 admission | [intake.py](../src/horizon/domain/intake.py)、[intake.py](../src/horizon/application/intake.py) | 显式控制→结构化 TaskSpec→有限规则；输出请求/任务种类、请求/有效模式、目标 Run、缺失字段、原文 span、工具交集与零模型费用。权限只收窄，未知及 read/write 冲突 abstain；尚无模型分类、intake 持久事件或自动派发 |
+| Provider retry/breaker/fallback 合同 | [retry.py](../src/horizon/reliability/retry.py)、[breaker.py](../src/horizon/reliability/breaker.py)、[fallback.py](../src/horizon/reliability/fallback.py)、[设计与边界](provider-reliability.md) | probe/planning/execution 在 reservation 前使用跨重启 SQLite breaker；每次 transport 只派发一次，unknown 费用不自动重试。fallback 仅做最多一个候选的预授权/能力/数据/预算/验收不变校验；尚无 Provider receipt 查询、安全自动 retry、实际换模型或终态摘要集成 |
 | 计划阶段持久人工 fallback | [human.py](../src/horizon/domain/human.py)、[services.py](../src/horizon/application/services.py) | 非法模型 Plan 绑定原 response/Task/version 后进入 WAITING 并释放 Lease；本机人工计划原子记录决定并回到 READY；仅此窄场景，不是通用 HITL |
 | NoProgress 人工指导恢复 | [human.py](../src/horizon/application/human.py)、[human.py](../src/horizon/domain/human.py) | 相同行为第 4 次、period-2 第 6 步或 period-3/4 第 3p 步，将 pattern、精确周期、工具证据、Task/Plan/WorkItem/workspace/session 绑定后进入 WAITING；本机指导写入新 session，新 Worker 续跑；不是通用审批或自动 replan |
 | Run 状态投影、终态和成功前置检查 | [run.py](../src/horizon/domain/run.py) | 状态规则；顺序 WorkItem DAG、单次 vN→vN+1 revision 和最终 required checks 全量回归已接入；无并行或多次 replan |
@@ -1171,8 +1192,9 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
    也没有独立安全复核或通用审批系统；当前 promotion 仅覆盖最多 8 个总变更且至多 1 个新文件。
 4. **Agent 能力**：自然语言意图已有零模型规则 admission 和权限收窄，但尚无模型分类、持久 intake
    stream 或自动派发；通用审批/澄清式持久化 HITL、
-   Project Memory、symbol/vector Code RAG、六层精确 tokenizer/semantic Context、统一
-   retry/breaker/fallback、更完整的 repair/replan。现有确定性字符 + 完整请求保守 token 上界
+   Project Memory、symbol/vector Code RAG、六层精确 tokenizer/semantic Context、安全自动 retry、
+   实际模型 fallback 与终态质量摘要集成、更完整的 repair/replan。现有持久 breaker、保守 Retry/
+   Fallback 资格合同、确定性字符 + 完整请求保守 token 上界
    双门投影、run-scope 证据 Memory 和
    词法 FTS 是部分能力，不是上述完整闭环。
 5. **预算与隐私补全**：CNY Campaign 与 Run 模型账本现已同时工作，但 TaskSpec 的旧
@@ -1188,8 +1210,8 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 七轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 569 passed；全量入口对应
-569 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
+当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 598 passed；全量入口对应
+598 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
 `run_model_cost_limit` 进入 `FAILED`。没有工具、编辑、checkpoint 或验证，Trace 14 事件可重放，

@@ -46,6 +46,7 @@ from horizon.domain.ports import ArtifactStorePort, CampaignBudgetPort, ModelGat
 from horizon.domain.run import Run
 from horizon.domain.states import RunStatus
 from horizon.domain.task import TaskSpec, relative_pattern
+from horizon.reliability.breaker import ProviderReliabilityController
 
 PLAN_TOOL_NAME = "propose_plan"
 DEFAULT_MAX_INVENTORY_PATHS = 50
@@ -255,6 +256,7 @@ class PlanGenerator:
         pricing: PriceCard,
         campaign: CampaignBudget,
         config: PlanGeneratorConfig | None = None,
+        provider_reliability: ProviderReliabilityController | None = None,
     ):
         self.service = service
         self.model = model
@@ -265,6 +267,7 @@ class PlanGenerator:
         self.pricing = pricing
         self.campaign = campaign
         self.config = config or PlanGeneratorConfig()
+        self.provider_reliability = provider_reliability
 
     def _store_context(self, context: PlanningContext) -> str:
         payload = canonical_json(context).encode("utf-8")
@@ -508,6 +511,11 @@ class PlanGenerator:
                 request_payload=request_payload,
             )
             request_budget = reservation.budget_evidence(request.max_output_tokens)
+            permit = (
+                self.provider_reliability.acquire()
+                if self.provider_reliability is not None
+                else None
+            )
             try:
                 self.campaign_ledger.reserve(
                     self.campaign,
@@ -536,6 +544,8 @@ class PlanGenerator:
                     )
                     raise
             except BudgetExceeded as exc:
+                if self.provider_reliability is not None and permit is not None:
+                    self.provider_reliability.abandon(permit)
                 if exc.stop is None:
                     raise
                 enriched = BudgetExceeded(
@@ -552,6 +562,10 @@ class PlanGenerator:
                         model_request_budget=request_budget,
                     )
                 raise enriched from exc
+            except BaseException:
+                if self.provider_reliability is not None and permit is not None:
+                    self.provider_reliability.abandon(permit)
+                raise
             try:
                 response = self.model.generate(request, trace_id)
             except ProviderError as exc:
@@ -566,6 +580,8 @@ class PlanGenerator:
                     token,
                     f"unknown_{call_id}",
                 )
+                if self.provider_reliability is not None and permit is not None:
+                    self.provider_reliability.record_provider_failure(permit, exc)
                 if classified.status == RunStatus.CANCELLED:
                     raise RunCancellationRequested(run_id) from exc
                 raise
@@ -614,6 +630,8 @@ class PlanGenerator:
                 estimated_cost,
                 response.provider_trace_id,
             )
+            if self.provider_reliability is not None and permit is not None:
+                self.provider_reliability.record_success(permit)
             if run.status == RunStatus.CANCELLED:
                 raise RunCancellationRequested(run_id)
             if run.terminal:

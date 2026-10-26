@@ -8,6 +8,7 @@ from pathlib import Path
 
 from horizon.adapters.model.config import load_provider_config, resolve_credential
 from horizon.adapters.model.openai_compatible import OpenAICompatibleModelGateway
+from horizon.adapters.model.reliability import build_provider_reliability
 from horizon.adapters.persistence.artifacts import ArtifactStore
 from horizon.adapters.persistence.campaign_budget import CampaignBudgetLedger
 from horizon.adapters.persistence.sqlite import SQLiteEventStore
@@ -161,6 +162,7 @@ def main() -> None:
         model_id=provider.model.id,
         pricing=provider.pricing,
         campaign=provider.campaign,
+        provider_reliability=build_provider_reliability(provider, "execution"),
         config=AgentLoopConfig(
             max_model_iterations=min(8, run.task.budgets.max_model_calls - planning_calls),
             max_output_tokens=min(512, provider.request.max_output_tokens),

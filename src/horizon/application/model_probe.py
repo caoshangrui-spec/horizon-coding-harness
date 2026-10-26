@@ -18,6 +18,7 @@ from horizon.domain.model import (
     ToolDefinition,
 )
 from horizon.domain.ports import CampaignBudgetPort, ModelGatewayPort
+from horizon.reliability.breaker import ProviderReliabilityController
 
 PROBE_TOOL_NAME = "horizon_probe"
 PROBE_VALUE = "HORIZON_OK"
@@ -100,9 +101,15 @@ def conservative_input_ceiling(request: ModelRequest) -> int:
 
 
 class ModelProbeService:
-    def __init__(self, gateway: ModelGatewayPort, ledger: CampaignBudgetPort):
+    def __init__(
+        self,
+        gateway: ModelGatewayPort,
+        ledger: CampaignBudgetPort,
+        reliability: ProviderReliabilityController | None = None,
+    ):
         self.gateway = gateway
         self.ledger = ledger
+        self.reliability = reliability
 
     def run(
         self,
@@ -119,12 +126,20 @@ class ModelProbeService:
         )
         attempt_id = f"attempt_{uuid4().hex}"
         trace_id = f"horizon-{uuid4().hex}"
-        self.ledger.reserve(budget, attempt_id, request.sha256, reserved_cost)
+        permit = self.reliability.acquire() if self.reliability is not None else None
+        try:
+            self.ledger.reserve(budget, attempt_id, request.sha256, reserved_cost)
+        except BaseException:
+            if self.reliability is not None and permit is not None:
+                self.reliability.abandon(permit)
+            raise
         try:
             response = self.gateway.generate(request, trace_id)
         except ProviderError as exc:
             # Once dispatch begins, failure is not proof of zero billing.
             self.ledger.mark_unknown(budget.campaign_id, attempt_id, type(exc).__name__)
+            if self.reliability is not None and permit is not None:
+                self.reliability.record_provider_failure(permit, exc)
             raise
         estimated_cost = pricing.cost_for(response.usage)
         campaign = self.ledger.settle(
@@ -133,6 +148,8 @@ class ModelProbeService:
             estimated_cost,
             response.provider_trace_id,
         )
+        if self.reliability is not None and permit is not None:
+            self.reliability.record_success(permit)
         calls = response.message.tool_calls
         passed = (
             len(calls) == 1
