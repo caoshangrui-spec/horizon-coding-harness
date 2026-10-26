@@ -3,7 +3,7 @@
 更新：2026-10-26。v8 原样保留已由公开禁网 Docker 统一通过的 v7 十二个完整 checkout，再加入
 Sanic bug 5、TheFuck bug 2 与 Luigi bug 2。当前共十五个案例、九个不同项目、4,491 个
 tracked 文件；同一项目的不同 bug 分别计为不同案例，不冒充十五个独立项目。三个新增案例已通过
-test-only 本地完整 Harness，公开十五案例统一门待执行。v7 首次公开 run 的 Cookiecutter 符号链接
+test-only 本地完整 Harness，公开十五案例统一门也已通过。v7 首次公开 run 的 Cookiecutter 符号链接
 拒绝与替换版 12/12 成功均继续保留。每个案例先执行
 初始失败门，再运行 Baseline 与单次 replan Treatment。执行使用冻结脚本模型，验证的是 Harness、
 Code RAG、预算、可恢复等待和 Trace 合同，不是模型能力跑分。
@@ -194,7 +194,7 @@ logging config assignment、`get_all_executables` 与 `BeamDataflowJobTask.get_t
 
 ## 3. 当前 A/B 证据
 
-### 3.1 v8 三种失效模式的本地证据
+### 3.1 v8 三种失效模式的本地与公开证据
 
 Sanic-5、TheFuck-2 与 Luigi-2 均来自 2026-10-24 在补丁揭示前冻结的 development 选择；不占用
 仍密封的八案例 holdout。buggy 保护检查分别以错误 logger key、Windows-style PATH 被冒号切碎，
@@ -216,7 +216,14 @@ checkout 均未改变，且 `paid_model_called=false`、`network_called=false`�
 `7089973e6b567c9765124aa120f638d6fa3bd172a9e2cfa894246d0056b717d4` 与
 `e34ed925255119bff4422fbcab5da71782fc840e72aaa5fdb8be99fca303dec3`。初始较泛的 Sanic/Luigi
 query 曾把目标排 rank 3/4，随后用 failing-test 已知的配置常量或类/方法标识符收窄到 rank 1；
-这是 development 调整，不是独立 RAG 泛化证据。公开十五案例 Docker 门尚待执行。
+这是 development 调整，不是独立 RAG 泛化证据。
+
+公开 run [`40311947427`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40311947427)
+随后在生产 Docker adapter 与禁网容器中通过完整 checkout 15/15、三阶段 3/3 与硬崩溃 1/1。
+统一 artifact ID `12645122879`、201,843,271 bytes，digest
+`sha256:764e8ee2af63a050bb8465542adf69e9fc521e24aebc502eff312bc91b457b84`，创建于
+`2026-10-26T11:07:03Z`、到期于 `2026-11-25T11:06:35Z`。当前 doctor 的来源案例数与公开
+Docker verified count 均为 15。
 
 ### 3.2 v7 三种失效模式的本地证据
 
@@ -257,8 +264,8 @@ CRLF checkout，随后 Cookiecutter 又在长 state 路径上触发 Win32 path-l
 完成十二案例 12/12、三阶段 3/3 和硬崩溃 1/1。统一 artifact ID `12642577416`，
 183,527,015 bytes，digest
 `sha256:dade5bfc81fd600cfd85e504e5415e8fa890e8de3794dfc1d8388953f7acaf63`，创建于
-`2026-10-26T10:19:12Z`、到期于 `2026-11-25T10:18:53Z`。当前 doctor 的来源案例数与公开
-Docker verified count 均为 12。
+`2026-10-26T10:19:12Z`、到期于 `2026-11-25T10:18:53Z`。该 v7 提交时 doctor 的来源案例数与
+公开 Docker verified count 均为 12；v8 的最新计数见上节。
 
 ### 3.3 v6 PySnooper 两文件案例的本地证据
 
@@ -511,7 +518,7 @@ PySnooper bug 3 的 BugsInPy `requirements.txt` 为空，但真实源码导入
 均成立；Cookiecutter 候选在首次公开 run 被符号链接安全门拒绝后已由 Sanic-2 替换，替换版公开
 十二案例门已通过 12/12。v8 再增加 Sanic-5、TheFuck-2 与 Luigi-2，十五案例、九项目合计
 4,491 files；三个新增案例的 buggy/fixed 探针、本地完整 Harness、rank-1 生产路径检索、Trace replay
-与 source isolation 均成立，公开十五案例门尚待执行。TheFuck、Sanic、PySnooper 及 v7/v8 新增案例来自预冻结检索集合，
+与 source isolation 均成立，公开十五案例门也已通过 15/15。TheFuck、Sanic、PySnooper 及 v7/v8 新增案例来自预冻结检索集合，
 但端到端 manifest 是揭示 gold 后制作，不能称为新 holdout。第一次 Windows 六案例联合运行的 4/6、
 PySnooper YAML 缩进失败、v7 Luigi 非唯一锚点失败、Windows 十二案例联合运行的 CRLF/长路径失败，
 以及公开 Cookiecutter 符号链接拒绝均保留，不用后续成功覆盖负结果。

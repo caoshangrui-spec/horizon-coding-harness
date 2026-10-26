@@ -48,8 +48,9 @@ for public releases; unreleased work must not be presented as a published releas
   4,491 tracked files. All three additions pass buggy/fixed probes and the complete local Harness A/B:
   the baseline waits safely, the treatment repairs one bounded production line, every Trace replays,
   and the source checkout remains unchanged. Retrieval reaches the production path at rank 1 only
-  after two broader development queries ranked Sanic and Luigi at 3 and 4; this tuning and the pending
-  public 15-case network-disabled Docker gate are reported explicitly rather than generalized.
+  after two broader development queries ranked Sanic and Luigi at 3 and 4; this tuning is reported
+  explicitly rather than generalized. Public network-disabled Docker run `40311947427` passed all
+  15 cases and uploaded a content-addressed evidence artifact.
 
 ## 0.3.0 - 2026-10-24
 

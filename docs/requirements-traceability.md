@@ -141,9 +141,11 @@
 > buggy/fixed 保护探针和 test-only 本地完整 Harness 均已通过；Baseline 均为 48 events 后
 > `WAITING_FOR_USER`，Treatment 均为 74 events 后 `SUCCEEDED`，六条 Trace 可重放且 source 未变。
 > 三条生产目标检索最终均为 rank 1；初始较泛的 Sanic/Luigi query 曾为 rank 3/4，收窄使用的是
-> failing-test 已知标识符，因此只记为 development 调整。当前 suite 数量为 24 个 manifest 场景；
-> 既有 21 个已有公开统一验证，v8 新增 3 个的公开 15-case 门待执行。doctor 的 source case count
-> 为 15，Docker verified count 暂保持 12。
+> failing-test 已知标识符，因此只记为 development 调整。公开 run `40311947427` 随后通过完整
+> checkout 15/15、三阶段 3/3 与硬崩溃 1/1；统一 artifact ID `12645122879`、digest
+> `sha256:764e8ee2af63a050bb8465542adf69e9fc521e24aebc502eff312bc91b457b84`。当前 suite 数量为
+> 24 个 manifest 场景，现均已有公开统一验证；doctor 的 source case count 与 Docker verified count
+> 均为 15。
 
 ## 验收记录合同
 
