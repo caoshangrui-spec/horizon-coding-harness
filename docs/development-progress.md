@@ -9,24 +9,26 @@
 ## 2026-10-26 完整 Checkout v7：三种新失效模式
 
 - v7 原样保留 v6 九例，再加入 2026-10-24 在补丁揭示前冻结的 development 来源：
-  Cookiecutter-1 的 UTF-8 context、HTTPie-4 的 Host header，以及 Luigi-3 的 flat tuple 反序列化。
-  当前为 12 案例、10 个项目、3,627 tracked files；suite digest
-  `4eb74bfbf8715a1ac5aaf14b5087a5c289cab1915cea3f46e79065b6835edb79`，三个 case digest 分别为
-  `718854e4...2e061`、`c03af519...aa46` 与 `af4c7dce...06129`。
-- 三个 buggy 保护检查分别以 ASCII 解码错误、重复 Host header 和 scalar `TypeError` 失败，fixed
+  Sanic-2 的 asyncio lifecycle proxy、HTTPie-4 的 Host header，以及 Luigi-3 的 flat tuple 反序列化。
+  当前为 12 案例、9 个项目、3,573 tracked files；suite digest
+  `825d359204ddf66081c1faf8d6f3b60d4869ae3e2a82b16e6f151039a7dc2047`，三个 case digest 分别为
+  `a29294e3...9d971`、`c03af519...aa46` 与 `af4c7dce...06129`。
+- 三个 buggy 保护检查分别以 lifecycle methods 缺失、重复 Host header 和 scalar `TypeError` 失败，fixed
   commit 均通过。本地完整 Harness 中三个 Baseline 都以 48 events 进入 `WAITING_FOR_USER`；
-  Cookiecutter/HTTPie Treatment 均以 6/7/7 model/tool/step、74 events 成功，Luigi 以 7/8/8、
-  83 events 成功。report ref 分别为 `e4530246...8b762`、`14d018f0...8c81`、
+  Sanic/HTTPie Treatment 均以 6/7/7 model/tool/step、74 events 成功，Luigi 以 7/8/8、
+  83 events 成功。report ref 分别为 `9002c6ed...8124e`、`14d018f0...8c81`、
   `27c5ca11...bc83`；六条 Trace 均可重放且 source 未变，无网络或付费模型调用。
-- revision-aware Code RAG 在三例都把生产目标文件排 rank 1；Cookiecutter/HTTPie/Luigi 分别索引
-  229/57/320 个文件并显式跳过 12/2/55 个非文本文件，状态保留为 `degraded`。第一次 Luigi
+- revision-aware Code RAG 在三例都把生产目标文件排 rank 1；Sanic/HTTPie/Luigi 分别索引
+  186/57/320 个文件并显式跳过 2/2/55 个非文本文件，状态保留为 `degraded`。第一次 Luigi
   Treatment 因锚点 `except ValueError:` 在文件内出现三次，被精确写工具安全拒绝；失败 report ref
   `0dde8138...b8ba9`。改成两个唯一、逐行、语义等价的锚点后才通过。
 - Windows 十二案例联合尝试没有伪报成功：旧 Tornado 多行 LF 锚点未命中 CRLF checkout，随后
-  Cookiecutter 在长 state 路径触发 Win32 path-length 限制。新增三例随后在短 state 路径和精确
-  standalone checkout 上分别通过；v6 公开 Linux 9/9 证据保持有效，v7 的公开 12-case Docker 门
-  待本次提交后执行。doctor 当前只把 source-bound case count 提升到 12，Docker verified count
-  保持 9。
+  Cookiecutter 在长 state 路径触发 Win32 path-length 限制。首次公开 v7 run `40303452323` 随后
+  确认该 Cookiecutter commit 在 Linux 含文档符号链接，安全门按设计以 `AUTHORS.md` 拒绝；失败
+  artifact digest `sha256:9e159c8e...0b77a86`。未排除链接或放宽门禁，而是移除该候选并以预冻结的
+  Sanic-2 替换；Sanic-2 本地完整 Harness 已通过。v6 公开 Linux 9/9 证据保持有效，替换版 v7 的
+  公开 12-case Docker 门待复跑。doctor 的 source-bound case count 为 12，Docker verified count
+  暂保持 9。
 
 ## 2026-10-25 完整 Checkout v6：PySnooper 两文件修复
 
@@ -120,7 +122,7 @@
 | Revision-aware 词法 Code RAG | [retrieval.py](../src/horizon/domain/retrieval.py)、[sqlite_fts.py](../src/horizon/adapters/retrieval/sqlite_fts.py)、[retrieval_eval.py](../src/horizon/application/retrieval_eval.py)、[retrieval_sources.py](../src/horizon/application/retrieval_sources.py) | SQLite FTS5/BM25、有界 EvidencePack、权限/revision/hash 回查、显式 scan fallback；内部/命名变体/同名符号与两批外部小样本均保留成功和负结果。新增 7 项目 24 案例冻结集：16 个 development 的 Hit@1=11/16、Hit@5=16/16、Recall@5=18/20、MRR=0.817708，3 个 degraded，另 8 个 holdout 仍密封；development 源码现可从固定公开 URL/commit/package 一键重建并核对文件数、字节数、内容树 digest，冻结排名可排除机器耗时后逐项验真。已知困难子集的 16 个冻结查询扰动显示英文改写 Recall@8=8/8、中文描述仅 1/8，保留为多语言负结果。七轮真实模型 Trace 的 10 次 `retrieve_code` 中，6 次可由 canonical 参数哈希匹配到 3 种公开英文 query，保守候选 6/6 原样旁路；另外 4 次原文和语言保持 `UNKNOWN`。无 AST/向量/symbol 图、真实查询分布或模型修复收益结论 |
 | 冻结控制器策略评测 | [reliability.py](../src/horizon/domain/reliability.py)、[reliability_eval.py](../src/horizon/application/reliability_eval.py) | 14 案例/62 判断覆盖精确 period-1/2/3/4 NoProgress 与单次 replan 接受/拒绝；生产路径共享判定函数、报告内容寻址、零外部调用；不是模型或真实 Issue 效果评测 |
 | 有界恢复矩阵 v3 | [recovery_evaluation.py](../src/horizon/domain/recovery_evaluation.py)、[recovery_eval.py](../src/horizon/application/recovery_eval.py)、[horizon-recovery-matrix-v3.yaml](../benchmarks/recovery/horizon-recovery-matrix-v3.yaml)、[recovery-matrix-evaluation.md](recovery-matrix-evaluation.md) | 保留 v1/v2 digest；新增 promotion effect→receipt 前真实硬退出，与既有写入/模型响应硬退出及 18 个三工具状态/决策组合合计 21/21。自动恢复 11/11、安全阻塞 10/10、incorrect resume/redispatch/重复副作用均 0；三条 Trace replay。仍非完整设计故障矩阵、主机故障或 exactly-once 验收 |
-| 完整 Run A/B 与来源绑定 Suite | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[scripted.py](../src/horizon/adapters/model/scripted.py) | 同一 Task/Plan/workspace 的 baseline 与单次 replan arm；先真实确认初始失败，再检查 EventLog/预算/Gateway/Trace；1 个内部、v2 的 5 个 BugsInPy 依赖裁剪案例，以及覆盖 10 个项目的 12 个完整 checkout 案例。依赖裁剪 v2 与完整 checkout v6 已由公开禁网 Docker 分别通过 5/5 与 9/9；v7 新增三例已本地通过，公开 12-case 门待执行。完整案例还验证干净 Git HEAD 与 Code RAG，仍是脚本模型 |
+| 完整 Run A/B 与来源绑定 Suite | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[scripted.py](../src/horizon/adapters/model/scripted.py) | 同一 Task/Plan/workspace 的 baseline 与单次 replan arm；先真实确认初始失败，再检查 EventLog/预算/Gateway/Trace；1 个内部、v2 的 5 个 BugsInPy 依赖裁剪案例，以及覆盖 9 个项目的 12 个完整 checkout 案例。依赖裁剪 v2 与完整 checkout v6 已由公开禁网 Docker 分别通过 5/5 与 9/9；v7 新增三例已本地通过，替换版公开 12-case 门待执行。完整案例还验证干净 Git HEAD 与 Code RAG，仍是脚本模型 |
 | 完整 checkout 多阶段/重启 A/B | [bugsinpy-multi-stage-pilot-v4.yaml](../benchmarks/run_ab/bugsinpy-multi-stage-pilot-v4.yaml) | youtube-dl 872 files、Luigi 382 files 与 FastAPI 629 files 上各有三个依赖 WorkItem；六条 arm 均跨两个持久边界到 epoch 3，合计 12 次重启，并覆盖跨 revision RAG、active/stale Run Memory、完成项保留 replan、最终三项 required checks 与 Trace replay。本地可信与公开禁网 Docker 均为 3/3，doctor 的 case/Docker 计数均为 3。v1 的 CRLF、60 秒 Lease 以及本轮 Tornado 歧义替换负结果继续保留 |
 | 源码绑定的写入硬崩溃 A/B | [bugsinpy-multi-stage-hard-crash-v1.yaml](../benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v1.yaml)、[设计与证据](source-bound-hard-crash-recovery.md) | Luigi 382-file checkout 的两条 arm 都由真实子进程在第一个生产写入 effect 后、receipt 前退出；父进程先记录 unknown、围栏旧 lease，再按精确后态 `accept_replace`，不重派模型，并继续两个 WorkItem 边界到 epoch 4。本地可信与公开禁网 Docker 均为 1/1、Trace replay、source unchanged、unknown/open 0；doctor 的 Docker 计数为 1 |
 | 公开仓库长程可靠性指标 | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[指标合同](long-horizon-reliability-metrics.md) | 新生成的每个 case 记录单调时钟观测耗时；suite typed aggregate 直接给出 scenario/arm、P95、Worker 重启、硬崩溃恢复率、恢复重派、重复副作用、Trace replay、source isolation 与最终 open effect。旧报告仍可读取，冻结 manifest digest 不变；公开 Docker workflow 将多阶段与硬崩溃关键指标设为失败门槛并写入 Job Summary。当前 suite 共 21 个 manifest 场景；既有 18 个已有公开统一验证，v7 新增 3 个已有本地证据、公开门待执行。场景含重复 bug，仍无 20～30 个独立真实任务或真实模型成功率证据 |
@@ -1159,11 +1161,11 @@ source 未变。第六轮 Run `run_7fab106a71174c77bb0a82a8a054d3ed` 使用该 v
 都不能自动扩权，任何新付费 Run 仍须取得明确授权。当前优先继续零费用可靠性验证，现有证据不支持立即引入 symbol/vector
 索引、模型摘要或自动 replan。Run Memory 已形成最小垂直切片，
 精确 NoProgress/replan 的冻结策略 Trace 已建立 14 案例基线；内部 A/B、五个来源绑定的依赖裁剪
-案例和覆盖十个项目的十二个完整 checkout 案例均已执行初始负例或新增单案、Trace、验收、调用数和
+案例和覆盖九个项目的十二个完整 checkout 案例均已执行初始负例或新增单案、Trace、验收、调用数和
 合成费用合同；依赖裁剪 v2 与完整 checkout v6 已有公开禁网 Docker 5/5 与 9/9 报告和统一证据
 artifact，v7 新增三例本地为 3/3、公开门待执行。
 完整 suite
-中历史三例及 v7 新增三例均给出 Code RAG rank 1；新增三例分别保留 12/2/55 个文件跳过的显式
+中历史三例及 v7 新增三例均给出 Code RAG rank 1；新增三例分别保留 2/2/55 个文件跳过的显式
 降级证据。重复 CAS blob 校验的
 规模开销已完成前后对照优化。三个完整 checkout 的三阶段任务及其两个 WorkItem 边界、
 epoch 1 → 2 → 3 Worker 恢复也已通过。`run_check` 已有不自动重派的窄丢弃合同、

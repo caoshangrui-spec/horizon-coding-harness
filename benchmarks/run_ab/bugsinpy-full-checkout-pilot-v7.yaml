@@ -147,21 +147,21 @@ cases:
       reduction: full_checkout
       reduction_note: Uses the clean 25-file upstream checkout at the exact buggy commit; the protected command imports the real package with a standard-library alias for its historical collections API and verifies one custom rule across local and return formatting.
 
-  - case_id: cookiecutter-1-utf8-context-full
-    manifest_path: full/cookiecutter-1-utf8-context/manifest.yaml
+  - case_id: sanic-2-asyncio-start-serving-full
+    manifest_path: full/sanic-2-asyncio-start-serving/manifest.yaml
     source:
       benchmark: BugsInPy
-      project: cookiecutter
-      bug_id: "1"
-      repository_url: https://github.com/cookiecutter/cookiecutter
-      buggy_commit: c15633745df6abdb24e02746b82aadb20b8cdf8c
-      fixed_commit: 7f6804c4953a18386809f11faf4d86898570debc
-      fix_url: https://github.com/cookiecutter/cookiecutter/commit/7f6804c4953a18386809f11faf4d86898570debc
-      upstream_test: tests/test_generate_context.py::test_generate_context_decodes_non_ascii_chars
-      license_spdx: BSD-3-Clause
-      license_url: https://github.com/cookiecutter/cookiecutter/blob/c15633745df6abdb24e02746b82aadb20b8cdf8c/LICENSE
+      project: sanic
+      bug_id: "2"
+      repository_url: https://github.com/sanic-org/sanic
+      buggy_commit: ba9b432993019b0af0c4827a5ed42aaa091bd17d
+      fixed_commit: 801595e24acdf8050b8d3ffa512d424147848d32
+      fix_url: https://github.com/sanic-org/sanic/commit/801595e24acdf8050b8d3ffa512d424147848d32
+      upstream_test: tests/test_app.py::test_asyncio_server_start_serving
+      license_spdx: MIT
+      license_url: https://github.com/sanic-org/sanic/blob/ba9b432993019b0af0c4827a5ed42aaa091bd17d/LICENSE
       reduction: full_checkout
-      reduction_note: Uses the clean 242-file upstream checkout at the exact buggy commit; the protected standard-library AST check simulates an ASCII platform default and verifies the real context loader still decodes non-ASCII JSON.
+      reduction_note: Uses the clean 188-file upstream checkout at the exact buggy commit; the protected standard-library AST check executes both real AsyncioServer proxy methods and verifies delegation plus the unsupported-runtime error contract.
 
   - case_id: httpie-4-host-header-overwrite-full
     manifest_path: full/httpie-4-host-header-overwrite/manifest.yaml

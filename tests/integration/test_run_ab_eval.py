@@ -63,8 +63,8 @@ SANIC_FULL_MANIFEST_PATH = (
 PYSNOOPER_FULL_MANIFEST_PATH = (
     ROOT / "benchmarks" / "run_ab" / "full" / "pysnooper-2-custom-repr" / "manifest.yaml"
 )
-COOKIECUTTER_FULL_MANIFEST_PATH = (
-    ROOT / "benchmarks" / "run_ab" / "full" / "cookiecutter-1-utf8-context" / "manifest.yaml"
+SANIC_ASYNCIO_FULL_MANIFEST_PATH = (
+    ROOT / "benchmarks" / "run_ab" / "full" / "sanic-2-asyncio-start-serving" / "manifest.yaml"
 )
 HTTPIE_HOST_FULL_MANIFEST_PATH = (
     ROOT / "benchmarks" / "run_ab" / "full" / "httpie-4-host-header-overwrite" / "manifest.yaml"
@@ -1179,20 +1179,20 @@ def test_full_checkout_v7_preserves_v6_and_binds_three_development_cases():
         yaml.safe_load(FULL_SUITE_V7_PATH.read_text(encoding="utf-8"))
     )
 
-    assert v7.sha256 == "4eb74bfbf8715a1ac5aaf14b5087a5c289cab1915cea3f46e79065b6835edb79"
+    assert v7.sha256 == "825d359204ddf66081c1faf8d6f3b60d4869ae3e2a82b16e6f151039a7dc2047"
     assert list(v7.cases[:9]) == list(v6.cases)
     assert [case.case_id for case in v7.cases[9:]] == [
-        "cookiecutter-1-utf8-context-full",
+        "sanic-2-asyncio-start-serving-full",
         "httpie-4-host-header-overwrite-full",
         "luigi-3-serialize-tuple-parameter-full",
     ]
     assert len(v7.cases) == 12
-    assert len({case.source.project.casefold() for case in v7.cases}) == 10
+    assert len({case.source.project.casefold() for case in v7.cases}) == 9
 
     expected = {
-        "cookiecutter-1-utf8-context-full": (
-            COOKIECUTTER_FULL_MANIFEST_PATH,
-            "718854e4db3eddcffb863ccbd2480a53d0f89d7ccd5cf20b6d88632494b2e061",
+        "sanic-2-asyncio-start-serving-full": (
+            SANIC_ASYNCIO_FULL_MANIFEST_PATH,
+            "a29294e3e8a689d4dc5432c7b8a7e48817d129fe934e9bae8622b6d89309d971",
             6,
             7,
         ),
@@ -1228,7 +1228,7 @@ def test_full_checkout_v7_additions_match_prefrozen_development_sources():
     selection = yaml.safe_load(DEVELOPMENT_RETRIEVAL_SELECTION_PATH.read_text(encoding="utf-8"))
     selected_by_id = {case["case_id"]: case for case in selection["cases"]}
     source_ids = [
-        "cookiecutter-1-non-ascii-context",
+        "sanic-2-asyncio-start-serving",
         "httpie-4-host-header-overwrite",
         "luigi-3-serialize-tuple-parameter",
     ]
@@ -1249,7 +1249,7 @@ def test_full_checkout_v7_repairs_are_bounded_and_line_ending_independent():
     manifests = [
         RunABEvalManifest.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
         for path in (
-            COOKIECUTTER_FULL_MANIFEST_PATH,
+            SANIC_ASYNCIO_FULL_MANIFEST_PATH,
             HTTPIE_HOST_FULL_MANIFEST_PATH,
             LUIGI_TUPLE_FULL_MANIFEST_PATH,
         )
@@ -1263,7 +1263,7 @@ def test_full_checkout_v7_repairs_are_bounded_and_line_ending_independent():
 
     assert len(edits) == 4
     assert {edit.arguments["path"] for edit in edits} == {
-        "cookiecutter/generate.py",
+        "sanic/server.py",
         "httpie/models.py",
         "luigi/parameter.py",
     }
@@ -1275,10 +1275,10 @@ def test_full_checkout_v7_repairs_are_bounded_and_line_ending_independent():
             updated = source.replace(edit.arguments["old"], edit.arguments["new"])
             assert updated.count(edit.arguments["new"]) == 1
 
-    cookie_command = manifests[0].task.acceptance[0].command
+    sanic_command = manifests[0].task.acceptance[0].command
     httpie_command = manifests[1].task.acceptance[0].command
     luigi_command = manifests[2].task.acceptance[0].command
-    assert "encoding':'ascii" in cookie_command
+    assert "'start_serving','serve_forever'" in sanic_command
     assert "count('host:')==1" in httpie_command
     assert "json.dumps((1,2,3))" in luigi_command
 

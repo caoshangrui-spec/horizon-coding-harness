@@ -129,10 +129,10 @@ jobs:
             benchmarks/run_ab/full/pysnooper-2-custom-repr/fixture \
             25
           prepare_fixture \
-            https://github.com/cookiecutter/cookiecutter.git \
-            c15633745df6abdb24e02746b82aadb20b8cdf8c \
-            benchmarks/run_ab/full/cookiecutter-1-utf8-context/fixture \
-            242
+            https://github.com/sanic-org/sanic.git \
+            ba9b432993019b0af0c4827a5ed42aaa091bd17d \
+            benchmarks/run_ab/full/sanic-2-asyncio-start-serving/fixture \
+            188
           prepare_fixture \
             https://github.com/httpie/cli.git \
             8c892edd4fe700a7ca5cc733dcb4817831d253e2 \

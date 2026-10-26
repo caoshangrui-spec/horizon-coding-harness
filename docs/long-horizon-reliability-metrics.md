@@ -56,7 +56,7 @@
 | Suite | 公开来源 | 场景 | 长程/故障结构 |
 |---|---|---:|---|
 | `bugsinpy-reduced-v2` | Cookiecutter、FastAPI、tqdm、Luigi、Tornado | 5 | dependency-reduced A/B；用于较快回归 |
-| `bugsinpy-full-checkout-pilot-v7` | v6 九例 + Cookiecutter-1、HTTPie-4、Luigi-3 | 12 | 10 个项目、3,627 tracked files；三个新增案例本地完整 Harness 为 3/3，既有公开禁网 Docker v6 为 9/9，v7 的 12-case 统一门待执行 |
+| `bugsinpy-full-checkout-pilot-v7` | v6 九例 + Sanic-2、HTTPie-4、Luigi-3 | 12 | 9 个项目、3,573 tracked files；三个新增案例本地完整 Harness 为 3/3。首次公开 v7 run 因 Cookiecutter 符号链接被安全门拒绝；候选已替换且门禁未放宽，替换版 12-case 统一门待复跑 |
 | `bugsinpy-multi-stage-pilot-v4` | youtube-dl、Luigi、FastAPI | 3 | 每条 arm 为 3 WorkItem、2 次 Worker 重启；合计 6 条 Trace、12 次重启 |
 | `bugsinpy-multi-stage-hard-crash-v1` | Luigi | 1 | 两条 arm 均真实写入后、receipt 前退出，再跨两个 WorkItem 边界；合计 2 次恢复尝试、6 次重启 |
 
