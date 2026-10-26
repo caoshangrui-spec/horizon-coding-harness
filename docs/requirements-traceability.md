@@ -130,9 +130,11 @@
 > 改为两个唯一逐行锚点后才通过；Windows 联合运行的 CRLF 与长路径失败继续保留。首次公开 v7
 > run `40303452323` 又因 Cookiecutter 候选的 Linux 符号链接被安全门拒绝；没有排除链接或放宽
 > 门禁，而是以同一预冻结 development 集中的 Sanic-2 替换，且该新案例本地完整 Harness 已通过。
-> 当前 suite 数量
-> 为 21 个 manifest 场景，其中既有 18 个已有公开统一验证，新增 3 个的 v7 公开 12-case 门待执行；
-> 因此此时 doctor 的 source case count 为 12，Docker verified count 仍为 9。
+> 替换版公开 run `40305739627` 随后通过完整 checkout 12/12、三阶段 3/3 与硬崩溃 1/1；统一
+> artifact ID `12642577416`、digest
+> `sha256:dade5bfc81fd600cfd85e504e5415e8fa890e8de3794dfc1d8388953f7acaf63`。当前 suite 数量
+> 为 21 个 manifest 场景，现均已有公开统一验证；doctor 的 source case count 与 Docker verified
+> count 均为 12。
 
 ## 验收记录合同
 

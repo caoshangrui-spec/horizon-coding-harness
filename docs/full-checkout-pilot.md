@@ -4,7 +4,7 @@
 Sanic bug 2、HTTPie bug 4 与 Luigi bug 3。当前共十二个案例、九个不同项目、3,573 个
 tracked 文件；同一项目的不同 bug 分别计为不同案例，不冒充十二个独立项目。三个新增案例已通过
 test-only 本地完整 Harness。首次公开 v7 run 因 Cookiecutter 候选的 Linux 符号链接被安全门拒绝；
-该候选已移除且没有放宽门禁，替换后的十二案例公开统一门待复跑。每个案例先执行
+该候选已移除且没有放宽门禁，替换后的十二案例已通过公开统一门 12/12。每个案例先执行
 初始失败门，再运行 Baseline 与单次 replan Treatment。执行使用冻结脚本模型，验证的是 Harness、
 Code RAG、预算、可恢复等待和 Trace 合同，不是模型能力跑分。
 
@@ -200,8 +200,13 @@ CRLF checkout，随后 Cookiecutter 又在长 state 路径上触发 Win32 path-l
 `Links and junctions are not accepted: AUTHORS.md` 拒绝；失败 artifact ID `12642035153`、
 72,062,582 bytes、digest `sha256:9e159c8ec37e2751b6ad3f4ebb74e0506a057fc22b24ff029c771b9030b77a86`。
 该候选已从 v7 移除，没有排除链接、修改上游内容或放宽安全门；替换后的 Sanic-2 本地 Harness 已
-通过。v6 已有公开 Linux 9/9 保持有效，当前 doctor 的来源案例数为 12，公开 Docker verified count
-在替换版 v7 复跑成功前仍保持 9。
+通过。随后替换版公开 run
+[`40305739627`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40305739627)
+完成十二案例 12/12、三阶段 3/3 和硬崩溃 1/1。统一 artifact ID `12642577416`，
+183,527,015 bytes，digest
+`sha256:dade5bfc81fd600cfd85e504e5415e8fa890e8de3794dfc1d8388953f7acaf63`，创建于
+`2026-10-26T10:19:12Z`、到期于 `2026-11-25T10:18:53Z`。当前 doctor 的来源案例数与公开
+Docker verified count 均为 12。
 
 ### 3.2 v6 PySnooper 两文件案例的本地证据
 
@@ -452,7 +457,7 @@ PySnooper bug 3 的 BugsInPy `requirements.txt` 为空，但真实源码导入
 通过公开九案例统一门。v7 又增加三个预冻结 development 案例，十二案例、九项目合计 3,573 files；
 三个新增案例的初始负例、完整本地 Harness、rank-1 生产路径检索、Trace replay 与 source isolation
 均成立；Cookiecutter 候选在首次公开 run 被符号链接安全门拒绝后已由 Sanic-2 替换，替换版公开
-十二案例门仍待复跑。TheFuck、Sanic、PySnooper 及 v7 新增三例来自预冻结检索集合，
+十二案例门已通过 12/12。TheFuck、Sanic、PySnooper 及 v7 新增三例来自预冻结检索集合，
 但端到端 manifest 是揭示 gold 后制作，不能称为新 holdout。第一次 Windows 六案例联合运行的 4/6、
 PySnooper YAML 缩进失败、v7 Luigi 非唯一锚点失败、Windows 十二案例联合运行的 CRLF/长路径失败，
 以及公开 Cookiecutter 符号链接拒绝均保留，不用后续成功覆盖负结果。
