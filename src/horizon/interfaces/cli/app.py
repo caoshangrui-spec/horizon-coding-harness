@@ -3425,6 +3425,7 @@ def doctor():
                 "degraded_run_summary_contract": True,
                 "terminal_reliability_summary": True,
                 "terminal_evidence_schema": 2,
+                "trace_bound_retrieval_degradation": True,
                 "autonomous_execution": True,
                 "intent_router": True,
                 "intent_router_profile": "deterministic_rules_authority_contraction",

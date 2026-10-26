@@ -111,8 +111,11 @@ permit -> Campaign/Run reservation -> 单次 transport dispatch
 该合同现已接入通用终态 EvidencePack schema v2。导出器从重放后的 Run 推导
 `passed / failed / blocked`、required-check 状态、unknown acceptance，以及 unknown/open effect
 quality flag；CLI 导出与离线验证都会返回相同结构。为保持证据边界，fallback/degradation history
-只接受未来绑定进 Trace 的记录；当前没有对应事件，因此数组为空并在 `limitations` 中明确说明，
-不会从非定位日志猜测或把空数组宣传为“从未降级”。schema v1 历史包仍可按旧规则验证。
+只接受绑定进 Trace 的记录。生产 `retrieve_code` 的 typed EvidencePack 若明确为 `degraded`，会将
+原因、策略、call ID 和 Artifact ref 与工具 receipt 原子写入同一个事件，并在重放后进入终态
+`degradations`。model fallback、context-summary 和 model degradation 仍没有生产事件，因此对应
+history 为空并在 `limitations` 中明确范围；不会从非定位日志猜测或把空数组宣传为“从未降级”。
+schema v1 历史包仍可按旧规则验证。
 
 ## 6. 已验证与未验证
 
@@ -127,6 +130,8 @@ quality flag；CLI 导出与离线验证都会返回相同结构。为保持证�
 - 降级必须保留原失败、quality flag 和原 required acceptance；
 - unknown 或未通过的验收证据不能生成 passed summary；
 - 三种终态的 EvidencePack v2 会复算可靠性摘要，区分未知验收与已知 required-check 失败；
+- lexical scan 检索降级与成功工具 receipt 原子绑定，Trace 重放和终态包保留原原因/Artifact；
+- 伪绑定到非检索回执的 degradation 会使预算与工具结算一并回滚；
 - 历史 schema v1 EvidencePack 仍可读取和语义复核。
 
 尚未完成：
@@ -134,6 +139,6 @@ quality flag；CLI 导出与离线验证都会返回相同结构。为保持证�
 - Provider 主动 receipt/usage 查询和 unknown 费用自动对账；
 - 自动执行安全 pre-dispatch retry；
 - fallback 实际切换、ContextPack 跨 provider 重建和 Run 事件；
-- 为实际 fallback/degradation 增加 Trace 事件并把真实 history 写入终态摘要；
+- 为 model fallback、context-summary/model degradation 增加生产 Trace 事件；
 - 分布式 breaker、跨主机时钟协调或生产监控；
 - 任何新的付费模型验证。

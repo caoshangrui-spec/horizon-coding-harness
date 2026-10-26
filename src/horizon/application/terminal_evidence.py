@@ -75,6 +75,13 @@ def _reliability_summary(run: Run) -> RunReliabilitySummary:
     if open_effects_present:
         quality_flags.append("open_effects_present")
         limitations.append("One or more reservations, promotions, or process effects remain open.")
+    for degradation in run.reliability_degradations:
+        if degradation.quality_flag not in quality_flags:
+            quality_flags.append(degradation.quality_flag)
+        limitations.append(
+            f"{degradation.operation} used {degradation.strategy}; original reason(s): "
+            f"{degradation.original_error_type}."
+        )
     status = {
         RunStatus.SUCCEEDED: "passed",
         RunStatus.FAILED: "failed",
@@ -90,7 +97,7 @@ def _reliability_summary(run: Run) -> RunReliabilitySummary:
         unknown_acceptance_evidence=unknown_acceptance_evidence,
         quality_flags=tuple(quality_flags),
         fallback_history=(),
-        degradations=(),
+        degradations=tuple(run.reliability_degradations),
         limitations=tuple(limitations),
     )
 

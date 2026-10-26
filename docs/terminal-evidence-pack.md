@@ -56,9 +56,13 @@ schema v2 还包含 `reliability_summary`：
 - unknown/open external effect 同步写入 quality flags；
 - `fallback_history`、`degradations` 和 `limitations` 在结构化清单与 Markdown 摘要中均可见。
 
-当前 Run Trace 尚未定义 fallback/degradation 事件，所以两个 history 只接收“已绑定进 Trace 的
-记录”，现阶段新包中为空。导出器不会从临时日志或不可定位的 Artifact 猜测历史；这一可观测性
-限制会写入 `limitations`，不能把空数组解释为“可证明从未发生过降级”。
+生产 Agent Loop 现在会解析成功 `retrieve_code` 回执中的 typed `EvidencePack`。当其状态为
+`degraded` 时，原因、策略、quality flag、Task/required-acceptance hash、工具 call ID 与内容寻址
+Artifact ref 会作为同一个 `TOOL_CALL_SETTLED` 事件的可选字段原子提交；重放时再次校验它只能
+绑定对应的成功检索回执。终态包因此可以真实列出 lexical fallback 或部分索引跳过等检索降级。
+自动 model fallback、context-summary degradation 和 model degradation 尚无生产事件，相关 history
+仍为空。导出器不会从临时日志或不可定位的 Artifact 猜测历史；trace-bound 范围会继续写入
+`limitations`，不能把空数组解释为“可证明从未发生过对应降级”。
 
 ## 4. 固定声明边界
 
@@ -81,12 +85,14 @@ Provider receipt 或独立审计。它也不重新执行原 Run，所以不会�
 - `SUCCEEDED` 只有在 checkpoint、required validation 和最后 WorkItem 通过后才标记任务成功；
 - `FAILED / wall_clock_limit` 保留一个 unknown 且仍占用预算的 Provider 调用；
 - 已知但未通过 required check 与完全缺失当前验收证据会得到不同 quality flag；
+- lexical scan 的真实 Agent 检索降级与其工具回执同事件提交、重放并进入终态摘要；
 - `CANCELLED` 的 CLI 导出、无任务成功误报和独立 `verify-bundle`；
 - schema v1 历史包仍可按原摘要和边界离线复核；
 - 非终态 Run 在创建输出目录前拒绝；
 - 已存在目录不覆盖；
 - 篡改摘要并同步重算文件哈希仍因 Trace 语义不一致而拒绝；
 - 只篡改结构化可靠性元数据、但不改变 Trace，也会被重放复算拒绝。
+- 把检索降级伪绑定到普通读取回执会使整个结算事务回滚，不会留下半结算预算。
 
 这证明的是当前 SQLite Trace 和终态投影的有界离线可核查性，不是证据来源认证，也不代表任意
 外部系统已经完成结算。

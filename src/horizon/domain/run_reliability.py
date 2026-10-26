@@ -36,6 +36,7 @@ class FallbackRecord(Contract):
 
 class DegradationRecord(Contract):
     operation: Literal["retrieval", "context_summary", "model"]
+    source_tool_call_id: Identifier | None = None
     original_error_type: Text
     original_error_ref: Sha256 | None = None
     strategy: Text

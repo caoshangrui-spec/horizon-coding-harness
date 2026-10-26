@@ -27,6 +27,7 @@ from horizon.application.supervision import (
     SequentialAgentSupervisor,
     SequentialSupervisorConfig,
 )
+from horizon.application.terminal_evidence import export_terminal_evidence_pack
 from horizon.application.tool_recovery import ToolRecoveryService
 from horizon.domain.agent import AgentSession
 from horizon.domain.budget import Usage
@@ -1217,6 +1218,60 @@ def test_agent_loop_can_use_revision_bound_code_evidence(tmp_path, task_dict):
     assert evidence["workspace_revision"] == result.tool_calls[0].workspace_revision_before
     assert evidence["chunks"][0]["path"] == "src/parser.py"
     assert "return [] if" in (workspace / "src/parser.py").read_text(encoding="utf-8")
+
+
+def test_degraded_retrieval_is_trace_bound_and_exported_in_terminal_evidence(
+    tmp_path,
+    task_dict,
+):
+    actions = [
+        ("retrieve_code", {"query": "parse value empty", "max_chunks": 2}),
+        (
+            "replace_text",
+            {
+                "path": "src/parser.py",
+                "old": "return [value]",
+                "new": "return [] if value == '' else [value]",
+            },
+        ),
+        ("submit", {"summary": "Fixed parser after degraded retrieval."}),
+    ]
+    runner, store, run_id, token, _, _ = setup_loop(tmp_path, task_dict, actions)
+    runner.tools.retriever.fts5_available = False
+
+    result = runner.run(run_id, token)
+
+    assert result.status == RunStatus.SUCCEEDED
+    assert len(result.reliability_degradations) == 1
+    degradation = result.reliability_degradations[0]
+    retrieval_call = result.tool_calls[0]
+    assert degradation.operation == "retrieval"
+    assert degradation.source_tool_call_id == retrieval_call.call_id
+    assert degradation.original_error_type == "fts5_unavailable"
+    assert degradation.original_error_ref == retrieval_call.artifact_ref
+    assert degradation.strategy == "bounded_lexical_scan"
+    settlement = next(
+        event
+        for event in store.events(run_id)
+        if event.event_type == "TOOL_CALL_SETTLED"
+        and event.payload["record"]["call_id"] == retrieval_call.call_id
+    )
+    assert settlement.payload["degradation"] == degradation.model_dump(mode="json")
+    replayed = SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id))
+    assert replayed.as_dict() == result.as_dict()
+    terminal = export_terminal_evidence_pack(
+        store,
+        run_id,
+        tmp_path / "degraded-retrieval-terminal-evidence",
+    )
+    reliability = terminal.evidence_pack.evidence.reliability_summary
+    assert reliability is not None
+    assert reliability.status == "passed"
+    assert reliability.required_checks_passed is True
+    assert reliability.quality_flags == ("retrieval_degraded",)
+    assert reliability.degradations == (degradation,)
+    assert reliability.fallback_history == ()
+    assert any("bounded_lexical_scan" in item for item in reliability.limitations)
 
 
 def test_no_progress_guard_blocks_third_identical_action_then_allows_progress(

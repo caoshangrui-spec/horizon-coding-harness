@@ -64,13 +64,56 @@ from horizon.domain.ports import (
     ModelGatewayPort,
     ToolGatewayPort,
 )
+from horizon.domain.retrieval import EvidencePack
 from horizon.domain.run import Run
+from horizon.domain.run_reliability import DegradationRecord
 from horizon.domain.states import RunStatus
 from horizon.domain.tools import AcceptanceResult, ToolCallRecord, ToolCallReservation, ToolOutcome
 from horizon.reliability.breaker import ProviderReliabilityController
 
 EXECUTION_REPLAN_TOOL_NAME = "revise_plan"
 MIN_EXECUTION_REPLAN_SESSION_MESSAGES = 5
+
+
+def _retrieval_degradation(
+    run: Run,
+    call_id: str,
+    outcome: ToolOutcome,
+) -> DegradationRecord | None:
+    try:
+        evidence = EvidencePack.model_validate_json(outcome.content)
+    except ValidationError:
+        return None
+    if evidence.status != "degraded":
+        return None
+    if (
+        outcome.status != "success"
+        or outcome.artifact_ref is None
+        or outcome.output_hash != outcome.artifact_ref
+        or outcome.workspace_revision_before != evidence.workspace_revision
+        or outcome.workspace_revision_after != evidence.workspace_revision
+        or outcome.workspace_manifest_ref != evidence.source_manifest_ref
+    ):
+        raise Conflict("Degraded retrieval evidence is not bound to its immutable tool outcome")
+    required_acceptance_hash = digest(
+        tuple(check.id for check in run.task.acceptance if check.required)
+    )
+    strategy = (
+        "bounded_lexical_scan"
+        if evidence.backend == "lexical_scan"
+        else "bounded_sqlite_fts5_with_skipped_files"
+    )
+    return DegradationRecord(
+        operation="retrieval",
+        source_tool_call_id=call_id,
+        original_error_type=",".join(evidence.degradation_reasons),
+        original_error_ref=outcome.artifact_ref,
+        strategy=strategy,
+        quality_flag="retrieval_degraded",
+        task_spec_hash=run.task.sha256,
+        required_acceptance_hash=required_acceptance_hash,
+        effective_required_acceptance_hash=required_acceptance_hash,
+    )
 
 
 class AgentLoopConfig(Contract):
@@ -897,21 +940,30 @@ class CodingAgentRunner:
                 # production gateway creates an external durable attempt only for run_check.
                 attempt_id=local_id,
             )
+        record = ToolCallRecord(
+            call_id=local_id,
+            name=name,
+            arguments_hash=arguments_hash,
+            status=outcome.status,
+            output_hash=outcome.output_hash,
+            workspace_revision_before=outcome.workspace_revision_before,
+            workspace_revision_after=outcome.workspace_revision_after,
+            artifact_ref=outcome.artifact_ref,
+            workspace_manifest_ref=outcome.workspace_manifest_ref,
+        )
+        degradation = None
+        if name == "retrieve_code" and outcome.status == "success":
+            degradation = _retrieval_degradation(
+                self.service.store.get(run_id),
+                local_id,
+                outcome,
+            )
         self.service.settle_tool_call(
             run_id,
-            ToolCallRecord(
-                call_id=local_id,
-                name=name,
-                arguments_hash=arguments_hash,
-                status=outcome.status,
-                output_hash=outcome.output_hash,
-                workspace_revision_before=outcome.workspace_revision_before,
-                workspace_revision_after=outcome.workspace_revision_after,
-                artifact_ref=outcome.artifact_ref,
-                workspace_manifest_ref=outcome.workspace_manifest_ref,
-            ),
+            record,
             token,
             f"settle_{local_id}",
+            degradation=degradation,
         )
         if name == "run_check" and no_progress_pattern is None:
             # A durable Docker attempt is intentionally retained until the authoritative tool

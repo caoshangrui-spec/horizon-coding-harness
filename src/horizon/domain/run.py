@@ -36,6 +36,7 @@ from horizon.domain.plan import (
     check_execution_replan,
 )
 from horizon.domain.promotion import PromotionIntent, PromotionReceipt, WorkspaceOrigin
+from horizon.domain.run_reliability import DegradationRecord
 from horizon.domain.states import TERMINAL, RunStatus, check_transition
 from horizon.domain.task import TaskSpec
 from horizon.domain.tools import ToolCallRecord, ToolCallReservation
@@ -77,6 +78,7 @@ class Run:
     tool_reservations: dict[str, ToolCallReservation] = field(default_factory=dict)
     unknown_tool_calls: set[str] = field(default_factory=set)
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
+    reliability_degradations: list[DegradationRecord] = field(default_factory=list)
     agent_session: AgentSessionRecord | None = None
     last_checkpoint: dict[str, Any] | None = None
     workspace_origin: WorkspaceOrigin | None = None
@@ -185,6 +187,12 @@ class Run:
             result["budget_stop"] = self.budget_stop.model_dump(mode="json")
         if self.model_request_budget is not None:
             result["model_request_budget"] = self.model_request_budget.as_dict()
+        # Preserve historical projection hashes: reliability history exists only for traces
+        # whose tool receipt explicitly binds a degradation record.
+        if self.reliability_degradations:
+            result["reliability_degradations"] = [
+                record.model_dump(mode="json") for record in self.reliability_degradations
+            ]
         # Keep historical projection hashes stable: these keys exist only for traces using the
         # recovery-safe cancellation protocol.
         if self.cancel_requested:
@@ -773,6 +781,29 @@ def apply(run: Run | None, event: Event) -> Run:
         del run.tool_reservations[record.call_id]
         run.unknown_tool_calls.discard(record.call_id)
         run.tool_calls.append(record)
+        if p.get("degradation") is not None:
+            degradation = DegradationRecord.model_validate(p["degradation"])
+            required_acceptance_hash = digest(
+                tuple(check.id for check in run.task.acceptance if check.required)
+            )
+            if (
+                record.name != "retrieve_code"
+                or record.status != "success"
+                or record.artifact_ref is None
+                or record.output_hash != record.artifact_ref
+                or degradation.operation != "retrieval"
+                or degradation.source_tool_call_id != record.call_id
+                or degradation.original_error_ref != record.artifact_ref
+                or degradation.task_spec_hash != run.task.sha256
+                or degradation.required_acceptance_hash != required_acceptance_hash
+                or degradation.quality_flag != "retrieval_degraded"
+                or any(
+                    item.source_tool_call_id == record.call_id
+                    for item in run.reliability_degradations
+                )
+            ):
+                raise IntegrityError("Retrieval degradation does not match its tool receipt")
+            run.reliability_degradations.append(degradation)
     elif event.event_type == "TOOL_CALL_UNKNOWN":
         call_id = p["call_id"]
         if call_id not in run.tool_reservations or call_id not in run.unknown_reservations:
@@ -865,6 +896,7 @@ def apply(run: Run | None, event: Event) -> Run:
         run.no_progress_reset_tool_count = len(run.tool_calls)
         run.passed_items.clear()
         run.validation = None
+        run.reliability_degradations.clear()
         run.agent_session = None
         run.status, run.resume_state = RunStatus.PLANNING, None
         run.lease_id = run.worker_id = run.lease_expires_at = None

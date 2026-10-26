@@ -44,6 +44,7 @@ from horizon.domain.plan import (
 from horizon.domain.ports import EventStorePort
 from horizon.domain.promotion import PromotionIntent, PromotionReceipt, WorkspaceOrigin
 from horizon.domain.run import Run
+from horizon.domain.run_reliability import DegradationRecord
 from horizon.domain.states import RunStatus
 from horizon.domain.task import TaskSpec
 from horizon.domain.tools import ToolCallRecord, ToolCallReservation
@@ -1549,6 +1550,8 @@ class HarnessService:
         record: ToolCallRecord,
         token: LeaseToken,
         key: str,
+        *,
+        degradation: DegradationRecord | None = None,
     ) -> Run:
         actual = Usage(tool_calls=1, steps=1)
         request = {
@@ -1556,11 +1559,16 @@ class HarnessService:
             "record": record.model_dump(mode="json"),
             "token": token.model_dump(),
         }
+        if degradation is not None:
+            request["degradation"] = degradation.model_dump(mode="json")
 
         def decide(run):
             self.check_recovery_worker(run, token)
             if record.call_id not in run.tool_reservations:
                 raise Conflict("Unknown or already settled tool call")
+            settlement_payload = {"record": record.model_dump(mode="json")}
+            if degradation is not None:
+                settlement_payload["degradation"] = degradation.model_dump(mode="json")
             return [
                 NewEvent(
                     event_type="BUDGET_SETTLED",
@@ -1573,7 +1581,7 @@ class HarnessService:
                 ),
                 NewEvent(
                     event_type="TOOL_CALL_SETTLED",
-                    payload={"record": record.model_dump(mode="json")},
+                    payload=settlement_payload,
                 ),
             ]
 
@@ -1729,6 +1737,8 @@ class HarnessService:
         session: AgentSessionRecord,
         token: LeaseToken,
         key: str,
+        *,
+        degradation: DegradationRecord | None = None,
     ) -> Run:
         """Atomically close a recovered tool intent and publish its completed Agent turn."""
         actual = Usage(tool_calls=1, steps=1)
@@ -1738,6 +1748,8 @@ class HarnessService:
             "session": session.model_dump(mode="json"),
             "token": token.model_dump(),
         }
+        if degradation is not None:
+            request["degradation"] = degradation.model_dump(mode="json")
 
         def decide(run):
             self.check_recovery_worker(run, token)
@@ -1760,6 +1772,9 @@ class HarnessService:
             # This command appends budget settlement, tool receipt, then session publication.
             if session.covered_event_seq != run.seq + 2:
                 raise Conflict("Recovered Agent session does not cover its atomic tool settlement")
+            settlement_payload = {"record": record.model_dump(mode="json")}
+            if degradation is not None:
+                settlement_payload["degradation"] = degradation.model_dump(mode="json")
             return [
                 NewEvent(
                     event_type="BUDGET_SETTLED",
@@ -1772,7 +1787,7 @@ class HarnessService:
                 ),
                 NewEvent(
                     event_type="TOOL_CALL_SETTLED",
-                    payload={"record": record.model_dump(mode="json")},
+                    payload=settlement_payload,
                 ),
                 NewEvent(
                     event_type="AGENT_SESSION_SAVED",

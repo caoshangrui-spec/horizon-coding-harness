@@ -4,6 +4,7 @@ import pytest
 
 from horizon.adapters.persistence.sqlite import SQLiteEventStore
 from horizon.domain.budget import Usage
+from horizon.domain.common import digest
 from horizon.domain.errors import (
     BudgetExceeded,
     Conflict,
@@ -11,6 +12,7 @@ from horizon.domain.errors import (
     RunCancellationRequested,
     RunDeadlineExceeded,
 )
+from horizon.domain.run_reliability import DegradationRecord
 from horizon.domain.states import RunStatus
 from horizon.domain.tools import ToolCallRecord, ToolCallReservation
 
@@ -57,6 +59,64 @@ def test_unknown_usage_is_not_refunded(store, service, running):
     assert result.unknown_reservations == {"unknown"}
     with pytest.raises(BudgetExceeded, match="Unknown"):
         service.reserve(run.run_id, "next", Usage(model_calls=1), token, "next")
+
+
+def test_tool_settlement_rejects_unbound_retrieval_degradation_atomically(
+    store,
+    service,
+    running,
+):
+    run, token = running
+    reservation = ToolCallReservation(
+        call_id="ordinary-read",
+        name="read_file",
+        arguments_hash="a" * 64,
+        workspace_revision="b" * 64,
+        workspace_manifest_ref="c" * 64,
+    )
+    reserved = service.reserve_tool_call(
+        run.run_id,
+        reservation,
+        token,
+        "reserve-ordinary-read",
+    )
+    record = ToolCallRecord(
+        call_id=reservation.call_id,
+        name=reservation.name,
+        arguments_hash=reservation.arguments_hash,
+        status="success",
+        output_hash="d" * 64,
+        workspace_revision_before=reservation.workspace_revision,
+        workspace_revision_after=reservation.workspace_revision,
+        artifact_ref="d" * 64,
+        workspace_manifest_ref=reservation.workspace_manifest_ref,
+    )
+    degradation = DegradationRecord(
+        operation="retrieval",
+        source_tool_call_id=record.call_id,
+        original_error_type="fts5_unavailable",
+        original_error_ref=record.artifact_ref,
+        strategy="bounded_lexical_scan",
+        quality_flag="retrieval_degraded",
+        task_spec_hash=run.task.sha256,
+        required_acceptance_hash=digest(("unit",)),
+        effective_required_acceptance_hash=digest(("unit",)),
+    )
+
+    with pytest.raises(IntegrityError, match="does not match its tool receipt"):
+        service.settle_tool_call(
+            run.run_id,
+            record,
+            token,
+            "settle-ordinary-read-with-false-degradation",
+            degradation=degradation,
+        )
+
+    unchanged = store.get(run.run_id)
+    assert unchanged.seq == reserved.seq
+    assert record.call_id in unchanged.reservations
+    assert record.call_id in unchanged.tool_reservations
+    assert unchanged.reliability_degradations == []
 
 
 def test_billed_overrun_is_recorded_then_run_fails(store, service, running):
