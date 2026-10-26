@@ -1,0 +1,244 @@
+schema_version: 1
+suite_id: bugsinpy-full-checkout-pilot-v8
+
+# v8 preserves all twelve frozen v7 cases and adds three more pre-frozen development cases with distinct failure modes.
+cases:
+  - case_id: tqdm-1-tenumerate-start-full
+    manifest_path: full/tqdm-1-tenumerate-start/manifest.yaml
+    source:
+      benchmark: BugsInPy
+      project: tqdm
+      bug_id: "1"
+      repository_url: https://github.com/tqdm/tqdm
+      buggy_commit: 8cc777fe8401a05d07f2c97e65d15e4460feab88
+      fixed_commit: c0dcf39b046d1b4ff6de14ac99ad9a1b10487512
+      fix_url: https://github.com/tqdm/tqdm/commit/c0dcf39b046d1b4ff6de14ac99ad9a1b10487512
+      upstream_test: tqdm/tests/tests_contrib.py::test_enumerate
+      license_spdx: MPL-2.0
+      license_url: https://github.com/tqdm/tqdm/blob/8cc777fe8401a05d07f2c97e65d15e4460feab88/LICENCE
+      reduction: full_checkout
+      reduction_note: Uses the clean 82-file upstream checkout at the exact buggy commit; the protected regression command is dependency-free and stricter than the historical test because it asserts the nonzero start value.
+
+  - case_id: youtube-dl-3-unescape-html-full
+    manifest_path: full/youtube-dl-3-unescape-html/manifest.yaml
+    source:
+      benchmark: BugsInPy
+      project: youtube-dl
+      bug_id: "3"
+      repository_url: https://github.com/ytdl-org/youtube-dl
+      buggy_commit: f5469da9e6e259c1690c7ef54f1da1c19f65036f
+      fixed_commit: 95f3f7c20a05e7ac490e768b8470b20538ef8581
+      fix_url: https://github.com/ytdl-org/youtube-dl/commit/95f3f7c20a05e7ac490e768b8470b20538ef8581
+      upstream_test: test/test_utils.py::TestUtil.test_unescape_html
+      license_spdx: Unlicense
+      license_url: https://github.com/ytdl-org/youtube-dl/blob/f5469da9e6e259c1690c7ef54f1da1c19f65036f/LICENSE
+      reduction: full_checkout
+      reduction_note: Uses the clean 872-file upstream checkout at the exact buggy commit and executes a dependency-free assertion equivalent to the fixed commit's nested HTML-entity regression.
+
+  - case_id: luigi-1-metrics-handler-full
+    manifest_path: full/luigi-1-metrics-handler/manifest.yaml
+    source:
+      benchmark: BugsInPy
+      project: luigi
+      bug_id: "1"
+      repository_url: https://github.com/spotify/luigi
+      buggy_commit: 1164eb6b85b8a70f596dbb99452bec513e72c12e
+      fixed_commit: aec5dc2ed8db53fc282a0bd24aabe59031b6d1ba
+      fix_url: https://github.com/spotify/luigi/commit/aec5dc2ed8db53fc282a0bd24aabe59031b6d1ba
+      upstream_test: test/server_test.py::MetricsHandlerTest::test_get
+      license_spdx: Apache-2.0
+      license_url: https://github.com/spotify/luigi/blob/1164eb6b85b8a70f596dbb99452bec513e72c12e/LICENSE
+      reduction: full_checkout
+      reduction_note: Uses the clean 382-file upstream checkout at the exact buggy commit; the protected command extracts and executes the real MetricsHandler class with only standard-library fakes so no historical dependency stack is installed.
+
+  - case_id: fastapi-5-nested-field-clone-full
+    manifest_path: full/fastapi-5-nested-field-clone/manifest.yaml
+    source:
+      benchmark: BugsInPy
+      project: fastapi
+      bug_id: "5"
+      repository_url: https://github.com/fastapi/fastapi
+      buggy_commit: 7cea84b74ca3106a7f861b774e9d215e5228728f
+      fixed_commit: 75a07f24bf01a31225ee687f3e2b3fc1981b67ab
+      fix_url: https://github.com/fastapi/fastapi/commit/75a07f24bf01a31225ee687f3e2b3fc1981b67ab
+      upstream_test: tests/test_filter_pydantic_sub_model.py::test_filter_sub_model
+      license_spdx: MIT
+      license_url: https://github.com/fastapi/fastapi/blob/7cea84b74ca3106a7f861b774e9d215e5228728f/LICENSE
+      reduction: full_checkout
+      reduction_note: Uses the clean 629-file upstream checkout at the exact buggy commit; the protected check extracts the real clone function and supplies standard-library field/model fakes to expose nested object aliasing.
+
+  - case_id: tornado-1-websocket-nodelay-full
+    manifest_path: full/tornado-1-websocket-nodelay/manifest.yaml
+    source:
+      benchmark: BugsInPy
+      project: tornado
+      bug_id: "1"
+      repository_url: https://github.com/tornadoweb/tornado
+      buggy_commit: 6a5a0bfa370b6c0d3dbbf9589a560a98202d2baa
+      fixed_commit: 4677c54cc18bbfbdf0f4dadf11610fab6203fd63
+      fix_url: https://github.com/tornadoweb/tornado/commit/4677c54cc18bbfbdf0f4dadf11610fab6203fd63
+      upstream_test: tornado.test.websocket_test.WebSocketTest.test_nodelay
+      license_spdx: Apache-2.0
+      license_url: https://github.com/tornadoweb/tornado/blob/6a5a0bfa370b6c0d3dbbf9589a560a98202d2baa/LICENSE
+      reduction: full_checkout
+      reduction_note: Uses the clean 301-file upstream checkout at the exact buggy commit; the protected AST check executes the real handler and protocol delegation methods without importing Tornado's historical dependency stack.
+
+  - case_id: httpie-2-max-redirects-full
+    manifest_path: full/httpie-2-max-redirects/manifest.yaml
+    source:
+      benchmark: BugsInPy
+      project: httpie
+      bug_id: "2"
+      repository_url: https://github.com/httpie/cli
+      buggy_commit: 356e0436510fee70b4071fac58be81c0a0a7db59
+      fixed_commit: e18b609ef7d867d6efa0efe42c832be5e0d09338
+      fix_url: https://github.com/httpie/cli/commit/e18b609ef7d867d6efa0efe42c832be5e0d09338
+      upstream_test: tests/test_redirects.py::TestRedirects::test_max_redirects
+      license_spdx: BSD-3-Clause
+      license_url: https://github.com/httpie/cli/blob/356e0436510fee70b4071fac58be81c0a0a7db59/LICENSE
+      reduction: full_checkout
+      reduction_note: Uses the clean 70-file upstream checkout at the exact buggy commit; the protected AST check executes the real get_response function with standard-library fakes and verifies the configured cap reaches the active requests session.
+
+  - case_id: thefuck-1-pip-unknown-command-full
+    manifest_path: full/thefuck-1-pip-unknown-command/manifest.yaml
+    source:
+      benchmark: BugsInPy
+      project: thefuck
+      bug_id: "1"
+      repository_url: https://github.com/nvbn/thefuck
+      buggy_commit: 2ced7a7f33ae0bec3ffc7a43ce95330bdf6cfcb9
+      fixed_commit: 444908ce1c17767ef4aaf9e0b4950497914f7f63
+      fix_url: https://github.com/nvbn/thefuck/commit/444908ce1c17767ef4aaf9e0b4950497914f7f63
+      upstream_test: tests/rules/test_pip_unknown_command.py::test_get_new_command
+      license_spdx: MIT
+      license_url: https://github.com/nvbn/thefuck/blob/2ced7a7f33ae0bec3ffc7a43ce95330bdf6cfcb9/LICENSE.md
+      reduction: full_checkout
+      reduction_note: Uses the clean 401-file upstream checkout at the exact buggy commit; the protected AST check executes the real correction function with standard-library fakes and covers punctuation that the alphabetic-only regex rejected.
+
+  - case_id: sanic-1-blueprint-middleware-order-full
+    manifest_path: full/sanic-1-blueprint-middleware-order/manifest.yaml
+    source:
+      benchmark: BugsInPy
+      project: sanic
+      bug_id: "1"
+      repository_url: https://github.com/sanic-org/sanic
+      buggy_commit: e7001b00747b659f7042b0534802b936ee8a53e0
+      fixed_commit: 44973125c15304b4262c51c78b5a86bd1daafa86
+      fix_url: https://github.com/sanic-org/sanic/commit/44973125c15304b4262c51c78b5a86bd1daafa86
+      upstream_test: tests/test_blueprints.py::test_bp_middleware_order
+      license_spdx: MIT
+      license_url: https://github.com/sanic-org/sanic/blob/e7001b00747b659f7042b0534802b936ee8a53e0/LICENSE
+      reduction: full_checkout
+      reduction_note: Uses the clean 189-file upstream checkout at the exact buggy commit; the protected AST check executes the real registration method with a standard-library deque and verifies reverse response-middleware order.
+
+  - case_id: pysnooper-2-custom-repr-full
+    manifest_path: full/pysnooper-2-custom-repr/manifest.yaml
+    source:
+      benchmark: BugsInPy
+      project: PySnooper
+      bug_id: "2"
+      repository_url: https://github.com/cool-RR/PySnooper
+      buggy_commit: e21a31162f4c54be693d8ca8260e42393b39abd3
+      fixed_commit: 814abc34a098c1b98cb327105ac396f985d2413e
+      fix_url: https://github.com/cool-RR/PySnooper/commit/814abc34a098c1b98cb327105ac396f985d2413e
+      upstream_test: tests/test_pysnooper.py::test_custom_repr_single
+      license_spdx: MIT
+      license_url: https://github.com/cool-RR/PySnooper/blob/e21a31162f4c54be693d8ca8260e42393b39abd3/LICENSE
+      reduction: full_checkout
+      reduction_note: Uses the clean 25-file upstream checkout at the exact buggy commit; the protected command imports the real package with a standard-library alias for its historical collections API and verifies one custom rule across local and return formatting.
+
+  - case_id: sanic-2-asyncio-start-serving-full
+    manifest_path: full/sanic-2-asyncio-start-serving/manifest.yaml
+    source:
+      benchmark: BugsInPy
+      project: sanic
+      bug_id: "2"
+      repository_url: https://github.com/sanic-org/sanic
+      buggy_commit: ba9b432993019b0af0c4827a5ed42aaa091bd17d
+      fixed_commit: 801595e24acdf8050b8d3ffa512d424147848d32
+      fix_url: https://github.com/sanic-org/sanic/commit/801595e24acdf8050b8d3ffa512d424147848d32
+      upstream_test: tests/test_app.py::test_asyncio_server_start_serving
+      license_spdx: MIT
+      license_url: https://github.com/sanic-org/sanic/blob/ba9b432993019b0af0c4827a5ed42aaa091bd17d/LICENSE
+      reduction: full_checkout
+      reduction_note: Uses the clean 188-file upstream checkout at the exact buggy commit; the protected standard-library AST check executes both real AsyncioServer proxy methods and verifies delegation plus the unsupported-runtime error contract.
+
+  - case_id: httpie-4-host-header-overwrite-full
+    manifest_path: full/httpie-4-host-header-overwrite/manifest.yaml
+    source:
+      benchmark: BugsInPy
+      project: httpie
+      bug_id: "4"
+      repository_url: https://github.com/httpie/cli
+      buggy_commit: 8c892edd4fe700a7ca5cc733dcb4817831d253e2
+      fixed_commit: 040d981f00c3f6830b2d0db3daf3c64c080e96e3
+      fix_url: https://github.com/httpie/cli/commit/040d981f00c3f6830b2d0db3daf3c64c080e96e3
+      upstream_test: tests/test_regressions.py::test_Host_header_overwrite
+      license_spdx: BSD-3-Clause
+      license_url: https://github.com/httpie/cli/blob/8c892edd4fe700a7ca5cc733dcb4817831d253e2/LICENSE
+      reduction: full_checkout
+      reduction_note: Uses the clean 59-file upstream checkout at the exact buggy commit; the protected AST check executes the real request wrapper with a case-insensitive source mapping and rejects duplicate Host output.
+
+  - case_id: luigi-3-serialize-tuple-parameter-full
+    manifest_path: full/luigi-3-serialize-tuple-parameter/manifest.yaml
+    source:
+      benchmark: BugsInPy
+      project: luigi
+      bug_id: "3"
+      repository_url: https://github.com/spotify/luigi
+      buggy_commit: a0f1db01ddab5b4b2bda3fbe58bad09a6d94a7b4
+      fixed_commit: 3a0bfbff69addfb3be1107adab3d4914bcae3e4b
+      fix_url: https://github.com/spotify/luigi/commit/3a0bfbff69addfb3be1107adab3d4914bcae3e4b
+      upstream_test: test/parameter_test.py::TestSerializeTupleParameter::testSerialize
+      license_spdx: Apache-2.0
+      license_url: https://github.com/spotify/luigi/blob/a0f1db01ddab5b4b2bda3fbe58bad09a6d94a7b4/LICENSE
+      reduction: full_checkout
+      reduction_note: Uses the clean 375-file upstream checkout at the exact buggy commit; the protected AST check executes the real TupleParameter parser and verifies a flat tuple survives its JSON round trip.
+  - case_id: sanic-5-root-logger-config-full
+    manifest_path: full/sanic-5-root-logger-config/manifest.yaml
+    source:
+      benchmark: BugsInPy
+      project: sanic
+      bug_id: "5"
+      repository_url: https://github.com/sanic-org/sanic
+      buggy_commit: e3a27c2cc485d57aa1ff87d9f69098e4ab12727e
+      fixed_commit: b63c06c75a54752d7f3115d3c635580db44b8399
+      fix_url: https://github.com/sanic-org/sanic/commit/b63c06c75a54752d7f3115d3c635580db44b8399
+      upstream_test: tests/test_logging.py::test_logging_modified_root_logger_config
+      license_spdx: MIT
+      license_url: https://github.com/sanic-org/sanic/blob/e3a27c2cc485d57aa1ff87d9f69098e4ab12727e/LICENSE
+      reduction: full_checkout
+      reduction_note: Uses the clean 156-file upstream checkout at the exact buggy commit; the protected standard-library AST check executes the real logging configuration assignment and verifies the default handler is scoped to sanic.root.
+
+  - case_id: thefuck-2-executable-path-separator-full
+    manifest_path: full/thefuck-2-executable-path-separator/manifest.yaml
+    source:
+      benchmark: BugsInPy
+      project: thefuck
+      bug_id: "2"
+      repository_url: https://github.com/nvbn/thefuck
+      buggy_commit: 40ab4eb62db57627bff10cf029d29c94704086a2
+      fixed_commit: 78ef9eec88f43d5727986be2237f6e0e250cbbbc
+      fix_url: https://github.com/nvbn/thefuck/commit/78ef9eec88f43d5727986be2237f6e0e250cbbbc
+      upstream_test: tests/test_utils.py::test_get_all_executables_pathsep
+      license_spdx: MIT
+      license_url: https://github.com/nvbn/thefuck/blob/40ab4eb62db57627bff10cf029d29c94704086a2/LICENSE.md
+      reduction: full_checkout
+      reduction_note: Uses the clean 380-file upstream checkout at the exact buggy commit; the protected standard-library AST check executes the real function with a Windows-style separator and records the directories passed to Path.
+
+  - case_id: luigi-2-beam-target-path-full
+    manifest_path: full/luigi-2-beam-target-path/manifest.yaml
+    source:
+      benchmark: BugsInPy
+      project: luigi
+      bug_id: "2"
+      repository_url: https://github.com/spotify/luigi
+      buggy_commit: baa54c9f4f809692d62d4c3e4497161717c76550
+      fixed_commit: 24e85945ae39e5975491527e00c3f0f64b42ea6e
+      fix_url: https://github.com/spotify/luigi/commit/24e85945ae39e5975491527e00c3f0f64b42ea6e
+      upstream_test: test/contrib/beam_dataflow_test.py::BeamDataflowTest::test_get_target_path
+      license_spdx: Apache-2.0
+      license_url: https://github.com/spotify/luigi/blob/baa54c9f4f809692d62d4c3e4497161717c76550/LICENSE
+      reduction: full_checkout
+      reduction_note: Uses the clean 382-file upstream checkout at the exact buggy commit; the protected standard-library AST check executes the real target formatter with minimal target classes and verifies the nested BigQuery table identity.
+

@@ -40,6 +40,7 @@ FULL_SUITE_V4_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pi
 FULL_SUITE_V5_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v5.yaml"
 FULL_SUITE_V6_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v6.yaml"
 FULL_SUITE_V7_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v7.yaml"
+FULL_SUITE_V8_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v8.yaml"
 LUIGI_FULL_MANIFEST_PATH = (
     ROOT / "benchmarks" / "run_ab" / "full" / "luigi-1-metrics-handler" / "manifest.yaml"
 )
@@ -71,6 +72,20 @@ HTTPIE_HOST_FULL_MANIFEST_PATH = (
 )
 LUIGI_TUPLE_FULL_MANIFEST_PATH = (
     ROOT / "benchmarks" / "run_ab" / "full" / "luigi-3-serialize-tuple-parameter" / "manifest.yaml"
+)
+SANIC_LOGGER_FULL_MANIFEST_PATH = (
+    ROOT / "benchmarks" / "run_ab" / "full" / "sanic-5-root-logger-config" / "manifest.yaml"
+)
+THEFUCK_PATHSEP_FULL_MANIFEST_PATH = (
+    ROOT
+    / "benchmarks"
+    / "run_ab"
+    / "full"
+    / "thefuck-2-executable-path-separator"
+    / "manifest.yaml"
+)
+LUIGI_BEAM_FULL_MANIFEST_PATH = (
+    ROOT / "benchmarks" / "run_ab" / "full" / "luigi-2-beam-target-path" / "manifest.yaml"
 )
 BLIND_RETRIEVAL_SELECTION_PATH = (
     ROOT / "benchmarks" / "retrieval" / "external-blind-v1" / "selection.yaml"
@@ -1281,6 +1296,112 @@ def test_full_checkout_v7_repairs_are_bounded_and_line_ending_independent():
     assert "'start_serving','serve_forever'" in sanic_command
     assert "count('host:')==1" in httpie_command
     assert "json.dumps((1,2,3))" in luigi_command
+
+
+def test_full_checkout_v8_preserves_v7_and_binds_three_development_cases():
+    v7 = RunABSuiteManifest.model_validate(
+        yaml.safe_load(FULL_SUITE_V7_PATH.read_text(encoding="utf-8"))
+    )
+    v8 = RunABSuiteManifest.model_validate(
+        yaml.safe_load(FULL_SUITE_V8_PATH.read_text(encoding="utf-8"))
+    )
+
+    assert v8.sha256 == "1985508c6a8c807d4231102d78fdfb34d599d8a81de04954b245614e6271a229"
+    assert list(v8.cases[:12]) == list(v7.cases)
+    assert [case.case_id for case in v8.cases[12:]] == [
+        "sanic-5-root-logger-config-full",
+        "thefuck-2-executable-path-separator-full",
+        "luigi-2-beam-target-path-full",
+    ]
+    assert len(v8.cases) == 15
+    assert len({case.source.project.casefold() for case in v8.cases}) == 9
+
+    expected = {
+        "sanic-5-root-logger-config-full": (
+            SANIC_LOGGER_FULL_MANIFEST_PATH,
+            "28eb3c03634fad09fc698676783e75a2b4842d0e8e9d8af686e2ad68f792ed7f",
+        ),
+        "thefuck-2-executable-path-separator-full": (
+            THEFUCK_PATHSEP_FULL_MANIFEST_PATH,
+            "142cfa00694f776812421415e695fb12b619be5d564b48c9c54e0da9cace0e32",
+        ),
+        "luigi-2-beam-target-path-full": (
+            LUIGI_BEAM_FULL_MANIFEST_PATH,
+            "82164654f529dc3376e254b5fd771b24f7a76e03c6e533f218157f1e84a93ff3",
+        ),
+    }
+    for case in v8.cases[12:]:
+        manifest_path, digest = expected[case.case_id]
+        manifest = RunABEvalManifest.model_validate(
+            yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+        )
+        case.check_manifest(manifest)
+        assert manifest.sha256 == digest
+        assert manifest.expected_initial_failed_checks == (manifest.task.acceptance[0].id,)
+        assert manifest.arms[1].expected_model_calls == 6
+        assert manifest.arms[1].expected_tool_calls == 7
+
+
+def test_full_checkout_v8_additions_match_prefrozen_development_sources():
+    suite = RunABSuiteManifest.model_validate(
+        yaml.safe_load(FULL_SUITE_V8_PATH.read_text(encoding="utf-8"))
+    )
+    selection = yaml.safe_load(DEVELOPMENT_RETRIEVAL_SELECTION_PATH.read_text(encoding="utf-8"))
+    selected_by_id = {case["case_id"]: case for case in selection["cases"]}
+    source_ids = [
+        "sanic-5-root-logger-config",
+        "thefuck-2-executable-path-separator",
+        "luigi-2-beam-target-path",
+    ]
+
+    assert selection["selected_at"] == "2026-10-24"
+    assert selection["protocol"]["patch_reveal_status"] == "sealed"
+    for case, source_id in zip(suite.cases[12:], source_ids, strict=True):
+        selected = selected_by_id[source_id]
+        assert selected["partition"] == "development"
+        assert case.source.project == selected["project"]
+        assert case.source.bug_id == selected["bug_id"]
+        assert case.source.repository_url == selected["repository_url"]
+        assert case.source.buggy_commit == selected["buggy_commit"]
+        assert case.source.fixed_commit == selected["fixed_commit"]
+
+
+def test_full_checkout_v8_repairs_are_bounded_and_line_ending_independent():
+    manifests = [
+        RunABEvalManifest.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
+        for path in (
+            SANIC_LOGGER_FULL_MANIFEST_PATH,
+            THEFUCK_PATHSEP_FULL_MANIFEST_PATH,
+            LUIGI_BEAM_FULL_MANIFEST_PATH,
+        )
+    ]
+    edits = [
+        action
+        for manifest in manifests
+        for action in manifest.arms[1].actions
+        if action.tool == "replace_text"
+    ]
+
+    assert len(edits) == 3
+    assert {edit.arguments["path"] for edit in edits} == {
+        "sanic/log.py",
+        "thefuck/utils.py",
+        "luigi/contrib/beam_dataflow.py",
+    }
+    assert all("\n" not in edit.arguments["old"] for edit in edits)
+    for newline in ("\n", "\r\n"):
+        for edit in edits:
+            source = f"prefix{newline}{edit.arguments['old']}{newline}suffix"
+            assert source.count(edit.arguments["old"]) == 1
+            updated = source.replace(edit.arguments["old"], edit.arguments["new"])
+            assert updated.count(edit.arguments["new"]) == 1
+
+    sanic_command = manifests[0].task.acceptance[0].command
+    thefuck_command = manifests[1].task.acceptance[0].command
+    luigi_command = manifests[2].task.acceptance[0].command
+    assert "'sanic.root' in loggers" in sanic_command
+    assert "pathsep=';'" in thefuck_command
+    assert "target.table=SimpleNamespace" in luigi_command
 
 
 def test_luigi_full_checkout_repair_is_line_ending_independent():

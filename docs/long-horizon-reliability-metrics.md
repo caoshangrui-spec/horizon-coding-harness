@@ -56,13 +56,13 @@
 | Suite | 公开来源 | 场景 | 长程/故障结构 |
 |---|---|---:|---|
 | `bugsinpy-reduced-v2` | Cookiecutter、FastAPI、tqdm、Luigi、Tornado | 5 | dependency-reduced A/B；用于较快回归 |
-| `bugsinpy-full-checkout-pilot-v7` | v6 九例 + Sanic-2、HTTPie-4、Luigi-3 | 12 | 9 个项目、3,573 tracked files；三个新增案例本地完整 Harness 为 3/3。首次公开 v7 run 因 Cookiecutter 符号链接被安全门拒绝；候选已替换且门禁未放宽，替换版公开 run `40305739627` 已通过 12/12 |
+| `bugsinpy-full-checkout-pilot-v8` | v7 十二例 + Sanic-5、TheFuck-2、Luigi-2 | 15 | 9 个项目、4,491 tracked files；三个新增案例本地完整 Harness 为 3/3，生产目标检索均为 rank 1。v7 公开 run `40305739627` 已通过 12/12；v8 公开 15-case 统一门待执行 |
 | `bugsinpy-multi-stage-pilot-v4` | youtube-dl、Luigi、FastAPI | 3 | 每条 arm 为 3 WorkItem、2 次 Worker 重启；合计 6 条 Trace、12 次重启 |
 | `bugsinpy-multi-stage-hard-crash-v1` | Luigi | 1 | 两条 arm 均真实写入后、receipt 前退出，再跨两个 WorkItem 边界；合计 2 次恢复尝试、6 次重启 |
 
-同一 bug 在不同 suite 中用于不同实验变量，因此不能把当前 21 个场景宣传成 21 个独立真实任务。
-当前 suite 共 21 个 manifest 场景，现均已有公开 Docker 统一验证；历史 v1/v2/v3/v4/v5/v6
-版本不重复累加。
+同一 bug 在不同 suite 中用于不同实验变量，因此不能把当前 24 个场景宣传成 24 个独立真实任务。
+当前 suite 共 24 个 manifest 场景；既有 21 个已有公开 Docker 统一验证，v8 新增 3 个已有本地
+Harness 证据、公开统一门待执行；历史 v1/v2/v3/v4/v5/v6/v7 版本不重复累加。
 按 `(benchmark, project, bug_id, buggy_commit)` 去重后仍是作者选择的小样本。当前项目继续保留
 “尚无 20～30 个独立真实任务和真实模型成功率”的负面边界。
 

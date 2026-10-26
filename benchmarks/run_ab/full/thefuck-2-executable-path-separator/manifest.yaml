@@ -1,0 +1,104 @@
+schema_version: 1
+benchmark_id: thefuck-2-executable-path-separator-full
+fixture_path: fixture
+
+task:
+  task_id: thefuck-executable-path-separator-full
+  title: Respect the platform PATH separator
+  objective: Enumerate executable directories with os.pathsep on Unix and Windows-style PATH values
+  repository:
+    source: local
+    path: /fixture
+    base_commit: 40ab4eb62db57627bff10cf029d29c94704086a2
+  constraints:
+    allowed_paths: ["**"]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+  acceptance:
+    - id: thefuck-path-separator-full
+      command: >-
+        python -B -c "import ast; from pathlib import Path; from types import SimpleNamespace; tree=ast.parse(Path('thefuck/utils.py').read_text(encoding='utf-8')); fn=next(item for item in tree.body if isinstance(item,ast.FunctionDef) and item.name=='get_all_executables'); fn.decorator_list=[]; fn.body=[item for item in fn.body if not isinstance(item,ast.ImportFrom)]; seen=[]; FakePath=type('FakePath',(),{'__init__':lambda self,value:seen.append(value),'iterdir':lambda self:[]}); namespace={'os':SimpleNamespace(environ={'PATH':'C:/foo;C:/bar;C:/baz'},pathsep=';'),'six':SimpleNamespace(PY2=False),'Path':FakePath,'get_alias':lambda:'fuck','shell':SimpleNamespace(get_aliases=lambda:[])}; exec(compile(ast.Module(body=[fn],type_ignores=[]),'thefuck/utils.py','exec'),namespace); assert namespace['get_all_executables']()==[]; assert seen==['C:/foo','C:/bar','C:/baz'],seen"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 20
+    max_model_calls: 12
+    max_tool_calls: 20
+    max_wall_time_seconds: 600
+    max_cost_usd: "1.00"
+    max_input_tokens: 100000
+    max_output_tokens: 5000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+
+initial_plan:
+  version: 1
+  items:
+    - work_item_id: locate-executable-path-split-full
+      title: Locate executable PATH enumeration
+      objective: Retrieve revision-bound evidence before changing platform path parsing
+      dependencies: []
+      expected_artifacts: [Code EvidencePack, thefuck-path-separator-full receipt]
+      acceptance_ids: [thefuck-path-separator-full]
+      allowed_tools: [retrieve_code]
+
+expected_initial_failed_checks: [thefuck-path-separator-full]
+
+arms:
+  - arm_id: no-replan
+    role: baseline
+    description: Continue the stalled source retrieval until deterministic guidance is required.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items: []
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 4
+    expected_tool_calls: 4
+    expected_steps: 4
+    actions:
+      - &retrieve_target
+        tool: retrieve_code
+        arguments:
+          query: get all executables path separator os.pathsep
+          max_chunks: 8
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+
+  - arm_id: single-replan
+    role: single_replan
+    description: Replace the stalled investigation with the bounded cross-platform PATH repair.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items: [repair-executable-path-split-full]
+    expected_model_calls: 6
+    expected_tool_calls: 7
+    expected_steps: 7
+    actions:
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+      - tool: revise_plan
+        arguments:
+          reason: Repeated retrieval produced no new evidence; replace the Unix-only separator with os.pathsep.
+          items:
+            - work_item_id: repair-executable-path-split-full
+              title: Use the platform PATH separator
+              objective: Split PATH with os.pathsep without changing executable filtering
+              dependencies: []
+              expected_artifacts: [thefuck/utils.py, thefuck-path-separator-full receipt]
+              acceptance_ids: [thefuck-path-separator-full]
+              allowed_tools: [retrieve_code, replace_text, run_check]
+      - tool: replace_text
+        arguments:
+          path: thefuck/utils.py
+          old: "            for path in os.environ.get('PATH', '').split(':')"
+          new: "            for path in os.environ.get('PATH', '').split(os.pathsep)"
+      - tool: submit
+        arguments:
+          summary: Replaced the Unix-only PATH split with os.pathsep and ran the protected cross-platform check.

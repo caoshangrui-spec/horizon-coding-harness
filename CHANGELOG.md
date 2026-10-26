@@ -42,6 +42,14 @@ for public releases; unreleased work must not be presented as a published releas
   and 0.75 MRR from replacement normalization, while all 12 broader low-coverage Chinese controls
   bypass exactly. The treatment remains experimental: it matches rather than improves the prior
   four-case ranking, reuses frozen baseline evidence for bypasses, and does not unseal the holdout.
+- Expanded the source-bound full-checkout development suite from 12 to 15 cases while preserving the
+  complete v7 prefix. v8 adds Sanic logger namespace, TheFuck PATH-separator, and Luigi Beam-target
+  failures across three pre-frozen BugsInPy development cases, bringing the suite to nine projects and
+  4,491 tracked files. All three additions pass buggy/fixed probes and the complete local Harness A/B:
+  the baseline waits safely, the treatment repairs one bounded production line, every Trace replays,
+  and the source checkout remains unchanged. Retrieval reaches the production path at rank 1 only
+  after two broader development queries ranked Sanic and Luigi at 3 and 4; this tuning and the pending
+  public 15-case network-disabled Docker gate are reported explicitly rather than generalized.
 
 ## 0.3.0 - 2026-10-24
 

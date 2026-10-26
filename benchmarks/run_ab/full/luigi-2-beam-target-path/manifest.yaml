@@ -1,0 +1,104 @@
+schema_version: 1
+benchmark_id: luigi-2-beam-target-path-full
+fixture_path: fixture
+
+task:
+  task_id: luigi-beam-target-path-full
+  title: Format a Beam BigQuery target path
+  objective: Read project, dataset, and table identifiers from the BigQuery target table object
+  repository:
+    source: local
+    path: /fixture
+    base_commit: baa54c9f4f809692d62d4c3e4497161717c76550
+  constraints:
+    allowed_paths: ["**"]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+  acceptance:
+    - id: luigi-beam-target-path-full
+      command: >-
+        python -B -c "import ast; from pathlib import Path; from types import SimpleNamespace; tree=ast.parse(Path('luigi/contrib/beam_dataflow.py').read_text(encoding='utf-8')); klass=next(item for item in tree.body if isinstance(item,ast.ClassDef) and item.name=='BeamDataflowJobTask'); fn=next(item for item in klass.body if isinstance(item,ast.FunctionDef) and item.name=='get_target_path'); fn.decorator_list=[]; Target=type('Target',(),{}); LocalTarget=type('LocalTarget',(Target,),{}); GCSTarget=type('GCSTarget',(Target,),{}); BigQueryTarget=type('BigQueryTarget',(Target,),{}); namespace={'luigi':SimpleNamespace(Target=Target,LocalTarget=LocalTarget),'gcs':SimpleNamespace(GCSTarget=GCSTarget),'bigquery':SimpleNamespace(BigQueryTarget=BigQueryTarget)}; exec(compile(ast.Module(body=[fn],type_ignores=[]),'luigi/contrib/beam_dataflow.py','exec'),namespace); target=BigQueryTarget(); target.table=SimpleNamespace(project_id='p',dataset_id='d',table_id='t'); assert namespace['get_target_path'](target)=='p:d.t'"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 20
+    max_model_calls: 12
+    max_tool_calls: 20
+    max_wall_time_seconds: 600
+    max_cost_usd: "1.00"
+    max_input_tokens: 100000
+    max_output_tokens: 5000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+
+initial_plan:
+  version: 1
+  items:
+    - work_item_id: locate-beam-target-path-full
+      title: Locate Beam target path formatting
+      objective: Retrieve revision-bound evidence before changing BigQuery target handling
+      dependencies: []
+      expected_artifacts: [Code EvidencePack, luigi-beam-target-path-full receipt]
+      acceptance_ids: [luigi-beam-target-path-full]
+      allowed_tools: [retrieve_code]
+
+expected_initial_failed_checks: [luigi-beam-target-path-full]
+
+arms:
+  - arm_id: no-replan
+    role: baseline
+    description: Continue the stalled source retrieval until deterministic guidance is required.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items: []
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 4
+    expected_tool_calls: 4
+    expected_steps: 4
+    actions:
+      - &retrieve_target
+        tool: retrieve_code
+        arguments:
+          query: BeamDataflowJobTask get_target_path BigQueryTarget
+          max_chunks: 8
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+
+  - arm_id: single-replan
+    role: single_replan
+    description: Replace the stalled investigation with the bounded BigQuery target repair.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items: [repair-beam-target-path-full]
+    expected_model_calls: 6
+    expected_tool_calls: 7
+    expected_steps: 7
+    actions:
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+      - tool: revise_plan
+        arguments:
+          reason: Repeated retrieval produced no new evidence; read BigQuery identifiers from target.table.
+          items:
+            - work_item_id: repair-beam-target-path-full
+              title: Read the BigQuery table identity
+              objective: Format the Beam output path from the nested BigQuery table object
+              dependencies: []
+              expected_artifacts: [luigi/contrib/beam_dataflow.py, luigi-beam-target-path-full receipt]
+              acceptance_ids: [luigi-beam-target-path-full]
+              allowed_tools: [retrieve_code, replace_text, run_check]
+      - tool: replace_text
+        arguments:
+          path: luigi/contrib/beam_dataflow.py
+          old: '            "{}:{}.{}".format(target.project_id, target.dataset_id, target.table_id)'
+          new: '            return "{}:{}.{}".format(target.table.project_id, target.table.dataset_id, target.table.table_id)'
+      - tool: submit
+        arguments:
+          summary: Read BigQuery identifiers from target.table and ran the protected Beam target path check.

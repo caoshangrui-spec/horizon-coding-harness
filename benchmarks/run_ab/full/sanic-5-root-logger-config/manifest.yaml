@@ -1,0 +1,104 @@
+schema_version: 1
+benchmark_id: sanic-5-root-logger-config-full
+fixture_path: fixture
+
+task:
+  task_id: sanic-root-logger-config-full
+  title: Keep Sanic defaults in the Sanic logger namespace
+  objective: Avoid applying the framework default handler and level to the generic root logger name
+  repository:
+    source: local
+    path: /fixture
+    base_commit: e3a27c2cc485d57aa1ff87d9f69098e4ab12727e
+  constraints:
+    allowed_paths: ["**"]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+  acceptance:
+    - id: sanic-root-logger-config-full
+      command: >-
+        python -B -c "import ast,sys; from pathlib import Path; tree=ast.parse(Path('sanic/log.py').read_text(encoding='utf-8')); assignment=next(item for item in tree.body if isinstance(item,ast.Assign) and any(isinstance(target,ast.Name) and target.id=='LOGGING_CONFIG_DEFAULTS' for target in item.targets)); namespace={'sys':sys}; exec(compile(ast.Module(body=[assignment],type_ignores=[]),'sanic/log.py','exec'),namespace); loggers=namespace['LOGGING_CONFIG_DEFAULTS']['loggers']; assert 'sanic.root' in loggers,loggers; assert 'root' not in loggers,loggers; assert loggers['sanic.root']['handlers']==['console'] and loggers['sanic.root']['level']=='INFO'"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 20
+    max_model_calls: 12
+    max_tool_calls: 20
+    max_wall_time_seconds: 600
+    max_cost_usd: "1.00"
+    max_input_tokens: 100000
+    max_output_tokens: 5000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+
+initial_plan:
+  version: 1
+  items:
+    - work_item_id: locate-root-logger-config-full
+      title: Locate the default logger namespace
+      objective: Retrieve revision-bound evidence before changing the logging configuration
+      dependencies: []
+      expected_artifacts: [Code EvidencePack, sanic-root-logger-config-full receipt]
+      acceptance_ids: [sanic-root-logger-config-full]
+      allowed_tools: [retrieve_code]
+
+expected_initial_failed_checks: [sanic-root-logger-config-full]
+
+arms:
+  - arm_id: no-replan
+    role: baseline
+    description: Continue the stalled source retrieval until deterministic guidance is required.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items: []
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 4
+    expected_tool_calls: 4
+    expected_steps: 4
+    actions:
+      - &retrieve_target
+        tool: retrieve_code
+        arguments:
+          query: LOGGING_CONFIG_DEFAULTS loggers handlers
+          max_chunks: 8
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+
+  - arm_id: single-replan
+    role: single_replan
+    description: Replace the stalled investigation with the bounded logger namespace repair.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items: [repair-root-logger-config-full]
+    expected_model_calls: 6
+    expected_tool_calls: 7
+    expected_steps: 7
+    actions:
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+      - tool: revise_plan
+        arguments:
+          reason: Repeated retrieval produced no new evidence; scope the framework default to sanic.root.
+          items:
+            - work_item_id: repair-root-logger-config-full
+              title: Scope the default root logger
+              objective: Move the default handler and level from root to sanic.root
+              dependencies: []
+              expected_artifacts: [sanic/log.py, sanic-root-logger-config-full receipt]
+              acceptance_ids: [sanic-root-logger-config-full]
+              allowed_tools: [retrieve_code, replace_text, run_check]
+      - tool: replace_text
+        arguments:
+          path: sanic/log.py
+          old: '        "root": {"level": "INFO", "handlers": ["console"]},'
+          new: '        "sanic.root": {"level": "INFO", "handlers": ["console"]},'
+      - tool: submit
+        arguments:
+          summary: Scoped the default logger configuration to sanic.root and ran the protected configuration check.

@@ -5,7 +5,7 @@
 本表是完整开发与验收导航。2026-09-30 已开始基础内核实现，实际证据列记录当前子范围与剩余缺口。目标路径相对 `src/horizon/`；计划测试路径相对 `tests/`；实际证据列的 `tests/` 路径相对仓库根。同一测试文件可验证多个 ID，但不能把子范围通过等同于整项通过。
 
 当前结果：2026-09-30 可靠性内核为 **92 项测试通过**；2026-10-26 的最新离线回归为
-**544 passed，11 skipped**。**11 项真实 Docker 合同**此前已单独补跑并全部通过。另已完成一次 Tool Calling 探针和一次受预算
+**547 passed，11 skipped**。**11 项真实 Docker 合同**此前已单独补跑并全部通过。另已完成一次 Tool Calling 探针和一次受预算
 保护的真实单 WorkItem Agent fixture Run。完整长程 Agent 未实现，未做独立安全复核。命令、环境、证据与限制见
 [开发进度](development-progress.md)。仍为“待填”的条目没有实现证据；“部分/初步”不代表
 完整需求通过。普通工作直接自检，关键风险及用户指定验收按需独立复核，
@@ -135,6 +135,15 @@
 > `sha256:dade5bfc81fd600cfd85e504e5415e8fa890e8de3794dfc1d8388953f7acaf63`。当前 suite 数量
 > 为 21 个 manifest 场景，现均已有公开统一验证；doctor 的 source case count 与 Docker verified
 > count 均为 12。
+
+> 2026-10-26 FR-1305 v8 增量：完整 checkout 原样保留十二个 v7 case，再加入预冻结 development
+> 来源中的 Sanic-5、TheFuck-2 与 Luigi-2；共 15 案例、9 项目、4,491 tracked files。三个
+> buggy/fixed 保护探针和 test-only 本地完整 Harness 均已通过；Baseline 均为 48 events 后
+> `WAITING_FOR_USER`，Treatment 均为 74 events 后 `SUCCEEDED`，六条 Trace 可重放且 source 未变。
+> 三条生产目标检索最终均为 rank 1；初始较泛的 Sanic/Luigi query 曾为 rank 3/4，收窄使用的是
+> failing-test 已知标识符，因此只记为 development 调整。当前 suite 数量为 24 个 manifest 场景；
+> 既有 21 个已有公开统一验证，v8 新增 3 个的公开 15-case 门待执行。doctor 的 source case count
+> 为 15，Docker verified count 暂保持 12。
 
 ## 验收记录合同
 

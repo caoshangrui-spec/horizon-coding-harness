@@ -1,10 +1,10 @@
-# 完整上游 Checkout Suite：BugsInPy 十二案例、九项目
+# 完整上游 Checkout Suite：BugsInPy 十五案例、九项目
 
-更新：2026-10-26。v7 原样保留已由公开禁网 Docker 统一通过的 v6 九个完整 checkout，再加入
-Sanic bug 2、HTTPie bug 4 与 Luigi bug 3。当前共十二个案例、九个不同项目、3,573 个
-tracked 文件；同一项目的不同 bug 分别计为不同案例，不冒充十二个独立项目。三个新增案例已通过
-test-only 本地完整 Harness。首次公开 v7 run 因 Cookiecutter 候选的 Linux 符号链接被安全门拒绝；
-该候选已移除且没有放宽门禁，替换后的十二案例已通过公开统一门 12/12。每个案例先执行
+更新：2026-10-26。v8 原样保留已由公开禁网 Docker 统一通过的 v7 十二个完整 checkout，再加入
+Sanic bug 5、TheFuck bug 2 与 Luigi bug 2。当前共十五个案例、九个不同项目、4,491 个
+tracked 文件；同一项目的不同 bug 分别计为不同案例，不冒充十五个独立项目。三个新增案例已通过
+test-only 本地完整 Harness，公开十五案例统一门待执行。v7 首次公开 run 的 Cookiecutter 符号链接
+拒绝与替换版 12/12 成功均继续保留。每个案例先执行
 初始失败门，再运行 Baseline 与单次 replan Treatment。执行使用冻结脚本模型，验证的是 Harness、
 Code RAG、预算、可恢复等待和 Trace 合同，不是模型能力跑分。
 
@@ -31,6 +31,9 @@ Code RAG、预算、可恢复等待和 Trace 合同，不是模型能力跑分�
 - v7：[`bugsinpy-full-checkout-pilot-v7.yaml`](../benchmarks/run_ab/bugsinpy-full-checkout-pilot-v7.yaml)，
   原样保留 v6 九个 case，再追加 Sanic-2、HTTPie-4 与 Luigi-3，digest
   `825d359204ddf66081c1faf8d6f3b60d4869ae3e2a82b16e6f151039a7dc2047`。
+- v8：[`bugsinpy-full-checkout-pilot-v8.yaml`](../benchmarks/run_ab/bugsinpy-full-checkout-pilot-v8.yaml)，
+  原样保留 v7 十二个 case，再追加 Sanic-5、TheFuck-2 与 Luigi-2，digest
+  `1985508c6a8c807d4231102d78fdfb34d599d8a81de04954b245614e6271a229`。
 
 | Case | Buggy → fixed | 完整 checkout | 保护验收 |
 |---|---|---:|---|
@@ -46,6 +49,9 @@ Code RAG、预算、可恢复等待和 Trace 合同，不是模型能力跑分�
 | [`sanic-2-asyncio-start-serving-full`](../benchmarks/run_ab/full/sanic-2-asyncio-start-serving/manifest.yaml) | [`ba9b432`](https://github.com/sanic-org/sanic/commit/ba9b432993019b0af0c4827a5ed42aaa091bd17d) → [`801595e`](https://github.com/sanic-org/sanic/commit/801595e24acdf8050b8d3ffa512d424147848d32) | 188 files | `AsyncioServer` 同时代理 `start_serving` 与 `serve_forever`，并保留不支持版本的明确错误 |
 | [`httpie-4-host-header-overwrite-full`](../benchmarks/run_ab/full/httpie-4-host-header-overwrite/manifest.yaml) | [`8c892ed`](https://github.com/httpie/cli/commit/8c892edd4fe700a7ca5cc733dcb4817831d253e2) → [`040d981`](https://github.com/httpie/cli/commit/040d981f00c3f6830b2d0db3daf3c64c080e96e3) | 59 files | 大小写不敏感的自定义 Host header 只输出一次，不被默认值覆盖 |
 | [`luigi-3-serialize-tuple-parameter-full`](../benchmarks/run_ab/full/luigi-3-serialize-tuple-parameter/manifest.yaml) | [`a0f1db0`](https://github.com/spotify/luigi/commit/a0f1db01ddab5b4b2bda3fbe58bad09a6d94a7b4) → [`3a0bfbf`](https://github.com/spotify/luigi/commit/3a0bfbff69addfb3be1107adab3d4914bcae3e4b) | 375 files | JSON 中为标量元素的 flat tuple 能恢复为不可变 tuple |
+| [`sanic-5-root-logger-config-full`](../benchmarks/run_ab/full/sanic-5-root-logger-config/manifest.yaml) | [`e3a27c2`](https://github.com/sanic-org/sanic/commit/e3a27c2cc485d57aa1ff87d9f69098e4ab12727e) → [`b63c06c`](https://github.com/sanic-org/sanic/commit/b63c06c75a54752d7f3115d3c635580db44b8399) | 156 files | 默认 console handler 与 INFO level 只配置到 `sanic.root`，不占用通用 `root` logger key |
+| [`thefuck-2-executable-path-separator-full`](../benchmarks/run_ab/full/thefuck-2-executable-path-separator/manifest.yaml) | [`40ab4eb`](https://github.com/nvbn/thefuck/commit/40ab4eb62db57627bff10cf029d29c94704086a2) → [`78ef9ee`](https://github.com/nvbn/thefuck/commit/78ef9eec88f43d5727986be2237f6e0e250cbbbc) | 380 files | `PATH` 使用 `os.pathsep` 切分，Windows-style 分号路径不再被冒号切碎 |
+| [`luigi-2-beam-target-path-full`](../benchmarks/run_ab/full/luigi-2-beam-target-path/manifest.yaml) | [`baa54c9`](https://github.com/spotify/luigi/commit/baa54c9f4f809692d62d4c3e4497161717c76550) → [`24e8594`](https://github.com/spotify/luigi/commit/24e85945ae39e5975491527e00c3f0f64b42ea6e) | 382 files | Beam BigQuery output 从 `target.table` 读取 project/dataset/table 并格式化为 `p:d.t` |
 
 缺陷元数据来自 [BugsInPy](https://github.com/soarsmu/BugsInPy)。执行前 CLI 会拒绝以下任一情况：
 
@@ -148,25 +154,71 @@ git -C $luigiTuple remote add origin https://github.com/spotify/luigi.git
 git -C $luigiTuple fetch --depth 1 origin a0f1db01ddab5b4b2bda3fbe58bad09a6d94a7b4
 git -C $luigiTuple checkout --detach FETCH_HEAD
 
+$sanicLogger = "benchmarks/run_ab/full/sanic-5-root-logger-config/fixture"
+New-Item -ItemType Directory -Path $sanicLogger
+git -C $sanicLogger init
+git -C $sanicLogger remote add origin https://github.com/sanic-org/sanic.git
+git -C $sanicLogger fetch --depth 1 origin e3a27c2cc485d57aa1ff87d9f69098e4ab12727e
+git -C $sanicLogger checkout --detach FETCH_HEAD
+
+$thefuckPath = "benchmarks/run_ab/full/thefuck-2-executable-path-separator/fixture"
+New-Item -ItemType Directory -Path $thefuckPath
+git -C $thefuckPath init
+git -C $thefuckPath remote add origin https://github.com/nvbn/thefuck.git
+git -C $thefuckPath fetch --depth 1 origin 40ab4eb62db57627bff10cf029d29c94704086a2
+git -C $thefuckPath checkout --detach FETCH_HEAD
+
+$luigiBeam = "benchmarks/run_ab/full/luigi-2-beam-target-path/fixture"
+New-Item -ItemType Directory -Path $luigiBeam
+git -C $luigiBeam init
+git -C $luigiBeam remote add origin https://github.com/spotify/luigi.git
+git -C $luigiBeam fetch --depth 1 origin baa54c9f4f809692d62d4c3e4497161717c76550
+git -C $luigiBeam checkout --detach FETCH_HEAD
+
 uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
-  benchmarks/run_ab/bugsinpy-full-checkout-pilot-v7.yaml `
+  benchmarks/run_ab/bugsinpy-full-checkout-pilot-v8.yaml `
   --image python:3.12-alpine `
-  --state-dir .horizon/run-ab-suite-full-twelve-v7
+  --state-dir .horizon/run-ab-suite-full-fifteen-v8
 ```
 
 前三个直接导入类案例（tqdm、youtube-dl、PySnooper）运行完整 checkout 中的真实生产代码；
-PySnooper 只为 Python 3.12 注入历史 `collections` 标准库别名，不修改被测逻辑。另外九个案例为
+PySnooper 只为 Python 3.12 注入历史 `collections` 标准库别名，不修改被测逻辑。另外十二个案例为
 避免安装历史依赖栈，使用标准库 AST 从真实生产文件提取目标函数或类后执行：Luigi 验证 `MetricsHandler` 的 collector
 所有权；FastAPI 以最小 stdlib 假对象执行真实 `create_cloned_field`，验证嵌套字段不再复用原对象；
 Tornado 执行真实 handler/protocol 方法，验证抽象合同以及 handler → protocol → stream 的 nodelay
 委托；HTTPie 执行真实 `get_response` 并验证 Session 上的 redirect cap；TheFuck 执行真实
 `get_new_command`，Sanic-1 执行真实 `register_named_middleware`；v7 新增三例分别执行真实
-`AsyncioServer` lifecycle methods、`HTTPRequest` 和 `TupleParameter.parse`。它们不是文本 marker 检查，但也
+`AsyncioServer` lifecycle methods、`HTTPRequest` 和 `TupleParameter.parse`；v8 新增三例执行真实
+logging config assignment、`get_all_executables` 与 `BeamDataflowJobTask.get_target_path`。它们不是文本 marker 检查，但也
 不运行各项目原 Python 版本和完整依赖矩阵，不能替代官方 BugsInPy runner。
 
 ## 3. 当前 A/B 证据
 
-### 3.1 v7 三种失效模式的本地证据
+### 3.1 v8 三种失效模式的本地证据
+
+Sanic-5、TheFuck-2 与 Luigi-2 均来自 2026-10-24 在补丁揭示前冻结的 development 选择；不占用
+仍密封的八案例 holdout。buggy 保护检查分别以错误 logger key、Windows-style PATH 被冒号切碎，
+以及 `BigQueryTarget` 顶层属性不存在而失败；fixed commit 均通过。
+
+test-only 本地完整 Harness 中，三个 Baseline 均以 48 events 进入 `WAITING_FOR_USER`，三个
+Treatment 均以 6/7/7 model/tool/step、74 events `SUCCEEDED`。六条 Trace 均可重放、三个 source
+checkout 均未改变，且 `paid_model_called=false`、`network_called=false`：
+
+| Case | Baseline / Treatment | report ref | Trace refs B / T |
+|---|---|---|---|
+| Sanic-5 | `WAITING_FOR_USER` / `SUCCEEDED` | `bfbd34874a742bc5bad9f63485babfda8f077a676684b54c3c3a0b6c1eae1699` | `e58569f064b7e2cba0d852652af826b7bad3cf3ebbb15a237c34ad975b48d3cd` / `fc61e0a336318495d8f74126e331eee1f61905dadc25908bdd81133aaa90b4ff` |
+| TheFuck-2 | `WAITING_FOR_USER` / `SUCCEEDED` | `17322d1482168d854d7a4c71ee55a2dca1d36b4b33dd2ef53a687fa823c42cbc` | `dd48f1b50f4beff6f869e8d7fd7e679c5098b129d2a02710072da0d1f95292f2` / `943e4a00ed6ffb99255d87811bc9bdc3fda3a19966a4245dd14b1ba6b4bd524b` |
+| Luigi-2 | `WAITING_FOR_USER` / `SUCCEEDED` | `71e426d585e78a406a699d02b36f935a5ad2086f9d89b6cb9ea83ac2eb34a6f0` | `7c0d07246c735b87fe76be55a9470a2b08963a1e3a7eb171387376e60242298c` / `f03ffa4a6c29e4d75a744a2fa2312ef6d008e5113c5f9c15b2752ba400c8a629` |
+
+三条 Treatment 的 Code RAG 最终都把生产目标文件排 rank 1。Sanic/TheFuck/Luigi 分别索引
+154/378/327 个文件，跳过 2/2/55 个文件；对应 EvidencePack ref 为
+`0d09843bc3145acca92f0d139fc2b0febb63d0255b1bd3d1bf08d4fae18ae225`、
+`7089973e6b567c9765124aa120f638d6fa3bd172a9e2cfa894246d0056b717d4` 与
+`e34ed925255119bff4422fbcab5da71782fc840e72aaa5fdb8be99fca303dec3`。初始较泛的 Sanic/Luigi
+query 曾把目标排 rank 3/4，随后用 failing-test 已知的配置常量或类/方法标识符收窄到 rank 1；
+这是 development 调整，不是独立 RAG 泛化证据。公开十五案例 Docker 门尚待执行。
+
+### 3.2 v7 三种失效模式的本地证据
 
 Sanic-2、HTTPie-4 与 Luigi-3 均来自 2026-10-24 在补丁揭示前冻结的 development
 选择；它们不占用仍密封的八案例 holdout，也不把随后依据 gold 制作的端到端 manifest 称为盲测。
@@ -208,7 +260,7 @@ CRLF checkout，随后 Cookiecutter 又在长 state 路径上触发 Win32 path-l
 `2026-10-26T10:19:12Z`、到期于 `2026-11-25T10:18:53Z`。当前 doctor 的来源案例数与公开
 Docker verified count 均为 12。
 
-### 3.2 v6 PySnooper 两文件案例的本地证据
+### 3.3 v6 PySnooper 两文件案例的本地证据
 
 PySnooper-2 来自 2026-10-24 在补丁揭示前冻结的 development 选择，不占用仍密封的八案例
 holdout，也不把随后依据 gold 制作的端到端 manifest 称为盲测。buggy commit 的真实包导入保护
@@ -242,7 +294,7 @@ source isolation 成立；没有读取 API Key 或调用付费模型。统一 ar
 `sha256:8c991b53d88d2934459e940ca7ba20fcba8dd13f8fd14faf4361cb01c331a224`，计划保留至
 2026-11-24。doctor 的来源案例与公开 Docker verified count 现均为 9。
 
-### 3.3 v5 两个预冻结来源案例的本地与公开证据
+### 3.4 v5 两个预冻结来源案例的本地与公开证据
 
 新增任务没有从当前失败日志临时挑选：TheFuck-1 来自 2026-10-04 在补丁揭示前提交的
 [三项目外部定位盲测](retrieval-evaluation.md#7-三项目外部定位盲测)，Sanic-1 来自随后独立冻结的
@@ -269,7 +321,7 @@ source isolation 成立；没有读取 API Key 或调用付费模型。统一 ar
 `sha256:319ad06ae83d92fb1f921cf49dab71f019987d1bab75533306d334c89ef4c330`，计划保留至
 2026-11-24。doctor 的来源绑定 case count 与公开 Docker verified count 现均为 8。
 
-### 3.4 v4 第六案例本地证据与统一验收门
+### 3.5 v4 第六案例本地证据与统一验收门
 
 HTTPie 单案在完整 70-file checkout 上先确认保护检查失败；Baseline 产生 48 个事件并按预期进入
 `WAITING_FOR_USER`，Treatment 产生 74 个事件、执行一次 replan 后进入 `SUCCEEDED`。report ref 为
@@ -293,7 +345,7 @@ source isolation 成立；没有读取 API Key 或调用付费模型。统一 ar
 `sha256:a70612aab310c6d6c09c9ea0796242da75877fe025b10a9c72d76a525bd3c0e8`，计划保留至
 2026-11-24。该公开结果把 doctor 的 full-checkout Docker verified count 从 5 提升到 6。
 
-### 3.5 v3 五项目公开 Docker 执行
+### 3.6 v3 五项目公开 Docker 执行
 
 2026-10-24 的专用 [Source-bound Docker evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40080364921)
 在 GitHub-hosted Linux runner 上重新 shallow-fetch 五个固定 buggy commit，并逐一检查 HEAD、tracked
@@ -310,7 +362,7 @@ API Key、不调用付费模型，动作仍来自冻结 Scripted Model。统一 
 Treatment 分别产生 74 / 92 个事件、生成 Plan v2 并进入 `SUCCEEDED`，Trace 可重放且两个源 checkout
 保持干净。该证据验证的是 Harness 与冻结修复动作，不是模型自主定位能力。
 
-### 3.6 v2 三项目历史公开 Docker 执行
+### 3.7 v2 三项目历史公开 Docker 执行
 
 2026-10-06 的专用 [Source-bound Docker evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/37436568589)
 工作流在 GitHub-hosted Linux runner 上重新 shallow-fetch 三个固定 buggy commit，并逐一检查 HEAD、
@@ -330,7 +382,7 @@ tracked 文件数和 clean status。随后它拉取 `python:3.12-alpine`，通�
 BugsInPy 官方 runner 成绩。工作流只在自身、v2 manifests 或直接的 runner/sandbox 合同变化时
 自动执行，也可手动触发；不拖慢每个普通文档提交。
 
-### 3.7 v2 三项目历史本地可信执行
+### 3.8 v2 三项目历史本地可信执行
 
 2026-10-06 使用 Python 3.12 的 test-only 本地执行器实际运行三个冻结保护命令；Harness 的源码门、
 快照、RAG、Gateway、预算、Run/Trace 和重放路径保持不变，只有生产 Docker acceptance adapter 被
@@ -358,7 +410,7 @@ BugsInPy 官方 runner 成绩。工作流只在自身、v2 manifests 或直接�
 checkout，Gateway 正确返回 `Exact replacement occurrence count did not match`，Treatment 最终失败。
 修正为两个行结尾无关的原子单行替换后，单案和三项目 suite 均通过；没有放宽 exact-match 合同。
 
-### 3.8 v1 双项目历史 Docker 结果
+### 3.9 v1 双项目历史 Docker 结果
 
 2026-10-03 使用本机已有禁网镜像 digest
 `sha256:0687a6bc9716edc2a6ee0fbfb0f87e7ee358b262b67c9215de91bc9b2d38ba71`：
@@ -457,7 +509,9 @@ PySnooper bug 3 的 BugsInPy `requirements.txt` 为空，但真实源码导入
 通过公开九案例统一门。v7 又增加三个预冻结 development 案例，十二案例、九项目合计 3,573 files；
 三个新增案例的初始负例、完整本地 Harness、rank-1 生产路径检索、Trace replay 与 source isolation
 均成立；Cookiecutter 候选在首次公开 run 被符号链接安全门拒绝后已由 Sanic-2 替换，替换版公开
-十二案例门已通过 12/12。TheFuck、Sanic、PySnooper 及 v7 新增三例来自预冻结检索集合，
+十二案例门已通过 12/12。v8 再增加 Sanic-5、TheFuck-2 与 Luigi-2，十五案例、九项目合计
+4,491 files；三个新增案例的 buggy/fixed 探针、本地完整 Harness、rank-1 生产路径检索、Trace replay
+与 source isolation 均成立，公开十五案例门尚待执行。TheFuck、Sanic、PySnooper 及 v7/v8 新增案例来自预冻结检索集合，
 但端到端 manifest 是揭示 gold 后制作，不能称为新 holdout。第一次 Windows 六案例联合运行的 4/6、
 PySnooper YAML 缩进失败、v7 Luigi 非唯一锚点失败、Windows 十二案例联合运行的 CRLF/长路径失败，
 以及公开 Cookiecutter 符号链接拒绝均保留，不用后续成功覆盖负结果。
