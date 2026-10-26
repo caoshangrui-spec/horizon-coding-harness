@@ -1108,6 +1108,7 @@ def trace_bundle(
         canonical_json(
             {
                 "run_id": evidence.run_id,
+                "schema_version": result.evidence_pack.schema_version,
                 "status": evidence.status,
                 "task_succeeded": evidence.task_succeeded,
                 "failure_reason": evidence.failure_reason,
@@ -1121,6 +1122,11 @@ def trace_bundle(
                 "summary": str(result.summary_path),
                 "verification_mode": evidence.verification_mode,
                 "claim_scope": evidence.claim_scope,
+                "reliability": (
+                    evidence.reliability_summary.model_dump(mode="json")
+                    if evidence.reliability_summary is not None
+                    else None
+                ),
                 "export_network_called": False,
             }
         )
@@ -1137,6 +1143,7 @@ def trace_verify_bundle(path: Path):
             {
                 "verified": True,
                 "run_id": evidence.run_id,
+                "schema_version": pack.schema_version,
                 "status": evidence.status,
                 "task_succeeded": evidence.task_succeeded,
                 "projection_hash": evidence.projection_hash,
@@ -1144,6 +1151,11 @@ def trace_verify_bundle(path: Path):
                 "open_effects_present": evidence.open_effects_present,
                 "verification_mode": evidence.verification_mode,
                 "claim_scope": evidence.claim_scope,
+                "reliability": (
+                    evidence.reliability_summary.model_dump(mode="json")
+                    if evidence.reliability_summary is not None
+                    else None
+                ),
             }
         )
     )
@@ -3411,6 +3423,8 @@ def doctor():
                 "model_fallback_policy": True,
                 "automatic_model_fallback": False,
                 "degraded_run_summary_contract": True,
+                "terminal_reliability_summary": True,
+                "terminal_evidence_schema": 2,
                 "autonomous_execution": True,
                 "intent_router": True,
                 "intent_router_profile": "deterministic_rules_authority_contraction",

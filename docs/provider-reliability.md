@@ -108,6 +108,12 @@ permit -> Campaign/Run reservation -> 单次 transport dispatch
 限制。即使使用 lexical scan 等降级，只要 required checks 的证据已知且全部通过，可以标记为
 “passed with quality flag”；若验收证据未知，领域合同拒绝 `passed`。
 
+该合同现已接入通用终态 EvidencePack schema v2。导出器从重放后的 Run 推导
+`passed / failed / blocked`、required-check 状态、unknown acceptance，以及 unknown/open effect
+quality flag；CLI 导出与离线验证都会返回相同结构。为保持证据边界，fallback/degradation history
+只接受未来绑定进 Trace 的记录；当前没有对应事件，因此数组为空并在 `limitations` 中明确说明，
+不会从非定位日志猜测或把空数组宣传为“从未降级”。schema v1 历史包仍可按旧规则验证。
+
 ## 6. 已验证与未验证
 
 离线测试覆盖：
@@ -119,13 +125,15 @@ permit -> Campaign/Run reservation -> 单次 transport dispatch
 - ModelProbe 按默认阈值连续失败 3 次后，第四次在 reservation 和网络派发前被拒绝；
 - 未授权、不兼容、超预算、正式比较中的 fallback 全部拒绝；
 - 降级必须保留原失败、quality flag 和原 required acceptance；
-- unknown 或未通过的验收证据不能生成 passed summary。
+- unknown 或未通过的验收证据不能生成 passed summary；
+- 三种终态的 EvidencePack v2 会复算可靠性摘要，区分未知验收与已知 required-check 失败；
+- 历史 schema v1 EvidencePack 仍可读取和语义复核。
 
 尚未完成：
 
 - Provider 主动 receipt/usage 查询和 unknown 费用自动对账；
 - 自动执行安全 pre-dispatch retry；
 - fallback 实际切换、ContextPack 跨 provider 重建和 Run 事件；
-- 把 `RunReliabilitySummary` 合并进现有终态 EvidencePack；
+- 为实际 fallback/degradation 增加 Trace 事件并把真实 history 写入终态摘要；
 - 分布式 breaker、跨主机时钟协调或生产监控；
 - 任何新的付费模型验证。

@@ -22,12 +22,13 @@ uv run --locked horizon trace verify-bundle .horizon/evidence/<name>/evidence-pa
 |---|---|
 | `trace.jsonl` | 完整追加式事件流；验证器重新检查事件 hash、因果链、序号、时间单调性和领域投影 |
 | `final-run.json` | Trace 重放得到的规范化最终 Run 投影，不信任 SQLite 派生 view |
-| `SUMMARY.md` | 面向人的终态、失败原因、unknown/open effect 和声明边界 |
-| `evidence-pack.json` | schema v1 清单；保存三个被校验文件的相对路径、字节数、SHA-256 与结构化终态元数据 |
+| `SUMMARY.md` | 面向人的终态、验收可靠性、失败原因、unknown/open effect 和声明边界 |
+| `evidence-pack.json` | schema v2 清单；保存三个被校验文件的相对路径、字节数、SHA-256 与结构化终态/可靠性元数据 |
 
 清单本身不列入自己的文件哈希，避免自引用。它使用字节长度和 SHA-256 检查三个内容文件，随后
 重新播放 Trace，并要求结构化元数据、`final-run.json` 和确定性生成的 `SUMMARY.md` 都与重放结果
 精确一致。即使有人修改摘要并同步更新清单中的摘要哈希，语义复算仍会拒绝不一致内容。
+验证器继续接受并按 v1 规则复算已生成的 schema v1 包；新导出固定使用 schema v2。
 
 ## 3. 三种终态的解释
 
@@ -46,13 +47,29 @@ EvidencePack 还逐项保存：
 
 这些字段从 Trace 重放结果重新计算。导出器不会为了让报告更整洁而删除、结算或重新分类它们。
 
+schema v2 还包含 `reliability_summary`：
+
+- `SUCCEEDED / FAILED / CANCELLED` 分别映射为 `passed / failed / blocked`；
+- required acceptance ID 的有序列表生成稳定 hash，原始与 effective hash 必须相同；
+- 当前 TaskSpec、workspace revision 与证据引用匹配时才算“验收证据已知”；已知但缺少 required
+  check 记为 `required_checks_failed`，没有当前证据则记为 `acceptance_evidence_unknown`；
+- unknown/open external effect 同步写入 quality flags；
+- `fallback_history`、`degradations` 和 `limitations` 在结构化清单与 Markdown 摘要中均可见。
+
+当前 Run Trace 尚未定义 fallback/degradation 事件，所以两个 history 只接收“已绑定进 Trace 的
+记录”，现阶段新包中为空。导出器不会从临时日志或不可定位的 Artifact 猜测历史；这一可观测性
+限制会写入 `limitations`，不能把空数组解释为“可证明从未发生过降级”。
+
 ## 4. 固定声明边界
 
-每个 schema v1 清单固定保留三条边界：
+每个 schema v2 清单固定保留四条边界：
 
 1. 终态不自动证明所有外部 effect 已结清；
 2. unknown 和 open effect 必须可见，不得在摘要中改写为成功；
 3. 文件和 Trace 的自洽哈希不是来源签名或第三方真实性证明。
+4. fallback 与 degradation history 只包含绑定进可重放 Trace 的记录。
+
+兼容读取的 schema v1 包仍按原来的三条边界验证，不会被静默升级或改写。
 
 因此该包适合代码评审、面试展示、故障复盘和离线归档，但不替代数字签名、可信时间戳、远端
 Provider receipt 或独立审计。它也不重新执行原 Run，所以不会增加模型费用或重复副作用。
@@ -63,10 +80,13 @@ Provider receipt 或独立审计。它也不重新执行原 Run，所以不会�
 
 - `SUCCEEDED` 只有在 checkpoint、required validation 和最后 WorkItem 通过后才标记任务成功；
 - `FAILED / wall_clock_limit` 保留一个 unknown 且仍占用预算的 Provider 调用；
+- 已知但未通过 required check 与完全缺失当前验收证据会得到不同 quality flag；
 - `CANCELLED` 的 CLI 导出、无任务成功误报和独立 `verify-bundle`；
+- schema v1 历史包仍可按原摘要和边界离线复核；
 - 非终态 Run 在创建输出目录前拒绝；
 - 已存在目录不覆盖；
-- 篡改摘要并同步重算文件哈希仍因 Trace 语义不一致而拒绝。
+- 篡改摘要并同步重算文件哈希仍因 Trace 语义不一致而拒绝；
+- 只篡改结构化可靠性元数据、但不改变 Trace，也会被重放复算拒绝。
 
 这证明的是当前 SQLite Trace 和终态投影的有界离线可核查性，不是证据来源认证，也不代表任意
 外部系统已经完成结算。

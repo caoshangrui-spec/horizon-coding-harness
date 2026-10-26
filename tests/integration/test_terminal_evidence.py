@@ -7,6 +7,7 @@ from typer.testing import CliRunner
 from horizon.adapters.persistence.sqlite import SQLiteEventStore
 from horizon.application.services import HarnessService
 from horizon.application.terminal_evidence import (
+    _summary,
     export_terminal_evidence_pack,
     verify_terminal_evidence_pack,
 )
@@ -15,6 +16,10 @@ from horizon.domain.common import canonical_json
 from horizon.domain.events import NewEvent
 from horizon.domain.run import projection_hash
 from horizon.domain.states import RunStatus
+from horizon.domain.terminal_evidence import (
+    TERMINAL_EVIDENCE_BOUNDARIES_V1,
+    TerminalRunEvidence,
+)
 from horizon.interfaces.cli.app import app
 
 
@@ -50,6 +55,7 @@ def test_failed_terminal_evidence_replays_and_preserves_unknown_effects(
     )
 
     evidence = result.evidence_pack.evidence
+    assert result.evidence_pack.schema_version == 2
     assert evidence.status == RunStatus.FAILED
     assert evidence.task_succeeded is False
     assert evidence.failure_reason == "wall_clock_limit"
@@ -57,6 +63,18 @@ def test_failed_terminal_evidence_replays_and_preserves_unknown_effects(
     assert evidence.open_reservation_ids == ("uncertain-provider-call",)
     assert evidence.unknown_effects_present is True
     assert evidence.open_effects_present is True
+    reliability = evidence.reliability_summary
+    assert reliability is not None
+    assert reliability.status == "failed"
+    assert reliability.required_checks_passed is False
+    assert reliability.unknown_acceptance_evidence is True
+    assert reliability.quality_flags == (
+        "acceptance_evidence_unknown",
+        "unknown_effects_present",
+        "open_effects_present",
+    )
+    assert reliability.fallback_history == ()
+    assert reliability.degradations == ()
     assert {item.role for item in result.evidence_pack.files} == {
         "trace",
         "final_state",
@@ -69,6 +87,8 @@ def test_failed_terminal_evidence_replays_and_preserves_unknown_effects(
     summary = result.summary_path.read_text(encoding="utf-8")
     assert "Task succeeded: `false`" in summary
     assert 'Unknown reservations: ["uncertain-provider-call"]' in summary
+    assert "Acceptance evidence unknown: `true`" in summary
+    assert "Fallback history: []" in summary
 
 
 def test_succeeded_terminal_evidence_claims_task_success_only_after_validation(
@@ -129,6 +149,12 @@ def test_succeeded_terminal_evidence_claims_task_success_only_after_validation(
     assert evidence.failure_reason is None
     assert evidence.unknown_effects_present is False
     assert evidence.open_effects_present is False
+    reliability = evidence.reliability_summary
+    assert reliability is not None
+    assert reliability.status == "passed"
+    assert reliability.required_checks_passed is True
+    assert reliability.unknown_acceptance_evidence is False
+    assert reliability.quality_flags == ()
     assert verify_terminal_evidence_pack(result.evidence_pack_path) == result.evidence_pack
 
 
@@ -205,12 +231,15 @@ def test_cancelled_terminal_evidence_cli_is_successful_but_does_not_claim_task_s
     assert completed.exit_code == 0, completed.output
     payload = json.loads(completed.stdout)
     assert payload["status"] == "CANCELLED"
+    assert payload["schema_version"] == 2
     assert payload["task_succeeded"] is False
     assert payload["failure_reason"] is None
     assert payload["unknown_effects_present"] is False
     assert payload["open_effects_present"] is False
     assert payload["verification_mode"] == "offline_trace_replay"
     assert payload["export_network_called"] is False
+    assert payload["reliability"]["status"] == "blocked"
+    assert payload["reliability"]["unknown_acceptance_evidence"] is True
     pack_path = output / "evidence-pack.json"
     original = pack_path.read_bytes()
     assert verify_terminal_evidence_pack(pack_path).evidence.status == RunStatus.CANCELLED
@@ -222,6 +251,8 @@ def test_cancelled_terminal_evidence_cli_is_successful_but_does_not_claim_task_s
     assert verification["verified"] is True
     assert verification["status"] == "CANCELLED"
     assert verification["task_succeeded"] is False
+    assert verification["schema_version"] == 2
+    assert verification["reliability"] == payload["reliability"]
 
     repeated = runner.invoke(
         app,
@@ -255,6 +286,98 @@ def test_terminal_evidence_rejects_nonterminal_run_without_creating_output(
     assert not output.exists()
 
 
+def test_failed_terminal_evidence_distinguishes_known_failed_required_checks(
+    tmp_path,
+    store,
+    service,
+    running,
+):
+    run, token = running
+    store.command(
+        run.run_id,
+        "known-failed-terminal-checkpoint",
+        {"operation": "known-failed-terminal-checkpoint"},
+        lambda current: [
+            NewEvent(
+                event_type="CHECKPOINT_COMMITTED",
+                payload={
+                    "checkpoint_id": "chk_known_failed_terminal",
+                    "event_seq": current.seq,
+                    "task_spec_hash": current.task.sha256,
+                    "manifest_sha256": "d" * 64,
+                    "workspace_revision": "e" * 64,
+                },
+            )
+        ],
+    )
+    service.transition(
+        run.run_id,
+        RunStatus.VALIDATING,
+        token,
+        "known-failed-terminal-validating",
+    )
+    service.record_validation(
+        run.run_id,
+        (),
+        "f" * 64,
+        token,
+        "known-failed-terminal-validation",
+    )
+    service.fail(run.run_id, "required_validation_failed", token, "known-failed-terminal-run")
+
+    result = export_terminal_evidence_pack(
+        store,
+        run.run_id,
+        tmp_path / "known-failed-evidence",
+    )
+
+    reliability = result.evidence_pack.evidence.reliability_summary
+    assert reliability is not None
+    assert reliability.status == "failed"
+    assert reliability.required_checks_passed is False
+    assert reliability.unknown_acceptance_evidence is False
+    assert reliability.quality_flags == ("required_checks_failed",)
+    assert verify_terminal_evidence_pack(result.evidence_pack_path) == result.evidence_pack
+
+
+def test_terminal_evidence_verifier_keeps_schema_v1_packs_readable(
+    tmp_path,
+    store,
+    service,
+    task,
+):
+    run = store.create(task, "create-legacy-terminal-evidence")
+    service.cancel(run.run_id, "cancel-legacy-terminal-evidence")
+    result = export_terminal_evidence_pack(
+        store,
+        run.run_id,
+        tmp_path / "legacy-terminal-evidence",
+    )
+    payload = json.loads(result.evidence_pack_path.read_text(encoding="utf-8"))
+    evidence_payload = payload["evidence"]
+    evidence_payload["schema_version"] = 1
+    evidence_payload["boundaries"] = list(TERMINAL_EVIDENCE_BOUNDARIES_V1)
+    evidence_payload.pop("reliability_summary")
+    legacy_evidence = TerminalRunEvidence.model_validate(evidence_payload)
+    legacy_summary = _summary(legacy_evidence).encode("utf-8")
+    result.summary_path.write_bytes(legacy_summary)
+    summary_record = next(item for item in payload["files"] if item["role"] == "summary")
+    summary_record["bytes"] = len(legacy_summary)
+    summary_record["sha256"] = hashlib.sha256(legacy_summary).hexdigest()
+    payload["schema_version"] = 1
+    result.evidence_pack_path.write_text(
+        canonical_json(payload) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+    verified = verify_terminal_evidence_pack(result.evidence_pack_path)
+
+    assert verified.schema_version == 1
+    assert verified.evidence.reliability_summary is None
+    assert verified.evidence.boundaries == TERMINAL_EVIDENCE_BOUNDARIES_V1
+
+
 def test_terminal_evidence_verifier_rejects_rehashed_false_summary(
     tmp_path,
     store,
@@ -281,4 +404,31 @@ def test_terminal_evidence_verifier_rejects_rehashed_false_summary(
     )
 
     with pytest.raises(ValueError, match="summary does not match"):
+        verify_terminal_evidence_pack(result.evidence_pack_path)
+
+
+def test_terminal_evidence_verifier_rejects_reliability_metadata_tampering(
+    tmp_path,
+    store,
+    service,
+    task,
+):
+    run = store.create(task, "create-tamper-terminal-reliability")
+    service.cancel(run.run_id, "cancel-tamper-terminal-reliability")
+    result = export_terminal_evidence_pack(
+        store,
+        run.run_id,
+        tmp_path / "tampered-reliability-evidence",
+    )
+    payload = json.loads(result.evidence_pack_path.read_text(encoding="utf-8"))
+    payload["evidence"]["reliability_summary"]["limitations"].append(
+        "This untraceable claim must be rejected."
+    )
+    result.evidence_pack_path.write_text(
+        canonical_json(payload) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+    with pytest.raises(ValueError, match="metadata does not match"):
         verify_terminal_evidence_pack(result.evidence_pack_path)

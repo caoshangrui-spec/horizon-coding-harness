@@ -115,8 +115,8 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | main 的[标准 CI](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/ci.yml)运行离线回归和两条演示；主作品集演示删除数据库后独立复核，并把完整目录发布为保留 14 天的 `horizon-portfolio-evidence`，同时发布 `horizon-process-timeout-evidence`；[禁网 Docker Evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/full-checkout-evidence.yml)独立运行 | CI 不读取 API Key、不运行付费模型；workflow artifact 通常需要登录 GitHub 下载，不是永久发布资产 |
-| 离线回归 | `598 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试 |
-| [通用终态 EvidencePack](docs/terminal-evidence-pack.md) | `SUCCEEDED`、`FAILED`、`CANCELLED` 均可导出并离线复核 Trace、最终投影和摘要；unknown/open effect 原样列出 | 自洽哈希不是来源签名，也不证明外部 Provider 或副作用已结清 |
+| 离线回归 | `601 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| [通用终态 EvidencePack](docs/terminal-evidence-pack.md) | `SUCCEEDED`、`FAILED`、`CANCELLED` 均可导出并离线复核 Trace、最终投影和 schema v2 可靠性摘要；区分 unknown 验收、已知 check 失败与 unknown/open effect，兼容验证 schema v1 | fallback/degradation history 当前只含 trace-bound 记录且为空；自洽哈希不是来源签名，也不证明外部 Provider 或副作用已结清 |
 | [终态 Run 顺序汇总](docs/terminal-suite-evaluation.md) | 有序聚合已有终态 Run；递归验证每个子 EvidencePack，分列成功、失败、取消、预算停止与 unknown/open effect | 不执行任务，不是 batch scheduler，也没有并发性能声明 |
 | [本地顺序 Supervisor](docs/local-sequential-supervisor.md)、[正式子进程模式](docs/local-process-supervisor.md)与[父控制器硬退出恢复](docs/parent-controller-crash-recovery.md) | `--supervise` 支持安全轮次接力；`agent run/resume --worker-process` 让每个 slice 由真实直接子进程持有 Lease，并在放行前持久化 PID launch 与启动授权。父 CLI 正常同步回收后再换 epoch；父进程被硬 kill 时，重启后的新 Lease 必须等待 TTL 并精确确认旧 PID 已停止。`Ctrl+C` 与显式 slice timeout 仍先写取消栅栏再停止/reap，pending intent 显式阻塞且零重派 | 只管理一个本地直接子进程；父崩溃恢复依赖操作者核实精确 PID，不自动探活/kill；不覆盖 OS 掉电/内核恢复、PID reuse 自动判定、任意后代进程、跨主机、队列或任意 effect exactly-once |
 | [直接子 Worker 超时取消 EvidencePack](docs/process-timeout-cancellation-demo.md) | 一条零费用命令启动真实直接子进程；ready handshake 绑定 launch ID/PID/Lease/epoch/event hash，离线验证持久启动授权、取消围栏、同步 reap 与终态顺序；标准 CI 同步发布限时 artifact | 只证明一个本地直接子进程的父侧 timeout 与同步 reap；不是父/OS 自动恢复、进程树/跨主机控制、任意 effect 恢复或 exactly-once |
@@ -217,7 +217,8 @@ v0.1.0 提供不可变任务合同、人工或 one-shot 模型计划的 DAG/验�
 追加式事件、幂等操作、Worker Lease/epoch、预算预留和结算、文件快照原语、取消、
 Trace 导出及离线重放，以及 `read → edit → test → submit → protected validation` 循环。
 任一终态 Run 还可用 `trace bundle` 输出通用 EvidencePack；失败和取消会明确
-`task_succeeded=false`，并保留 unknown/open effect。文件合同与边界见
+`task_succeeded=false`，并保留 unknown/open effect。schema v2 同时给出 required-check 状态、
+quality flags、limitations 与空的 trace-bound fallback/degradation history；旧 schema v1 仍可验证。文件合同与边界见
 [通用终态 EvidencePack](docs/terminal-evidence-pack.md)。
 多个已有终态 Run 可写入有序清单，再用 `eval terminal-suite --output <new-dir>` 生成逐 Run
 EvidencePack 与聚合报告；`eval verify-terminal-suite` 可在没有控制数据库时递归复核。它不会
@@ -486,7 +487,8 @@ uv run --locked --cache-dir .uv-cache horizon agent promote `
 probe、自动 planning 与 execution 已接入 SQLite 持久化 breaker：连续三个临时故障后 OPEN，
 30 秒后只允许一个 half-open 探针。429/5xx/连接失败仍因派发和费用未知而保留完整预留并停止，
 401/403 不重试也不计入临时故障。fallback 目前只有预授权/能力/数据边界/预算/验收不变的资格
-合同，不会实际换模型；详见
+合同，不会实际换模型；其可靠性合同已进入终态 EvidencePack，但实际 history 在有 Trace 事件前
+保持为空并明示限制。详见
 [Provider 重试、熔断与 Fallback 合同](docs/provider-reliability.md)。
 `agent reconcile` 只自动修复能由已提交证据唯一确定的状态：Provider 派发前的 Campaign-only
 预留按 0 释放；完整响应 Artifact + Run receipt 可补齐 Campaign 并继续。单一只读工具只有在
@@ -517,7 +519,7 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **598 passed，11 skipped**；11 项 Docker 合同此前均已指定本机已有镜像
+当前离线全量回归为 **601 passed，11 skipped**；11 项 Docker 合同此前均已指定本机已有镜像
 单独复跑并通过。本轮本机 Docker daemon 未运行；v8 三个新增案例已由 test-only 本地可信执行，
 十五案例又由[公开 workflow](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40311947427)
 的生产 Docker adapter 统一通过 15/15。另有一次真实

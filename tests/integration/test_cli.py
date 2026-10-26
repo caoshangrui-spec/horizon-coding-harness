@@ -317,6 +317,8 @@ def test_doctor_checks_fts_without_model():
     assert data["model_fallback_policy"] is True
     assert data["automatic_model_fallback"] is False
     assert data["degraded_run_summary_contract"] is True
+    assert data["terminal_reliability_summary"] is True
+    assert data["terminal_evidence_schema"] == 2
     assert data["autonomous_execution"] is True
     assert data["recovery_safe_cancellation"] is True
     assert data["controller_verified_check_cancellation"] is True

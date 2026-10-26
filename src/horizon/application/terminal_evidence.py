@@ -3,12 +3,16 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from horizon.adapters.persistence.sqlite import SQLiteEventStore
-from horizon.domain.common import canonical_json
+from horizon.domain.common import canonical_json, digest
 from horizon.domain.run import Run, projection_hash
+from horizon.domain.run_reliability import RunReliabilitySummary
 from horizon.domain.states import RunStatus
 from horizon.domain.terminal_evidence import (
+    TERMINAL_EVIDENCE_BOUNDARIES,
+    TERMINAL_EVIDENCE_BOUNDARIES_V1,
     TerminalEvidenceFile,
     TerminalEvidencePack,
     TerminalRunEvidence,
@@ -29,7 +33,69 @@ def _sha256(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
-def _evidence(run: Run) -> TerminalRunEvidence:
+def _reliability_summary(run: Run) -> RunReliabilitySummary:
+    required_ids = tuple(check.id for check in run.task.acceptance if check.required)
+    required_acceptance_hash = digest(required_ids)
+    report = run.validation
+    current_validation = bool(
+        report is not None
+        and report["task_spec_hash"] == run.task.sha256
+        and report["workspace_revision"] == run.workspace_revision
+        and report["evidence_ref"]
+    )
+    required_checks_passed = bool(
+        current_validation and set(required_ids) <= set(report["passed_check_ids"])
+    )
+    unknown_acceptance_evidence = not current_validation
+    unknown_effects_present = bool(
+        run.unknown_reservations or run.unknown_model_calls or run.unknown_tool_calls
+    )
+    open_effects_present = bool(
+        run.reservations
+        or run.model_reservations
+        or run.tool_reservations
+        or (run.promotion_intent is not None and run.promotion_receipt is None)
+        or run.process_worker_launch is not None
+    )
+    quality_flags: list[str] = []
+    limitations = [
+        "Fallback and degradation history includes only records bound into the replayed Trace."
+    ]
+    if unknown_acceptance_evidence:
+        quality_flags.append("acceptance_evidence_unknown")
+        limitations.append(
+            "Current-task acceptance evidence is unavailable; required-check outcome is unknown."
+        )
+    elif not required_checks_passed:
+        quality_flags.append("required_checks_failed")
+        limitations.append("Current validation did not pass every required acceptance check.")
+    if unknown_effects_present:
+        quality_flags.append("unknown_effects_present")
+        limitations.append("One or more external effects have unknown outcomes.")
+    if open_effects_present:
+        quality_flags.append("open_effects_present")
+        limitations.append("One or more reservations, promotions, or process effects remain open.")
+    status = {
+        RunStatus.SUCCEEDED: "passed",
+        RunStatus.FAILED: "failed",
+        RunStatus.CANCELLED: "blocked",
+    }[run.status]
+    return RunReliabilitySummary(
+        status=status,
+        task_spec_hash=run.task.sha256,
+        effective_task_spec_hash=run.task.sha256,
+        required_acceptance_hash=required_acceptance_hash,
+        effective_required_acceptance_hash=required_acceptance_hash,
+        required_checks_passed=required_checks_passed,
+        unknown_acceptance_evidence=unknown_acceptance_evidence,
+        quality_flags=tuple(quality_flags),
+        fallback_history=(),
+        degradations=(),
+        limitations=tuple(limitations),
+    )
+
+
+def _evidence(run: Run, *, schema_version: Literal[1, 2] = 2) -> TerminalRunEvidence:
     unknown_reservations = tuple(sorted(run.unknown_reservations))
     unknown_models = tuple(sorted(run.unknown_model_calls))
     unknown_tools = tuple(sorted(run.unknown_tool_calls))
@@ -38,7 +104,12 @@ def _evidence(run: Run) -> TerminalRunEvidence:
     open_tools = tuple(sorted(run.tool_reservations))
     promotion_pending = run.promotion_intent is not None and run.promotion_receipt is None
     process_launch = run.process_worker_launch
+    reliability_summary = _reliability_summary(run) if schema_version == 2 else None
+    boundaries = (
+        TERMINAL_EVIDENCE_BOUNDARIES if schema_version == 2 else TERMINAL_EVIDENCE_BOUNDARIES_V1
+    )
     return TerminalRunEvidence(
+        schema_version=schema_version,
         run_id=run.run_id,
         task_id=run.task.task_id,
         task_spec_hash=run.task.sha256,
@@ -67,6 +138,8 @@ def _evidence(run: Run) -> TerminalRunEvidence:
             or promotion_pending
             or process_launch is not None
         ),
+        reliability_summary=reliability_summary,
+        boundaries=boundaries,
     )
 
 
@@ -76,6 +149,24 @@ def _id_list(values: tuple[str, ...]) -> str:
 
 def _summary(evidence: TerminalRunEvidence) -> str:
     boundaries = "\n".join(f"- `{item}`" for item in evidence.boundaries)
+    reliability = evidence.reliability_summary
+    reliability_section = ""
+    if reliability is not None:
+        fallback_history = [item.model_dump(mode="json") for item in reliability.fallback_history]
+        degradations = [item.model_dump(mode="json") for item in reliability.degradations]
+        reliability_section = (
+            "\n## Reliability\n\n"
+            f"- Outcome: `{reliability.status}`\n"
+            f"- Required checks passed: "
+            f"`{str(reliability.required_checks_passed).lower()}`\n"
+            f"- Acceptance evidence unknown: "
+            f"`{str(reliability.unknown_acceptance_evidence).lower()}`\n"
+            f"- Required acceptance hash: `{reliability.required_acceptance_hash}`\n"
+            f"- Quality flags: {canonical_json(reliability.quality_flags)}\n"
+            f"- Fallback history: {canonical_json(fallback_history)}\n"
+            f"- Degradations: {canonical_json(degradations)}\n"
+            f"- Limitations: {canonical_json(reliability.limitations)}\n"
+        )
     return (
         "# Horizon Terminal Run Evidence\n\n"
         f"- Run: `{evidence.run_id}`\n"
@@ -97,6 +188,7 @@ def _summary(evidence: TerminalRunEvidence) -> str:
         f"`{evidence.active_process_id or 'none'}`\n\n"
         "The verifier checks every listed file hash, replays the append-only Trace offline, and "
         "requires the replayed projection to equal the exported final state.\n\n"
+        f"{reliability_section}"
         "## Claim boundaries\n\n"
         f"{boundaries}\n"
     )
@@ -147,6 +239,7 @@ def export_terminal_evidence_pack(
     _write_new(final_state_path, final_state_content)
     _write_new(summary_path, summary_content)
     pack = TerminalEvidencePack(
+        schema_version=evidence.schema_version,
         evidence=evidence,
         files=(
             _file_record(destination, "trace", trace_path),
@@ -186,7 +279,7 @@ def verify_terminal_evidence_pack(path: Path) -> TerminalEvidencePack:
     replayed = SQLiteEventStore.replay_jsonl(trace_text)
     if not replayed.terminal:
         raise ValueError("Terminal EvidencePack Trace does not end in a terminal state")
-    expected_evidence = _evidence(replayed)
+    expected_evidence = _evidence(replayed, schema_version=pack.schema_version)
     if pack.evidence != expected_evidence:
         raise ValueError("Terminal EvidencePack metadata does not match its Trace")
     expected_state = (canonical_json(replayed.as_dict()) + "\n").encode("utf-8")
