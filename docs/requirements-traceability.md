@@ -5,7 +5,7 @@
 本表是完整开发与验收导航。2026-09-30 已开始基础内核实现，实际证据列记录当前子范围与剩余缺口。目标路径相对 `src/horizon/`；计划测试路径相对 `tests/`；实际证据列的 `tests/` 路径相对仓库根。同一测试文件可验证多个 ID，但不能把子范围通过等同于整项通过。
 
 当前结果：2026-09-30 可靠性内核为 **92 项测试通过**；2026-10-26 的最新离线回归为
-**547 passed，11 skipped**。**11 项真实 Docker 合同**此前已单独补跑并全部通过。另已完成一次 Tool Calling 探针和一次受预算
+**569 passed，11 skipped**。**11 项真实 Docker 合同**此前已单独补跑并全部通过。另已完成一次 Tool Calling 探针和一次受预算
 保护的真实单 WorkItem Agent fixture Run。完整长程 Agent 未实现，未做独立安全复核。命令、环境、证据与限制见
 [开发进度](development-progress.md)。仍为“待填”的条目没有实现证据；“部分/初步”不代表
 完整需求通过。普通工作直接自检，关键风险及用户指定验收按需独立复核，
@@ -74,8 +74,8 @@
 
 | ID | 里程碑 | 目标模块 | 计划检查与测试文件 | 实际证据 / Reviewer |
 |---|---|---|---|---|
-| FR-701 | M1 | `intake/router.py` | `unit/test_intent_router.py`：结构化路由、原文依据和 admission 费用关联 | 待填 / 未审核 |
-| FR-702 | M1/M4 | `intake/router.py`, `tools/gateway.py` | `e2e/test_readonly_intent.py`：只读/计划不写；取消/状态零模型调用 | 部分：TaskSpec/Plan 与 Typed Gateway 执行权限交集已自检，控制 CLI 零模型；自然语言意图入口未实现 |
+| FR-701 | M1 | `domain/intake.py`, `application/intake.py` | `unit/test_intent_router.py`、`integration/test_intake_cli.py`：结构化路由、原文依据和 admission 费用关联 | 部分：`IntentEnvelope` 已区分控制请求、任务类型、请求/有效执行模式、目标 Run 与缺失字段；显式命令→结构化 TaskSpec→有限规则按序路由，保存 request hash 和精确原文 span。确定性路径明确记录 0 次模型调用/CNY 0；未知或 read/write 冲突请求 abstain。尚无一次性模型分类、admission 预算账本、`intake_events` 和 `INTAKE_ATTACHED` 持久化 |
+| FR-702 | M1/M4 | `application/intake.py`, `tools/gateway.py` | `unit/test_intent_router.py`、`integration/test_intake_cli.py`：只读/计划不写；取消/状态零模型调用 | 部分：路由有效模式严格收窄到 admission authority，结构化 TaskSpec 工具再与模式/allowlist 取交集；explain/review、否定写入和 plan-only 不暴露写工具，status/resume/cancel 的 envelope 工具为空且零模型；现有 TaskSpec/Plan/Gateway 权限交集及控制 CLI 继续有效。`intake route` 尚未自动派发控制动作或创建 Run，也没有通用自然语言澄清/审批入口 |
 | FR-703 | M1/M2 | `orchestration/plan_validator.py` | `integration/test_plan_coverage.py`：遗漏/环/非法验收拒绝，澄清可恢复 | 部分：required 验收覆盖、每项验收唯一归属、DAG、工具权限与最多 8 项限制已用于人工/模型计划；非法模型提案留 receipt、不自动重试，并持久请求人工计划；自然语言澄清未实现 |
 | FR-704 | M1/M4 | `domain/task.py` | `integration/test_spec_revision.py`：合同历史保留、Run 版本绑定、影响检查失效 | 部分：合同版本/用户来源/精确绑定与保守验证失效已实现；`tests/integration/test_event_store.py`；完整变更执行未接入 |
 | FR-801 | M3 | `domain/memory.py`, `application/memory.py` | `integration/test_run_memory.py`：Run scope、事件/调用/任务/WorkItem/revision/evidence/置信属性与有界快照 | 部分：run-scope `RunMemoryEntry/Snapshot` 已接入每次模型调用；没有 Repo scope、跨 Run recall 或持久查询服务 |

@@ -5,6 +5,13 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Added a conservative zero-model intent-admission slice. `horizon intake route` now distinguishes
+  control requests, task kinds, and requested versus effective execution modes; retains exact source
+  spans and a request hash; records zero admission calls/cost; resolves only an exact or unique Run;
+  intersects structured TaskSpec tools with admission authority; and abstains on unknown or mixed
+  read/write requests. Routing never grants write authority and does not create a Run or execute a
+  tool. A model classifier, intake event stream, and automatic natural-language dispatch remain
+  explicitly unimplemented.
 - Added a frozen 24-case external code-localization set across seven BugsInPy projects. The first
   16 development cases now run through `horizon eval retrieval-suite`, which preserves per-case
   content-addressed reports and aggregates Hit/Recall/MAP/nDCG at K=1/3/5/8, MRR, degradation,

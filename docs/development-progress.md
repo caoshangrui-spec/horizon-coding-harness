@@ -6,6 +6,21 @@
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
 
+## 2026-10-26 保守意图入口：零模型分类与权限收窄
+
+- 新增 `domain/intake.py` 与 `application/intake.py`：`IntentEnvelope` 分开记录
+  `request_kind`、`task_kind`、请求模式、有效模式、目标 Run、缺失字段、原文证据区间、有效模型工具和
+  admission 调用/费用。结构化 TaskSpec 优先于文本任务规则；显式控制命令优先于两者。
+- `horizon intake route` 可独立复核 explain/review/plan/bugfix/refactor/tests、status/resume/cancel、
+  唯一当前 Run、缺失/未知 Run、否定写入指令和结构化 TaskSpec。控制请求与确定性规则均为
+  `admission_model_calls=0`、`admission_cost_cny=0`，且不创建数据库、Run 或工具副作用。
+- 有效模式严格取“请求模式 ∩ admission authority”；只读/计划模式不暴露写工具，结构化 TaskSpec 的
+  tool allowlist 再做一次交集。未知任务或同时出现 read/write 意图时保持 `read_only`、输出
+  `admission_ready=false` 与待分类字段，不用高置信度猜测换取写权限。22 项聚焦测试覆盖上述正例和负例。
+- 当前只是确定性 admission 垂直切片：没有调用分类模型、没有 `intake_events`/`INTAKE_ATTACHED`
+  持久化，也没有把自然语言 envelope 自动派发到现有 status/cancel/resume 或 Run 创建入口；因此
+  FR-701/702 只记为部分实现，不把 CLI 分类预览宣传成完整自然语言 Agent 入口。
+
 ## 2026-10-26 完整 Checkout v8：再增加三种独立失效模式
 
 - v8 原样保留 v7 十二例，再加入预冻结 development 来源中的 Sanic-5 root logger namespace、
@@ -128,6 +143,7 @@
 | TaskSpec、权限模式、严格预算字段、不可变合同 | [task.py](../src/horizon/domain/task.py) | `execution_mode` 给出工具上界，可选 `constraints.allowed_tools` 再做任务级最小权限，WorkItem 只能继续收窄；字段省略时保持历史序列化/hash；未验证真实仓库来源 |
 | 工作项 DAG、required 验收覆盖、候选调度 | [plan.py](../src/horizon/domain/plan.py) | 人工、one-shot 模型计划和单次执行期 revision 都经过领域层验收/工具权限复核；新计划还要求每个 acceptance ID 只有一个 owning WorkItem，历史 Trace 投影保留旧合同兼容；无自动触发或多次 replan |
 | 一次性自动计划与恢复 | [planning.py](../src/horizon/application/planning.py)、[planning.py](../src/horizon/domain/planning.py) | 内容寻址 PlanningContext、1～8 项 DAG、任务级工具 allowlist、权限/验收唯一归属校验、费用记账、settled response 复用；完整 inventory 下拒绝模型猜测的不存在路径，只对同项已授权 `create_file` 且仍在 TaskSpec 范围内的新路径放行，截断 inventory 保持未知；仍无计划成功率评测 |
+| 保守意图 admission | [intake.py](../src/horizon/domain/intake.py)、[intake.py](../src/horizon/application/intake.py) | 显式控制→结构化 TaskSpec→有限规则；输出请求/任务种类、请求/有效模式、目标 Run、缺失字段、原文 span、工具交集与零模型费用。权限只收窄，未知及 read/write 冲突 abstain；尚无模型分类、intake 持久事件或自动派发 |
 | 计划阶段持久人工 fallback | [human.py](../src/horizon/domain/human.py)、[services.py](../src/horizon/application/services.py) | 非法模型 Plan 绑定原 response/Task/version 后进入 WAITING 并释放 Lease；本机人工计划原子记录决定并回到 READY；仅此窄场景，不是通用 HITL |
 | NoProgress 人工指导恢复 | [human.py](../src/horizon/application/human.py)、[human.py](../src/horizon/domain/human.py) | 相同行为第 4 次、period-2 第 6 步或 period-3/4 第 3p 步，将 pattern、精确周期、工具证据、Task/Plan/WorkItem/workspace/session 绑定后进入 WAITING；本机指导写入新 session，新 Worker 续跑；不是通用审批或自动 replan |
 | Run 状态投影、终态和成功前置检查 | [run.py](../src/horizon/domain/run.py) | 状态规则；顺序 WorkItem DAG、单次 vN→vN+1 revision 和最终 required checks 全量回归已接入；无并行或多次 replan |
@@ -1153,7 +1169,8 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 3. **安全边界**：首个 Gateway 已阻止任意 shell，并把模型工具 intent/receipt 与 Run 预算
    事件化；但模型派发、文件写入和容器副作用还不是跨 SQLite/文件系统的单一原子事务，
    也没有独立安全复核或通用审批系统；当前 promotion 仅覆盖最多 8 个总变更且至多 1 个新文件。
-4. **Agent 能力**：自然语言意图与 admission、通用审批/澄清式持久化 HITL、
+4. **Agent 能力**：自然语言意图已有零模型规则 admission 和权限收窄，但尚无模型分类、持久 intake
+   stream 或自动派发；通用审批/澄清式持久化 HITL、
    Project Memory、symbol/vector Code RAG、六层精确 tokenizer/semantic Context、统一
    retry/breaker/fallback、更完整的 repair/replan。现有确定性字符 + 完整请求保守 token 上界
    双门投影、run-scope 证据 Memory 和
@@ -1171,8 +1188,8 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 七轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 547 passed；全量入口对应
-547 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
+当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 569 passed；全量入口对应
+569 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
 `run_model_cost_limit` 进入 `FAILED`。没有工具、编辑、checkpoint 或验证，Trace 14 事件可重放，

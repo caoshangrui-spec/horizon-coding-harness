@@ -37,6 +37,7 @@ from horizon.application.docker_worker_crash_recovery import (
     verify_docker_worker_crash_resume_pack,
 )
 from horizon.application.human import OperatorGuidanceService
+from horizon.application.intake import DeterministicIntentRouter
 from horizon.application.local_process_supervision import (
     LocalAgentWorkerLauncher,
     LocalProcessAgentSupervisor,
@@ -117,6 +118,7 @@ from horizon.domain.evaluation import (
     RetrievalSourceManifest,
 )
 from horizon.domain.human import HumanGuidanceRequest, HumanPlanRequest
+from horizon.domain.intake import AdmissionContext, UserRequest
 from horizon.domain.model import ModelPolicyBinding
 from horizon.domain.pilot import RealModelPilotManifest
 from horizon.domain.plan import MAX_EXECUTION_REPLANS, Plan
@@ -139,6 +141,7 @@ models = typer.Typer(no_args_is_help=True)
 agents = typer.Typer(no_args_is_help=True)
 evaluations = typer.Typer(no_args_is_help=True)
 demos = typer.Typer(no_args_is_help=True)
+intakes = typer.Typer(no_args_is_help=True)
 app.add_typer(tasks, name="task")
 app.add_typer(plans, name="plan")
 app.add_typer(traces, name="trace")
@@ -146,6 +149,7 @@ app.add_typer(models, name="model")
 app.add_typer(agents, name="agent")
 app.add_typer(evaluations, name="eval")
 app.add_typer(demos, name="demo")
+app.add_typer(intakes, name="intake")
 
 
 def guarded(function):
@@ -310,6 +314,81 @@ def root(
 def task_validate(path: Path):
     task = TaskSpec.model_validate(read_yaml(path))
     typer.echo(canonical_json({"valid": True, "task_id": task.task_id, "sha256": task.sha256}))
+
+
+@intakes.command("route")
+@guarded
+def intake_route(
+    request: Annotated[str, typer.Argument(help="Original user request to classify.")],
+    repository: Annotated[
+        Path | None,
+        typer.Option(help="Known repository root; read only for admission metadata."),
+    ] = None,
+    authority: Annotated[
+        str,
+        typer.Option(help="Maximum granted mode: read_only, plan_only, or workspace_write."),
+    ] = "read_only",
+    current_run_id: Annotated[
+        str | None,
+        typer.Option(help="Current Run used only to resolve an unqualified control request."),
+    ] = None,
+    target_run_id: Annotated[
+        str | None,
+        typer.Option(help="Exact Run explicitly targeted by a trusted control request."),
+    ] = None,
+    target_request_id: Annotated[
+        str | None,
+        typer.Option(help="Exact HITL request targeted by approval or clarification."),
+    ] = None,
+    known_run_id: Annotated[
+        list[str] | None,
+        typer.Option("--known-run-id", help="Known Run ID; repeat for multiple active Runs."),
+    ] = None,
+    explicit_command: Annotated[
+        str | None,
+        typer.Option(
+            help=(
+                "Trusted CLI request kind: task, status, resume, cancel, approval, "
+                "or clarification."
+            )
+        ),
+    ] = None,
+    task_spec: Annotated[
+        Path | None,
+        typer.Option(help="Optional structured TaskSpec; takes precedence over text task rules."),
+    ] = None,
+):
+    repository_ref = None
+    if repository is not None:
+        resolved = repository.resolve(strict=True)
+        if not resolved.is_dir():
+            raise ValueError("Intake repository must be a directory")
+        repository_ref = str(resolved)
+    structured_task = TaskSpec.model_validate(read_yaml(task_spec)) if task_spec else None
+    envelope = DeterministicIntentRouter().route(
+        UserRequest(
+            text=request,
+            explicit_command=explicit_command,
+            target_run_id=target_run_id,
+            target_request_id=target_request_id,
+            task_spec=structured_task,
+        ),
+        AdmissionContext(
+            authority_scope=authority,
+            repository_ref=repository_ref,
+            known_run_ids=tuple(known_run_id or ()),
+            current_run_id=current_run_id,
+        ),
+    )
+    typer.echo(
+        canonical_json(
+            {
+                "admission_ready": not envelope.missing_fields
+                and not envelope.model_classification_required,
+                "intent": envelope.model_dump(mode="json"),
+            }
+        )
+    )
 
 
 @evaluations.command("retrieval")
@@ -3313,6 +3392,10 @@ def doctor():
                 "fts5": fts5,
                 "model_backend": "openai_compatible",
                 "autonomous_execution": True,
+                "intent_router": True,
+                "intent_router_profile": "deterministic_rules_authority_contraction",
+                "intent_router_model_classification": False,
+                "intake_event_store": False,
                 "recovery_safe_cancellation": True,
                 "controller_verified_check_cancellation": True,
                 "execution_profile": "bounded_sequential_work_item_dag",

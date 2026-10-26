@@ -331,6 +331,10 @@ def test_doctor_checks_fts_without_model():
     assert data["max_execution_replans"] == 1
     assert data["automatic_replan_trigger"] is False
     assert data["completed_work_items_immutable_during_replan"] is True
+    assert data["intent_router"] is True
+    assert data["intent_router_profile"] == "deterministic_rules_authority_contraction"
+    assert data["intent_router_model_classification"] is False
+    assert data["intake_event_store"] is False
     assert data["no_progress_detection"] is True
     assert data["no_progress_profile"] == "exact_action_patterns_same_revision"
     assert data["no_progress_patterns"] == [

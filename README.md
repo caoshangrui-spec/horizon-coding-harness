@@ -29,6 +29,9 @@ Horizon 是一个面向长程软件工程任务的**可恢复执行控制层**�
   Mandatory Facts、有来源的 Run Memory，以及绑定 workspace revision 的 SQLite FTS5 Code RAG。
 - **验证与治理**：有界工具权限、禁网 Docker 验收、Campaign/Run 双层费用门禁、持久化 HITL、
   单次证据驱动 replan 和可离线重放的 JSONL Trace。
+- **保守意图入口**：`horizon intake route` 将控制请求、任务类型和执行模式结构化；显式控制命令
+  与确定性规则不调用模型，原文证据区间和 admission 费用一并输出，识别只能收窄既有权限。
+  模糊或读写冲突请求显式拒绝猜测；分类模型与 intake 持久事件尚未接入。
 
 ## 架构
 
@@ -54,6 +57,18 @@ flowchart LR
 [开发设计](docs/coding-agent-development-design.md) 与
 [能力设计](docs/agent-capabilities-design.md)。若用于面试，先看
 [3 分钟演示与架构讲解](docs/interview-demo.md)。
+
+意图入口可独立演示，不创建 Run、不读取 API Key，也不执行工具：
+
+```powershell
+uv run --locked --cache-dir .uv-cache horizon intake route `
+  "修复空输入崩溃，但不要改代码，先给方案" `
+  --repository . --authority workspace_write
+```
+
+输出同时给出 `task_kind=bugfix`、`requested_execution_mode=plan_only`、有效只读工具、原文触发
+区间、`admission_model_calls=0` 和 `admission_cost_cny=0`。`admission_ready=false` 表示仍缺字段或存在
+未执行的模型分类，不代表 Harness 已经启动任务。
 
 ## 60 秒演示
 
@@ -100,7 +115,7 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | main 的[标准 CI](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/ci.yml)运行离线回归和两条演示；主作品集演示删除数据库后独立复核，并把完整目录发布为保留 14 天的 `horizon-portfolio-evidence`，同时发布 `horizon-process-timeout-evidence`；[禁网 Docker Evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/full-checkout-evidence.yml)独立运行 | CI 不读取 API Key、不运行付费模型；workflow artifact 通常需要登录 GitHub 下载，不是永久发布资产 |
-| 离线回归 | `547 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `569 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | [通用终态 EvidencePack](docs/terminal-evidence-pack.md) | `SUCCEEDED`、`FAILED`、`CANCELLED` 均可导出并离线复核 Trace、最终投影和摘要；unknown/open effect 原样列出 | 自洽哈希不是来源签名，也不证明外部 Provider 或副作用已结清 |
 | [终态 Run 顺序汇总](docs/terminal-suite-evaluation.md) | 有序聚合已有终态 Run；递归验证每个子 EvidencePack，分列成功、失败、取消、预算停止与 unknown/open effect | 不执行任务，不是 batch scheduler，也没有并发性能声明 |
 | [本地顺序 Supervisor](docs/local-sequential-supervisor.md)、[正式子进程模式](docs/local-process-supervisor.md)与[父控制器硬退出恢复](docs/parent-controller-crash-recovery.md) | `--supervise` 支持安全轮次接力；`agent run/resume --worker-process` 让每个 slice 由真实直接子进程持有 Lease，并在放行前持久化 PID launch 与启动授权。父 CLI 正常同步回收后再换 epoch；父进程被硬 kill 时，重启后的新 Lease 必须等待 TTL 并精确确认旧 PID 已停止。`Ctrl+C` 与显式 slice timeout 仍先写取消栅栏再停止/reap，pending intent 显式阻塞且零重派 | 只管理一个本地直接子进程；父崩溃恢复依赖操作者核实精确 PID，不自动探活/kill；不覆盖 OS 掉电/内核恢复、PID reuse 自动判定、任意后代进程、跨主机、队列或任意 effect exactly-once |
@@ -497,7 +512,7 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **547 passed，11 skipped**；11 项 Docker 合同此前均已指定本机已有镜像
+当前离线全量回归为 **569 passed，11 skipped**；11 项 Docker 合同此前均已指定本机已有镜像
 单独复跑并通过。本轮本机 Docker daemon 未运行；v8 三个新增案例已由 test-only 本地可信执行，
 十五案例又由[公开 workflow](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40311947427)
 的生产 Docker adapter 统一通过 15/15。另有一次真实
