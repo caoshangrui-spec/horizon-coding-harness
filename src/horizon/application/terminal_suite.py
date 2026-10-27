@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from horizon.adapters.persistence.sqlite import SQLiteEventStore
 from horizon.application.terminal_evidence import (
@@ -15,6 +16,7 @@ from horizon.domain.states import RunStatus
 from horizon.domain.terminal_evidence import TerminalEvidencePack
 from horizon.domain.terminal_suite import (
     TERMINAL_SUITE_BOUNDARIES,
+    TERMINAL_SUITE_BOUNDARIES_V1,
     TerminalSuiteCase,
     TerminalSuiteCaseResult,
     TerminalSuiteFile,
@@ -77,6 +79,8 @@ def _case_result(
     root: Path,
     pack_path: Path,
     pack: TerminalEvidencePack,
+    *,
+    suite_schema_version: Literal[1, 2] = 2,
 ) -> TerminalSuiteCaseResult:
     run = _replay_child(pack_path, pack)
     evidence = pack.evidence
@@ -87,6 +91,11 @@ def _case_result(
     if relative_pack != expected_pack:
         raise ValueError(f"Terminal-suite case {case.case_id} has a noncanonical pack path")
     pack_content = pack_path.read_bytes()
+    reliability = evidence.reliability_summary if suite_schema_version == 2 else None
+    if suite_schema_version == 2 and reliability is None:
+        raise ValueError(
+            f"Terminal-suite case {case.case_id} lacks a schema v2 reliability summary"
+        )
     return TerminalSuiteCaseResult(
         sequence=sequence,
         case_id=case.case_id,
@@ -101,6 +110,16 @@ def _case_result(
         projection_hash=evidence.projection_hash,
         unknown_effects_present=evidence.unknown_effects_present,
         open_effects_present=evidence.open_effects_present,
+        reliability_summary_present=reliability is not None,
+        required_checks_passed=(
+            reliability.required_checks_passed if reliability is not None else None
+        ),
+        acceptance_evidence_unknown=(
+            reliability.unknown_acceptance_evidence if reliability is not None else None
+        ),
+        quality_flags=reliability.quality_flags if reliability is not None else (),
+        fallback_count=len(reliability.fallback_history) if reliability is not None else 0,
+        degradation_count=len(reliability.degradations) if reliability is not None else 0,
         evidence_pack_path=relative_pack,
         evidence_pack_sha256=_sha256(pack_content),
         evidence_pack_bytes=len(pack_content),
@@ -117,13 +136,44 @@ def _reason_counts(values: list[str]) -> tuple[TerminalSuiteReasonCount, ...]:
 def _build_report(
     manifest: TerminalSuiteManifest,
     cases: tuple[TerminalSuiteCaseResult, ...],
+    *,
+    schema_version: Literal[1, 2] = 2,
 ) -> TerminalSuiteReport:
     succeeded = sum(case.status == RunStatus.SUCCEEDED for case in cases)
     failure_reasons = [case.failure_reason for case in cases if case.failure_reason is not None]
     budget_stop_reasons = [
         case.budget_stop_reason.value for case in cases if case.budget_stop_reason is not None
     ]
+    reliability_fields = {}
+    if schema_version == 2:
+        quality_flags = [flag for case in cases for flag in case.quality_flags]
+        reliability_fields = {
+            "reliability_summary_verified_count": sum(
+                case.reliability_summary_present for case in cases
+            ),
+            "unknown_acceptance_run_count": sum(
+                case.acceptance_evidence_unknown is True for case in cases
+            ),
+            "required_check_failure_run_count": sum(
+                case.acceptance_evidence_unknown is False and case.required_checks_passed is False
+                for case in cases
+            ),
+            "quality_flagged_run_count": sum(bool(case.quality_flags) for case in cases),
+            "clean_success_run_count": sum(
+                case.status == RunStatus.SUCCEEDED and not case.quality_flags for case in cases
+            ),
+            "quality_flagged_success_run_count": sum(
+                case.status == RunStatus.SUCCEEDED and bool(case.quality_flags) for case in cases
+            ),
+            "fallback_run_count": sum(case.fallback_count > 0 for case in cases),
+            "degradation_run_count": sum(case.degradation_count > 0 for case in cases),
+            "retrieval_degraded_run_count": sum(
+                "retrieval_degraded" in case.quality_flags for case in cases
+            ),
+            "quality_flag_counts": _reason_counts(quality_flags),
+        }
     return TerminalSuiteReport(
+        schema_version=schema_version,
         suite_id=manifest.suite_id,
         manifest_digest=manifest.sha256,
         case_count=len(cases),
@@ -136,7 +186,11 @@ def _build_report(
         open_effect_run_count=sum(case.open_effects_present for case in cases),
         failure_reason_counts=_reason_counts(failure_reasons),
         budget_stop_reason_counts=_reason_counts(budget_stop_reasons),
+        boundaries=(
+            TERMINAL_SUITE_BOUNDARIES if schema_version == 2 else TERMINAL_SUITE_BOUNDARIES_V1
+        ),
         cases=cases,
+        **reliability_fields,
     )
 
 
@@ -166,7 +220,41 @@ def _summary(report: TerminalSuiteReport) -> str:
             f"`{str(case.unknown_effects_present).lower()}` | "
             f"`{str(case.open_effects_present).lower()}` |\n"
         )
-    boundaries = "\n".join(f"- `{item}`" for item in TERMINAL_SUITE_BOUNDARIES)
+    reliability_section = ""
+    if report.schema_version == 2:
+        reliability_rows = []
+        for case in report.cases:
+            reliability_rows.append(
+                "| "
+                f"{case.sequence} | {_markdown_code(case.case_id)} | "
+                f"`{str(case.required_checks_passed).lower()}` | "
+                f"`{str(case.acceptance_evidence_unknown).lower()}` | "
+                f"{_markdown_code(canonical_json(case.quality_flags))} | "
+                f"`{case.fallback_count}` | `{case.degradation_count}` |\n"
+            )
+        reliability_section = (
+            "## Reliability evidence\n\n"
+            f"- Replay-verified reliability summaries: "
+            f"`{report.reliability_summary_verified_count}`\n"
+            f"- Runs with unknown acceptance evidence: "
+            f"`{report.unknown_acceptance_run_count}`\n"
+            f"- Runs with known required-check failure: "
+            f"`{report.required_check_failure_run_count}`\n"
+            f"- Runs carrying quality flags: `{report.quality_flagged_run_count}`\n"
+            f"- Clean / quality-flagged succeeded Runs: "
+            f"`{report.clean_success_run_count}` / "
+            f"`{report.quality_flagged_success_run_count}`\n"
+            f"- Runs with fallback / degradation / retrieval degradation: "
+            f"`{report.fallback_run_count}` / `{report.degradation_run_count}` / "
+            f"`{report.retrieval_degraded_run_count}`\n\n"
+            "| # | Case | Required checks passed | Acceptance unknown | Quality flags | "
+            "Fallbacks | Degradations |\n"
+            "|---:|---|---:|---:|---|---:|---:|\n"
+            f"{''.join(reliability_rows)}\n"
+            "### Quality-flag counts\n\n"
+            f"{_counts_summary(report.quality_flag_counts)}\n"
+        )
+    boundaries = "\n".join(f"- `{item}`" for item in report.boundaries)
     return (
         "# Horizon Terminal Run Suite\n\n"
         f"- Suite: `{report.suite_id}`\n"
@@ -183,6 +271,7 @@ def _summary(report: TerminalSuiteReport) -> str:
         "Unknown | Open |\n"
         "|---:|---|---|---|---:|---|---|---:|---:|\n"
         f"{''.join(rows)}\n"
+        f"{reliability_section}"
         "## Failure reasons\n\n"
         f"{_counts_summary(report.failure_reason_counts)}\n"
         "## Budget-stop reasons\n\n"
@@ -237,10 +326,11 @@ def export_terminal_suite(
                 destination,
                 exported.evidence_pack_path,
                 exported.evidence_pack,
+                suite_schema_version=2,
             )
         )
 
-    report = _build_report(manifest, tuple(cases))
+    report = _build_report(manifest, tuple(cases), schema_version=2)
     _write_new(report_path, (canonical_json(report) + "\n").encode("utf-8"))
     _write_new(summary_path, _summary(report).encode("utf-8"))
     pack = TerminalSuitePack(
@@ -289,8 +379,21 @@ def verify_terminal_suite_pack(path: Path) -> TerminalSuitePack:
         relative_pack = _case_pack_path(case, sequence)
         child_path = _resolve_member(root, relative_pack)
         child_pack = verify_terminal_evidence_pack(child_path)
-        cases.append(_case_result(case, sequence, root, child_path, child_pack))
-    expected_report = _build_report(manifest, tuple(cases))
+        cases.append(
+            _case_result(
+                case,
+                sequence,
+                root,
+                child_path,
+                child_pack,
+                suite_schema_version=pack.schema_version,
+            )
+        )
+    expected_report = _build_report(
+        manifest,
+        tuple(cases),
+        schema_version=pack.schema_version,
+    )
     if report != expected_report:
         raise ValueError("Terminal-suite report does not match its replayed child Runs")
     if contents["summary"] != _summary(expected_report).encode("utf-8"):

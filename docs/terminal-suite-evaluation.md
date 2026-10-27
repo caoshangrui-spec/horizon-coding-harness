@@ -8,7 +8,9 @@
 
 生成过程只读取已有 EventLog；不会启动 Run、Worker、模型、工具、Provider、Docker 或仓库
 代码，也不会重试失败任务。`SUCCEEDED` 才计为任务成功；`FAILED`、`CANCELLED`、预算停止、
-unknown 和 open effect 均原样保留并单独统计。
+unknown 和 open effect 均原样保留并单独统计。schema v2 还把每个子 EvidencePack 已复核的
+验收状态、quality flags、fallback 和 degradation 数量提升到 suite 层，避免把“终态成功”误读为
+“无降级成功”。
 
 因此当前能力是 NFR-010 的一部分：它证明单机可以按确定顺序为既有终态 Run 生成统一记录，
 但还没有“读取任务集并顺序执行到终态”的 batch scheduler，也没有并发吞吐或性能声明。
@@ -79,6 +81,11 @@ nightly-terminal-runs/
 - 只按 `SUCCEEDED` 计算的 `task_success_rate`；
 - `terminal_capture_verified_count`，它表示证据捕获已复核，不等于任务成功数；
 - 带 unknown/open effect 的 Run 数；
+- `reliability_summary_verified_count`、验收证据未知 Run 数和已知 required-check 失败 Run 数；
+- `clean_success_run_count` 与 `quality_flagged_success_run_count`。二者之和等于
+  `succeeded_run_count`，但不会改写原始 `task_success_rate`；
+- 带任意 quality flag、fallback、degradation 与 `retrieval_degraded` 的 Run 数，以及逐 flag
+  的 Run 计数；
 - 全部 `failure_reason` 计数，以及从终态 Trace 复算的 `budget_stop.reason_code` 计数；
 - `runs_executed=false`、`paid_model_called=false`、`network_called=false`、
   `tool_called=false`、`repository_code_executed=false`。这些字段只描述本次汇总操作，不抹掉
@@ -91,8 +98,9 @@ nightly-terminal-runs/
 1. 校验顶层 manifest、report、summary 的相对路径、字节数和 SHA-256；
 2. 重新解析严格清单和报告，并核对 `suite_id` 与 manifest digest；
 3. 按规范路径逐个调用子 EvidencePack 验证器；
-4. 对每条子 Trace 重放 Run，核对清单中的 `run_id`，并读取结构化 BudgetStop；
-5. 从重放结果重建每个 case、全部聚合计数和确定性摘要；
+4. 对每条子 Trace 重放 Run，核对清单中的 `run_id`，并读取结构化 BudgetStop；schema v2 同时
+   要求子 EvidencePack 具有可复算的 v2 reliability summary；
+5. 从重放结果重建每个 case、全部结果/可靠性聚合计数和确定性摘要；
 6. 要求重建结果与 `suite-report.json`、`SUMMARY.md`、`suite-pack.json` 完全一致。
 
 所以只修改摘要、报告或子包再重算某一层文件哈希并不足以通过验证。该链仍然只是内容与领域
@@ -100,12 +108,19 @@ nightly-terminal-runs/
 
 ## 5. 固定声明边界
 
-schema v1 固定保留四条边界：
+新导出的 suite 使用 schema v2，并固定保留六条边界：
 
 1. Suite 只聚合既有终态 Run，不执行任务；
 2. 终态证据捕获通过不等于任务成功；
 3. 失败、取消、unknown 和 open effect 必须可见；
 4. 自洽哈希不等于来源认证。
+5. task success 与 quality flag 分开报告；
+6. suite 只汇总已经由子 EvidencePack 验证的可靠性信息。
+
+验证器继续读取历史 schema v1 suite，并按原来的四条边界复核；不会为旧包推断当时不存在的
+可靠性字段。当前生产 Trace 已能提供 retrieval degradation；自动 model fallback 以及
+context-summary/model degradation 尚无生产 history，因此相应计数通常为 0，不能据此宣称这些
+能力已经执行过。
 
 当前也不汇总历史模型费用总额：unknown 用量和不同币种不能安全地被折算成一个“准确总费用”。
 预算停止只按 Trace 中已经持久化的 `reason_code` 分类，不从普通失败文本猜测。

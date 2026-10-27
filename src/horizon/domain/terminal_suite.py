@@ -14,11 +14,16 @@ from horizon.domain.terminal_evidence import Sha256
 Count = Annotated[StrictInt, Field(ge=0)]
 Ratio = Annotated[float, Field(ge=0.0, le=1.0)]
 
-TERMINAL_SUITE_BOUNDARIES = (
+TERMINAL_SUITE_BOUNDARIES_V1 = (
     "suite_aggregates_existing_terminal_runs_without_executing_tasks",
     "terminal_capture_verified_is_not_task_success",
     "failed_cancelled_unknown_and_open_effects_remain_visible",
     "self_consistent_hashes_are_not_origin_authentication",
+)
+TERMINAL_SUITE_BOUNDARIES = (
+    *TERMINAL_SUITE_BOUNDARIES_V1,
+    "task_success_is_reported_separately_from_quality_flags",
+    "reliability_aggregates_only_verified_child_evidence",
 )
 
 
@@ -66,6 +71,12 @@ class TerminalSuiteCaseResult(Contract):
     projection_hash: Sha256
     unknown_effects_present: bool
     open_effects_present: bool
+    reliability_summary_present: bool = False
+    required_checks_passed: bool | None = None
+    acceptance_evidence_unknown: bool | None = None
+    quality_flags: tuple[Identifier, ...] = ()
+    fallback_count: Count = 0
+    degradation_count: Count = 0
     terminal_capture_verified: Literal[True] = True
     evidence_pack_path: Text
     evidence_pack_sha256: Sha256
@@ -84,6 +95,34 @@ class TerminalSuiteCaseResult(Contract):
                 raise ValueError("A budget stop must belong to a failed Run")
             if self.failure_reason != self.budget_stop_reason.value:
                 raise ValueError("Budget-stop reason must match the Run failure reason")
+        if len(self.quality_flags) != len(set(self.quality_flags)):
+            raise ValueError("Terminal-suite quality flags must be unique")
+        if not self.reliability_summary_present:
+            if (
+                self.required_checks_passed is not None
+                or self.acceptance_evidence_unknown is not None
+                or self.quality_flags
+                or self.fallback_count
+                or self.degradation_count
+            ):
+                raise ValueError("Legacy terminal-suite cases cannot carry reliability fields")
+        else:
+            if self.required_checks_passed is None or self.acceptance_evidence_unknown is None:
+                raise ValueError("A terminal-suite reliability summary requires acceptance fields")
+            flags = set(self.quality_flags)
+            if ("acceptance_evidence_unknown" in flags) != self.acceptance_evidence_unknown:
+                raise ValueError("Terminal-suite acceptance evidence flag does not match its value")
+            required_checks_failed = (
+                not self.acceptance_evidence_unknown and not self.required_checks_passed
+            )
+            if ("required_checks_failed" in flags) != required_checks_failed:
+                raise ValueError("Terminal-suite required-check flag does not match its values")
+            if self.status == RunStatus.SUCCEEDED and (
+                not self.required_checks_passed or self.acceptance_evidence_unknown
+            ):
+                raise ValueError("A successful terminal-suite case requires known passing checks")
+            if self.degradation_count and not self.quality_flags:
+                raise ValueError("A degraded terminal-suite case requires a quality flag")
         relative_pattern(self.evidence_pack_path)
         if any(character in self.evidence_pack_path for character in "*?[]"):
             raise ValueError("Terminal-suite EvidencePack paths must be literal")
@@ -91,7 +130,7 @@ class TerminalSuiteCaseResult(Contract):
 
 
 class TerminalSuiteReport(Contract):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 2
     suite_id: Identifier
     manifest_digest: Sha256
     claim_scope: Literal["offline_existing_terminal_run_aggregation"] = (
@@ -105,6 +144,16 @@ class TerminalSuiteReport(Contract):
     terminal_capture_verified_count: Count
     unknown_effect_run_count: Count
     open_effect_run_count: Count
+    reliability_summary_verified_count: Count = 0
+    unknown_acceptance_run_count: Count = 0
+    required_check_failure_run_count: Count = 0
+    quality_flagged_run_count: Count = 0
+    clean_success_run_count: Count = 0
+    quality_flagged_success_run_count: Count = 0
+    fallback_run_count: Count = 0
+    degradation_run_count: Count = 0
+    retrieval_degraded_run_count: Count = 0
+    quality_flag_counts: tuple[TerminalSuiteReasonCount, ...] = ()
     failure_reason_counts: tuple[TerminalSuiteReasonCount, ...] = ()
     budget_stop_reason_counts: tuple[TerminalSuiteReasonCount, ...] = ()
     paid_model_called: Literal[False] = False
@@ -128,9 +177,59 @@ class TerminalSuiteReport(Contract):
             "unknown_effect_run_count": sum(case.unknown_effects_present for case in self.cases),
             "open_effect_run_count": sum(case.open_effects_present for case in self.cases),
         }
+        reliability_totals = {
+            "reliability_summary_verified_count": sum(
+                case.reliability_summary_present for case in self.cases
+            ),
+            "unknown_acceptance_run_count": sum(
+                case.acceptance_evidence_unknown is True for case in self.cases
+            ),
+            "required_check_failure_run_count": sum(
+                case.reliability_summary_present
+                and case.acceptance_evidence_unknown is False
+                and case.required_checks_passed is False
+                for case in self.cases
+            ),
+            "quality_flagged_run_count": sum(bool(case.quality_flags) for case in self.cases),
+            "clean_success_run_count": sum(
+                case.status == RunStatus.SUCCEEDED and not case.quality_flags for case in self.cases
+            ),
+            "quality_flagged_success_run_count": sum(
+                case.status == RunStatus.SUCCEEDED and bool(case.quality_flags)
+                for case in self.cases
+            ),
+            "fallback_run_count": sum(case.fallback_count > 0 for case in self.cases),
+            "degradation_run_count": sum(case.degradation_count > 0 for case in self.cases),
+            "retrieval_degraded_run_count": sum(
+                "retrieval_degraded" in case.quality_flags for case in self.cases
+            ),
+        }
         for field, expected in totals.items():
             if getattr(self, field) != expected:
                 raise ValueError(f"Terminal-suite {field} does not match case results")
+        if self.schema_version == 1:
+            if any(case.reliability_summary_present for case in self.cases) or any(
+                getattr(self, field) != 0 for field in reliability_totals
+            ):
+                raise ValueError("Terminal-suite schema v1 cannot carry reliability summaries")
+            if self.quality_flag_counts:
+                raise ValueError("Terminal-suite schema v1 cannot carry quality-flag counts")
+        else:
+            if reliability_totals["reliability_summary_verified_count"] != len(self.cases):
+                raise ValueError("Terminal-suite schema v2 requires every reliability summary")
+            for field, expected in reliability_totals.items():
+                if getattr(self, field) != expected:
+                    raise ValueError(f"Terminal-suite {field} does not match case results")
+            expected_quality_flags = _reason_counts(
+                flag for case in self.cases for flag in case.quality_flags
+            )
+            if self.quality_flag_counts != expected_quality_flags:
+                raise ValueError("Terminal-suite quality-flag counts do not match case results")
+            if (
+                self.clean_success_run_count + self.quality_flagged_success_run_count
+                != self.succeeded_run_count
+            ):
+                raise ValueError("Terminal-suite success quality split is incomplete")
         expected_rate = round(self.succeeded_run_count / self.case_count, 6)
         if self.task_success_rate != expected_rate:
             raise ValueError("Terminal-suite task success rate does not match case results")
@@ -152,7 +251,10 @@ class TerminalSuiteReport(Contract):
         )
         if self.budget_stop_reason_counts != expected_budget_stops:
             raise ValueError("Terminal-suite budget-stop counts do not match case results")
-        if tuple(self.boundaries) != TERMINAL_SUITE_BOUNDARIES:
+        expected_boundaries = (
+            TERMINAL_SUITE_BOUNDARIES_V1 if self.schema_version == 1 else TERMINAL_SUITE_BOUNDARIES
+        )
+        if tuple(self.boundaries) != expected_boundaries:
             raise ValueError("Terminal-suite claim boundaries must remain explicit")
         return self
 
@@ -180,7 +282,7 @@ class TerminalSuiteFile(Contract):
 
 
 class TerminalSuitePack(Contract):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 2
     pack_type: Literal["horizon.terminal-suite"] = "horizon.terminal-suite"
     report: TerminalSuiteReport
     files: Annotated[tuple[TerminalSuiteFile, ...], Field(min_length=3, max_length=3)]
@@ -193,4 +295,6 @@ class TerminalSuitePack(Contract):
             raise ValueError("Terminal-suite pack requires manifest, report, and summary files")
         if len(paths) != len(set(paths)):
             raise ValueError("Terminal-suite pack paths must be unique")
+        if self.schema_version != self.report.schema_version:
+            raise ValueError("Terminal-suite pack and report schema versions must match")
         return self

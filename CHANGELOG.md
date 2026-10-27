@@ -5,6 +5,11 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Upgraded terminal-suite evidence to schema v2. The offline aggregate now keeps raw Run success
+  separate from clean versus quality-flagged success, and reports unknown acceptance, known required-
+  check failure, per-flag Run counts, fallback, degradation, and trace-bound retrieval degradation.
+  Verification recursively rebuilds these values from each child Trace/EvidencePack, rejects rehashed
+  false aggregates, and continues to verify legacy schema v1 suite and child packs.
 - Added a conservative zero-model intent-admission slice. `horizon intake route` now distinguishes
   control requests, task kinds, and requested versus effective execution modes; retains exact source
   spans and a request hash; records zero admission calls/cost; resolves only an exact or unique Run;

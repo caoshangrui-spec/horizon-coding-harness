@@ -700,6 +700,7 @@ def evaluate_terminal_suite(
     typer.echo(
         canonical_json(
             {
+                "schema_version": result.suite_pack.schema_version,
                 "suite_id": report.suite_id,
                 "case_count": report.case_count,
                 "succeeded_run_count": report.succeeded_run_count,
@@ -709,6 +710,18 @@ def evaluate_terminal_suite(
                 "terminal_capture_verified_count": report.terminal_capture_verified_count,
                 "unknown_effect_run_count": report.unknown_effect_run_count,
                 "open_effect_run_count": report.open_effect_run_count,
+                "reliability_summary_verified_count": (report.reliability_summary_verified_count),
+                "unknown_acceptance_run_count": report.unknown_acceptance_run_count,
+                "required_check_failure_run_count": report.required_check_failure_run_count,
+                "quality_flagged_run_count": report.quality_flagged_run_count,
+                "clean_success_run_count": report.clean_success_run_count,
+                "quality_flagged_success_run_count": (report.quality_flagged_success_run_count),
+                "fallback_run_count": report.fallback_run_count,
+                "degradation_run_count": report.degradation_run_count,
+                "retrieval_degraded_run_count": report.retrieval_degraded_run_count,
+                "quality_flag_counts": [
+                    item.model_dump(mode="json") for item in report.quality_flag_counts
+                ],
                 "failure_reason_counts": [
                     item.model_dump(mode="json") for item in report.failure_reason_counts
                 ],
@@ -739,6 +752,7 @@ def verify_terminal_suite(path: Path):
         canonical_json(
             {
                 "verified": True,
+                "schema_version": pack.schema_version,
                 "suite_id": report.suite_id,
                 "case_count": report.case_count,
                 "succeeded_run_count": report.succeeded_run_count,
@@ -748,6 +762,18 @@ def verify_terminal_suite(path: Path):
                 "terminal_capture_verified_count": report.terminal_capture_verified_count,
                 "unknown_effect_run_count": report.unknown_effect_run_count,
                 "open_effect_run_count": report.open_effect_run_count,
+                "reliability_summary_verified_count": (report.reliability_summary_verified_count),
+                "unknown_acceptance_run_count": report.unknown_acceptance_run_count,
+                "required_check_failure_run_count": report.required_check_failure_run_count,
+                "quality_flagged_run_count": report.quality_flagged_run_count,
+                "clean_success_run_count": report.clean_success_run_count,
+                "quality_flagged_success_run_count": (report.quality_flagged_success_run_count),
+                "fallback_run_count": report.fallback_run_count,
+                "degradation_run_count": report.degradation_run_count,
+                "retrieval_degraded_run_count": report.retrieval_degraded_run_count,
+                "quality_flag_counts": [
+                    item.model_dump(mode="json") for item in report.quality_flag_counts
+                ],
                 "runs_executed": report.runs_executed,
                 "claim_scope": report.claim_scope,
             }
@@ -3425,6 +3451,8 @@ def doctor():
                 "degraded_run_summary_contract": True,
                 "terminal_reliability_summary": True,
                 "terminal_evidence_schema": 2,
+                "terminal_suite_reliability_aggregation": True,
+                "terminal_suite_schema": 2,
                 "trace_bound_retrieval_degradation": True,
                 "autonomous_execution": True,
                 "intent_router": True,
