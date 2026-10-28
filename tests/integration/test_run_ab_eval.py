@@ -21,6 +21,7 @@ from horizon.application.run_ab_eval import (
 from horizon.domain.events import Event
 from horizon.domain.run_evaluation import (
     RunABEvalManifest,
+    RunABEvalReport,
     RunABSuiteManifest,
     RunABSuiteReport,
 )
@@ -221,6 +222,16 @@ def test_run_ab_evaluator_compares_full_replayable_runs_without_paid_model(tmp_p
     assert report.single_replan.final_validation_passed is True
     assert report.single_replan.usage.model_calls == 6
     assert report.single_replan.usage.tool_calls == 7
+    assert report.baseline.reliability is not None
+    assert report.baseline.reliability.required_checks_passed is False
+    assert report.baseline.reliability.acceptance_evidence_unknown is True
+    assert report.baseline.reliability.quality_flags == ("acceptance_evidence_unknown",)
+    assert report.baseline.reliability.degradation_count == 0
+    assert report.single_replan.reliability is not None
+    assert report.single_replan.reliability.required_checks_passed is True
+    assert report.single_replan.reliability.acceptance_evidence_unknown is False
+    assert report.single_replan.reliability.quality_flags == ()
+    assert report.single_replan.reliability.degradation_count == 0
     assert report.model_call_delta == 2
     assert report.tool_call_delta == 3
     assert report.step_delta == 3
@@ -241,6 +252,108 @@ def test_run_ab_evaluator_compares_full_replayable_runs_without_paid_model(tmp_p
         assert arm.actions_consumed is True
         replayed = SQLiteEventStore.replay_jsonl(artifacts.read(arm.trace_ref).decode("utf-8"))
         assert replayed.run_id == arm.run_id
+
+
+def test_run_ab_suite_separates_trace_bound_retrieval_degradation_from_task_success(
+    tmp_path,
+):
+    data = yaml.safe_load(MANIFEST_PATH.read_text(encoding="utf-8"))
+    data["benchmark_id"] = "stalled-retrieval-degraded-v1"
+    data["initial_plan"]["items"][0]["allowed_tools"] = ["retrieve_code"]
+    retrieve = {
+        "tool": "retrieve_code",
+        "arguments": {"query": "parser printf empty value", "max_chunks": 8},
+    }
+    data["arms"][0]["actions"] = [retrieve for _ in range(4)]
+    treatment_tail = data["arms"][1]["actions"][3:]
+    treatment_tail[0]["arguments"]["items"][0]["allowed_tools"] = [
+        "retrieve_code",
+        "replace_text",
+        "run_check",
+    ]
+    data["arms"][1]["actions"] = [retrieve for _ in range(3)] + treatment_tail
+    manifest = RunABEvalManifest.model_validate(data)
+
+    source_fixture = MANIFEST_PATH.parent / manifest.fixture_path
+    fixture = tmp_path / "fixture"
+    shutil.copytree(source_fixture, fixture)
+    (fixture / "src" / "unreadable.py").write_bytes(b"\xff\xfe\x00")
+
+    report = RunABEvaluator(
+        FixtureContentAcceptance(),
+        validation_backend="fixture-content",
+        validation_backend_ref="test-only-retrieval-degradation-contract",
+        repository_code_executed=False,
+    ).evaluate(manifest, fixture_source=fixture, state_dir=tmp_path / "state")
+
+    assert report.all_expectations_met is True
+    assert report.baseline.reliability is not None
+    assert report.baseline.reliability.quality_flags == (
+        "acceptance_evidence_unknown",
+        "retrieval_degraded",
+    )
+    assert report.baseline.reliability.degradation_count == 2
+    assert report.baseline.reliability.retrieval_degradation_count == 2
+    assert report.single_replan.status == RunStatus.SUCCEEDED
+    assert report.single_replan.reliability is not None
+    assert report.single_replan.reliability.required_checks_passed is True
+    assert report.single_replan.reliability.quality_flags == ("retrieval_degraded",)
+    assert report.single_replan.reliability.degradation_count == 2
+    assert report.single_replan.reliability.retrieval_degradation_count == 2
+
+    suite = RunABSuiteManifest.model_validate(
+        {
+            "suite_id": "retrieval-degradation-suite-v1",
+            "cases": [
+                {
+                    "case_id": manifest.benchmark_id,
+                    "manifest_path": "stalled-retrieval-degraded-v1.yaml",
+                    "source": {
+                        "benchmark": "fixture",
+                        "project": "stalled-reader",
+                        "bug_id": "retrieval-degraded",
+                        "repository_url": "https://github.com/example/stalled-reader",
+                        "buggy_commit": "a" * 40,
+                        "fixed_commit": "b" * 40,
+                        "fix_url": "https://github.com/example/stalled-reader/commit/" + "b" * 40,
+                        "upstream_test": "tests/test_parser.sh",
+                        "license_spdx": "MIT",
+                        "license_url": (
+                            "https://github.com/example/stalled-reader/blob/main/LICENSE"
+                        ),
+                        "reduction": "dependency_reduced",
+                        "reduction_note": "Test-only source metadata for quality aggregation.",
+                    },
+                }
+            ],
+        }
+    )
+    artifacts = ArtifactStore(tmp_path / "state" / "artifacts")
+    report_ref = store_run_ab_report(artifacts, report)
+    suite_report = build_run_ab_suite_report(
+        suite,
+        {manifest.benchmark_id: (report, report_ref)},
+        validation_backend="fixture-content",
+        validation_backend_ref="test-only-retrieval-degradation-contract",
+        repository_code_executed=False,
+    )
+
+    reliability = suite_report.reliability
+    assert reliability is not None
+    assert reliability.terminal_success_count == 1
+    assert reliability.reliability_evidence_arm_count == 2
+    assert reliability.unknown_acceptance_arm_count == 1
+    assert reliability.required_check_failure_arm_count == 0
+    assert reliability.quality_flagged_arm_count == 2
+    assert reliability.clean_terminal_success_count == 0
+    assert reliability.quality_flagged_terminal_success_count == 1
+    assert reliability.degradation_arm_count == 2
+    assert reliability.retrieval_degraded_arm_count == 2
+    assert reliability.degradation_record_count == 4
+    assert [(item.quality_flag, item.arm_count) for item in reliability.quality_flag_counts] == [
+        ("acceptance_evidence_unknown", 1),
+        ("retrieval_degraded", 2),
+    ]
 
 
 def test_run_ab_cli_uses_existing_image_contract_and_persists_report(tmp_path, monkeypatch):
@@ -667,6 +780,17 @@ def test_run_ab_recovers_real_write_hard_crash_without_redispatch(tmp_path):
     assert reliability.source_workspace_unchanged_count == 2
     assert reliability.source_workspace_unchanged_rate == 1.0
     assert reliability.final_open_effect_count == 0
+    assert reliability.reliability_evidence_arm_count == 2
+    assert reliability.unknown_acceptance_arm_count == 0
+    assert reliability.required_check_failure_arm_count == 0
+    assert reliability.quality_flagged_arm_count == 0
+    assert reliability.clean_terminal_success_count == 2
+    assert reliability.quality_flagged_terminal_success_count == 0
+    assert reliability.fallback_arm_count == 0
+    assert reliability.degradation_arm_count == 0
+    assert reliability.retrieval_degraded_arm_count == 0
+    assert reliability.degradation_record_count == 0
+    assert reliability.quality_flag_counts == ()
 
 
 def test_run_ab_hard_crash_contract_rejects_legacy_or_asymmetric_configuration():
@@ -748,6 +872,19 @@ def test_run_ab_suite_cli_aggregates_source_bound_cases(tmp_path, monkeypatch):
     assert reliability["source_workspace_unchanged_count"] == 10
     assert reliability["source_workspace_unchanged_rate"] == 1.0
     assert reliability["final_open_effect_count"] == 0
+    assert reliability["reliability_evidence_arm_count"] == 10
+    assert reliability["unknown_acceptance_arm_count"] == 5
+    assert reliability["required_check_failure_arm_count"] == 0
+    assert reliability["quality_flagged_arm_count"] == 5
+    assert reliability["clean_terminal_success_count"] == 5
+    assert reliability["quality_flagged_terminal_success_count"] == 0
+    assert reliability["fallback_arm_count"] == 0
+    assert reliability["degradation_arm_count"] == 0
+    assert reliability["retrieval_degraded_arm_count"] == 0
+    assert reliability["degradation_record_count"] == 0
+    assert reliability["quality_flag_counts"] == [
+        {"quality_flag": "acceptance_evidence_unknown", "arm_count": 5}
+    ]
     assert reliability["p95_scenario_duration_ms"] >= 0
     assert {case["source"]["project"] for case in report["cases"]} == {
         "cookiecutter",
@@ -763,11 +900,39 @@ def test_run_ab_suite_cli_aggregates_source_bound_cases(tmp_path, monkeypatch):
         case.pop("reliability")
     assert RunABSuiteReport.model_validate(legacy).reliability is None
 
+    legacy_quality = json.loads(json.dumps(report))
+    quality_fields = {
+        "reliability_evidence_arm_count",
+        "unknown_acceptance_arm_count",
+        "required_check_failure_arm_count",
+        "quality_flagged_arm_count",
+        "clean_terminal_success_count",
+        "quality_flagged_terminal_success_count",
+        "fallback_arm_count",
+        "degradation_arm_count",
+        "retrieval_degraded_arm_count",
+        "degradation_record_count",
+        "quality_flag_counts",
+    }
+    for field in quality_fields:
+        legacy_quality["reliability"].pop(field)
+    for case in legacy_quality["cases"]:
+        for field in quality_fields:
+            case["reliability"].pop(field)
+    parsed_legacy_quality = RunABSuiteReport.model_validate(legacy_quality)
+    assert parsed_legacy_quality.reliability is not None
+    assert parsed_legacy_quality.reliability.reliability_evidence_arm_count == 0
+
     tampered = json.loads(json.dumps(report))
     tampered["reliability"]["trace_replay_verified_count"] -= 1
     tampered["reliability"]["trace_replay_rate"] = 0.9
     with pytest.raises(ValueError, match="trace_replay_verified_count"):
         RunABSuiteReport.model_validate(tampered)
+
+    tampered_quality = json.loads(json.dumps(report))
+    tampered_quality["reliability"]["quality_flagged_arm_count"] -= 1
+    with pytest.raises(ValueError, match="quality-flagged arms"):
+        RunABSuiteReport.model_validate(tampered_quality)
 
     artifacts = ArtifactStore(state / "artifacts")
     suite_ref = payload["report_ref"]
@@ -776,6 +941,12 @@ def test_run_ab_suite_cli_aggregates_source_bound_cases(tmp_path, monkeypatch):
         case_report = json.loads(artifacts.read(case["report_ref"]))
         assert case_report["initial_validation_matches_expectation"] is True
         assert case_report["all_expectations_met"] is True
+        legacy_case_report = json.loads(json.dumps(case_report))
+        legacy_case_report["baseline"].pop("reliability")
+        legacy_case_report["single_replan"].pop("reliability")
+        parsed_case_report = RunABEvalReport.model_validate(legacy_case_report)
+        assert parsed_case_report.baseline.reliability is None
+        assert parsed_case_report.single_replan.reliability is None
 
 
 def test_reduced_v2_suite_preserves_the_frozen_v1_cases_and_digests():

@@ -17,6 +17,7 @@ from horizon.adapters.workspace.promotion import workspace_path_hash
 from horizon.adapters.workspace.snapshot import SnapshotManager
 from horizon.application.agent_loop import AgentLoopConfig, CodingAgentRunner
 from horizon.application.recovery import RecoveryService
+from horizon.application.reliability_summary import derive_run_reliability_facts
 from horizon.application.services import HarnessService, LeaseToken
 from horizon.application.tool_recovery import ToolRecoveryService
 from horizon.domain.common import canonical_json
@@ -28,6 +29,7 @@ from horizon.domain.run import projection_hash
 from horizon.domain.run_evaluation import (
     RUN_AB_HARD_CRASH_EXIT_CODE,
     RunABArm,
+    RunABArmReliability,
     RunABArmResult,
     RunABCaseReliabilityMetrics,
     RunABEvalManifest,
@@ -38,6 +40,7 @@ from horizon.domain.run_evaluation import (
     RunABSuiteReliabilityMetrics,
     RunABSuiteReport,
     ScriptedModelAction,
+    count_run_ab_quality_flags,
 )
 from horizon.domain.states import RunStatus
 from horizon.domain.task import TaskSpec
@@ -664,6 +667,18 @@ class RunABEvaluator:
             if result.validation is not None
             else None
         )
+        reliability_facts = derive_run_reliability_facts(result)
+        arm_reliability = RunABArmReliability(
+            required_checks_passed=reliability_facts.required_checks_passed,
+            acceptance_evidence_unknown=reliability_facts.unknown_acceptance_evidence,
+            quality_flags=reliability_facts.quality_flags,
+            fallback_count=len(reliability_facts.fallback_history),
+            degradation_count=len(reliability_facts.degradations),
+            retrieval_degradation_count=sum(
+                degradation.operation == "retrieval"
+                for degradation in reliability_facts.degradations
+            ),
+        )
 
         failures: list[str] = []
         actions_consumed = all(model.consumed for model in models) and (
@@ -730,6 +745,7 @@ class RunABEvaluator:
             unknown_model_calls=len(result.unknown_model_calls),
             unknown_tool_calls=len(result.unknown_tool_calls),
             open_reservations=len(result.reservations),
+            reliability=arm_reliability,
             hard_crash=hard_crash_evidence,
             expectation_failures=tuple(failures),
             passed=not failures,
@@ -767,6 +783,46 @@ def build_run_ab_suite_report(
             )
         arms = (report.baseline, report.single_replan)
         hard_crashes = tuple(arm.hard_crash for arm in arms if arm.hard_crash is not None)
+        arm_reliability = tuple(arm.reliability for arm in arms if arm.reliability is not None)
+        quality_fields = {}
+        if arm_reliability:
+            quality_flags = [
+                quality_flag
+                for reliability_facts in arm_reliability
+                for quality_flag in reliability_facts.quality_flags
+            ]
+            quality_fields = {
+                "reliability_evidence_arm_count": len(arm_reliability),
+                "unknown_acceptance_arm_count": sum(
+                    item.acceptance_evidence_unknown for item in arm_reliability
+                ),
+                "required_check_failure_arm_count": sum(
+                    not item.acceptance_evidence_unknown and not item.required_checks_passed
+                    for item in arm_reliability
+                ),
+                "quality_flagged_arm_count": sum(
+                    bool(item.quality_flags) for item in arm_reliability
+                ),
+                "clean_terminal_success_count": sum(
+                    arm.status == RunStatus.SUCCEEDED and not arm.reliability.quality_flags
+                    for arm in arms
+                    if arm.reliability is not None
+                ),
+                "quality_flagged_terminal_success_count": sum(
+                    arm.status == RunStatus.SUCCEEDED and bool(arm.reliability.quality_flags)
+                    for arm in arms
+                    if arm.reliability is not None
+                ),
+                "fallback_arm_count": sum(item.fallback_count > 0 for item in arm_reliability),
+                "degradation_arm_count": sum(
+                    item.degradation_count > 0 for item in arm_reliability
+                ),
+                "retrieval_degraded_arm_count": sum(
+                    item.retrieval_degradation_count > 0 for item in arm_reliability
+                ),
+                "degradation_record_count": sum(item.degradation_count for item in arm_reliability),
+                "quality_flag_counts": count_run_ab_quality_flags(quality_flags),
+            }
         reliability = RunABCaseReliabilityMetrics(
             duration_ms=report.duration_ms,
             terminal_success_count=sum(arm.status == RunStatus.SUCCEEDED for arm in arms),
@@ -795,6 +851,7 @@ def build_run_ab_suite_report(
                 arm.unknown_model_calls + arm.unknown_tool_calls + arm.open_reservations
                 for arm in arms
             ),
+            **quality_fields,
         )
         cases.append(
             RunABSuiteCaseResult(
@@ -865,6 +922,38 @@ def build_run_ab_suite_report(
         ),
         final_open_effect_count=sum(
             metrics.final_open_effect_count for metrics in observed_metrics
+        ),
+        reliability_evidence_arm_count=sum(
+            metrics.reliability_evidence_arm_count for metrics in observed_metrics
+        ),
+        unknown_acceptance_arm_count=sum(
+            metrics.unknown_acceptance_arm_count for metrics in observed_metrics
+        ),
+        required_check_failure_arm_count=sum(
+            metrics.required_check_failure_arm_count for metrics in observed_metrics
+        ),
+        quality_flagged_arm_count=sum(
+            metrics.quality_flagged_arm_count for metrics in observed_metrics
+        ),
+        clean_terminal_success_count=sum(
+            metrics.clean_terminal_success_count for metrics in observed_metrics
+        ),
+        quality_flagged_terminal_success_count=sum(
+            metrics.quality_flagged_terminal_success_count for metrics in observed_metrics
+        ),
+        fallback_arm_count=sum(metrics.fallback_arm_count for metrics in observed_metrics),
+        degradation_arm_count=sum(metrics.degradation_arm_count for metrics in observed_metrics),
+        retrieval_degraded_arm_count=sum(
+            metrics.retrieval_degraded_arm_count for metrics in observed_metrics
+        ),
+        degradation_record_count=sum(
+            metrics.degradation_record_count for metrics in observed_metrics
+        ),
+        quality_flag_counts=count_run_ab_quality_flags(
+            item.quality_flag
+            for metrics in observed_metrics
+            for item in metrics.quality_flag_counts
+            for _ in range(item.arm_count)
         ),
     )
     return RunABSuiteReport(

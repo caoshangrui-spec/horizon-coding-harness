@@ -1,6 +1,6 @@
 # 外部来源 Run A/B Suite：BugsInPy 依赖裁剪复现
 
-更新：2026-10-06。该 suite 把完整 Run A/B 从一个本仓自建 shell fixture 扩展到五个有固定
+更新：2026-10-28。该 suite 把完整 Run A/B 从一个本仓自建 shell fixture 扩展到五个有固定
 上游 buggy/fixed commit、测试入口和许可证的历史 Python 缺陷。它验证来源绑定、初始失败、
 可恢复等待、单次 replan、受保护验收、预算结算和 Trace 重放能否在多个任务上保持一致。
 
@@ -62,6 +62,12 @@ CLI 先解析全部 case、fixture 和路径边界，再创建 suite 状态。�
 路径保持 `--pull never`，不会在评测中下载镜像。容器为禁网、非 root、只读根文件系统、drop
 capabilities、no-new-privileges 和资源受限。每份 case report 与 suite report 都进入同一个
 ArtifactStore，可用报告中的 SHA-256 直接回读。
+
+新生成的 report 会为两条 arm 附加同口径 reliability facts，并在 case/suite 层聚合 unknown
+acceptance、known check failure、clean/quality-flagged success、fallback/degradation 和逐 quality
+flag arm 数。该 dependency-reduced v2 使用 `read_file` 而非 Code RAG，因此本地回归的五条
+Treatment 都是 clean success；五条等待中的 Baseline 各带 `acceptance_evidence_unknown`。这不会
+把 Baseline 算成任务失败，也不会改变旧 manifest digest。历史 report 没有这些字段时仍可读取。
 
 ## 4. 当前证据
 

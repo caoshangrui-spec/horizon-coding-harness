@@ -6,6 +6,23 @@
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
 
+## 2026-10-28 Run A/B 成功质量与检索降级聚合
+
+- 把终态 EvidencePack 原有的 required-check、unknown acceptance、unknown/open effect 和
+  Trace-bound degradation 计算提取为 status-independent facts；Run A/B 的 `WAITING_FOR_USER`
+  arm 与终态 arm 现在使用同一口径，不复制第二套判断逻辑。
+- 每条新 arm report 增加可选 `reliability`；case/suite 分列 clean 与 quality-flagged success、
+  验收未知、已知 required-check 失败、fallback/degradation arm、检索降级 arm、降级记录数和
+  逐 flag arm 数。`terminal_success_count` 仍只由 `SUCCEEDED` 决定，成功不会抹掉质量标记。
+- 新增 test-only 不可解码源码回归：Baseline 与 Treatment 各有两次真实 partial-index retrieval
+  degradation；Treatment 的 protected check 仍通过并被报告为 quality-flagged success，后续
+  NoProgress 策略回执不被误计为 degradation。旧 arm 可省略 reliability，旧 suite 质量字段按 0
+  读取；冻结 manifest 与 digest 未修改。
+- 本批未增加 scheduler、数据库事件、付费模型调用或公开任务数量。全量离线回归为
+  **607 passed，11 skipped**，Ruff 格式与静态检查、离线构建通过；来源绑定 Docker workflow
+  下一次运行会要求四组 suite 的 reliability facts 覆盖全部 arm、成功质量拆分闭合，并要求完整
+  checkout 实际出现 retrieval-degraded quality-flagged success。历史公开 artifact 不回填新字段。
+
 ## 2026-10-27 Terminal Suite 可靠性聚合
 
 - `terminal-suite` 升为 schema v2：每个 case 只从已验证的子 EvidencePack 读取 required-check、
@@ -1231,8 +1248,8 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 七轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 606 passed；全量入口对应
-606 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
+当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 607 passed；全量入口对应
+607 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
 `run_model_cost_limit` 进入 `FAILED`。没有工具、编辑、checkpoint 或验证，Trace 14 事件可重放，

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections import Counter
+from collections.abc import Iterable
 from decimal import Decimal
 from typing import Annotated, Literal, Self
 
@@ -170,6 +172,50 @@ class RunABHardCrashEvidence(Contract):
         return self
 
 
+class RunABQualityFlagCount(Contract):
+    quality_flag: Identifier
+    arm_count: PositiveInt
+
+
+def count_run_ab_quality_flags(flags: Iterable[str]) -> tuple[RunABQualityFlagCount, ...]:
+    counts = Counter(flags)
+    return tuple(
+        RunABQualityFlagCount(quality_flag=quality_flag, arm_count=arm_count)
+        for quality_flag, arm_count in sorted(counts.items())
+    )
+
+
+class RunABArmReliability(Contract):
+    """Trace-derived acceptance and degradation facts for one evaluated arm."""
+
+    required_checks_passed: bool
+    acceptance_evidence_unknown: bool
+    quality_flags: tuple[Identifier, ...] = ()
+    fallback_count: NonNegativeInt = 0
+    degradation_count: NonNegativeInt = 0
+    retrieval_degradation_count: NonNegativeInt = 0
+
+    @model_validator(mode="after")
+    def validate_facts(self) -> Self:
+        if len(self.quality_flags) != len(set(self.quality_flags)):
+            raise ValueError("Run A/B arm quality flags must be unique")
+        flags = set(self.quality_flags)
+        if ("acceptance_evidence_unknown" in flags) != self.acceptance_evidence_unknown:
+            raise ValueError("Run A/B arm acceptance flag does not match its evidence state")
+        required_checks_failed = (
+            not self.acceptance_evidence_unknown and not self.required_checks_passed
+        )
+        if ("required_checks_failed" in flags) != required_checks_failed:
+            raise ValueError("Run A/B arm required-check flag does not match its evidence state")
+        if self.retrieval_degradation_count > self.degradation_count:
+            raise ValueError("Run A/B retrieval degradations exceed all degradations")
+        if ("retrieval_degraded" in flags) != bool(self.retrieval_degradation_count):
+            raise ValueError("Run A/B retrieval-degraded flag does not match degradation records")
+        if self.degradation_count and not self.quality_flags:
+            raise ValueError("Run A/B degraded arm requires a quality flag")
+        return self
+
+
 class RunABArmResult(Contract):
     arm_id: Identifier
     role: Literal["baseline", "single_replan"]
@@ -196,6 +242,10 @@ class RunABArmResult(Contract):
     unknown_model_calls: NonNegativeInt
     unknown_tool_calls: NonNegativeInt
     open_reservations: NonNegativeInt
+    reliability: RunABArmReliability | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
     hard_crash: RunABHardCrashEvidence | None = Field(
         default=None,
         exclude_if=lambda value: value is None,
@@ -212,6 +262,12 @@ class RunABArmResult(Contract):
                 raise ValueError("Hard-crash evidence requires a restarted worker")
             if self.hard_crash.recovery_worker_epoch != self.hard_crash.crashed_worker_epoch + 1:
                 raise ValueError("Hard-crash recovery must acquire the next lease epoch")
+        if self.reliability is not None and self.status == RunStatus.SUCCEEDED:
+            if (
+                not self.reliability.required_checks_passed
+                or self.reliability.acceptance_evidence_unknown
+            ):
+                raise ValueError("A successful Run A/B arm requires known passing acceptance")
         return self
 
 
@@ -249,6 +305,12 @@ class RunABEvalReport(Contract):
     def validate_comparison(self) -> Self:
         if self.baseline.role != "baseline" or self.single_replan.role != "single_replan":
             raise ValueError("Run A/B report arms do not match their roles")
+        reliability_evidence = (
+            self.baseline.reliability is not None,
+            self.single_replan.reliability is not None,
+        )
+        if any(reliability_evidence) and not all(reliability_evidence):
+            raise ValueError("Run A/B report requires reliability facts for both arms or neither")
         crash_evidence = (self.baseline.hard_crash, self.single_replan.hard_crash)
         if self.schema_version == 1 and any(item is not None for item in crash_evidence):
             raise ValueError("Schema version 1 reports cannot contain hard-crash evidence")
@@ -376,6 +438,17 @@ class RunABCaseReliabilityMetrics(Contract):
     trace_replay_verified_count: NonNegativeInt
     source_workspace_unchanged_count: NonNegativeInt
     final_open_effect_count: NonNegativeInt
+    reliability_evidence_arm_count: NonNegativeInt = 0
+    unknown_acceptance_arm_count: NonNegativeInt = 0
+    required_check_failure_arm_count: NonNegativeInt = 0
+    quality_flagged_arm_count: NonNegativeInt = 0
+    clean_terminal_success_count: NonNegativeInt = 0
+    quality_flagged_terminal_success_count: NonNegativeInt = 0
+    fallback_arm_count: NonNegativeInt = 0
+    degradation_arm_count: NonNegativeInt = 0
+    retrieval_degraded_arm_count: NonNegativeInt = 0
+    degradation_record_count: NonNegativeInt = 0
+    quality_flag_counts: tuple[RunABQualityFlagCount, ...] = ()
 
     @model_validator(mode="after")
     def validate_counts(self) -> Self:
@@ -395,6 +468,61 @@ class RunABCaseReliabilityMetrics(Contract):
             or self.duplicate_side_effect_count > self.hard_crash_arm_count
         ):
             raise ValueError("Hard-crash violation count exceeds injected hard-crash arms")
+        quality_counts = (
+            self.reliability_evidence_arm_count,
+            self.unknown_acceptance_arm_count,
+            self.required_check_failure_arm_count,
+            self.quality_flagged_arm_count,
+            self.clean_terminal_success_count,
+            self.quality_flagged_terminal_success_count,
+            self.fallback_arm_count,
+            self.degradation_arm_count,
+            self.retrieval_degraded_arm_count,
+        )
+        if any(value > self.arm_count for value in quality_counts):
+            raise ValueError("Run A/B case quality count exceeds its arm count")
+        if self.reliability_evidence_arm_count not in (0, self.arm_count):
+            raise ValueError("Run A/B case reliability must cover both arms or be legacy")
+        if not self.reliability_evidence_arm_count:
+            if any(quality_counts[1:]) or self.degradation_record_count or self.quality_flag_counts:
+                raise ValueError("Legacy Run A/B case metrics cannot carry quality aggregates")
+            return self
+        if (
+            self.clean_terminal_success_count + self.quality_flagged_terminal_success_count
+            != self.terminal_success_count
+        ):
+            raise ValueError("Run A/B case success quality split is incomplete")
+        if self.retrieval_degraded_arm_count > self.degradation_arm_count:
+            raise ValueError("Retrieval-degraded arms exceed all degraded arms")
+        if self.degradation_arm_count > self.quality_flagged_arm_count:
+            raise ValueError("Degraded arms must remain visible as quality-flagged arms")
+        if self.degradation_record_count < self.degradation_arm_count:
+            raise ValueError("Run A/B degradation records cannot be fewer than degraded arms")
+        flags = [item.quality_flag for item in self.quality_flag_counts]
+        if flags != sorted(set(flags)):
+            raise ValueError("Run A/B case quality-flag counts must be unique and sorted")
+        flag_counts = {item.quality_flag: item.arm_count for item in self.quality_flag_counts}
+        expected_special = {
+            "acceptance_evidence_unknown": self.unknown_acceptance_arm_count,
+            "required_checks_failed": self.required_check_failure_arm_count,
+            "retrieval_degraded": self.retrieval_degraded_arm_count,
+        }
+        if any(flag_counts.get(flag, 0) != count for flag, count in expected_special.items()):
+            raise ValueError("Run A/B case quality-flag totals do not match quality aggregates")
+        if any(item.arm_count > self.arm_count for item in self.quality_flag_counts):
+            raise ValueError("Run A/B case quality-flag count exceeds its arm count")
+        total_flag_counts = sum(item.arm_count for item in self.quality_flag_counts)
+        max_flag_count = max((item.arm_count for item in self.quality_flag_counts), default=0)
+        if not (
+            max_flag_count <= self.quality_flagged_arm_count <= total_flag_counts
+            or (not self.quality_flagged_arm_count and not total_flag_counts)
+        ):
+            raise ValueError("Run A/B case quality-flagged arms do not match flag counts")
+        if (
+            self.unknown_acceptance_arm_count + self.required_check_failure_arm_count
+            > self.reliability_evidence_arm_count
+        ):
+            raise ValueError("Run A/B case acceptance categories overlap")
         return self
 
 
@@ -448,6 +576,17 @@ class RunABSuiteReliabilityMetrics(Contract):
     source_workspace_unchanged_count: NonNegativeInt
     source_workspace_unchanged_rate: Ratio
     final_open_effect_count: NonNegativeInt
+    reliability_evidence_arm_count: NonNegativeInt = 0
+    unknown_acceptance_arm_count: NonNegativeInt = 0
+    required_check_failure_arm_count: NonNegativeInt = 0
+    quality_flagged_arm_count: NonNegativeInt = 0
+    clean_terminal_success_count: NonNegativeInt = 0
+    quality_flagged_terminal_success_count: NonNegativeInt = 0
+    fallback_arm_count: NonNegativeInt = 0
+    degradation_arm_count: NonNegativeInt = 0
+    retrieval_degraded_arm_count: NonNegativeInt = 0
+    degradation_record_count: NonNegativeInt = 0
+    quality_flag_counts: tuple[RunABQualityFlagCount, ...] = ()
     excluded_claims: tuple[Text, ...] = RUN_AB_EXCLUDED_CLAIMS
 
     @model_validator(mode="after")
@@ -481,6 +620,61 @@ class RunABSuiteReliabilityMetrics(Contract):
             raise ValueError("Run A/B Trace replay rate does not match its arms")
         if self.source_workspace_unchanged_rate != expected_source_rate:
             raise ValueError("Run A/B source-isolation rate does not match its arms")
+        quality_counts = (
+            self.reliability_evidence_arm_count,
+            self.unknown_acceptance_arm_count,
+            self.required_check_failure_arm_count,
+            self.quality_flagged_arm_count,
+            self.clean_terminal_success_count,
+            self.quality_flagged_terminal_success_count,
+            self.fallback_arm_count,
+            self.degradation_arm_count,
+            self.retrieval_degraded_arm_count,
+        )
+        if any(value > self.arm_count for value in quality_counts):
+            raise ValueError("Run A/B suite quality count exceeds its arm count")
+        if self.reliability_evidence_arm_count not in (0, self.arm_count):
+            raise ValueError("Run A/B suite reliability must cover all arms or be legacy")
+        if not self.reliability_evidence_arm_count:
+            if any(quality_counts[1:]) or self.degradation_record_count or self.quality_flag_counts:
+                raise ValueError("Legacy Run A/B suite metrics cannot carry quality aggregates")
+            return self
+        if (
+            self.clean_terminal_success_count + self.quality_flagged_terminal_success_count
+            != self.terminal_success_count
+        ):
+            raise ValueError("Run A/B suite success quality split is incomplete")
+        if self.retrieval_degraded_arm_count > self.degradation_arm_count:
+            raise ValueError("Retrieval-degraded arms exceed all degraded arms")
+        if self.degradation_arm_count > self.quality_flagged_arm_count:
+            raise ValueError("Degraded arms must remain visible as quality-flagged arms")
+        if self.degradation_record_count < self.degradation_arm_count:
+            raise ValueError("Run A/B degradation records cannot be fewer than degraded arms")
+        flags = [item.quality_flag for item in self.quality_flag_counts]
+        if flags != sorted(set(flags)):
+            raise ValueError("Run A/B suite quality-flag counts must be unique and sorted")
+        flag_counts = {item.quality_flag: item.arm_count for item in self.quality_flag_counts}
+        expected_special = {
+            "acceptance_evidence_unknown": self.unknown_acceptance_arm_count,
+            "required_checks_failed": self.required_check_failure_arm_count,
+            "retrieval_degraded": self.retrieval_degraded_arm_count,
+        }
+        if any(flag_counts.get(flag, 0) != count for flag, count in expected_special.items()):
+            raise ValueError("Run A/B suite quality-flag totals do not match quality aggregates")
+        if any(item.arm_count > self.arm_count for item in self.quality_flag_counts):
+            raise ValueError("Run A/B suite quality-flag count exceeds its arm count")
+        total_flag_counts = sum(item.arm_count for item in self.quality_flag_counts)
+        max_flag_count = max((item.arm_count for item in self.quality_flag_counts), default=0)
+        if not (
+            max_flag_count <= self.quality_flagged_arm_count <= total_flag_counts
+            or (not self.quality_flagged_arm_count and not total_flag_counts)
+        ):
+            raise ValueError("Run A/B suite quality-flagged arms do not match flag counts")
+        if (
+            self.unknown_acceptance_arm_count + self.required_check_failure_arm_count
+            > self.reliability_evidence_arm_count
+        ):
+            raise ValueError("Run A/B suite acceptance categories overlap")
         return self
 
 
@@ -572,6 +766,32 @@ class RunABSuiteReport(Contract):
                 metrics.source_workspace_unchanged_count for metrics in observed
             ),
             "final_open_effect_count": sum(metrics.final_open_effect_count for metrics in observed),
+            "reliability_evidence_arm_count": sum(
+                metrics.reliability_evidence_arm_count for metrics in observed
+            ),
+            "unknown_acceptance_arm_count": sum(
+                metrics.unknown_acceptance_arm_count for metrics in observed
+            ),
+            "required_check_failure_arm_count": sum(
+                metrics.required_check_failure_arm_count for metrics in observed
+            ),
+            "quality_flagged_arm_count": sum(
+                metrics.quality_flagged_arm_count for metrics in observed
+            ),
+            "clean_terminal_success_count": sum(
+                metrics.clean_terminal_success_count for metrics in observed
+            ),
+            "quality_flagged_terminal_success_count": sum(
+                metrics.quality_flagged_terminal_success_count for metrics in observed
+            ),
+            "fallback_arm_count": sum(metrics.fallback_arm_count for metrics in observed),
+            "degradation_arm_count": sum(metrics.degradation_arm_count for metrics in observed),
+            "retrieval_degraded_arm_count": sum(
+                metrics.retrieval_degraded_arm_count for metrics in observed
+            ),
+            "degradation_record_count": sum(
+                metrics.degradation_record_count for metrics in observed
+            ),
         }
         for field, value in expected_reliability.items():
             if getattr(self.reliability, field) != value:
@@ -581,4 +801,15 @@ class RunABSuiteReport(Contract):
         )
         if self.reliability.p95_scenario_duration_ms != expected_p95:
             raise ValueError("Run A/B suite P95 duration does not match its timed cases")
+        quality_flag_counts: Counter[str] = Counter()
+        for metrics in observed:
+            quality_flag_counts.update(
+                {item.quality_flag: item.arm_count for item in metrics.quality_flag_counts}
+            )
+        expected_quality_flag_counts = tuple(
+            RunABQualityFlagCount(quality_flag=quality_flag, arm_count=arm_count)
+            for quality_flag, arm_count in sorted(quality_flag_counts.items())
+        )
+        if self.reliability.quality_flag_counts != expected_quality_flag_counts:
+            raise ValueError("Run A/B suite quality-flag counts do not match its cases")
         return self

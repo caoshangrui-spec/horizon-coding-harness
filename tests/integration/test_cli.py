@@ -321,6 +321,10 @@ def test_doctor_checks_fts_without_model():
     assert data["terminal_evidence_schema"] == 2
     assert data["terminal_suite_reliability_aggregation"] is True
     assert data["terminal_suite_schema"] == 2
+    assert data["run_ab_reliability_aggregation"] is True
+    assert data["run_ab_reliability_profile"] == (
+        "acceptance_quality_flags_trace_bound_degradation"
+    )
     assert data["trace_bound_retrieval_degradation"] is True
     assert data["autonomous_execution"] is True
     assert data["recovery_safe_cancellation"] is True

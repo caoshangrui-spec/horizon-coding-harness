@@ -5,6 +5,13 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Extended source-bound Run A/B reliability from recovery-only suite metrics to per-arm acceptance
+  and execution-quality facts. New reports distinguish unknown acceptance, known required-check
+  failure, clean success, quality-flagged success, fallback, all degradation records, and
+  `retrieval_degraded` arms while preserving raw task status. Terminal EvidencePack and Run A/B now
+  share one facts derivation path; a focused unreadable-source regression proves that protected
+  validation may pass while retrieval degradation remains visible. Legacy arm and suite reports
+  remain readable, and frozen benchmark manifests and digests are unchanged.
 - Upgraded terminal-suite evidence to schema v2. The offline aggregate now keeps raw Run success
   separate from clean versus quality-flagged success, and reports unknown acceptance, known required-
   check failure, per-flag Run counts, fallback, degradation, and trace-bound retrieval degradation.

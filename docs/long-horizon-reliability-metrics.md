@@ -1,6 +1,6 @@
 # 公开仓库长程任务可靠性指标
 
-更新：2026-10-25。本页把 Horizon 已有的来源绑定 Run A/B 证据收敛为一组机器可验证、面试时
+更新：2026-10-28。本页把 Horizon 已有的来源绑定 Run A/B 证据收敛为一组机器可验证、面试时
 可直接解释的指标。指标由 `RunABEvaluator` 在完整 Agent 主链路结束后生成，不再由 CI 中的临时
 脚本根据日志猜测。
 
@@ -17,14 +17,16 @@
   -> 可选 Worker 边界重启与真实写入硬退出
   -> protected validation
   -> 每条 Trace 脱离 SQLite 重放
+  -> 每条 arm 的 acceptance / quality flag / degradation facts
   -> case reliability
   -> typed suite reliability + GitHub Actions summary
 ```
 
 领域合同位于 `src/horizon/domain/run_evaluation.py`，聚合逻辑位于
-`src/horizon/application/run_ab_eval.py`。旧的 case/suite JSON 没有 `duration_ms` 或
-`reliability` 时仍可读取；新运行会同时保存原始 arm 证据和聚合指标。冻结 suite/manifest
-内容与 digest 没有被改写。
+`src/horizon/application/run_ab_eval.py`。终态 EvidencePack 与 Run A/B 现在复用同一个
+status-independent facts 计算器，避免 required-check 和 degradation 在两种报告中出现不同口径。
+旧的 arm JSON 可以没有 `reliability`，旧的 case/suite JSON 可以没有新增质量字段；新运行会同时
+保存原始 arm 事实和聚合指标。冻结 suite/manifest 内容与 digest 没有被改写。
 
 ## 2. 指标定义
 
@@ -35,6 +37,16 @@
 | `p95_scenario_duration_ms` | case 耗时的 nearest-rank P95 | 小样本只用于发现明显慢例；不外推生产延迟分布 |
 | `arm_count` | 每个场景固定 Baseline + Treatment | 实际完整 Run 数，不等于独立任务数 |
 | `terminal_success_count` | 最终为 `SUCCEEDED` 的 arm | Baseline 按合同进入 `WAITING_FOR_USER` 时不会被包装成成功 |
+| `reliability_evidence_arm_count` | 带 Trace-derived reliability facts 的 arm | 新报告必须覆盖全部 arm；0 只用于兼容旧报告，不能解释为验收已知 |
+| `unknown_acceptance_arm_count` | 当前 Task/workspace 没有有效 required-check receipt 的 arm | 等待中的 Baseline 通常计入；不把“未验证”写成失败或通过 |
+| `required_check_failure_arm_count` | 验收证据已知但 required check 未全过的 arm | 与 unknown acceptance 分开计数 |
+| `quality_flagged_arm_count` | 至少一个 quality flag 的 arm | success 与质量状态正交；通过 required checks 仍可能带检索降级 |
+| `clean_terminal_success_count` | `SUCCEEDED` 且无 quality flag | 与下一项之和严格等于 `terminal_success_count` |
+| `quality_flagged_terminal_success_count` | `SUCCEEDED` 且带 quality flag | 明确表示“任务成功，但执行质量有降级”，不冒充 clean success |
+| `fallback_arm_count` | 含至少一条 Trace-bound fallback history 的 arm | 当前生产执行仍为 0；不会从日志文本猜测 fallback |
+| `degradation_arm_count` / `degradation_record_count` | 至少一条 degradation 的 arm / 全部记录数 | 同一 arm 多次真实降级调用会保留多条记录；NoProgress 拒绝回执不伪装成检索降级 |
+| `retrieval_degraded_arm_count` | 带 `retrieval_degraded` 的 arm | 来自成功 `retrieve_code` 回执内的 typed EvidencePack，并与 call ID、Artifact、Task 和 acceptance hash 绑定 |
+| `quality_flag_counts` | 每个 flag 覆盖的 arm 数 | 一个 arm 可有多个 flag，因此各项之和不等于 quality-flagged arm 数 |
 | `worker_restart_count` | 两条 arm 的持久化 Worker 切换总数 | 包含 manifest 指定边界；硬崩溃场景还包含故障后的新 epoch |
 | `hard_crash_arm_count` | 注入真实写入 effect-before-receipt 退出的 arm | 恢复成功率只以这些 arm 为分母；没有故障注入的 suite 报 0.0，而不是伪造 100% |
 | `recovered_hard_crash_arm_count` | exact effect accepted、无模型重派且只有一个 recovery receipt | 只证明冻结故障窗口的恢复闭环 |
@@ -95,8 +107,18 @@ report、JSONL Trace、content-addressed Artifact 与顶层 CLI JSON，可对摘
 CI 不只检查 `all_expectations_met`。三阶段 suite 还必须满足：三个 timed scenario、Trace replay
 rate 1.0、source unchanged rate 1.0、final open effect 0。写入硬崩溃 suite 必须满足：两个故障
 arm 全部恢复、recovery rate 1.0、redispatch 0、duplicate side effect 0、Trace replay rate 1.0、
-final open effect 0。任一条件失败都会让证据发布步骤失败，而不是只在 Markdown 中显示警告。
+final open effect 0。四组 suite 还必须让 reliability facts 覆盖全部 arm，并让 clean 与
+quality-flagged success 之和等于原始 terminal success；dependency-reduced suite 固定为 5 个 clean
+Treatment，完整 checkout 必须实际观察到 retrieval-degraded arm 与 quality-flagged success。
+三阶段 Baseline 在已完成部分 WorkItem 检查、但尚未覆盖全部 required acceptance 时保留为
+`required_checks_failed`，而不是被误写成 unknown。任一条件失败都会让证据发布步骤失败，而不是
+只在 Markdown 中显示警告。
 
 `network_called=false` 表示评测中的 Harness/模型路径没有出站调用；GitHub job 在评测前获取公开
 源码和 Docker image 仍需要网络。`paid_model_called=false` 表示全部动作来自冻结 Scripted Model，
 因此这些指标是 Harness 可靠性证据，不是 LLM 能力证据。
+
+新增的 test-only 回归会在同一小型任务中加入一个不可解码源码文件：两条 arm 的真实检索都留下
+`retrieval_degraded`，Treatment 仍在 required check 通过后成为 quality-flagged success；四次真实
+降级检索记录被聚合，后续 NoProgress 策略回执不计作 degradation。该回归验证报告语义，不是新的
+公开任务或 RAG 泛化成绩。

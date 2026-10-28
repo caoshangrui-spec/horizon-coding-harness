@@ -3453,6 +3453,8 @@ def doctor():
                 "terminal_evidence_schema": 2,
                 "terminal_suite_reliability_aggregation": True,
                 "terminal_suite_schema": 2,
+                "run_ab_reliability_aggregation": True,
+                "run_ab_reliability_profile": ("acceptance_quality_flags_trace_bound_degradation"),
                 "trace_bound_retrieval_degradation": True,
                 "autonomous_execution": True,
                 "intent_router": True,

@@ -348,6 +348,8 @@ jobs:
           full_report = full["report"]
           multi_report = multi["report"]
           hard_crash_report = hard_crash["report"]
+          reduced_reliability = reduced_report["reliability"]
+          full_reliability = full_report["reliability"]
           multi_reliability = multi_report["reliability"]
           hard_crash_reliability = hard_crash_report["reliability"]
           multi_cases = []
@@ -370,12 +372,35 @@ jobs:
               ).read_text(encoding="utf-8")
           )
           suite_reports = (reduced_report, full_report, multi_report, hard_crash_report)
+          suite_reliability = tuple(report["reliability"] for report in suite_reports)
           all_expectations_met = (
               all(report["all_expectations_met"] for report in suite_reports)
+              and all(
+                  reliability["reliability_evidence_arm_count"]
+                  == reliability["arm_count"]
+                  for reliability in suite_reliability
+              )
+              and all(
+                  reliability["clean_terminal_success_count"]
+                  + reliability["quality_flagged_terminal_success_count"]
+                  == reliability["terminal_success_count"]
+                  for reliability in suite_reliability
+              )
               and full_report["case_count"] == 15
               and full_report["passed_case_count"] == 15
               and full_report["initial_failure_confirmed_count"] == 15
               and full_report["treatment_recovered_count"] == 15
+              and reduced_reliability["unknown_acceptance_arm_count"] == 5
+              and reduced_reliability["clean_terminal_success_count"] == 5
+              and reduced_reliability["quality_flagged_terminal_success_count"] == 0
+              and reduced_reliability["retrieval_degraded_arm_count"] == 0
+              and reduced_reliability["required_check_failure_arm_count"] == 0
+              and full_reliability["unknown_acceptance_arm_count"] == 15
+              and full_reliability["retrieval_degraded_arm_count"] > 0
+              and full_reliability["quality_flagged_terminal_success_count"] > 0
+              and full_reliability["required_check_failure_arm_count"] == 0
+              and multi_reliability["required_check_failure_arm_count"] == 3
+              and hard_crash_reliability["required_check_failure_arm_count"] == 0
               and created_resume["verified"]
               and created_resume["created_trace_is_terminal_prefix"]
               and created_resume["protected_validation_passed"]
@@ -466,6 +491,23 @@ jobs:
                   "- Full-checkout suite: "
                   f"`{full_report['passed_case_count']}/{full_report['case_count']}`; "
                   f"report `{full['report_ref']}`"
+              ),
+              (
+                  "- Dependency-reduced success quality: clean/flagged `"
+                  f"{reduced_reliability['clean_terminal_success_count']}/"
+                  f"{reduced_reliability['quality_flagged_terminal_success_count']}`; "
+                  f"unknown acceptance `{reduced_reliability['unknown_acceptance_arm_count']}`; "
+                  "retrieval-degraded arms `"
+                  f"{reduced_reliability['retrieval_degraded_arm_count']}`"
+              ),
+              (
+                  "- Full-checkout success quality: clean/flagged `"
+                  f"{full_reliability['clean_terminal_success_count']}/"
+                  f"{full_reliability['quality_flagged_terminal_success_count']}`; "
+                  f"unknown acceptance `{full_reliability['unknown_acceptance_arm_count']}`; "
+                  f"degraded arms/records `{full_reliability['degradation_arm_count']}/"
+                  f"{full_reliability['degradation_record_count']}`; retrieval-degraded arms `"
+                  f"{full_reliability['retrieval_degraded_arm_count']}`"
               ),
               (
                   "- Three-stage recovery suite: "

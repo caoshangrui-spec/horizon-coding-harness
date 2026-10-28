@@ -1,6 +1,6 @@
 # 完整 Run A/B：停滞等待与单次 Replan
 
-更新：2026-10-03。本评测把同一 TaskSpec、同一初始 Plan、同一冻结 workspace 分成两个完整
+更新：2026-10-28。本评测把同一 TaskSpec、同一初始 Plan、同一冻结 workspace 分成两个完整
 Agent Run：Baseline 在确定性重复读取后继续原模式，进入可恢复人工等待；Treatment 在相同软阻断
 证据后显式提交一次受限 replan，完成精确编辑，再由 Docker 执行控制器保护的验收命令。
 
@@ -49,7 +49,14 @@ ArtifactStore。结束后 evaluator：
 2. 立即离线 replay，比较完整 Run projection 和 projection hash；
 3. 重新捕获 arm workspace 与源 fixture revision；
 4. 检查期望状态、Plan version、replan 数、passed items、调用数、unknown/reservation 和脚本消费；
-5. 保存 typed A/B report Artifact。
+5. 从同一重放投影计算 required-check、unknown acceptance、quality flags、fallback/degradation；
+6. 保存 typed A/B report Artifact，并在 suite 层分开 clean 与 quality-flagged success。
+
+普通小 fixture 的 Baseline 因尚未进入最终验收而记录
+`acceptance_evidence_unknown`，Treatment 为 known passing 且 clean。若完整 checkout 的 Code RAG
+因不可解码或超限文件进入 partial index，Treatment 可以在 required check 通过后仍以
+`retrieval_degraded` 结束；这时任务结果仍是 `SUCCEEDED`，但不再计入 clean success。旧 report
+缺少 arm `reliability` 时仍可读取，新旧字段不会改写冻结 manifest digest。
 
 ## 3. 当前真实 Docker 结果
 

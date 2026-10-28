@@ -218,6 +218,12 @@ checkout 均未改变，且 `paid_model_called=false`、`network_called=false`�
 query 曾把目标排 rank 3/4，随后用 failing-test 已知的配置常量或类/方法标识符收窄到 rank 1；
 这是 development 调整，不是独立 RAG 泛化证据。
 
+Run A/B 新生成的 arm/case/suite report 现在会直接消费 Trace 中的检索 degradation：上述跳过文件
+不再只存在于单次 EvidencePack，而会进入 `retrieval_degraded_arm_count`、
+`degradation_record_count` 和逐 flag arm 数。required check 通过仍可保持 `SUCCEEDED`，但该 arm
+会归入 quality-flagged success 而不是 clean success。此变更没有修改 v8 manifest 或公开 run
+`40311947427` 的历史 artifact；精确聚合值以采用新代码的下一次 workflow 产物为准。
+
 公开 run [`40311947427`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40311947427)
 随后在生产 Docker adapter 与禁网容器中通过完整 checkout 15/15、三阶段 3/3 与硬崩溃 1/1。
 统一 artifact ID `12645122879`、201,843,271 bytes，digest
