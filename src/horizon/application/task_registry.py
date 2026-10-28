@@ -114,8 +114,7 @@ class IndependentTaskRegistryPreflight:
                 if (
                     source_manifest.partition != task.partition
                     or source_case.case_id != task.task_id
-                    or source_case.repository_url.rstrip("/")
-                    != task.repository_url.rstrip("/")
+                    or source_case.repository_url.rstrip("/") != task.repository_url.rstrip("/")
                     or source_case.buggy_commit != task.buggy_commit
                 ):
                     raise IntegrityError(f"Source recipe drifted for registry task: {task.task_id}")
@@ -167,9 +166,7 @@ class IndependentTaskRegistryPreflight:
                     if task.evidence.historical_run_url is not None
                     else "benchmark_declaration_only"
                 )
-                evidence_refs.extend(
-                    (suite_ref, case_path.relative_to(benchmark_root).as_posix())
-                )
+                evidence_refs.extend((suite_ref, case_path.relative_to(benchmark_root).as_posix()))
                 if task.evidence.historical_run_url is not None:
                     evidence_refs.append(task.evidence.historical_run_url)
 
@@ -204,9 +201,7 @@ class IndependentTaskRegistryPreflight:
                     for task in task_results
                 }
             ),
-            development_task_count=_ratio_counts(
-                task_results, "partition", "development"
-            ),
+            development_task_count=_ratio_counts(task_results, "partition", "development"),
             holdout_task_count=_ratio_counts(task_results, "partition", "holdout"),
             frozen_source_recipe_count=_ratio_counts(
                 task_results, "source_readiness", "frozen_materialization_recipe"

@@ -211,9 +211,7 @@ class IndependentTaskRegistryPreflightReport(Contract):
         if self.unique_source_task_count != len(unique_sources):
             raise ValueError("Registry report unique-source count is inconsistent")
         expected = {
-            "development_task_count": sum(
-                task.partition == "development" for task in self.tasks
-            ),
+            "development_task_count": sum(task.partition == "development" for task in self.tasks),
             "holdout_task_count": sum(task.partition == "holdout" for task in self.tasks),
             "frozen_source_recipe_count": sum(
                 task.source_readiness == "frozen_materialization_recipe" for task in self.tasks
@@ -226,8 +224,7 @@ class IndependentTaskRegistryPreflightReport(Contract):
                 for task in self.tasks
             ),
             "benchmark_declared_initial_failure_count": sum(
-                task.initial_failure_evidence == "benchmark_declaration_only"
-                for task in self.tasks
+                task.initial_failure_evidence == "benchmark_declaration_only" for task in self.tasks
             ),
             "execution_manifest_count": sum(
                 task.execution_readiness != "not_prepared" for task in self.tasks
