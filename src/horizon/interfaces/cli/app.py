@@ -3,8 +3,10 @@ from __future__ import annotations
 import functools
 import json
 import platform
+import re
 import sqlite3
 import time
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
@@ -26,6 +28,13 @@ from horizon.adapters.sandbox.validation import DockerAcceptanceExecutor
 from horizon.adapters.vcs.git import read_git_head, verify_clean_git_checkout
 from horizon.adapters.workspace.promotion import WorkspacePromoter, workspace_path_hash
 from horizon.adapters.workspace.snapshot import SnapshotManager
+from horizon.application.agent_batch import (
+    AgentBatchExecutionRequest,
+    SequentialAgentBatchRunner,
+    agent_batch_task_id,
+    resolve_agent_batch_cases,
+    write_agent_run_launch_receipt,
+)
 from horizon.application.agent_loop import AgentLoopConfig, CodingAgentRunner
 from horizon.application.docker_created_recovery import (
     DockerCreatedRecoveryRunner,
@@ -100,6 +109,10 @@ from horizon.application.terminal_suite import (
     verify_terminal_suite_pack,
 )
 from horizon.application.tool_recovery import ToolRecoveryService
+from horizon.domain.agent_batch import (
+    AgentBatchManifest,
+    AgentRunLaunchReceipt,
+)
 from horizon.domain.common import canonical_json, digest
 from horizon.domain.errors import (
     BudgetExceeded,
@@ -1883,6 +1896,22 @@ def agent_run(
             ),
         ),
     ] = None,
+    invocation_id: Annotated[
+        str | None,
+        typer.Option(
+            "--invocation-id",
+            hidden=True,
+            help="Stable internal identity used by the sequential Agent-batch runner.",
+        ),
+    ] = None,
+    launch_receipt: Annotated[
+        Path | None,
+        typer.Option(
+            "--launch-receipt",
+            hidden=True,
+            help="Internal durable Run mapping used by the sequential Agent-batch runner.",
+        ),
+    ] = None,
 ):
     if not confirm_paid:
         raise ValueError("Agent execution requires --confirm-paid")
@@ -1892,6 +1921,10 @@ def agent_run(
         raise ValueError("Provide exactly one Plan source: PLAN_PATH or --auto-plan")
     if pilot_preflight is not None and not auto_plan:
         raise ValueError("A preflighted real-model pilot must use --auto-plan")
+    if (invocation_id is None) != (launch_receipt is None):
+        raise ValueError("Agent invocation identity and launch receipt must be supplied together")
+    if invocation_id is not None and re.fullmatch(r"[A-Za-z0-9_.-]{1,120}", invocation_id) is None:
+        raise ValueError("Agent invocation identity is invalid")
     provider = load_provider_config(config_path)
     credential = resolve_credential(provider, dotenv_path)
     template = TaskSpec.model_validate(read_yaml(task_path))
@@ -1936,11 +1969,20 @@ def agent_run(
             raise BudgetExceeded(
                 "Campaign no longer has headroom for the preflighted Pilot Run cap"
             )
-    workspace = staging_root / f"agent-{uuid4().hex}"
+    workspace_identity = (
+        digest({"agent_invocation_id": invocation_id})[:24]
+        if invocation_id is not None
+        else uuid4().hex
+    )
+    workspace = staging_root / f"agent-{workspace_identity}"
     snapshots.restore(initial_manifest, workspace)
 
     task_data = template.model_dump(mode="json")
-    task_data["task_id"] = f"{template.task_id}-{uuid4().hex[:8]}"
+    task_data["task_id"] = (
+        agent_batch_task_id(template.task_id, invocation_id)
+        if invocation_id is not None
+        else f"{template.task_id}-{uuid4().hex[:8]}"
+    )
     task_data["repository"] = {
         "source": "local",
         "path": str(workspace.resolve()),
@@ -1952,7 +1994,27 @@ def agent_run(
         manual_plan.check_task(task)
     store = store_for(ctx, must_exist=False)
     service = HarnessService(store)
-    run = store.create(task, f"create_{uuid4().hex}")
+    run = store.create(
+        task,
+        (
+            f"create_{digest({'agent_invocation_id': invocation_id})}"
+            if invocation_id is not None
+            else f"create_{uuid4().hex}"
+        ),
+    )
+    if launch_receipt is not None:
+        assert invocation_id is not None
+        write_agent_run_launch_receipt(
+            launch_receipt,
+            AgentRunLaunchReceipt(
+                invocation_id=invocation_id,
+                run_id=run.run_id,
+                task_id=task.task_id,
+                task_spec_hash=task.sha256,
+                source_revision=initial_snapshot.workspace_revision,
+                workspace_path_hash=workspace_path_hash(workspace),
+            ),
+        )
     run = service.bind_workspace_origin(
         run.run_id,
         WorkspaceOrigin(
@@ -2316,6 +2378,212 @@ def agent_run(
         RunStatus.SUCCEEDED,
         RunStatus.RUNNING,
     }:
+        raise typer.Exit(3)
+
+
+def _execute_agent_batch_case(
+    ctx: typer.Context,
+    request: AgentBatchExecutionRequest,
+    *,
+    image: str,
+    config_path: Path,
+    dotenv_path: Path,
+    slice_iterations: int | None,
+    worker_process: bool,
+    worker_timeout_seconds: float | None,
+) -> None:
+    request.stdout_path.parent.mkdir(parents=True, exist_ok=True)
+    with (
+        request.stdout_path.open("a", encoding="utf-8", newline="\n") as stdout,
+        request.stderr_path.open("a", encoding="utf-8", newline="\n") as stderr,
+        redirect_stdout(stdout),
+        redirect_stderr(stderr),
+    ):
+        try:
+            agent_run.__wrapped__(
+                ctx=ctx,
+                task_path=request.case.task_path,
+                image=image,
+                plan_path=request.case.plan_path,
+                auto_plan=request.case.spec.auto_plan,
+                config_path=config_path,
+                dotenv_path=dotenv_path,
+                confirm_paid=True,
+                pilot_preflight=request.case.pilot_preflight_path,
+                slice_iterations=slice_iterations,
+                supervise=True,
+                worker_process=worker_process,
+                worker_timeout_seconds=worker_timeout_seconds,
+                invocation_id=request.invocation_id,
+                launch_receipt=request.launch_receipt_path,
+            )
+        except Exception as exc:
+            typer.echo(
+                canonical_json(
+                    {
+                        "error": type(exc).__name__,
+                        "message": str(exc).strip() or type(exc).__name__,
+                    }
+                ),
+                err=True,
+            )
+            raise
+
+
+@agents.command("batch")
+@guarded
+def agent_batch(
+    ctx: typer.Context,
+    path: Path,
+    image: Annotated[
+        str,
+        typer.Option(
+            "--image",
+            help="Existing local Linux image shared by every case; never pulled automatically.",
+        ),
+    ],
+    output: Annotated[
+        Path,
+        typer.Option(
+            "--output",
+            help="New batch checkpoint directory, or the existing directory with --resume.",
+        ),
+    ],
+    config_path: Annotated[
+        Path, typer.Option("--config", help="Provider configuration without secrets.")
+    ] = Path("config/providers/siliconflow.yaml"),
+    dotenv_path: Annotated[
+        Path, typer.Option("--dotenv", help="Ignored local credential file.")
+    ] = Path(".env"),
+    confirm_paid: Annotated[
+        bool,
+        typer.Option(
+            "--confirm-paid",
+            help="Acknowledge bounded paid model calls for all newly dispatched cases.",
+        ),
+    ] = False,
+    resume: Annotated[
+        bool,
+        typer.Option(
+            "--resume",
+            help=(
+                "Verify and continue an existing batch checkpoint without rerunning terminal cases."
+            ),
+        ),
+    ] = False,
+    max_cases: Annotated[
+        int | None,
+        typer.Option(
+            "--max-cases",
+            min=1,
+            max=100,
+            help="Dispatch at most this many new cases in the current invocation.",
+        ),
+    ] = None,
+    slice_iterations: Annotated[
+        int | None,
+        typer.Option(
+            "--slice-iterations",
+            min=1,
+            help="Model iterations per supervised Worker slice; defaults to one.",
+        ),
+    ] = None,
+    worker_process: Annotated[
+        bool,
+        typer.Option(
+            "--worker-process/--in-process",
+            help="Use a directly owned child process for each supervised Agent slice.",
+        ),
+    ] = True,
+    worker_timeout_seconds: Annotated[
+        float | None,
+        typer.Option(
+            "--worker-timeout-seconds",
+            min=0.1,
+            max=86_400.0,
+            help="Hard limit for each direct child slice; requires --worker-process.",
+        ),
+    ] = None,
+):
+    """Execute independent TaskSpecs sequentially with restartable between-case checkpoints."""
+    if not confirm_paid:
+        raise ValueError("Agent-batch execution requires --confirm-paid")
+    if worker_timeout_seconds is not None and not worker_process:
+        raise ValueError("--worker-timeout-seconds requires --worker-process")
+    manifest = AgentBatchManifest.model_validate(read_yaml(path))
+    provider = load_provider_config(config_path)
+    resolve_credential(provider, dotenv_path)
+    resolved = resolve_agent_batch_cases(path, manifest)
+    for case in resolved:
+        task = case.task
+        if task.repository.source != "local" or task.repository.path is None:
+            raise ValueError("Every Agent-batch TaskSpec requires a local repository source")
+        if task.model_policy_id != provider.policy_id:
+            raise ValueError("Agent-batch TaskSpec model_policy_id does not match the provider")
+        if case.spec.auto_plan and task.budgets.max_model_calls < 2:
+            raise ValueError("Automatic planning requires at least two TaskSpec model calls")
+
+    runner = SequentialAgentBatchRunner(
+        store_for(ctx, must_exist=False),
+        lambda request: _execute_agent_batch_case(
+            ctx,
+            request,
+            image=image,
+            config_path=config_path,
+            dotenv_path=dotenv_path,
+            slice_iterations=slice_iterations,
+            worker_process=worker_process,
+            worker_timeout_seconds=worker_timeout_seconds,
+        ),
+    )
+    result = runner.run(
+        path,
+        manifest,
+        output,
+        resume=resume,
+        max_cases_this_invocation=max_cases,
+    )
+    attention = next(
+        (case for case in result.state.cases if case.state == "attention"),
+        None,
+    )
+    pending_error = next(
+        (
+            case
+            for case in result.state.cases
+            if case.state == "pending" and case.last_error_type is not None
+        ),
+        None,
+    )
+    typer.echo(
+        canonical_json(
+            {
+                "batch_id": result.state.batch_id,
+                "manifest_digest": result.state.manifest_digest,
+                "revision": result.state.revision,
+                "complete": result.state.complete,
+                "continuation_required": not result.state.complete,
+                "launched_case_count": result.launched_case_count,
+                "terminal_case_count": sum(case.state == "terminal" for case in result.state.cases),
+                "case_count": len(result.state.cases),
+                "blocking_case": (
+                    attention.model_dump(mode="json")
+                    if attention is not None
+                    else (
+                        pending_error.model_dump(mode="json") if pending_error is not None else None
+                    )
+                ),
+                "state": str(result.state_path),
+                "terminal_suite": (
+                    str(result.output_dir / result.state.terminal_suite_path)
+                    if result.state.terminal_suite_path is not None
+                    else None
+                ),
+                "paid_execution_authorized": True,
+            }
+        )
+    )
+    if attention is not None or pending_error is not None:
         raise typer.Exit(3)
 
 
@@ -3453,6 +3721,11 @@ def doctor():
                 "terminal_evidence_schema": 2,
                 "terminal_suite_reliability_aggregation": True,
                 "terminal_suite_schema": 2,
+                "sequential_agent_batch_execution": True,
+                "sequential_agent_batch_profile": ("manifest_order_checkpoint_terminal_suite"),
+                "sequential_agent_batch_max_cases": 100,
+                "sequential_agent_batch_parallelism": 1,
+                "sequential_agent_batch_nonterminal_blocks": True,
                 "run_ab_reliability_aggregation": True,
                 "run_ab_reliability_profile": ("acceptance_quality_flags_trace_bound_degradation"),
                 "trace_bound_retrieval_degradation": True,

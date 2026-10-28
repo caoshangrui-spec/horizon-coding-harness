@@ -6,6 +6,29 @@
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
 
+## 2026-10-28 可恢复的顺序 Agent 任务批次
+
+- 新增严格的 `AgentBatchManifest` 与 `agent batch`：1～100 条 TaskSpec 按声明顺序执行，每条恰好
+  使用人工计划或自动计划。所有 case 共享既有 Provider Campaign 硬上限，但拥有隔离 staging、
+  普通 Run/EventLog、Plan、工具/验收链和终态证据；批量层没有复制 Agent Loop 或费用账本。
+- 每次派发由 manifest digest、case ID、attempt 生成确定性 invocation/Task identity。Run 创建后、
+  规划执行前发布只写一次 receipt；`batch-state.json` 在任务边界原子替换，保存单调 revision 和
+  `pending/running/attention/terminal`。控制器退出后优先读 receipt，缺失时按唯一 Task identity 扫描
+  控制库；确认零 Run 才允许新 attempt。
+- `SUCCEEDED/FAILED/CANCELLED` 都是已闭合 case：真实失败/取消原样记录，并继续独立后项。
+  `WAITING_FOR_USER`、仍在运行或任何不确定 Run 会标为 attention 并阻止后项；调度器不绕过已有
+  Lease、悬空 effect、人工指导或工具恢复边界。操作者用既有恢复 CLI 把该 Run 推进到终态后，
+  `--resume` 重新读取真实投影再继续。
+- 全部 case 终态后复用 schema v2 terminal-suite，逐 Run 导出并递归验证 Trace/EvidencePack；
+  `complete=true` 不等于全部任务成功。新增 7 项回归：三 case 拆批续跑、非终态阻塞后外部取消
+  再继续、创建 Run 前失败的新 attempt、CLI/密钥状态边界，以及两条 Fake Model TaskSpec 真实完成
+  修改和保护验收的 E2E，以及未确认付费时零 checkpoint。两条 E2E source 均未改变；未调用
+  网络或付费模型。
+- 详细 manifest、命令、恢复规则与限制见[可恢复的顺序 Agent 任务批次](sequential-agent-batch.md)。
+  当前并发度固定为 1，没有跨主机队列、自动处理人工请求或 20～30 条真实模型任务成绩。
+- 新增测试纳入全量后为 **618 passed，11 skipped**；11 项 skip 仍是需显式本机镜像的 Docker
+  合同。Ruff 格式/静态检查通过，本批未发起模型网络请求或付费调用。
+
 ## 2026-10-28 模型上下文绑定的写入 CAS
 
 - `replace_text`、`apply_patch` 和 `create_file` 的生产 Agent Loop reservation 现增加
@@ -320,7 +343,8 @@
 | CNY Campaign 与 Run 模型费用账本 | [campaign_budget.py](../src/horizon/adapters/persistence/campaign_budget.py)、[run.py](../src/horizon/domain/run.py)、[budget-stop-semantics.md](budget-stop-semantics.md) | Campaign 跨重启硬上限；Run 绑定 CNY policy 并事件化；执行请求先按三类最小余量确定性压缩可压缩历史，仍付不起则携带 reason/scope/required/available 及未派发请求 sizing evidence 原子进入 `FAILED` 并清除 Lease；unknown 用量仍保守对账；TaskSpec 旧 USD 字段尚未迁移 |
 | 一键离线作品集 EvidencePack | [portfolio_demo.py](../src/horizon/application/portfolio_demo.py)、[_portfolio_crash_worker.py](../src/horizon/application/_portfolio_crash_worker.py)、[portfolio_demo.py](../src/horizon/domain/portfolio_demo.py)、[portfolio-demo.md](portfolio-demo.md) | `horizon demo run` 复用真实事件/Lease/会话/RAG/Gateway/验证主链路：epoch 1 完成错误回执交接，epoch 2 子进程在 `replace_text` effect 后、receipt 前 `os._exit(86)`，Supervisor 先标 unknown、围栏旧 Lease，再由 epoch 3 精确接纳既有 effect 且不重放写入。v3 报告锚定崩溃标记、恢复 disposition 和可从 Trace 复算的检索→写入 lineage；`demo verify-portfolio` 可在删除三个 SQLite 数据库后重放并复核，标准 CI 上传完整目录。兼容读取 v1/v2；零网络/零真实模型/零外部费用，不冒充任意故障窗口或模型能力证据 |
 | 通用终态 EvidencePack | [terminal_evidence.py](../src/horizon/application/terminal_evidence.py)、[terminal_evidence.py](../src/horizon/domain/terminal_evidence.py)、[合同与边界](terminal-evidence-pack.md) | `trace bundle` 对成功、失败、取消统一导出 Trace、规范终态与 schema v2 可靠性摘要；`verify-bundle` 无数据库离线重放并复算。区分 unknown acceptance、已知 required-check failure 与 unknown/open effect；真实 retrieval degradation 从同事件工具回执进入 history，确定性上下文折叠从 model reservation 进入 `context_compacted`，schema v1 继续兼容验证。model fallback 与语义摘要 history 尚空；这是自洽性清单，不是签名或来源认证 |
-| 终态 Run 顺序汇总评测 | [terminal_suite.py](../src/horizon/application/terminal_suite.py)、[terminal_suite.py](../src/horizon/domain/terminal_suite.py)、[合同与边界](terminal-suite-evaluation.md) | schema v2 逐个复用已验证的通用 EvidencePack，保持原始成功率并分列 clean/quality-flagged success、验收未知/失败、quality flags、fallback/degradation、BudgetStop 与 unknown/open effect；`verify-terminal-suite` 无数据库递归重放并复算，兼容 v1。只做证据聚合，不执行任务、模型、工具、网络或仓库代码，不声称已有 batch scheduler |
+| 终态 Run 顺序汇总评测 | [terminal_suite.py](../src/horizon/application/terminal_suite.py)、[terminal_suite.py](../src/horizon/domain/terminal_suite.py)、[合同与边界](terminal-suite-evaluation.md) | schema v2 逐个复用已验证的通用 EvidencePack，保持原始成功率并分列 clean/quality-flagged success、验收未知/失败、quality flags、fallback/degradation、BudgetStop 与 unknown/open effect；`verify-terminal-suite` 无数据库递归重放并复算，兼容 v1。该命令本身只做证据聚合，不执行任务、模型、工具、网络或仓库代码 |
+| 可恢复顺序 Agent 批次 | [agent_batch.py](../src/horizon/application/agent_batch.py)、[agent_batch.py](../src/horizon/domain/agent_batch.py)、[合同与命令](sequential-agent-batch.md) | `agent batch` 按 1～100 条 TaskSpec manifest 顺序复用生产 Agent 入口；确定性 invocation/Task identity、只写一次 Run receipt 与原子状态支持任务间续跑，终态失败保留后继续，非终态/不确定 case 阻塞后项，完成后调用上述 terminal-suite。7 项离线回归含两条 Fake Model 真实成功 E2E；并发度 1，无跨主机、自动人工处置或真实模型任务成绩 |
 
 2026-10-04 的零费用增量把原先仅用于费用预留的完整请求保守上界接入实际派发门禁。
 `ContextProjection` 升为 schema v2；`InputTokenEstimate` 固定记录算法 ID、规范请求 UTF-8
@@ -1327,8 +1351,8 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 七轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 611 passed；全量入口对应
-611 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
+当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 618 passed；全量入口对应
+618 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
 `run_model_cost_limit` 进入 `FAILED`。没有工具、编辑、checkpoint 或验证，Trace 14 事件可重放，

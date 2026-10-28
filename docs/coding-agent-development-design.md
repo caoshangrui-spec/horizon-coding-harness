@@ -1367,7 +1367,7 @@ B/C/D 使用相同 Horizon 工具与检索配置；A→B 同时改变工具面�
 | FR-501～506 | `trace/` | JSONL Schema、投影重放 | 部分：模型/工具/验证事件可重放；Execution Fork 未完成 |
 | FR-601～605 | `sandbox/`, `policies.py`, CLI | 权限、取消、终态产物测试 | 部分：Docker/staging/取消/显式有界多文件 promotion；通用审批与完整终态包未完成 |
 | NFR-001～004 | orchestration + persistence | 故障矩阵、一致性测试 | 部分：数据库、模型、精确写入和 promotion 的真实崩溃窗口；完整统一故障矩阵未完成 |
-| NFR-005～010 | packaging + CI + docs | Windows/Docker、可复现运行 | 部分：Windows→Docker fixture E2E；批量 benchmark/CI 未完成 |
+| NFR-005～010 | packaging + CI + docs | Windows/Docker、可复现运行 | 部分：Windows→Docker fixture E2E 与单机顺序 TaskSpec batch/checkpoint/终态聚合已实现；20～30 条真实任务 benchmark 和跨平台长期运行仍未完成 |
 
 ## 29. ADR 清单
 

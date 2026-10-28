@@ -321,6 +321,11 @@ def test_doctor_checks_fts_without_model():
     assert data["terminal_evidence_schema"] == 2
     assert data["terminal_suite_reliability_aggregation"] is True
     assert data["terminal_suite_schema"] == 2
+    assert data["sequential_agent_batch_execution"] is True
+    assert data["sequential_agent_batch_profile"] == ("manifest_order_checkpoint_terminal_suite")
+    assert data["sequential_agent_batch_max_cases"] == 100
+    assert data["sequential_agent_batch_parallelism"] == 1
+    assert data["sequential_agent_batch_nonterminal_blocks"] is True
     assert data["run_ab_reliability_aggregation"] is True
     assert data["run_ab_reliability_profile"] == (
         "acceptance_quality_flags_trace_bound_degradation"

@@ -5,7 +5,7 @@
 本表是完整开发与验收导航。2026-09-30 已开始基础内核实现，实际证据列记录当前子范围与剩余缺口。目标路径相对 `src/horizon/`；计划测试路径相对 `tests/`；实际证据列的 `tests/` 路径相对仓库根。同一测试文件可验证多个 ID，但不能把子范围通过等同于整项通过。
 
 当前结果：2026-09-30 可靠性内核为 **92 项测试通过**；2026-10-28 的最新离线回归为
-**611 passed，11 skipped**。**11 项真实 Docker 合同**此前已单独补跑并全部通过。另已完成一次 Tool Calling 探针和一次受预算
+**618 passed，11 skipped**。**11 项真实 Docker 合同**此前已单独补跑并全部通过。另已完成一次 Tool Calling 探针和一次受预算
 保护的真实单 WorkItem Agent fixture Run。完整长程 Agent 未实现，未做独立安全复核。命令、环境、证据与限制见
 [开发进度](development-progress.md)。仍为“待填”的条目没有实现证据；“部分/初步”不代表
 完整需求通过。普通工作直接自检，关键风险及用户指定验收按需独立复核，
@@ -68,7 +68,7 @@
 | NFR-007 | M0/M4 | `adapters/` | `contract/test_dependency_boundaries.py`：模型/环境替换无领域层修改，上游依赖不泄漏 | 部分：domain 只依赖 Model/Tool/Acceptance ports；Fake 与 SiliconFlow adapter 均驱动同一 loop；上游 mini-SWE-agent/SWE-ReX 仍待验证 |
 | NFR-008 | M1/M5 | `trace/`, `tools/gateway.py` | `integration/test_redaction.py`：密钥/环境值/禁止路径内容不进入 Trace 导出 | 部分：Key 不进 repr/body/CLI/账本/Run Trace，禁止路径不被工具读取；真实 Trace 已导出检查；生产级消息脱敏和独立安全复核未完成 |
 | NFR-009 | M0/M5 | `config.py`, `benchmarks/` | 复现脚本验证代码 SHA/依赖/镜像/模型/任务/种子 manifest | 部分：`uv.lock`、Provider policy/PriceCard hash、TaskSpec hash、workspace revision 和真实模型 usage 已记录；Pilot preflight 绑定 clean Git commit、source manifest、prepared Task、Provider config、Docker image digest、初始失败、费用上限及当前加载的 Horizon Python 源码指纹，启动时重算，旧无指纹报告拒绝付费启动。真实失败 Run 已保存全部模型/工具 receipt 与可重放 Trace；依赖 lock 尚未并入同一 report，也未定义随机种子，仍不是完整统一 manifest |
-| NFR-010 | M5 | `application/terminal_suite.py`, `interfaces/cli/app.py` | `integration/test_terminal_suite.py`：单机按清单顺序为已有终态 Run 生成独立证据与聚合记录，并拒绝重哈希后的虚假可靠性汇总 | 部分：`eval terminal-suite` 预检 1～100 个唯一 Run，按固定顺序导出并离线递归复核，区分成功、失败、取消、BudgetStop、unknown/open effect、验收未知/失败、clean/quality-flagged success 和 Trace-bound degradation；不调用模型、工具、网络或仓库代码。尚未实现从任务清单顺序执行到终态的 batch scheduler，且无并发性能承诺 |
+| NFR-010 | M5 | `application/agent_batch.py`, `application/terminal_suite.py`, `interfaces/cli/app.py` | `integration/test_agent_batch.py` + `integration/test_terminal_suite.py`：单机按 TaskSpec 清单顺序执行、任务间续跑、不重复终态 Run、非终态阻塞后项，并递归复核最终聚合 | 首版性能边界已实现：`agent batch` 读取 1～100 条严格 manifest，使用确定性 invocation/Task identity 和只写一次 Run receipt，在每条任务后原子保存 checkpoint；终态失败/取消保留后继续，非终态或不确定任务阻塞后项，全部闭合后复用 schema v2 terminal-suite。两条 Fake Model TaskSpec 已实际顺序完成并保持 source isolation；另有拆批续跑、执行前失败新 attempt 和人工外部终态化回归。并发度固定为 1，无跨主机队列、吞吐承诺或 20～30 条真实模型成绩 |
 
 ## Agent 能力增量：30 项
 

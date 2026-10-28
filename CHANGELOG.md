@@ -5,6 +5,13 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Added a restartable single-host Agent batch runner. A strict 1–100 case manifest now dispatches
+  existing production Agent runs in order, atomically checkpoints between cases, derives stable
+  invocation and Task identities, publishes a pre-execution Run receipt, skips already terminal
+  cases on resume, and blocks later cases behind any nonterminal or uncertain Run. Terminal failure
+  remains failure but does not strand independent later cases; a completed batch reuses the
+  replay-verified terminal-suite EvidencePack. Parallel and cross-host scheduling remain out of
+  scope.
 - Added model-context-bound compare-and-swap guards for every production `replace_text`,
   `apply_patch`, and `create_file` action. Tool reservations now bind the latest settled execution
   model call, the workspace tree revision visible in that request, the immediately observed

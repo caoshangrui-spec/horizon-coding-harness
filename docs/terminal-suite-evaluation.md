@@ -12,8 +12,9 @@ unknown 和 open effect 均原样保留并单独统计。schema v2 还把每个�
 验收状态、quality flags、fallback 和 degradation 数量提升到 suite 层，避免把“终态成功”误读为
 “无降级成功”。
 
-因此当前能力是 NFR-010 的一部分：它证明单机可以按确定顺序为既有终态 Run 生成统一记录，
-但还没有“读取任务集并顺序执行到终态”的 batch scheduler，也没有并发吞吐或性能声明。
+本命令仍只是证据聚合器，不会执行任务。NFR-010 的顺序执行入口现由
+[`agent batch`](sequential-agent-batch.md) 提供；它在任务间保存 checkpoint，并在全部 Run 终态化后
+调用本模块生成同一 EvidencePack。两者都没有并发吞吐或性能声明。
 
 ## 2. 清单
 

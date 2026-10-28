@@ -115,9 +115,10 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | main 的[标准 CI](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/ci.yml)运行离线回归和两条演示；主作品集演示删除数据库后独立复核，并把完整目录发布为保留 14 天的 `horizon-portfolio-evidence`，同时发布 `horizon-process-timeout-evidence`；[禁网 Docker Evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/full-checkout-evidence.yml)独立运行 | CI 不读取 API Key、不运行付费模型；workflow artifact 通常需要登录 GitHub 下载，不是永久发布资产 |
-| 离线回归 | `611 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `618 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | [通用终态 EvidencePack](docs/terminal-evidence-pack.md) | `SUCCEEDED`、`FAILED`、`CANCELLED` 均可导出并离线复核 Trace、最终投影和 schema v2 可靠性摘要；区分 unknown 验收、已知 check 失败与 unknown/open effect，真实检索降级与工具回执原子绑定，确定性上下文折叠以 `context_compacted` 单独标记，兼容验证 schema v1 | model fallback、语义摘要和 model degradation 尚无 Trace history；自洽哈希不是来源签名，也不证明外部 Provider 或副作用已结清 |
 | [终态 Run 顺序汇总](docs/terminal-suite-evaluation.md) | 有序聚合已有终态 Run；递归验证每个子 EvidencePack，分列结果、验收未知/失败、clean/quality-flagged success、检索降级与 unknown/open effect | 不执行任务，不是 batch scheduler，也没有并发性能声明 |
+| [可恢复的顺序 Agent 任务批次](docs/sequential-agent-batch.md) | `agent batch` 按 1～100 条 TaskSpec manifest 顺序执行；任务间原子保存 checkpoint，确定性 invocation/Run receipt 支持重启识别，终态失败原样记录后继续，非终态/不确定 case 阻塞后项；全部闭合后复用 terminal-suite | 单机并发度 1；不自动越过人工/悬空 effect/旧 Worker 边界，不是 20～30 个真实模型任务成绩或吞吐声明 |
 | [本地顺序 Supervisor](docs/local-sequential-supervisor.md)、[正式子进程模式](docs/local-process-supervisor.md)与[父控制器硬退出恢复](docs/parent-controller-crash-recovery.md) | `--supervise` 支持安全轮次接力；`agent run/resume --worker-process` 让每个 slice 由真实直接子进程持有 Lease，并在放行前持久化 PID launch 与启动授权。父 CLI 正常同步回收后再换 epoch；父进程被硬 kill 时，重启后的新 Lease 必须等待 TTL 并精确确认旧 PID 已停止。`Ctrl+C` 与显式 slice timeout 仍先写取消栅栏再停止/reap，pending intent 显式阻塞且零重派 | 只管理一个本地直接子进程；父崩溃恢复依赖操作者核实精确 PID，不自动探活/kill；不覆盖 OS 掉电/内核恢复、PID reuse 自动判定、任意后代进程、跨主机、队列或任意 effect exactly-once |
 | [直接子 Worker 超时取消 EvidencePack](docs/process-timeout-cancellation-demo.md) | 一条零费用命令启动真实直接子进程；ready handshake 绑定 launch ID/PID/Lease/epoch/event hash，离线验证持久启动授权、取消围栏、同步 reap 与终态顺序；标准 CI 同步发布限时 artifact | 只证明一个本地直接子进程的父侧 timeout 与同步 reap；不是父/OS 自动恢复、进程树/跨主机控制、任意 effect 恢复或 exactly-once |
 | [Docker `created` 执行子进程退出 EvidencePack](docs/docker-created-recovery-evidence.md) | Docker effect-executor 在 `create` 后、`start` 前以 34 退出；存活控制器观察 `created`、精确删除并持久化 `discard_check` receipt，Trace 可离线重放 | 未覆盖 Lease-owning Agent Worker 自身崩溃；也不是任意崩溃、外部副作用不存在或 exactly-once 证明 |
@@ -226,6 +227,10 @@ EvidencePack 与聚合报告；`eval verify-terminal-suite` 可在没有控制�
 运行任务或重试失败。schema v2 保持原始成功率不变，同时单列 clean success、带 quality flag
 的 success、验收证据未知、required-check 失败、fallback 与 degradation；历史 schema v1 仍可
 验证。详细合同见[终态 Run 顺序汇总](docs/terminal-suite-evaluation.md)。
+要从 TaskSpec 清单直接顺序执行并在任务间断点续跑，使用 `agent batch <manifest> --output
+<dir> --confirm-paid`；同一 manifest 加 `--resume` 会复核 checkpoint，跳过已有终态 Run，并在全部
+闭合后生成同一 terminal-suite。终态失败继续、非终态或不确定 effect 阻塞后项；详细合同见
+[可恢复的顺序 Agent 任务批次](docs/sequential-agent-batch.md)。
 人工给定的 Plan DAG 可按 dependency-ready/声明顺序执行多个 WorkItem；每项隔离会话和工具
 权限，中间交接与最终成功均原子提交，最后一项重跑全部 required checks。模型和工具的
 intent/receipt、用量、费用、工作区版本、检查点和验证证据
@@ -529,7 +534,7 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **611 passed，11 skipped**；11 项 Docker 合同此前均已指定本机已有镜像
+当前离线全量回归为 **618 passed，11 skipped**；11 项 Docker 合同此前均已指定本机已有镜像
 单独复跑并通过。本轮本机 Docker daemon 未运行；v8 三个新增案例已由 test-only 本地可信执行，
 十五案例又由[公开 workflow](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40311947427)
 的生产 Docker adapter 统一通过 15/15。另有一次真实
@@ -587,6 +592,7 @@ Horizon 原创代码和文档使用 [MIT License](LICENSE)。依赖裁剪的外�
 - [一次性自动计划生成与恢复合同](docs/automatic-plan-generation.md)
 - [确定性费用停止语义](docs/budget-stop-semantics.md)
 - [可恢复的顺序多 WorkItem 执行](docs/multi-work-item-execution.md)
+- [可恢复的顺序 Agent 任务批次](docs/sequential-agent-batch.md)
 - [本地顺序 Supervisor：安全轮次自动接力](docs/local-sequential-supervisor.md)
 - [本地子进程 Supervisor：正式 CLI 运行、回收与保守故障边界](docs/local-process-supervisor.md)
 - [直接子 Worker 超时取消：零费用一键 EvidencePack](docs/process-timeout-cancellation-demo.md)
