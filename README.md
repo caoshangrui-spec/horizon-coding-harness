@@ -115,7 +115,7 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | main 的[标准 CI](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/ci.yml)运行离线回归和两条演示；主作品集演示删除数据库后独立复核，并把完整目录发布为保留 14 天的 `horizon-portfolio-evidence`，同时发布 `horizon-process-timeout-evidence`；[禁网 Docker Evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/full-checkout-evidence.yml)独立运行 | CI 不读取 API Key、不运行付费模型；workflow artifact 通常需要登录 GitHub 下载，不是永久发布资产 |
-| 离线回归 | `618 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `623 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | [通用终态 EvidencePack](docs/terminal-evidence-pack.md) | `SUCCEEDED`、`FAILED`、`CANCELLED` 均可导出并离线复核 Trace、最终投影和 schema v2 可靠性摘要；区分 unknown 验收、已知 check 失败与 unknown/open effect，真实检索降级与工具回执原子绑定，确定性上下文折叠以 `context_compacted` 单独标记，兼容验证 schema v1 | model fallback、语义摘要和 model degradation 尚无 Trace history；自洽哈希不是来源签名，也不证明外部 Provider 或副作用已结清 |
 | [终态 Run 顺序汇总](docs/terminal-suite-evaluation.md) | 有序聚合已有终态 Run；递归验证每个子 EvidencePack，分列结果、验收未知/失败、clean/quality-flagged success、检索降级与 unknown/open effect | 不执行任务，不是 batch scheduler，也没有并发性能声明 |
 | [可恢复的顺序 Agent 任务批次](docs/sequential-agent-batch.md) | `agent batch` 按 1～100 条 TaskSpec manifest 顺序执行；任务间原子保存 checkpoint，确定性 invocation/Run receipt 支持重启识别，终态失败原样记录后继续，非终态/不确定 case 阻塞后项；全部闭合后复用 terminal-suite | 单机并发度 1；不自动越过人工/悬空 effect/旧 Worker 边界，不是 20～30 个真实模型任务成绩或吞吐声明 |
@@ -128,6 +128,7 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 一键崩溃恢复演示 | 子进程在 `replace_text` 生效后、receipt 前以退出码 86 硬退出；悬空调用先标 unknown，再按精确 manifest 接纳一次并恢复到 epoch 3 | 固定离线脚本与单一写入窗口，不代表任意进程/主机故障恢复 |
 | 有界恢复矩阵 v3 | 21/21；自动恢复 11/11、安全阻塞 10/10、incorrect resume 0、恢复重派/重复副作用 0；含 3 个真实硬退出和 Trace replay | 其余 18 例是生成 fixture 的状态/决策矩阵，不是完整 8 故障点或主机故障验收 |
 | [外部 RAG 定位集 v3](docs/retrieval-evaluation.md#10-24-案例外部定位集与-v030-development-基线) | 先冻结 7 项目 24 个 BugsInPy 案例；当前只揭示 16 个 development，8 个 holdout 仍密封。4 个门控设计案例上，选择性策略把 Hit@8 13/16→16/16、路径 Recall 23/32→30/32；其余 12 个案例的 48 条扩展查询则只有两条 identifier rank 3→2，中文仍为 3/12。新的保守 CJK 候选在 4 条高覆盖查询保持 4/4 Hit、7/8 路径召回，并对 12 条低覆盖中文精确旁路；[历史真实模型查询审计](docs/retrieval-evaluation.md#16-历史真实模型查询形态审计)又从 7 份 Trace 的 10 次检索中哈希确认 6 次、3 种公开查询，均为原样旁路 | 保留原文与直接替换在四例排名完全相同，且这四例参与过词表设计；低覆盖旁路复用旧 baseline 而非新运行。真实模型审计仍有 4/10 原文为 `UNKNOWN`，只覆盖两个任务和单一模型。默认 runtime 不变，全部证据仍不代表查询分布泛化或端到端修复成功率 |
+| [24 条独立任务注册表](docs/independent-task-registry.md) | 原样绑定预冻结的 16 development / 8 holdout，按仓库 URL + BugsInPy bug ID 得到 24/24 唯一身份；零费用预检交叉验证 commit、license 元数据、失败测试及现有证据。当前 16 条有源码物化配方，8 条有执行 manifest，其中 7 条为完整 checkout | 预检不联网、不执行仓库代码；仍有 16 条无执行 manifest，历史初始失败证据未在线重验，也未联网审计全部许可证，不是 24 条真实模型成功率 |
 | 外部来源裁剪 A/B v2 | 5 个来源绑定案例的初始失败、Baseline 等待和 Treatment 修复均由本地可信与公开禁网 Docker 执行，证据已上传 | 使用 Scripted Model 和 dependency-reduced fixture，不是 BugsInPy 官方成绩 |
 | [完整 checkout A/B v8](docs/full-checkout-pilot.md) | v7 十二例原样保留，再加入 Sanic logger namespace、TheFuck PATH separator 与 Luigi Beam target 三种失效模式；共 15 案例、9 个项目、4,491 files。三个新增案例的 buggy/fixed 探针和本地完整 Harness 均通过，Baseline 等待、Treatment 恢复、Trace replay、rank-1 生产路径检索与 source isolation 已确认；[新增质量聚合的公开禁网 Docker 15/15](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40682108470)中，30 条 arm 分列为 unknown acceptance 15、clean/quality-flagged success 1/14、retrieval-degraded 28、degradation records 56 | 使用 Scripted Model 和作者选择的 development 案例；不是模型能力、泛化率或官方 BugsInPy 成绩 |
 | [三阶段恢复 A/B v4](docs/multi-stage-full-checkout-pilot.md) | youtube-dl 872 files + Luigi 382 files + FastAPI 629 files；三例均含 3 个依赖 WorkItem、2 次持久化 Worker 重启、final epoch 3 和一次只改未完成项的 replan；本地可信与[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40082814779)均为 3/3 | 作者选择的三个案例与 Scripted Model；边界重启不等于任意指令处崩溃，不是模型能力或官方成绩 |
@@ -356,6 +357,10 @@ uv run --locked --cache-dir .uv-cache horizon eval retrieval-suite `
 uv run --locked --cache-dir .uv-cache horizon eval reliability `
   benchmarks/reliability/horizon-controller-v1.yaml
 
+# 24 条不重复 BugsInPy 任务的来源、许可证与准备度预检；零模型、零网络、零仓库代码执行。
+uv run --locked --cache-dir .uv-cache horizon eval task-registry-preflight `
+  benchmarks/independent-tasks-v1.yaml
+
 # 两条完整可重放 Agent Run；脚本模型零费用，验收使用本机已有禁网 Docker 镜像。
 uv run --locked --cache-dir .uv-cache horizon eval run-ab `
   benchmarks/run_ab/stalled-reader-replan-v1.yaml --image redis:7-alpine
@@ -534,7 +539,7 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **618 passed，11 skipped**；11 项 Docker 合同此前均已指定本机已有镜像
+当前离线全量回归为 **623 passed，11 skipped**；11 项 Docker 合同此前均已指定本机已有镜像
 单独复跑并通过。本轮本机 Docker daemon 未运行；v8 三个新增案例已由 test-only 本地可信执行，
 十五案例又由[公开 workflow](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40311947427)
 的生产 Docker adapter 统一通过 15/15。另有一次真实
@@ -606,6 +611,7 @@ Horizon 原创代码和文档使用 [MIT License](LICENSE)。依赖裁剪的外�
 - [有界多文件精确 Patch 与崩溃恢复](docs/bounded-multi-file-patch.md)
 - [Revision-aware 词法 Code RAG](docs/code-retrieval.md)
 - [词法检索离线诊断](docs/retrieval-evaluation.md)
+- [24 条独立 BugsInPy 任务注册表与零费用预检](docs/independent-task-registry.md)
 - [控制器可靠性策略离线评测](docs/reliability-evaluation.md)
 - [有界恢复矩阵评测](docs/recovery-matrix-evaluation.md)
 - [完整 Run A/B：停滞等待与单次 Replan](docs/run-ab-evaluation.md)

@@ -1,10 +1,24 @@
 # 开发进度与验证记录
 
-更新：2026-10-28。已发布版本和主干包元数据均为 0.3.0；版本范围与发布证据见
+更新：2026-10-29。已发布版本和主干包元数据均为 0.3.0；版本范围与发布证据见
 [v0.3.0 release notes](release-v0.3.0.md)。2026-09-30 的
 可靠性内核证据保留，本次在其上增加 Provider 垂直切片和首个受控 Coding Agent 闭环。
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
+
+## 2026-10-29 24 条独立任务注册表与零费用基线
+
+- 新增 `bugsinpy-independent-tasks-v1`，原样绑定已冻结的 16 development / 8 holdout；按
+  `(repository_url, bug_id)` 校验为 24/24 个不重复上游缺陷，不再把重复的恢复场景计作独立任务。
+- `eval task-registry-preflight` 离线交叉验证 selection digest、exact buggy/fixed commit、失败测试、
+  commit-bound license 元数据、源码物化配方和既有执行 manifest。注册表明确不含 patch 内容和
+  gold path；本次不联网下载或独立审计许可证文件。
+- 当前基线不是 24 条可执行：16 条有源码物化配方；8 条有执行 manifest，其中完整 checkout 7 条、
+  依赖裁剪 1 条；其余 16 条仍为 `not_prepared`。8 条历史初始失败引用本次不联网重验，另 16 条
+  只有 BugsInPy 声明。
+- 新增 5 项回归后全量为 **623 passed，11 skipped**；Ruff 与离线 sdist/wheel 构建通过。预检
+  `report_ref=19449d01ed0749323e6ae31cff26c716a958af0f23ef7f3dde3cd60dfb9115b2`，模型、网络和仓库代码
+  执行均为 0。详细边界见[24 条独立任务注册表](independent-task-registry.md)。
 
 ## 2026-10-28 可恢复的顺序 Agent 任务批次
 
@@ -26,7 +40,7 @@
   网络或付费模型。
 - 详细 manifest、命令、恢复规则与限制见[可恢复的顺序 Agent 任务批次](sequential-agent-batch.md)。
   当前并发度固定为 1，没有跨主机队列、自动处理人工请求或 20～30 条真实模型任务成绩。
-- 新增测试纳入全量后为 **618 passed，11 skipped**；11 项 skip 仍是需显式本机镜像的 Docker
+- 新增测试纳入全量后为 **623 passed，11 skipped**；11 项 skip 仍是需显式本机镜像的 Docker
   合同。Ruff 格式/静态检查通过，本批未发起模型网络请求或付费调用。
 - 精确实现提交 `6d71092` 的公开[标准 CI `40710505627`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40710505627)、
   [来源绑定 Docker 证据 `40710505687`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40710505687)
@@ -1358,8 +1372,8 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 七轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 618 passed；全量入口对应
-618 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
+当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 623 passed；全量入口对应
+623 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
 `run_model_cost_limit` 进入 `FAILED`。没有工具、编辑、checkpoint 或验证，Trace 14 事件可重放，

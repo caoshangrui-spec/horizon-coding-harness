@@ -379,6 +379,11 @@ def test_doctor_checks_fts_without_model():
     assert data["controller_policy_evaluation"] is True
     assert data["controller_policy_evaluation_profile"] == ("frozen_offline_exact_policy_traces")
     assert data["controller_policy_evaluation_external_calls"] is False
+    assert data["independent_task_registry_preflight"] is True
+    assert data["independent_task_registry_profile"] == (
+        "frozen_selection_identity_license_metadata_and_readiness"
+    )
+    assert data["independent_task_registry_external_calls"] is False
     assert data["full_run_ab_evaluation"] is True
     assert data["full_run_ab_evaluation_profile"] == ("scripted_model_replayable_docker_validation")
     assert data["full_run_ab_paid_model_called"] is False

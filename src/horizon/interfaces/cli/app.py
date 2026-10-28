@@ -100,6 +100,7 @@ from horizon.application.supervision import (
     SequentialAgentSupervisor,
     SequentialSupervisorConfig,
 )
+from horizon.application.task_registry import IndependentTaskRegistryPreflight
 from horizon.application.terminal_evidence import (
     export_terminal_evidence_pack,
     verify_terminal_evidence_pack,
@@ -144,6 +145,7 @@ from horizon.domain.run import projection_hash
 from horizon.domain.run_evaluation import RunABEvalManifest, RunABSuiteManifest
 from horizon.domain.states import RunStatus
 from horizon.domain.task import TaskSpec
+from horizon.domain.task_registry import IndependentTaskRegistry
 from horizon.domain.terminal_suite import TerminalSuiteManifest
 from horizon.tools.gateway import WorkspaceToolGateway
 
@@ -630,6 +632,34 @@ def evaluate_reliability(
     """Run frozen controller-policy traces without a model, network, or repository code."""
     manifest = ReliabilityEvalManifest.model_validate(read_yaml(path))
     report = ReliabilityEvaluator().evaluate(manifest)
+    artifacts = ArtifactStore(state_dir.resolve() / "artifacts")
+    report_ref = artifacts.put(canonical_json(report).encode("utf-8"))
+    typer.echo(
+        canonical_json(
+            {
+                "report": report.model_dump(mode="json"),
+                "report_ref": report_ref,
+            }
+        )
+    )
+
+
+@evaluations.command("task-registry-preflight")
+@guarded
+def evaluate_task_registry_preflight(
+    path: Path,
+    state_dir: Annotated[
+        Path,
+        typer.Option(help="Content-addressed offline preflight reports."),
+    ] = Path(".horizon/task-registry-preflight"),
+):
+    """Validate 20-30 frozen independent task identities and readiness evidence offline."""
+    registry_path = path.resolve(strict=True)
+    registry = IndependentTaskRegistry.model_validate(read_yaml(registry_path))
+    report = IndependentTaskRegistryPreflight().evaluate(
+        registry,
+        registry_path=registry_path,
+    )
     artifacts = ArtifactStore(state_dir.resolve() / "artifacts")
     report_ref = artifacts.put(canonical_json(report).encode("utf-8"))
     typer.echo(
@@ -3777,6 +3807,11 @@ def doctor():
                 "controller_policy_evaluation": True,
                 "controller_policy_evaluation_profile": "frozen_offline_exact_policy_traces",
                 "controller_policy_evaluation_external_calls": False,
+                "independent_task_registry_preflight": True,
+                "independent_task_registry_profile": (
+                    "frozen_selection_identity_license_metadata_and_readiness"
+                ),
+                "independent_task_registry_external_calls": False,
                 "full_run_ab_evaluation": True,
                 "full_run_ab_evaluation_profile": "scripted_model_replayable_docker_validation",
                 "full_run_ab_paid_model_called": False,
