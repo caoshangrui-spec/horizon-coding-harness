@@ -21,6 +21,16 @@
 - 聚焦的 Context/Reservation/Agent Loop/doctor 回归为 **31 passed**；状态机、恢复、预算、终态
   EvidencePack、terminal-suite、Run A/B 与完整 Agent Loop 扩大回归为 **175 passed**。均未联网、
   未调用付费模型。最终全量为 **609 passed，11 skipped**；跳过项仍是需要本机 Docker 的合同。
+- 提交 `b6b3a08` 的公开[标准 CI `40692294518`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40692294518)、
+  [外部检索证据 `40692294775`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40692294775)
+  与[来源绑定 Docker 证据 `40692294760`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40692294760)
+  均通过。Docker 统一 artifact ID `12818022804`，201,899,071 bytes，digest
+  `sha256:9c1ce6d635fdcad6639fae71537b1cbdb146b5374eae82f9ca0a1300a48b0af1`，保留至
+  2026-11-27。
+- 四组公开来源 suite 的 48 条 arm 均未达到压缩阈值，逐 flag 仍只有 unknown acceptance 与
+  retrieval degradation，没有 `context_compacted`。这验证没有 false positive；正向压缩、终态
+  quality-flagged success 和删掉同事件 record 后的语义拒绝由标准 CI 内的集成回归覆盖。当前不把
+  这 24 个来源场景包装成“上下文压缩提升任务效果”的实验。
 
 ## 2026-10-28 Run A/B 成功质量与检索降级聚合
 

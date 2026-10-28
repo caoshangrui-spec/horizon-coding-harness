@@ -250,6 +250,11 @@ Schema 约束为：字符上限 2,000～1,000,000；保守 input-token 上限
 这些测试使用 Scripted Fake Model，不联网、不产生模型费用。全量数字以
 [开发进度与验证记录](development-progress.md)的最新一次完整回归为准；Docker skip 不算通过。
 
+提交 `b6b3a08` 的公开标准 CI 已运行上述正向压缩闭环；同提交的来源绑定 Docker workflow 也通过
+5/5、15/15、3/3、1/1。四组 suite 的 48 条 arm 均未达到压缩阈值，因此公开 suite 报告没有
+`context_compacted`。这是一条无 false-positive 的边界证据，不是来源任务上的压缩收益或质量
+影响实验；正向记录证据仍来自公开 CI 执行的集成测试。
+
 ## 8. 下一增量的进入条件
 
 下一步不是直接接一个向量数据库。优先补以下两层：
