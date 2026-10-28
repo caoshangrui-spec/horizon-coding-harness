@@ -28,6 +28,13 @@
   当前并发度固定为 1，没有跨主机队列、自动处理人工请求或 20～30 条真实模型任务成绩。
 - 新增测试纳入全量后为 **618 passed，11 skipped**；11 项 skip 仍是需显式本机镜像的 Docker
   合同。Ruff 格式/静态检查通过，本批未发起模型网络请求或付费调用。
+- 精确实现提交 `6d71092` 的公开[标准 CI `40710505627`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40710505627)、
+  [来源绑定 Docker 证据 `40710505687`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40710505687)
+  与[外部检索证据 `40710505709`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40710505709)
+  均成功。标准 CI 完成离线质量门禁并发布三个 artifact；Docker 四组 suite artifact digest 为
+  `sha256:75a075cf380b66de27ffe0526bbad3ccc0dfd1f296b2bab907879a87d3cbf163`；16 案例外部检索
+  artifact digest 为 `sha256:eca9b9a74edcdf5f3c677f7c8094cc5133eef94a2a4da2da3978a1465fe58da3`。
+  三条 workflow 均未读取模型 API Key 或运行付费模型。
 
 ## 2026-10-28 模型上下文绑定的写入 CAS
 

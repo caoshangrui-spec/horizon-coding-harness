@@ -136,3 +136,9 @@ batch 摘要。只有在 executor 抛错且控制库确认没有创建任何 Run
 当前明确不声明：并发执行、跨主机队列、自动处理人工请求、自动判定旧 PID 已停止、任务级独立
 Campaign、任意控制器崩溃 exactly-once、20～30 个真实模型任务成功率或官方 SWE-bench 成绩。
 批次上限 100 是合同边界，不是吞吐性能结论。
+
+实现提交 `6d71092` 的公开[标准 CI `40710505627`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40710505627)
+已通过完整离线质量门禁和构建；同提交的[来源绑定 Docker 证据 `40710505687`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40710505687)
+与[外部检索证据 `40710505709`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40710505709)
+也通过，证明新增入口没有破坏既有四组来源 suite 和 16 案例检索重建。公开 workflow 不读取模型
+API Key，也没有运行付费模型；Fake Model E2E 不能外推为真实模型成功率。
