@@ -44,7 +44,7 @@ def test_request_sizing_boundary_cases_have_exact_byte_composition():
         "replace_text",
         "submit",
     ]
-    assert cases["agent_retrieval_turn"]["request_payload"]["field_value_bytes"]["tools"] == 1_873
+    assert cases["agent_retrieval_turn"]["request_payload"]["field_value_bytes"]["tools"] == 1_991
     assert (
         cases["agent_retrieval_turn"]["request_payload"]["field_value_bytes"]["tools"]
         > cases["nested_tool_schema"]["request_payload"]["field_value_bytes"]["tools"]

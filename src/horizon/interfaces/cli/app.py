@@ -3457,6 +3457,10 @@ def doctor():
                 "run_ab_reliability_profile": ("acceptance_quality_flags_trace_bound_degradation"),
                 "trace_bound_retrieval_degradation": True,
                 "trace_bound_context_compaction_quality": True,
+                "model_context_write_cas": True,
+                "model_context_write_cas_profile": (
+                    "source_model_call_workspace_tree_and_manifest_preimage"
+                ),
                 "autonomous_execution": True,
                 "intent_router": True,
                 "intent_router_profile": "deterministic_rules_authority_contraction",

@@ -166,7 +166,7 @@ class Run:
             "model_calls": [item.model_dump(mode="json") for item in self.model_calls],
             "model_occupied_cost": str(self.model_occupied_cost),
             "tool_reserved": {
-                key: value.model_dump(mode="json") for key, value in self.tool_reservations.items()
+                key: value.as_dict() for key, value in self.tool_reservations.items()
             },
             "unknown_tool_calls": sorted(self.unknown_tool_calls),
             "tool_calls": [item.model_dump(mode="json") for item in self.tool_calls],
@@ -804,6 +804,15 @@ def apply(run: Run | None, event: Event) -> Run:
             raise IntegrityError("Duplicate tool call ID")
         if reservation.call_id not in run.reservations:
             raise IntegrityError("Tool reservation requires a generic budget reservation")
+        precondition = reservation.write_precondition
+        if precondition is not None and (
+            not run.model_calls
+            or run.model_calls[-1].call_id != precondition.source_model_call_id
+            or run.model_calls[-1].purpose != "execution"
+        ):
+            raise IntegrityError(
+                "Write precondition must bind the latest settled execution model call"
+            )
         run.tool_reservations[reservation.call_id] = reservation
     elif event.event_type == "TOOL_CALL_SETTLED":
         record = ToolCallRecord.model_validate(p["record"])
@@ -812,6 +821,22 @@ def apply(run: Run | None, event: Event) -> Run:
             raise IntegrityError("Tool settlement has no settled budget reservation")
         if record.name != reservation.name or record.arguments_hash != reservation.arguments_hash:
             raise IntegrityError("Tool settlement does not match its reservation")
+        precondition = reservation.write_precondition
+        if precondition is not None:
+            if precondition.stale and (
+                record.status != "error"
+                or record.workspace_revision_before != record.workspace_revision_after
+            ):
+                raise IntegrityError("A stale write precondition must settle without a write")
+            if (
+                not precondition.stale
+                and record.status == "success"
+                and (
+                    record.workspace_revision_before != precondition.expected_workspace_revision
+                    or record.workspace_revision_before != precondition.observed_workspace_revision
+                )
+            ):
+                raise IntegrityError("Successful write receipt does not match its CAS preimage")
         del run.tool_reservations[record.call_id]
         run.unknown_tool_calls.discard(record.call_id)
         run.tool_calls.append(record)

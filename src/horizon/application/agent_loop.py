@@ -68,7 +68,15 @@ from horizon.domain.retrieval import EvidencePack
 from horizon.domain.run import Run
 from horizon.domain.run_reliability import DegradationRecord
 from horizon.domain.states import RunStatus
-from horizon.domain.tools import AcceptanceResult, ToolCallRecord, ToolCallReservation, ToolOutcome
+from horizon.domain.tools import (
+    WRITE_TOOLS,
+    AcceptanceResult,
+    ToolCallRecord,
+    ToolCallReservation,
+    ToolOutcome,
+    WorkspaceWritePrecondition,
+    write_target_paths,
+)
 from horizon.reliability.breaker import ProviderReliabilityController
 
 EXECUTION_REPLAN_TOOL_NAME = "revise_plan"
@@ -279,7 +287,10 @@ def _initial_messages(
                 "saturated search with equivalent queries. Plan objectives and expected "
                 "artifacts are work guidance, not repository evidence: when current, "
                 "revision-bound retrieval contradicts a guessed path, follow the evidence "
-                "instead of searching to satisfy the guess. The "
+                "instead of searching to satisfy the guess. Every workspace write is bound "
+                "to the workspace revision in the current model request. If a "
+                "StaleWriteConflict reports external drift, inspect the new revision and "
+                "prepare a fresh write instead of overwriting it. The "
                 "controller owns permissions and final validation. Call submit only after the "
                 "requested change is ready for protected validation. Use revise_plan only when "
                 "run evidence proves the remaining Plan structure is inadequate; completed work "
@@ -523,10 +534,13 @@ class CodingAgentRunner:
             raise Conflict("Context projection artifact verification failed")
         return artifact_ref
 
-    def _load_session(self, run: Run) -> tuple[list[ModelMessage], int, ModelResponse | None]:
+    def _load_session(
+        self,
+        run: Run,
+    ) -> tuple[list[ModelMessage], int, ModelResponse | None, str | None]:
         record = run.agent_session
         if record is None:
-            return _initial_messages(run, _active_work_item(run)), 1, None
+            return _initial_messages(run, _active_work_item(run)), 1, None, None
         session = AgentSession.model_validate_json(self.session_store.read(record.artifact_ref))
         if (
             session.run_id != run.run_id
@@ -549,7 +563,7 @@ class CodingAgentRunner:
         if tail is None:
             raise Conflict("Run has no valid persisted Agent session boundary")
         if all(event.event_type in SUPERVISION_EVENTS for event in tail):
-            return list(session.messages), session.next_iteration, None
+            return list(session.messages), session.next_iteration, None, None
         pending = recoverable_model_turn(run, events)
         if pending is None:
             retry = recoverable_readonly_tool_turn(run, events, self.session_store)
@@ -660,7 +674,7 @@ class CodingAgentRunner:
                     "Recovered context projection does not match the persisted Agent session"
                 )
         response = load_recorded_model_response(pending, self.session_store)
-        return messages, session.next_iteration, response
+        return messages, session.next_iteration, response, recorded_facts.workspace_revision
 
     def _model_call(
         self,
@@ -843,7 +857,7 @@ class CodingAgentRunner:
         )
         if self.provider_reliability is not None and permit is not None:
             self.provider_reliability.record_success(permit)
-        return run, response
+        return run, response, facts.workspace_revision
 
     def _tool_call(
         self,
@@ -854,10 +868,24 @@ class CodingAgentRunner:
         *,
         protected_check: bool = False,
         enforce_no_progress: bool = False,
+        source_model_call_id: str | None = None,
+        expected_workspace_revision: str | None = None,
     ) -> tuple[ToolOutcome, NoProgressDecision | None]:
         local_id = f"tool_{uuid4().hex}"
         arguments_hash = digest(arguments)
         workspace_revision, workspace_manifest_ref = self.tools.checkpoint()
+        write_precondition = None
+        if name in WRITE_TOOLS:
+            if source_model_call_id is None or expected_workspace_revision is None:
+                raise Conflict("Model-proposed writes require a source model context revision")
+            write_precondition = WorkspaceWritePrecondition(
+                source_model_call_id=source_model_call_id,
+                expected_workspace_revision=expected_workspace_revision,
+                observed_workspace_revision=workspace_revision,
+                observed_workspace_manifest_ref=workspace_manifest_ref,
+                target_paths=write_target_paths(name, arguments),
+                stale=expected_workspace_revision != workspace_revision,
+            )
         decision = None
         if enforce_no_progress:
             current = self.service.store.get(run_id)
@@ -881,6 +909,7 @@ class CodingAgentRunner:
             arguments_hash=arguments_hash,
             workspace_revision=workspace_revision,
             workspace_manifest_ref=workspace_manifest_ref,
+            write_precondition=write_precondition,
         )
         self.service.reserve_tool_call(
             run_id,
@@ -944,6 +973,7 @@ class CodingAgentRunner:
                 # Every adapter receives the durable local call ID for crash diagnostics. The
                 # production gateway creates an external durable attempt only for run_check.
                 attempt_id=local_id,
+                write_precondition=write_precondition,
             )
         record = ToolCallRecord(
             call_id=local_id,
@@ -1291,17 +1321,26 @@ class CodingAgentRunner:
             run = self._save_session(run, token, _initial_messages(run, active_item), 1)
         else:
             self.tools.activate_work_item(_active_work_item(run))
-        messages, start_iteration, pending_response = self._load_session(run)
+        messages, start_iteration, pending_response, pending_workspace_revision = (
+            self._load_session(run)
+        )
         iterations_this_invocation = 0
 
         for iteration in range(start_iteration, self.config.max_model_iterations + 1):
             if pending_response is not None:
                 run = self.service.store.get(run_id)
                 response = pending_response
+                model_workspace_revision = pending_workspace_revision
                 pending_response = None
+                pending_workspace_revision = None
             else:
                 try:
-                    run, response = self._model_call(run_id, token, messages, iteration)
+                    run, response, model_workspace_revision = self._model_call(
+                        run_id,
+                        token,
+                        messages,
+                        iteration,
+                    )
                 except RunCancellationRequested:
                     return self.service.store.get(run_id)
                 except BudgetExceeded as exc:
@@ -1439,6 +1478,7 @@ class CodingAgentRunner:
                     max_iterations_this_invocation=remaining_iterations,
                 )
             submitted = False
+            source_model_call_id = run.model_calls[-1].call_id
             for call in response.message.tool_calls:
                 outcome, hard_no_progress_decision = self._tool_call(
                     run_id,
@@ -1446,6 +1486,8 @@ class CodingAgentRunner:
                     call.function.name,
                     call.function.arguments,
                     enforce_no_progress=len(response.message.tool_calls) == 1,
+                    source_model_call_id=source_model_call_id,
+                    expected_workspace_revision=model_workspace_revision,
                 )
                 run = self.service.store.get(run_id)
                 if run.terminal:

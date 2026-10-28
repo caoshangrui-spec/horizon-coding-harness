@@ -14,6 +14,7 @@ from horizon.domain.model import (
     ModelUsage,
     PriceCard,
 )
+from horizon.domain.tools import ToolCallReservation, WorkspaceWritePrecondition
 
 
 def price_card():
@@ -103,6 +104,45 @@ def test_model_reservation_omits_absent_budget_for_historical_wire_compatibility
     assert current.as_dict()["input_token_budget"]["estimate"]["token_ceiling"] == 3_024
     with pytest.raises(ValidationError, match="client_trace_id"):
         ModelCallReservation(**shared, client_trace_id="unsafe\r\ntrace")
+
+
+def test_tool_reservation_preserves_historical_shape_and_binds_write_cas():
+    historical = ToolCallReservation(
+        call_id="tool-old",
+        name="replace_text",
+        arguments_hash="a" * 64,
+        workspace_revision="b" * 64,
+        workspace_manifest_ref="c" * 64,
+    )
+    assert "write_precondition" not in historical.as_dict()
+
+    precondition = WorkspaceWritePrecondition(
+        source_model_call_id="model-current",
+        expected_workspace_revision="b" * 64,
+        observed_workspace_revision="b" * 64,
+        observed_workspace_manifest_ref="c" * 64,
+        target_paths=("src/parser.py",),
+        stale=False,
+    )
+    current = ToolCallReservation(
+        call_id="tool-current",
+        name="replace_text",
+        arguments_hash="a" * 64,
+        workspace_revision="b" * 64,
+        workspace_manifest_ref="c" * 64,
+        write_precondition=precondition,
+    )
+    assert current.as_dict()["write_precondition"] == precondition.model_dump(mode="json")
+
+    with pytest.raises(ValidationError, match="Only workspace write tools"):
+        ToolCallReservation(
+            call_id="tool-read",
+            name="read_file",
+            arguments_hash="a" * 64,
+            workspace_revision="b" * 64,
+            workspace_manifest_ref="c" * 64,
+            write_precondition=precondition,
+        )
 
 
 def test_model_reservation_binds_compacted_context_source():

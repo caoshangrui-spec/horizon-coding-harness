@@ -115,7 +115,7 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | main 的[标准 CI](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/ci.yml)运行离线回归和两条演示；主作品集演示删除数据库后独立复核，并把完整目录发布为保留 14 天的 `horizon-portfolio-evidence`，同时发布 `horizon-process-timeout-evidence`；[禁网 Docker Evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/full-checkout-evidence.yml)独立运行 | CI 不读取 API Key、不运行付费模型；workflow artifact 通常需要登录 GitHub 下载，不是永久发布资产 |
-| 离线回归 | `609 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `611 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | [通用终态 EvidencePack](docs/terminal-evidence-pack.md) | `SUCCEEDED`、`FAILED`、`CANCELLED` 均可导出并离线复核 Trace、最终投影和 schema v2 可靠性摘要；区分 unknown 验收、已知 check 失败与 unknown/open effect，真实检索降级与工具回执原子绑定，确定性上下文折叠以 `context_compacted` 单独标记，兼容验证 schema v1 | model fallback、语义摘要和 model degradation 尚无 Trace history；自洽哈希不是来源签名，也不证明外部 Provider 或副作用已结清 |
 | [终态 Run 顺序汇总](docs/terminal-suite-evaluation.md) | 有序聚合已有终态 Run；递归验证每个子 EvidencePack，分列结果、验收未知/失败、clean/quality-flagged success、检索降级与 unknown/open effect | 不执行任务，不是 batch scheduler，也没有并发性能声明 |
 | [本地顺序 Supervisor](docs/local-sequential-supervisor.md)、[正式子进程模式](docs/local-process-supervisor.md)与[父控制器硬退出恢复](docs/parent-controller-crash-recovery.md) | `--supervise` 支持安全轮次接力；`agent run/resume --worker-process` 让每个 slice 由真实直接子进程持有 Lease，并在放行前持久化 PID launch 与启动授权。父 CLI 正常同步回收后再换 epoch；父进程被硬 kill 时，重启后的新 Lease 必须等待 TTL 并精确确认旧 PID 已停止。`Ctrl+C` 与显式 slice timeout 仍先写取消栅栏再停止/reap，pending intent 显式阻塞且零重派 | 只管理一个本地直接子进程；父崩溃恢复依赖操作者核实精确 PID，不自动探活/kill；不覆盖 OS 掉电/内核恢复、PID reuse 自动判定、任意后代进程、跨主机、队列或任意 effect exactly-once |
@@ -252,6 +252,11 @@ Task/Plan/权限/验收/预算/模型策略/工具 Schema/workspace 绑定为内
 Run Memory；失败结果保留为失败，未知副作用保持 unresolved，旧 workspace revision 的观察
 标为 stale 且不向模型暴露旧片段。每个模型请求绑定对应 Memory Artifact 和事件边界，恢复时
 按历史边界重建，模型 `submit` 声明不能直接写入事实。
+每个模型提出的 `replace_text`、`apply_patch` 和 `create_file` 还会自动绑定该请求实际看到的
+workspace tree revision、来源 model call 和派发前 manifest。若用户或其他进程在模型请求后改变
+任何快照可见文件，旧写动作以 `StaleWriteConflict` 留下 error receipt，前后 revision 不变且不
+执行写入；正常写入则逐目标核对 manifest preimage SHA-256，并只接受唯一 expected post tree。
+完整合同见[模型上下文绑定的写入 CAS](docs/model-context-write-cas.md)。
 同一 revision 下完全相同的读取/检索/编辑重复两次，或精确动作形成 period-2/3/4 循环时，
 NoProgressPolicy 会在第三轮循环闭合前拒绝实际执行并回送证据；模型收到反馈后仍继续同一模式，
 则持久化完整轮次，进入 `WAITING_FOR_USER` 并原子释放 Lease。检测只比较工具名、参数 hash 和
@@ -524,7 +529,7 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **609 passed，11 skipped**；11 项 Docker 合同此前均已指定本机已有镜像
+当前离线全量回归为 **611 passed，11 skipped**；11 项 Docker 合同此前均已指定本机已有镜像
 单独复跑并通过。本轮本机 Docker daemon 未运行；v8 三个新增案例已由 test-only 本地可信执行，
 十五案例又由[公开 workflow](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40311947427)
 的生产 Docker adapter 统一通过 15/15。另有一次真实
@@ -589,6 +594,7 @@ Horizon 原创代码和文档使用 [MIT License](LICENSE)。依赖裁剪的外�
 - [Lease-owning Agent Worker 的 Docker created-state 崩溃恢复](docs/docker-worker-crash-resume.md)
 - [执行证据驱动的单次受限 Replan](docs/execution-replanning.md)
 - [确定性上下文投影与恢复合同](docs/context-projection.md)
+- [模型上下文绑定的写入 CAS](docs/model-context-write-cas.md)
 - [证据驱动的 Run Memory](docs/run-memory.md)
 - [精确模式无进展保护](docs/no-progress-policy.md)
 - [有界多文件精确 Patch 与崩溃恢复](docs/bounded-multi-file-patch.md)

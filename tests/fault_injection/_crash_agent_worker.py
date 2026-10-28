@@ -84,8 +84,8 @@ class ExitAfterWriteEffect:
     def __getattr__(self, name):
         return getattr(self.delegate, name)
 
-    def dispatch_safe(self, name, arguments, attempt_id=None):
-        self.delegate.dispatch_safe(name, arguments, attempt_id)
+    def dispatch_safe(self, name, arguments, attempt_id=None, write_precondition=None):
+        self.delegate.dispatch_safe(name, arguments, attempt_id, write_precondition)
         os._exit(26)
 
 

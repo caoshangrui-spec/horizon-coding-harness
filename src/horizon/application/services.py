@@ -1535,7 +1535,7 @@ class HarnessService:
         amount = Usage(tool_calls=1, steps=1)
         request = {
             "operation": "reserve_tool_call",
-            "reservation": reservation.model_dump(mode="json"),
+            "reservation": reservation.as_dict(),
             "token": token.model_dump(),
         }
 
@@ -1558,7 +1558,7 @@ class HarnessService:
                 ),
                 NewEvent(
                     event_type="TOOL_CALL_RESERVED",
-                    payload={"reservation": reservation.model_dump(mode="json")},
+                    payload={"reservation": reservation.as_dict()},
                 ),
             ]
 
@@ -1625,7 +1625,7 @@ class HarnessService:
             "operation": "apply_execution_replan",
             "proposal": proposal.model_dump(mode="json"),
             "source_model_call_id": source_model_call_id,
-            "reservation": reservation.model_dump(mode="json"),
+            "reservation": reservation.as_dict(),
             "record": record.model_dump(mode="json"),
             "next_session": next_session.model_dump(mode="json"),
             "token": token.model_dump(),
@@ -1710,7 +1710,7 @@ class HarnessService:
                 ),
                 NewEvent(
                     event_type="TOOL_CALL_RESERVED",
-                    payload={"reservation": reservation.model_dump(mode="json")},
+                    payload={"reservation": reservation.as_dict()},
                 ),
                 NewEvent(
                     event_type="BUDGET_SETTLED",

@@ -88,8 +88,8 @@ class CrashAfterToolEffect:
     def __getattr__(self, name):
         return getattr(self.delegate, name)
 
-    def dispatch_safe(self, name, arguments, attempt_id=None):
-        self.delegate.dispatch_safe(name, arguments, attempt_id)
+    def dispatch_safe(self, name, arguments, attempt_id=None, write_precondition=None):
+        self.delegate.dispatch_safe(name, arguments, attempt_id, write_precondition)
         raise RuntimeError("simulated crash after CLI write effect")
 
 
@@ -327,6 +327,10 @@ def test_doctor_checks_fts_without_model():
     )
     assert data["trace_bound_retrieval_degradation"] is True
     assert data["trace_bound_context_compaction_quality"] is True
+    assert data["model_context_write_cas"] is True
+    assert data["model_context_write_cas_profile"] == (
+        "source_model_call_workspace_tree_and_manifest_preimage"
+    )
     assert data["autonomous_execution"] is True
     assert data["recovery_safe_cancellation"] is True
     assert data["controller_verified_check_cancellation"] is True

@@ -48,8 +48,14 @@ class _ExitAfterWriteEffect:
     def __getattr__(self, name: str):
         return getattr(self.delegate, name)
 
-    def dispatch_safe(self, name: str, arguments: dict, attempt_id: str | None = None):
-        outcome = self.delegate.dispatch_safe(name, arguments, attempt_id)
+    def dispatch_safe(
+        self,
+        name: str,
+        arguments: dict,
+        attempt_id: str | None = None,
+        write_precondition=None,
+    ):
+        outcome = self.delegate.dispatch_safe(name, arguments, attempt_id, write_precondition)
         if name != self.expected_tool:
             raise ValueError("Run A/B crash worker received an unexpected tool")
         if outcome.status != "success" or not attempt_id:

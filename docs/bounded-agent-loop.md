@@ -144,15 +144,18 @@ Provider 派发前和 response receipt 后的两个双库提交窗口，并输�
 | `search_repo` | 精确子串 | 只扫描允许的 UTF-8 文件；总字节和结果数有界 |
 | `read_file` | 相对 POSIX 路径；可选成对的 1-based `start_line`/`end_line` | allow/deny、无 traversal/drive、无 symlink/junction；小文件可整读，大文件必须按最多 400 行读取，单次模型可见输出最多 32 Ki 字符 |
 | `retrieve_code` | 查询、最多 8 个 chunk | manifest + path scope 绑定的 FTS5/BM25 EvidencePack；命中回查 Artifact，empty/degraded 分离 |
-| `replace_text` | path、old、new、期望出现次数 | 仅已存在 UTF-8 文件；精确计数；字节级临时文件 + 原子替换；失败回滚 |
-| `apply_patch` | 1～8 个不同 path 的精确 old/new edit | 全批预校验后才写；每文件原子替换；普通异常回滚，硬退出部分态保持 unknown |
-| `create_file` | path、完整 UTF-8 content | 仅一个允许且快照可见的路径；最多 64 KiB UTF-8 bytes；父目录须已存在；目标存在即拒绝；普通异常清理，硬退出先保持 unknown，再按精确 manifest 显式 accept/rollback |
+| `replace_text` | path、old、new、期望出现次数 | 绑定来源 model call、模型请求 revision 和 manifest preimage SHA-256；旧 revision 零写入拒绝；仅已存在 UTF-8 文件；精确计数；字节级临时文件 + 原子替换；失败回滚 |
+| `apply_patch` | 1～8 个不同 path 的精确 old/new edit | 同一模型请求 tree CAS；全批 preimage/替换预校验后才写；每文件原子替换；普通异常回滚，硬退出部分态保持 unknown |
+| `create_file` | path、完整 UTF-8 content | 同一模型请求 tree CAS；仅一个允许且快照可见的路径；最多 64 KiB UTF-8 bytes；父目录须已存在；目标存在即拒绝；普通异常清理，硬退出先保持 unknown，再按精确 manifest 显式 accept/rollback |
 | `run_check` | check ID | 实际 command、timeout 来自不可变 TaskSpec，不接受模型命令 |
 | `submit` | 简短摘要 | 只请求最终验证，不能直接把 Run 标记成功 |
 
 每次工具调用先写 `TOOL_CALL_RESERVED`，再派发，最后写 `TOOL_CALL_SETTLED`。receipt 包含
 参数 hash、状态、输出 hash/Artifact、前后工作区 revision 和 workspace manifest。工具输出
 以内容寻址 Artifact 保存，事件不内嵌无限日志。
+三个写工具的 reservation 还包含 `WorkspaceWritePrecondition`。它把来源 execution model call、
+模型请求中的 expected tree revision、派发前 observed revision/manifest 和目标路径绑定在同一
+Trace。详细算法、重放不变量与限制见[模型上下文绑定的写入 CAS](model-context-write-cas.md)。
 
 当前不向模型开放任意 shell。验收命令虽然能运行 shell/测试程序，但它来自用户提供且已经
 冻结的 TaskSpec，只在非 root、禁网、只读容器根目录且资源受限的 Docker 中运行，唯一可写

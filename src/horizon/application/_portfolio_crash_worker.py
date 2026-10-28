@@ -36,8 +36,14 @@ class _ExitAfterReplaceEffect:
     def __getattr__(self, name: str):
         return getattr(self.delegate, name)
 
-    def dispatch_safe(self, name: str, arguments: dict, attempt_id: str | None = None):
-        result = self.delegate.dispatch_safe(name, arguments, attempt_id)
+    def dispatch_safe(
+        self,
+        name: str,
+        arguments: dict,
+        attempt_id: str | None = None,
+        write_precondition=None,
+    ):
+        result = self.delegate.dispatch_safe(name, arguments, attempt_id, write_precondition)
         if name == "replace_text":
             if not attempt_id:
                 raise ValueError("Portfolio crash worker requires a durable tool attempt ID")

@@ -5,7 +5,7 @@
 本表是完整开发与验收导航。2026-09-30 已开始基础内核实现，实际证据列记录当前子范围与剩余缺口。目标路径相对 `src/horizon/`；计划测试路径相对 `tests/`；实际证据列的 `tests/` 路径相对仓库根。同一测试文件可验证多个 ID，但不能把子范围通过等同于整项通过。
 
 当前结果：2026-09-30 可靠性内核为 **92 项测试通过**；2026-10-28 的最新离线回归为
-**609 passed，11 skipped**。**11 项真实 Docker 合同**此前已单独补跑并全部通过。另已完成一次 Tool Calling 探针和一次受预算
+**611 passed，11 skipped**。**11 项真实 Docker 合同**此前已单独补跑并全部通过。另已完成一次 Tool Calling 探针和一次受预算
 保护的真实单 WorkItem Agent fixture Run。完整长程 Agent 未实现，未做独立安全复核。命令、环境、证据与限制见
 [开发进度](development-progress.md)。仍为“待填”的条目没有实现证据；“部分/初步”不代表
 完整需求通过。普通工作直接自检，关键风险及用户指定验收按需独立复核，
@@ -87,7 +87,7 @@
 | FR-903 | M3 | `retrieval/evidence.py` | `integration/test_evidence_freshness.py`：错误权限/hash 拒绝，使用证据可追溯 | 部分：EvidencePack 记录 revision/manifest/scope/index，Gateway 应用 allow/deny；每个 FTS 命中回查 immutable file Artifact，篡改、越权路径、行号/hash/content 不一致拒绝；作品集报告 v3 对一个固定闭环保存并复算 retrieval Artifact → write ContextProjection → target/preimage/revision lineage，并把同一写入的硬退出恢复 receipt 绑定进报告；独立 CLI verifier 已在删除三个 SQLite 数据库后复核该链路，但尚未把该绑定提升为所有生产写工具的强制策略，生产脱敏也未完成 |
 | FR-904 | M3 | `retrieval/retriever.py` | `fault_injection/test_retrieval_fallback.py`：empty/degraded 分开、无虚构/混版本证据 | 部分：ok/empty/degraded 分离，非 UTF-8/大小预算显式降级；无 FTS 时 bounded lexical scan 并标 `fts5_unavailable`；尚未测存储中断与真实任务降级质量 |
 | FR-1001 | M0/M4 | `tools/registry.py`, `tools/gateway.py` | `contract/test_tool_adapter.py`：只提议未执行；网关禁止后无副作用 | 部分：模型只返回 typed tool proposal；未知/未授权工具由 Gateway 拒绝；Fake 与真实模型闭环均验证；`retrieve_code` 也只能经 Gateway 返回 EvidencePack |
-| FR-1002 | M1/M4 | `tools/schemas.py`, `gateway.py` | `unit/test_tool_validation.py`：未知工具/非法参数/越界/旧版本/超预算拒绝 | 部分：Pydantic 参数、path allow/deny、symlink、大小、工具 allowlist、Run 预算门禁已实现；`read_file` Schema/错误回执强制行号上下界成对；`create_file` 强制单文件、UTF-8 64 KiB、父目录已存在和目标不覆盖；expected file hash/旧 revision CAS 未实现 |
+| FR-1002 | M1/M4 | `domain/tools.py`, `tools/gateway.py`, `application/agent_loop.py` | `integration/test_tool_gateway.py`、`integration/test_agent_loop.py`：未知工具/非法参数/越界/旧版本/超预算拒绝，模型请求后 workspace 漂移时零写入 | 部分：Pydantic 参数、path allow/deny、symlink、大小、工具 allowlist、Run 预算门禁已实现；`read_file` Schema/错误回执强制行号上下界成对；`create_file` 强制单文件、UTF-8 64 KiB、父目录已存在和目标不覆盖。三个生产写工具现以 `WorkspaceWritePrecondition` 绑定最新 execution model call、模型请求 expected tree revision、派发前 observed revision/manifest 和目标路径；manifest 携带目标完整 SHA-256，旧 revision 返回 `StaleWriteConflict` 且零写入，fresh 写入只接受唯一 expected post tree。尚未强制“特定 read receipt 先于 write”的因果证明、细粒度冲突合并或 OS 级锁 |
 | FR-1003 | M2 | `tools/gateway.py` | `fault_injection/test_fenced_dispatch.py`：旧 epoch 无效，同调用意图与 receipt 可对账 | 部分：Lease epoch、工具 intent/receipt/unknown 已接入；只读可取消重试；`replace_text`、最多 8 文件的结构化 `apply_patch` 与单文件 `create_file` 可精确 accept/rollback；create 的真实硬退出、前/后态、diverged 和离线 CLI 决策已测；`run_check` 把 reservation call ID 传到 Docker 标签，可区分 created/running/stopped 并在删除后复核 revision；created attempt 的旧 call 被取消且从不重派，续跑 check 使用新 ID，根 EvidencePack 递归验证两阶段 Trace 与终态。任意 diff、多文件新增、删除、missing attempt 证明和真正多副作用事务未完成 |
 | FR-1004 | M2/M4 | `adapters/workspace/promotion.py` | `e2e/test_staged_workspace.py`：命令修改禁止路径只在临时副本，权威树不变 | 部分：staging 与源隔离；`agent diff/promote` 复核路径权限、源/候选 revision 和可选 Git HEAD，允许显式提升 1～8 个 UTF-8 变更且至多 1 个 64 KiB 新文件，并恢复可证明的部分 effect；不支持多文件新增、删除/重命名/commit |
 | FR-1005 | M3/M4 | `context/message_pairs.py` | `contract/test_tool_pairs.py`：多调用/失败/取消/摘要后无孤立消息 | 部分：ContextProjector 把 assistant tool calls 与全部 results 当作不可拆单元，孤立/重复/错配结果拒绝；只读与精确 write 恢复会追加完整 observation；更广多调用崩溃矩阵未完成 |

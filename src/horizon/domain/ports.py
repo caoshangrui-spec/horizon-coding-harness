@@ -23,6 +23,7 @@ from horizon.domain.tools import (
     PatchRecoveryAssessment,
     ReplaceRecoveryAssessment,
     ToolOutcome,
+    WorkspaceWritePrecondition,
 )
 
 
@@ -105,6 +106,7 @@ class ToolGatewayPort(Protocol):
         name: str,
         arguments: dict[str, Any],
         attempt_id: str | None = None,
+        write_precondition: WorkspaceWritePrecondition | None = None,
     ) -> ToolOutcome: ...
     def dispatch_protected_check(
         self,

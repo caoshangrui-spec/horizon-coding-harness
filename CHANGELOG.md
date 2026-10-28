@@ -5,6 +5,12 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Added model-context-bound compare-and-swap guards for every production `replace_text`,
+  `apply_patch`, and `create_file` action. Tool reservations now bind the latest settled execution
+  model call, the workspace tree revision visible in that request, the immediately observed
+  content-addressed manifest, and target paths. Stale actions settle as zero-write error receipts;
+  fresh actions verify full target preimages and the unique post-write tree. Historical reservation
+  wire shapes remain replayable when the additive guard is absent.
 - Made deterministic context compaction a trace-bound execution-quality fact. Compacted execution
   reservations now bind the projection artifact, canonical transcript digest, source/projected
   message counts, compacted unit count, TaskSpec, and required acceptance in one event. Terminal

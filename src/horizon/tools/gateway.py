@@ -17,11 +17,14 @@ from horizon.domain.plan import WorkItem
 from horizon.domain.ports import AcceptanceExecutorPort, CodeRetrievalPort
 from horizon.domain.task import TaskSpec, relative_pattern
 from horizon.domain.tools import (
+    WRITE_TOOLS,
     AcceptanceResult,
     CreateRecoveryAssessment,
     PatchRecoveryAssessment,
     ReplaceRecoveryAssessment,
     ToolOutcome,
+    WorkspaceWritePrecondition,
+    write_target_paths,
 )
 
 MAX_FILE_BYTES = 256 * 1024
@@ -176,7 +179,11 @@ def tool_definitions() -> tuple[ToolDefinition, ...]:
         ),
         ToolDefinition(
             name="replace_text",
-            description="Atomically replace an exact string in one allowed existing file.",
+            description=(
+                "Atomically replace an exact string in one allowed existing file. The "
+                "controller binds the write to this model request's workspace revision; "
+                "external drift is rejected before writing."
+            ),
             parameters={
                 "type": "object",
                 "properties": {
@@ -193,7 +200,8 @@ def tool_definitions() -> tuple[ToolDefinition, ...]:
             name="apply_patch",
             description=(
                 "Apply one bounded batch of exact replacements to distinct allowed existing "
-                "UTF-8 files. Every edit is validated before the first write."
+                "UTF-8 files. Every edit and its manifest preimage are validated before the "
+                "first write; external drift from this model request is rejected."
             ),
             parameters={
                 "type": "object",
@@ -227,7 +235,8 @@ def tool_definitions() -> tuple[ToolDefinition, ...]:
             name="create_file",
             description=(
                 "Create exactly one new allowed UTF-8 file of at most 64 KiB. The parent "
-                "directory must already exist, and an existing target is never overwritten."
+                "directory must already exist, an existing target is never overwritten, and "
+                "external drift from this model request is rejected."
             ),
             parameters={
                 "type": "object",
@@ -372,6 +381,42 @@ class WorkspaceToolGateway:
     def checkpoint(self) -> tuple[str, str]:
         return self._snapshot()
 
+    def _direct_write_precondition(
+        self,
+        name: str,
+        arguments: dict,
+    ) -> WorkspaceWritePrecondition:
+        revision, manifest_ref = self._snapshot()
+        return WorkspaceWritePrecondition(
+            source_model_call_id="direct_gateway",
+            expected_workspace_revision=revision,
+            observed_workspace_revision=revision,
+            observed_workspace_manifest_ref=manifest_ref,
+            target_paths=write_target_paths(name, arguments),
+            stale=False,
+        )
+
+    def _validate_write_precondition(
+        self,
+        precondition: WorkspaceWritePrecondition,
+        target_paths: tuple[str, ...],
+    ) -> tuple[str, str]:
+        if precondition.target_paths != target_paths:
+            raise Conflict("Write precondition targets do not match the validated tool arguments")
+        current, manifest_ref = self._snapshot()
+        if (
+            current != precondition.observed_workspace_revision
+            or manifest_ref != precondition.observed_workspace_manifest_ref
+        ):
+            raise Conflict("Workspace changed after the write precondition was reserved")
+        if precondition.stale or current != precondition.expected_workspace_revision:
+            raise Conflict(
+                "StaleWriteConflict: model context expected workspace revision "
+                f"{precondition.expected_workspace_revision}, but the live revision is "
+                f"{current}; no write was executed. Re-inspect the current workspace."
+            )
+        return current, manifest_ref
+
     def verify_manifest(self, manifest_hash: str):
         return self.snapshots.verify(manifest_hash)
 
@@ -505,19 +550,34 @@ class WorkspaceToolGateway:
             manifest,
         )
 
-    def _replace(self, arguments: dict) -> ToolOutcome:
+    def _replace(
+        self,
+        arguments: dict,
+        precondition: WorkspaceWritePrecondition,
+    ) -> ToolOutcome:
         if self.task.execution_mode != "workspace_write":
             raise PolicyDenied("Task execution mode does not permit writes")
         args = ReplaceArgs.model_validate(arguments)
+        before, pre_manifest = self._validate_write_precondition(
+            precondition,
+            (args.path,),
+        )
+        _, pre, expected, original, encoded = self._expected_replace_snapshot(
+            arguments,
+            pre_manifest,
+        )
+        if pre.workspace_revision != before:
+            raise Conflict("Replace pre-dispatch manifest does not match the live workspace")
         target = self._path(args.path)
-        before, _ = self._snapshot()
-        original = target.read_bytes()
-        encoded = self._replacement_bytes(original, args)
+        if target.read_bytes() != original:
+            raise Conflict("Replace target changed after its preimage hash was captured")
         try:
             self._atomic_write(target, encoded, "tmp")
             after, manifest = self._snapshot()
+            if after != expected.workspace_revision:
+                raise Conflict("Workspace changed concurrently while applying the replacement")
         except BaseException:
-            if target.read_bytes() != original:
+            if target.read_bytes() == encoded:
                 self._atomic_write(target, original, "rollback")
             raise
         return self._outcome(
@@ -528,11 +588,16 @@ class WorkspaceToolGateway:
             manifest,
         )
 
-    def _apply_patch(self, arguments: dict) -> ToolOutcome:
+    def _apply_patch(
+        self,
+        arguments: dict,
+        precondition: WorkspaceWritePrecondition,
+    ) -> ToolOutcome:
         if self.task.execution_mode != "workspace_write":
             raise PolicyDenied("Task execution mode does not permit writes")
         args = ApplyPatchArgs.model_validate(arguments)
-        before, pre_manifest = self._snapshot()
+        paths = tuple(edit.path for edit in args.edits)
+        before, pre_manifest = self._validate_write_precondition(precondition, paths)
         _, pre, expected, originals, updates = self._expected_patch_snapshot(
             arguments,
             pre_manifest,
@@ -568,15 +633,28 @@ class WorkspaceToolGateway:
             manifest,
         )
 
-    def _create_file(self, arguments: dict) -> ToolOutcome:
+    def _create_file(
+        self,
+        arguments: dict,
+        precondition: WorkspaceWritePrecondition,
+    ) -> ToolOutcome:
         if self.task.execution_mode != "workspace_write":
             raise PolicyDenied("Task execution mode does not permit writes")
         args = CreateFileArgs.model_validate(arguments)
         encoded = args.content.encode("utf-8")
         if len(encoded) > MAX_CREATE_FILE_BYTES:
             raise PolicyDenied("New file exceeds the 64 KiB UTF-8 byte limit")
+        before, pre_manifest = self._validate_write_precondition(
+            precondition,
+            (args.path,),
+        )
+        _, pre, expected, expected_content = self._expected_create_snapshot(
+            arguments,
+            pre_manifest,
+        )
+        if pre.workspace_revision != before or expected_content != encoded:
+            raise Conflict("Create pre-dispatch manifest does not match the live workspace")
         target = self._new_file_path(args.path)
-        before, _ = self._snapshot()
         created_identity: tuple[int, int] | None = None
         try:
             try:
@@ -584,6 +662,8 @@ class WorkspaceToolGateway:
             except FileExistsError as exc:
                 raise PolicyDenied("create_file target must not already exist") from exc
             after, manifest = self._snapshot()
+            if after != expected.workspace_revision:
+                raise Conflict("Workspace changed concurrently while creating the file")
         except BaseException:
             if created_identity is not None:
                 try:
@@ -748,7 +828,7 @@ class WorkspaceToolGateway:
 
         pre = self.snapshots.verify(pre_manifest_ref)
         if any(entry.path.casefold() == args.path.casefold() for entry in pre.files):
-            raise Conflict("Create target already exists in the pre-dispatch manifest")
+            raise Conflict("create_file target must not already exist in the pre-dispatch manifest")
         entries = [
             *pre.files,
             FileEntry(
@@ -1098,21 +1178,30 @@ class WorkspaceToolGateway:
         name: str,
         arguments: dict,
         attempt_id: str | None = None,
+        write_precondition: WorkspaceWritePrecondition | None = None,
     ) -> ToolOutcome:
         allowed = {tool.name for tool in self.definitions}
         if name not in allowed:
             raise PolicyDenied("Tool is not allowed by the current WorkItem")
+        if name in WRITE_TOOLS and write_precondition is None:
+            write_precondition = self._direct_write_precondition(name, arguments)
         handlers = {
             "search_repo": self._search,
             "read_file": self._read,
             "retrieve_code": self._retrieve,
-            "replace_text": self._replace,
-            "apply_patch": self._apply_patch,
-            "create_file": self._create_file,
             "submit": self._submit,
         }
         if name == "run_check":
             return self._run_check(arguments, attempt_id)
+        if name == "replace_text":
+            assert write_precondition is not None
+            return self._replace(arguments, write_precondition)
+        if name == "apply_patch":
+            assert write_precondition is not None
+            return self._apply_patch(arguments, write_precondition)
+        if name == "create_file":
+            assert write_precondition is not None
+            return self._create_file(arguments, write_precondition)
         return handlers[name](arguments)
 
     def dispatch_safe(
@@ -1120,14 +1209,16 @@ class WorkspaceToolGateway:
         name: str,
         arguments: dict,
         attempt_id: str | None = None,
+        write_precondition: WorkspaceWritePrecondition | None = None,
     ) -> ToolOutcome:
         try:
-            return self.dispatch(name, arguments, attempt_id)
+            return self.dispatch(name, arguments, attempt_id, write_precondition)
         except (HorizonError, ValueError) as exc:
-            revision = self.current_revision()
+            revision, manifest_ref = self._snapshot()
             return self._outcome(
                 "error",
                 f"{type(exc).__name__}: {exc}",
                 revision,
                 revision,
+                manifest_ref if name in WRITE_TOOLS else None,
             )

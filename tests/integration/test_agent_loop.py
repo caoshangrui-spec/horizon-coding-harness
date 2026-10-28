@@ -254,7 +254,7 @@ class InterruptToolDispatch:
     def __getattr__(self, name):
         return getattr(self.delegate, name)
 
-    def dispatch_safe(self, name, arguments, attempt_id=None):
+    def dispatch_safe(self, name, arguments, attempt_id=None, write_precondition=None):
         raise RuntimeError("simulated process exit after durable tool intent")
 
 
@@ -265,8 +265,8 @@ class InterruptAfterToolDispatch:
     def __getattr__(self, name):
         return getattr(self.delegate, name)
 
-    def dispatch_safe(self, name, arguments, attempt_id=None):
-        self.delegate.dispatch_safe(name, arguments, attempt_id)
+    def dispatch_safe(self, name, arguments, attempt_id=None, write_precondition=None):
+        self.delegate.dispatch_safe(name, arguments, attempt_id, write_precondition)
         raise RuntimeError("simulated process exit after tool side effect")
 
 
@@ -721,6 +721,102 @@ def test_agent_loop_edits_runs_protected_validation_and_succeeds(tmp_path, task_
         "Controller-owned mandatory facts" in (request.messages[0].content or "")
         for request in model.requests
     )
+
+    write_reservation_event = next(
+        event
+        for event in store.events(run_id)
+        if event.event_type == "TOOL_CALL_RESERVED"
+        and event.payload["reservation"]["name"] == "replace_text"
+    )
+    write_reservation = ToolCallReservation.model_validate(
+        write_reservation_event.payload["reservation"]
+    )
+    precondition = write_reservation.write_precondition
+    assert precondition is not None
+    assert precondition.source_model_call_id == result.model_calls[1].call_id
+    assert precondition.expected_workspace_revision == precondition.observed_workspace_revision
+    assert (
+        precondition.observed_workspace_revision == result.tool_calls[1].workspace_revision_before
+    )
+    assert precondition.target_paths == ("src/parser.py",)
+    assert precondition.stale is False
+    preimage = runner.tools.verify_manifest(precondition.observed_workspace_manifest_ref)
+    parser_entry = next(entry for entry in preimage.files if entry.path == "src/parser.py")
+    parser_preimage = runner.session_store.read(parser_entry.sha256)
+    assert parser_entry.sha256 == hashlib.sha256(parser_preimage).hexdigest()
+    assert b"return [value]" in parser_preimage
+    assert b"return [] if" not in parser_preimage
+
+    tampered_payload = dict(write_reservation_event.payload)
+    tampered_reservation = dict(tampered_payload["reservation"])
+    tampered_precondition = dict(tampered_reservation["write_precondition"])
+    tampered_precondition["source_model_call_id"] = result.model_calls[0].call_id
+    tampered_reservation["write_precondition"] = tampered_precondition
+    tampered_payload["reservation"] = tampered_reservation
+    tampered_event = write_reservation_event.model_copy(
+        update={"payload": tampered_payload, "event_hash": ""}
+    )
+    tampered_event = tampered_event.model_copy(
+        update={"event_hash": tampered_event.calculated_hash()}
+    )
+    events = store.events(run_id)
+    event_index = next(
+        index for index, event in enumerate(events) if event.seq == write_reservation_event.seq
+    )
+    with pytest.raises(IntegrityError, match="latest settled execution model call"):
+        project([*events[:event_index], tampered_event])
+
+
+def test_agent_loop_rejects_stale_model_write_and_preserves_external_change(
+    tmp_path,
+    task_dict,
+):
+    arguments = {
+        "path": "src/parser.py",
+        "old": "return [value]",
+        "new": "return [] if value == '' else [value]",
+    }
+    runner, store, run_id, token, workspace, _ = setup_loop(
+        tmp_path,
+        task_dict,
+        [("read_file", {"path": "src/parser.py"})],
+    )
+
+    class DriftDuringModelCall(ScriptedModel):
+        def generate(self, request, trace_id):
+            target = workspace / "src/parser.py"
+            target.write_text(
+                target.read_text(encoding="utf-8") + "# external user edit\n",
+                encoding="utf-8",
+            )
+            return super().generate(request, trace_id)
+
+    runner.model = DriftDuringModelCall([("replace_text", arguments)])
+    result = runner.run(run_id, token, max_iterations_this_invocation=1)
+
+    content = (workspace / "src/parser.py").read_text(encoding="utf-8")
+    assert "# external user edit" in content
+    assert "return [] if" not in content
+    assert len(result.tool_calls) == 1
+    record = result.tool_calls[0]
+    assert record.name == "replace_text"
+    assert record.status == "error"
+    assert record.workspace_revision_before == record.workspace_revision_after
+    assert record.artifact_ref is not None
+    assert "StaleWriteConflict" in runner.session_store.read(record.artifact_ref).decode("utf-8")
+
+    reservation_event = next(
+        event for event in store.events(run_id) if event.event_type == "TOOL_CALL_RESERVED"
+    )
+    reservation = ToolCallReservation.model_validate(reservation_event.payload["reservation"])
+    precondition = reservation.write_precondition
+    assert precondition is not None
+    assert precondition.stale is True
+    assert precondition.expected_workspace_revision != precondition.observed_workspace_revision
+    assert precondition.observed_workspace_revision == record.workspace_revision_before
+    assert precondition.target_paths == ("src/parser.py",)
+    assert precondition.source_model_call_id == result.model_calls[0].call_id
+    assert SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id)).as_dict() == result.as_dict()
 
 
 def test_agent_loop_create_file_is_bound_to_intent_receipt_memory_and_trace(
@@ -3225,9 +3321,14 @@ def test_agent_cancellation_after_first_tool_blocks_remaining_dispatches(tmp_pat
         def __getattr__(self, name):
             return getattr(self.delegate, name)
 
-        def dispatch_safe(self, name, arguments, attempt_id=None):
+        def dispatch_safe(self, name, arguments, attempt_id=None, write_precondition=None):
             self.dispatches += 1
-            outcome = self.delegate.dispatch_safe(name, arguments, attempt_id)
+            outcome = self.delegate.dispatch_safe(
+                name,
+                arguments,
+                attempt_id,
+                write_precondition,
+            )
             pending = runner.service.cancel(run_id, "cancel-during-first-tool")
             assert pending.cancel_requested is True
             return outcome

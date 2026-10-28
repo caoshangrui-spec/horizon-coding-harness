@@ -6,6 +6,33 @@
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
 
+## 2026-10-28 模型上下文绑定的写入 CAS
+
+- `replace_text`、`apply_patch` 和 `create_file` 的生产 Agent Loop reservation 现增加
+  `WorkspaceWritePrecondition`。它绑定最新已结算 execution model call、该模型请求
+  `MandatoryFactLedger` 中的 expected workspace tree revision、派发前 observed revision、
+  content-addressed manifest 和候选目标路径；控制器自动建立，不把哈希字段交给模型填写。
+- 模型请求返回前若用户或其他进程改变任意快照可见文件，expected 与 observed revision 不同。
+  Gateway 以 `StaleWriteConflict` 结算 error receipt，前后 revision 相同且不进入写函数。正常路径
+  在持久 intent 后再次核对 revision/manifest，从 manifest CAS blob 验证目标完整 preimage，
+  写入后只接受唯一 expected post tree。
+- `replace_text` 现在也像既有多文件 patch 一样执行 post-tree 校验；`create_file` 增加 expected
+  post-tree 校验。并发漂移时补偿逻辑只回滚仍精确等于本次 expected bytes/inode identity 的内容，
+  不覆盖外部修改。多个写调用若来自同一模型响应，第一个成功后第二个会因旧 revision 被拒绝；
+  多文件原子候选应使用一次有界 `apply_patch`。
+- Reducer 要求 precondition 只能绑定当时最新 execution model call，stale receipt 必须零写入，
+  fresh success 的 preimage 必须等于 expected/observed revision。重新计算事件 hash 后把来源改绑到
+  更旧模型调用的测试仍被语义拒绝；未携带新字段的历史 reservation 继续保持旧 wire shape。
+- 新增真实 Agent Loop 漂移测试：模型请求期间外部追加目标文件，候选 replacement 未执行，外部
+  内容完整保留，错误 Artifact、reservation、manifest 与 Trace 重放一致。Gateway、Agent Loop、
+  CLI、崩溃恢复及模型合同的扩大聚焦回归为 **161 passed**；最终离线全量为
+  **611 passed，11 skipped**，Ruff 格式/静态检查、Doctor smoke 和离线 sdist/wheel 构建通过。
+  11 项 skip 仍是需要显式本机镜像的 Docker 合同；本轮未联网执行模型、未调用付费模型。公开
+  CI 需在提交推送后单独报告。
+- 完整算法、Trace 不变量和明确限制见
+  [模型上下文绑定的写入 CAS](model-context-write-cas.md)。当前是模型请求 tree CAS，不是特定
+  `read_file` receipt 到 write 的因果证明，也不是 OS 锁、冲突合并或跨 SQLite/文件系统事务。
+
 ## 2026-10-28 上下文压缩进入可重放质量证据
 
 - `ContextProjection` 原本已经内容寻址保存并在恢复时逐字段核对，但终态可靠性摘要无法看出
@@ -1293,8 +1320,8 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 七轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 609 passed；全量入口对应
-609 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
+当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 611 passed；全量入口对应
+611 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
 `run_model_cost_limit` 进入 `FAILED`。没有工具、编辑、checkpoint 或验证，Trace 14 事件可重放，
