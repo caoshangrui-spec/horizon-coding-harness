@@ -1,6 +1,6 @@
 # 开发进度与验证记录
 
-更新：2026-10-27。已发布版本和主干包元数据均为 0.3.0；版本范围与发布证据见
+更新：2026-10-28。已发布版本和主干包元数据均为 0.3.0；版本范围与发布证据见
 [v0.3.0 release notes](release-v0.3.0.md)。2026-09-30 的
 可靠性内核证据保留，本次在其上增加 Provider 垂直切片和首个受控 Coding Agent 闭环。
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
@@ -19,9 +19,27 @@
   NoProgress 策略回执不被误计为 degradation。旧 arm 可省略 reliability，旧 suite 质量字段按 0
   读取；冻结 manifest 与 digest 未修改。
 - 本批未增加 scheduler、数据库事件、付费模型调用或公开任务数量。全量离线回归为
-  **607 passed，11 skipped**，Ruff 格式与静态检查、离线构建通过；来源绑定 Docker workflow
-  下一次运行会要求四组 suite 的 reliability facts 覆盖全部 arm、成功质量拆分闭合，并要求完整
-  checkout 实际出现 retrieval-degraded quality-flagged success。历史公开 artifact 不回填新字段。
+  **607 passed，11 skipped**，Ruff 格式与静态检查、离线构建通过。
+- 首次公开复跑
+  [`40673288132`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40673288132)
+  的四组 suite、Docker 合同、证据上传均成功，但最后的摘要门禁误把三阶段 Baseline 预期成
+  3 条 known required-check failure，因而失败。实际 Trace-derived facts 为 3 条
+  `acceptance_evidence_unknown`、0 条 known failure：前两项局部检查已通过，但当前 Task 的完整
+  required acceptance 尚无最终 receipt。该失败保留为证据定义错误，没有改写 report 或伪报通过。
+- 修正门禁后，公开复跑
+  [`40682108470`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40682108470)
+  的 Docker 合同、四组 suite、artifact 上传和摘要发布全部成功；标准 CI
+  [`40682108483`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40682108483)
+  同步通过。统一 artifact ID `12813023460`，201,900,712 bytes，digest
+  `sha256:e1a37b2308e7992244d096cde9f629ceea5df3c2290d6cb1ea2e474bf6dd7735`，保留至
+  2026-11-27。未调用付费模型，评测路径未发起模型网络请求。
+
+| Suite | Cases passed | Unknown acceptance | Clean / flagged success | Known check failure | Retrieval-degraded arms | Degradation records |
+|---|---:|---:|---:|---:|---:|---:|
+| dependency-reduced v2 | 5/5 | 5 | 5 / 0 | 0 | 0 | 0 |
+| full-checkout v8 | 15/15 | 15 | 1 / 14 | 0 | 28 | 56 |
+| multi-stage v4 | 3/3 | 3 | 0 / 3 | 0 | 6 | 27 |
+| hard-crash v1 | 1/1 | 1 | 0 / 1 | 0 | 2 | 9 |
 
 ## 2026-10-27 Terminal Suite 可靠性聚合
 

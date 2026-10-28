@@ -12,6 +12,11 @@ for public releases; unreleased work must not be presented as a published releas
   share one facts derivation path; a focused unreadable-source regression proves that protected
   validation may pass while retrieval degradation remains visible. Legacy arm and suite reports
   remain readable, and frozen benchmark manifests and digests are unchanged.
+- Corrected the public Docker quality gate after its first rerun classified three multi-stage
+  Baselines correctly as unknown acceptance while CI incorrectly expected known check failures. The
+  failed summary run is retained as a negative result, failure diagnostics now print every suite's
+  reliability facts, and the corrected public rerun passed all suites and published the unified
+  content-addressed evidence artifact without paid-model or model-network calls.
 - Upgraded terminal-suite evidence to schema v2. The offline aggregate now keeps raw Run success
   separate from clean versus quality-flagged success, and reports unknown acceptance, known required-
   check failure, per-flag Run counts, fallback, degradation, and trace-bound retrieval degradation.

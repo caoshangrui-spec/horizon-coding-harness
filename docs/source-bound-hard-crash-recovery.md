@@ -124,6 +124,12 @@ digest 为 `sha256:30c69b28d8c38602b5e0b7a83ad355ca27bb7da8a284958b1f3aa4e0e3152
 `source_bound_run_ab_multi_stage_hard_crash_docker_verified_count` 因此从 0 提升为 1。该公开结果
 证明同一冻结合同在生产 Docker 验收路径可复现，但仍不改变下一节的能力边界。
 
+2026-10-28 的质量聚合公开 run
+[`40682108470`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40682108470)
+再次通过 1/1：2 条故障 arm 均恢复、恢复率 1.0、重派与重复副作用均为 0；Baseline 为 unknown
+acceptance，Treatment 为带检索降级的 quality-flagged success，2 条 arm 共保留 9 条 degradation
+record。该新增分类没有改变硬崩溃 manifest、故障点或恢复结论。
+
 ## 6. 明确边界
 
 当前可以声称：一个作者选择的完整上游任务，已真实经历“写入 effect 已发生、receipt 未提交”的

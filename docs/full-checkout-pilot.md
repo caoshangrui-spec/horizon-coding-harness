@@ -221,8 +221,10 @@ query 曾把目标排 rank 3/4，随后用 failing-test 已知的配置常量或
 Run A/B 新生成的 arm/case/suite report 现在会直接消费 Trace 中的检索 degradation：上述跳过文件
 不再只存在于单次 EvidencePack，而会进入 `retrieval_degraded_arm_count`、
 `degradation_record_count` 和逐 flag arm 数。required check 通过仍可保持 `SUCCEEDED`，但该 arm
-会归入 quality-flagged success 而不是 clean success。此变更没有修改 v8 manifest 或公开 run
-`40311947427` 的历史 artifact；精确聚合值以采用新代码的下一次 workflow 产物为准。
+会归入 quality-flagged success 而不是 clean success。此变更没有修改 v8 manifest；采用新代码的
+公开 run [`40682108470`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40682108470)
+已给出精确聚合：30 条 arm 中 unknown acceptance 15、known check failure 0、clean success 1、
+quality-flagged success 14、retrieval-degraded arm 28、degradation record 56。
 
 公开 run [`40311947427`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40311947427)
 随后在生产 Docker adapter 与禁网容器中通过完整 checkout 15/15、三阶段 3/3 与硬崩溃 1/1。
@@ -230,6 +232,11 @@ Run A/B 新生成的 arm/case/suite report 现在会直接消费 Trace 中的检
 `sha256:764e8ee2af63a050bb8465542adf69e9fc521e24aebc502eff312bc91b457b84`，创建于
 `2026-10-26T11:07:03Z`、到期于 `2026-11-25T11:06:35Z`。当前 doctor 的来源案例数与公开
 Docker verified count 均为 15。
+
+上述质量聚合复跑的统一 artifact ID 为 `12813023460`，201,900,712 bytes，digest
+`sha256:e1a37b2308e7992244d096cde9f629ceea5df3c2290d6cb1ea2e474bf6dd7735`；同一 job 也通过
+dependency-reduced 5/5、三阶段 3/3、硬崩溃 1/1 和全部 Docker 合同。旧 run `40311947427`
+继续作为 v8 初次公开 15/15 的历史证据，不回填当时不存在的质量字段。
 
 ### 3.2 v7 三种失效模式的本地证据
 

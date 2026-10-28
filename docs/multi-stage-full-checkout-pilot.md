@@ -371,6 +371,14 @@ checkout 保持 clean。该运行记录 `paid_model_called=false`、`network_cal
 2026-11-23。doctor 的 `source_bound_run_ab_multi_stage_case_count` 与
 `source_bound_run_ab_multi_stage_docker_verified_count` 因而均为 3。
 
+新增质量聚合后的公开统一 run
+[`40682108470`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40682108470)
+保持 3/3，并把 6 条 arm 的 Trace-derived 状态分列为：3 条 Baseline unknown acceptance、0 条
+known check failure、3 条 quality-flagged Treatment success、6 条 retrieval-degraded arm 和 27 条
+degradation record。三个 case 的两条 arm 都经历完整 checkout 的 partial-index Code RAG，因此
+“Treatment 成功”不再被误读为 clean success；12 次 Worker restart、Trace replay 1.0、source unchanged 1.0 和最终
+open effect 0 保持不变。
+
 本批还评估过 Tornado 多阶段候选。首版多行替换受 Windows CRLF 影响无法精确匹配；缩成单行后，
 同一 `assert self.stream is not None` 在文件中出现两次，现有 exact replacement 合同无法无歧义地
 只选 handler 位置。项目没有为这一个 benchmark 引入“第 N 次 occurrence”工具语义，而是保留

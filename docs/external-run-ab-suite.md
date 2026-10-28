@@ -113,6 +113,13 @@ Docker 工作流已独立补齐同一 v2 的正式容器执行。
 工作流成功证明的是 dependency-reduced fixture 的生产 Docker Harness 路径，不把裁剪案例扩写成
 完整上游 checkout 或官方 BugsInPy 分数。
 
+2026-10-28 的统一质量聚合公开 run
+[`40682108470`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40682108470)
+再次通过 5/5，并首次发布该 suite 的 arm 级质量字段：10 条 arm 全部带可复核 reliability facts，
+5 条等待中的 Baseline 为 unknown acceptance，5 条 Treatment 全部是 clean success，known check
+failure、retrieval degradation 和其他 degradation 均为 0。该结果与 dependency-reduced fixture
+使用 `read_file`、不经过 Code RAG 的范围一致。
+
 ### 4.3 v1 历史 Docker 结果
 
 2026-10-03 使用官方镜像 digest

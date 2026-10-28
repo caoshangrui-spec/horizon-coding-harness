@@ -68,7 +68,7 @@ status-independent facts 计算器，避免 required-check 和 degradation 在�
 | Suite | 公开来源 | 场景 | 长程/故障结构 |
 |---|---|---:|---|
 | `bugsinpy-reduced-v2` | Cookiecutter、FastAPI、tqdm、Luigi、Tornado | 5 | dependency-reduced A/B；用于较快回归 |
-| `bugsinpy-full-checkout-pilot-v8` | v7 十二例 + Sanic-5、TheFuck-2、Luigi-2 | 15 | 9 个项目、4,491 tracked files；三个新增案例本地完整 Harness 为 3/3，生产目标检索均为 rank 1；公开 run `40311947427` 已通过 15/15 |
+| `bugsinpy-full-checkout-pilot-v8` | v7 十二例 + Sanic-5、TheFuck-2、Luigi-2 | 15 | 9 个项目、4,491 tracked files；三个新增案例本地完整 Harness 为 3/3，生产目标检索均为 rank 1；统一质量聚合公开 run `40682108470` 已通过 15/15 |
 | `bugsinpy-multi-stage-pilot-v4` | youtube-dl、Luigi、FastAPI | 3 | 每条 arm 为 3 WorkItem、2 次 Worker 重启；合计 6 条 Trace、12 次重启 |
 | `bugsinpy-multi-stage-hard-crash-v1` | Luigi | 1 | 两条 arm 均真实写入后、receipt 前退出，再跨两个 WorkItem 边界；合计 2 次恢复尝试、6 次重启 |
 
@@ -102,6 +102,22 @@ $result.report.reliability
 硬崩溃的恢复成功率、恢复重派、重复副作用、最终悬空 effect 和 P95。上传 artifact 保留各 case
 report、JSONL Trace、content-addressed Artifact 与顶层 CLI JSON，可对摘要逐项复核。
 
+2026-10-28 的公开统一复跑
+[`40682108470`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40682108470)
+首次用生产 Docker 路径发布新增质量字段，结果如下：
+
+| Suite | Cases | Arms | Unknown acceptance | Clean / flagged success | Known check failure | Retrieval-degraded arms | Degradation records |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| dependency-reduced v2 | 5/5 | 10 | 5 | 5 / 0 | 0 | 0 | 0 |
+| full-checkout v8 | 15/15 | 30 | 15 | 1 / 14 | 0 | 28 | 56 |
+| multi-stage v4 | 3/3 | 6 | 3 | 0 / 3 | 0 | 6 | 27 |
+| hard-crash v1 | 1/1 | 2 | 1 | 0 / 1 | 0 | 2 | 9 |
+
+三阶段与硬崩溃 suite 还分别记录 12/6 次 Worker restart；硬崩溃的 2 条 arm 均恢复，恢复率
+1.0、模型重派 0、重复副作用 0。统一 artifact ID `12813023460`，201,900,712 bytes，digest
+`sha256:e1a37b2308e7992244d096cde9f629ceea5df3c2290d6cb1ea2e474bf6dd7735`，保留至
+2026-11-27。
+
 ## 5. 验收门槛
 
 CI 不只检查 `all_expectations_met`。三阶段 suite 还必须满足：三个 timed scenario、Trace replay
@@ -110,9 +126,17 @@ arm 全部恢复、recovery rate 1.0、redispatch 0、duplicate side effect 0、
 final open effect 0。四组 suite 还必须让 reliability facts 覆盖全部 arm，并让 clean 与
 quality-flagged success 之和等于原始 terminal success；dependency-reduced suite 固定为 5 个 clean
 Treatment，完整 checkout 必须实际观察到 retrieval-degraded arm 与 quality-flagged success。
-三阶段 Baseline 在已完成部分 WorkItem 检查、但尚未覆盖全部 required acceptance 时保留为
-`required_checks_failed`，而不是被误写成 unknown。任一条件失败都会让证据发布步骤失败，而不是
-只在 Markdown 中显示警告。
+三阶段 Baseline 虽已完成部分 WorkItem 检查，但当前 Task 的全部 required acceptance 尚无最终
+receipt，因此保留为 `acceptance_evidence_unknown`；只有存在当前、已知且未全过的最终验收
+receipt 才计入 `required_checks_failed`。任一门槛失败都会让证据发布步骤失败，而不是只在
+Markdown 中显示警告。
+
+首次新增质量门禁的公开 run
+[`40673288132`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40673288132)
+已经成功执行并上传四组 suite，却因 CI 将上述 3 条 unknown 误期望为 known failure 而在摘要步骤
+失败。门禁按 Trace 语义修正为 known failure 0，并增加失败时打印全部 suite reliability facts；
+随后 run `40682108470` 全部通过。这里保留第一次失败，避免把门禁错误包装成任务执行失败或静默
+删除负结果。
 
 `network_called=false` 表示评测中的 Harness/模型路径没有出站调用；GitHub job 在评测前获取公开
 源码和 Docker image 仍需要网络。`paid_model_called=false` 表示全部动作来自冻结 Scripted Model，
