@@ -6,6 +6,22 @@
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
 
+## 2026-10-28 上下文压缩进入可重放质量证据
+
+- `ContextProjection` 原本已经内容寻址保存并在恢复时逐字段核对，但终态可靠性摘要无法看出
+  某次成功是否折叠过 canonical transcript。现在发生压缩的 `ModelCallReservation` 额外绑定
+  `compacted_unit_count` 与源 transcript digest；没有压缩时继续省略新字段，保持历史 wire shape。
+- 同一个 `MODEL_CALL_RESERVED` 事件原子保存 `ContextCompactionRecord`，绑定 model call、投影
+  Artifact ref、源 digest、源/投影消息数、折叠单元数、TaskSpec 与 required acceptance。重放器
+  拒绝缺少记录、无压缩却伪带记录、字段不一致或重复 call ID；TaskSpec 修订清空当前合同投影，
+  append-only 历史事件不删除。
+- 终态和 Run A/B 复用的 reliability facts 现增加 `context_compacted`。原始 `SUCCEEDED` 与
+  required-check 结果不变，但成功会归入 quality-flagged 而非 clean；它不增加
+  `retrieval_degraded` 或 degradation record。Terminal EvidencePack 已通过 Trace 重放复算该标记。
+- 聚焦的 Context/Reservation/Agent Loop/doctor 回归为 **31 passed**；状态机、恢复、预算、终态
+  EvidencePack、terminal-suite、Run A/B 与完整 Agent Loop 扩大回归为 **175 passed**。均未联网、
+  未调用付费模型。最终全量为 **609 passed，11 skipped**；跳过项仍是需要本机 Docker 的合同。
+
 ## 2026-10-28 Run A/B 成功质量与检索降级聚合
 
 - 把终态 EvidencePack 原有的 required-check、unknown acceptance、unknown/open effect 和
@@ -75,7 +91,8 @@
   lexical/partial-index 策略、call ID、Artifact ref、Task 与 required-acceptance hash 同原
   `TOOL_CALL_SETTLED` 原子提交。Run 投影仅在存在记录时增加字段，保持旧 Trace projection hash；
   TaskSpec 修订会清空当前合同的投影 history，但旧事件仍保留。终态摘要现能展示真实检索降级；
-  model fallback、context-summary/model degradation 仍无生产事件，不从日志猜测。
+  model fallback、模型语义摘要/model degradation 仍无生产事件，不从日志猜测。确定性上下文折叠
+  后续已用独立记录接入，见本文 2026-10-28 最新段。
 - 本批 Provider 合同新增 29 个测试 case，连同 doctor 入口断言共 30 项；终态集成另新增已知
   check failure、schema v1 兼容、可靠性元数据篡改拒绝、真实 lexical degradation 端到端和
   伪绑定原子回滚回归。当前离线全量 **603 passed，11 skipped**；未联网、未调用付费模型。
@@ -236,7 +253,7 @@
 | 本地子进程 Supervisor | [local_process_supervision.py](../src/horizon/application/local_process_supervision.py)、[_local_agent_worker.py](../src/horizon/application/_local_agent_worker.py)、[设计与边界](local-process-supervisor.md)、[父崩溃恢复](parent-controller-crash-recovery.md) | `agent run/resume --worker-process` 让每个 slice 由真实直接子进程执行；父进程先持久化 launch ID/PID 与启动授权再放行，正常同步 reap 后按精确 Run/Lease/epoch/session/event cursor 通过 RecoveryService 门禁。父进程 hard kill 后活动 launch 持续阻止接管，TTL 后仍须匹配 PID 停止确认；`Ctrl+C` 与 slice timeout 复用取消栅栏。pending intent 原样阻塞、无 retry/fallback；不是 daemon、自动探活/重启、进程树、OS 灾难恢复或跨主机恢复 |
 | 直接子 Worker timeout 一键 EvidencePack | [process_timeout_demo.py](../src/horizon/application/process_timeout_demo.py)、[_process_timeout_demo_worker.py](../src/horizon/application/_process_timeout_demo_worker.py)、[领域合同](../src/horizon/domain/process_timeout_demo.py)、[演示合同](process-timeout-cancellation-demo.md)、[面试讲解](interview-demo.md) | `demo process-timeout` 启动一个真实直接子进程，ready marker 绑定 launch ID/PID/Lease/epoch/launch event hash；根包验证 process launch→start authorization→cancel fence→synchronous reap→terminal cancel，并递归重放通用终态子包。标准 CI 发布保留 14 天的 artifact。无模型/工具/网络/Docker/仓库代码调用；只覆盖一个父侧 timeout，不等同于父/OS 自动恢复、进程树、跨主机或 exactly-once 验收 |
 | 执行证据驱动的受限 Replan | [plan.py](../src/horizon/domain/plan.py)、[services.py](../src/horizon/application/services.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 模型显式 `revise_plan`，最多 1 次成功；大型动态 Schema 只在当前 WorkItem 已积累至少两轮执行证据或已有通过项后暴露，并用持久会话元数据保持崩溃恢复请求稳定；完成项逐字段不可变，工具 receipt、Plan vN+1、新 session 同事务；未做真实模型效果评测 |
-| 确定性 ContextProjection + MandatoryFactLedger | [context.py](../src/horizon/application/context.py)、[context.py](../src/horizon/domain/context.py) | 完整 transcript 留存；候选投影同时满足字符上限与覆盖工具 Schema 的完整请求保守 token 上界，执行期再按 Run/Campaign/单调用最小 CNY 余量收窄 effective cap，近期完整单元在任一硬上限需要时只折叠最少数量，incomplete 单元绝不折叠；新 Projection/Reservation 使用 Adapter 实际 OpenAI-compatible body 字节，绑定版本化 estimator、payload hash/字段分量、上界与 effective cap，并按 estimator ID 恢复 v1；Task/Plan/权限/验收/预算/策略/工具 Schema/workspace 另做内容寻址绑定；不是精确 tokenizer、语义压缩或 Project Memory |
+| 确定性 ContextProjection + MandatoryFactLedger | [context.py](../src/horizon/application/context.py)、[context.py](../src/horizon/domain/context.py)、[实现与恢复合同](context-projection.md) | 完整 transcript 留存；候选投影同时满足字符上限与覆盖工具 Schema 的完整请求保守 token 上界，执行期再按 Run/Campaign/单调用最小 CNY 余量收窄 effective cap，近期完整单元在任一硬上限需要时只折叠最少数量，incomplete 单元绝不折叠；新 Projection/Reservation 使用 Adapter 实际 OpenAI-compatible body 字节，绑定版本化 estimator、payload hash/字段分量、上界与 effective cap，并按 estimator ID 恢复 v1。实际折叠还以 `ContextCompactionRecord` 同 model reservation 入 Trace，终态及 suite 以 `context_compacted` 区分 clean/quality-flagged success；Task/Plan/权限/验收/预算/策略/工具 Schema/workspace 另做内容寻址绑定；不是精确 tokenizer、语义压缩或 Project Memory |
 | 证据驱动的 Run Memory | [memory.py](../src/horizon/application/memory.py)、[memory.py](../src/horizon/domain/memory.py) | 从工具事件和内容寻址输出派生；保留失败/unknown，按 workspace revision 失效并绑定模型请求恢复边界；仅 run scope，不是 Project Memory |
 | 精确模式无进展保护 | [agent_loop.py](../src/horizon/application/agent_loop.py) | 同一 revision 下，相同精确动作第 3 次、period-2 第 5 步、period-3/4 第 3p-1 步软阻断；继续模式分别在第 4/6/3p 步进入可恢复人工等待；最小周期校验防止短周期重复冒充长周期；不是语义或任意周期检测 |
 | Revision-aware 词法 Code RAG | [retrieval.py](../src/horizon/domain/retrieval.py)、[sqlite_fts.py](../src/horizon/adapters/retrieval/sqlite_fts.py)、[retrieval_eval.py](../src/horizon/application/retrieval_eval.py)、[retrieval_sources.py](../src/horizon/application/retrieval_sources.py) | SQLite FTS5/BM25、有界 EvidencePack、权限/revision/hash 回查、显式 scan fallback；内部/命名变体/同名符号与两批外部小样本均保留成功和负结果。新增 7 项目 24 案例冻结集：16 个 development 的 Hit@1=11/16、Hit@5=16/16、Recall@5=18/20、MRR=0.817708，3 个 degraded，另 8 个 holdout 仍密封；development 源码现可从固定公开 URL/commit/package 一键重建并核对文件数、字节数、内容树 digest，冻结排名可排除机器耗时后逐项验真。已知困难子集的 16 个冻结查询扰动显示英文改写 Recall@8=8/8、中文描述仅 1/8，保留为多语言负结果。七轮真实模型 Trace 的 10 次 `retrieve_code` 中，6 次可由 canonical 参数哈希匹配到 3 种公开英文 query，保守候选 6/6 原样旁路；另外 4 次原文和语言保持 `UNKNOWN`。无 AST/向量/symbol 图、真实查询分布或模型修复收益结论 |
@@ -258,7 +275,7 @@
 | SiliconFlow 严格配置与 OpenAI-compatible adapter | [config.py](../src/horizon/adapters/model/config.py)、[openai_compatible.py](../src/horizon/adapters/model/openai_compatible.py) | Adapter 与预算器共用 canonical wire encoder，实际 HTTP body 的 bytes/hash 可复算；真实 Tool Calling 探针和历史 fixture Agent Run 通过；完整 checkout Pilot 已真实调用并以受控终态失败，无隐式 retry/fallback |
 | CNY Campaign 与 Run 模型费用账本 | [campaign_budget.py](../src/horizon/adapters/persistence/campaign_budget.py)、[run.py](../src/horizon/domain/run.py)、[budget-stop-semantics.md](budget-stop-semantics.md) | Campaign 跨重启硬上限；Run 绑定 CNY policy 并事件化；执行请求先按三类最小余量确定性压缩可压缩历史，仍付不起则携带 reason/scope/required/available 及未派发请求 sizing evidence 原子进入 `FAILED` 并清除 Lease；unknown 用量仍保守对账；TaskSpec 旧 USD 字段尚未迁移 |
 | 一键离线作品集 EvidencePack | [portfolio_demo.py](../src/horizon/application/portfolio_demo.py)、[_portfolio_crash_worker.py](../src/horizon/application/_portfolio_crash_worker.py)、[portfolio_demo.py](../src/horizon/domain/portfolio_demo.py)、[portfolio-demo.md](portfolio-demo.md) | `horizon demo run` 复用真实事件/Lease/会话/RAG/Gateway/验证主链路：epoch 1 完成错误回执交接，epoch 2 子进程在 `replace_text` effect 后、receipt 前 `os._exit(86)`，Supervisor 先标 unknown、围栏旧 Lease，再由 epoch 3 精确接纳既有 effect 且不重放写入。v3 报告锚定崩溃标记、恢复 disposition 和可从 Trace 复算的检索→写入 lineage；`demo verify-portfolio` 可在删除三个 SQLite 数据库后重放并复核，标准 CI 上传完整目录。兼容读取 v1/v2；零网络/零真实模型/零外部费用，不冒充任意故障窗口或模型能力证据 |
-| 通用终态 EvidencePack | [terminal_evidence.py](../src/horizon/application/terminal_evidence.py)、[terminal_evidence.py](../src/horizon/domain/terminal_evidence.py)、[合同与边界](terminal-evidence-pack.md) | `trace bundle` 对成功、失败、取消统一导出 Trace、规范终态与 schema v2 可靠性摘要；`verify-bundle` 无数据库离线重放并复算。区分 unknown acceptance、已知 required-check failure 与 unknown/open effect；真实 retrieval degradation 从同事件工具回执进入 history，schema v1 继续兼容验证。model fallback history 尚空；这是自洽性清单，不是签名或来源认证 |
+| 通用终态 EvidencePack | [terminal_evidence.py](../src/horizon/application/terminal_evidence.py)、[terminal_evidence.py](../src/horizon/domain/terminal_evidence.py)、[合同与边界](terminal-evidence-pack.md) | `trace bundle` 对成功、失败、取消统一导出 Trace、规范终态与 schema v2 可靠性摘要；`verify-bundle` 无数据库离线重放并复算。区分 unknown acceptance、已知 required-check failure 与 unknown/open effect；真实 retrieval degradation 从同事件工具回执进入 history，确定性上下文折叠从 model reservation 进入 `context_compacted`，schema v1 继续兼容验证。model fallback 与语义摘要 history 尚空；这是自洽性清单，不是签名或来源认证 |
 | 终态 Run 顺序汇总评测 | [terminal_suite.py](../src/horizon/application/terminal_suite.py)、[terminal_suite.py](../src/horizon/domain/terminal_suite.py)、[合同与边界](terminal-suite-evaluation.md) | schema v2 逐个复用已验证的通用 EvidencePack，保持原始成功率并分列 clean/quality-flagged success、验收未知/失败、quality flags、fallback/degradation、BudgetStop 与 unknown/open effect；`verify-terminal-suite` 无数据库递归重放并复算，兼容 v1。只做证据聚合，不执行任务、模型、工具、网络或仓库代码，不声称已有 batch scheduler |
 
 2026-10-04 的零费用增量把原先仅用于费用预留的完整请求保守上界接入实际派发门禁。
@@ -1266,8 +1283,8 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 七轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 607 passed；全量入口对应
-607 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
+当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 609 passed；全量入口对应
+609 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
 `run_model_cost_limit` 进入 `FAILED`。没有工具、编辑、checkpoint 或验证，Trace 14 事件可重放，

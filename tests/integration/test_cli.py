@@ -326,6 +326,7 @@ def test_doctor_checks_fts_without_model():
         "acceptance_quality_flags_trace_bound_degradation"
     )
     assert data["trace_bound_retrieval_degradation"] is True
+    assert data["trace_bound_context_compaction_quality"] is True
     assert data["autonomous_execution"] is True
     assert data["recovery_safe_cancellation"] is True
     assert data["controller_verified_check_cancellation"] is True

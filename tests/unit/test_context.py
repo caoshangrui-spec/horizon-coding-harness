@@ -3,7 +3,7 @@ import pytest
 from horizon.application.context import ContextProjector
 from horizon.application.model_probe import conservative_input_estimate
 from horizon.domain.common import canonical_json
-from horizon.domain.context import MandatoryFactLedger
+from horizon.domain.context import ContextCompactionRecord, MandatoryFactLedger
 from horizon.domain.errors import Conflict
 from horizon.domain.memory import RunMemoryEntry, RunMemorySnapshot
 from horizon.domain.model import FunctionCall, ModelMessage, ModelRequest, ToolCall
@@ -137,6 +137,37 @@ def test_projection_is_identity_when_source_is_within_budget():
         canonical_json([item.model_dump(mode="json") for item in projected.messages])
     )
     assert projected.input_token_budget.estimate == _input_estimate(projected.messages)
+
+
+def test_context_compaction_record_preserves_required_acceptance():
+    record = ContextCompactionRecord(
+        source_model_call_id="model-context-1",
+        context_projection_ref="a" * 64,
+        source_digest="b" * 64,
+        source_message_count=8,
+        projected_message_count=5,
+        compacted_unit_count=2,
+        task_spec_hash="c" * 64,
+        required_acceptance_hash="d" * 64,
+        effective_required_acceptance_hash="d" * 64,
+    )
+
+    assert record.quality_flag == "context_compacted"
+    assert record.strategy == "deterministic_hash_excerpt_v1"
+    with pytest.raises(ValueError, match="cannot add projected messages"):
+        ContextCompactionRecord(
+            **{
+                **record.model_dump(mode="json"),
+                "projected_message_count": 9,
+            }
+        )
+    with pytest.raises(ValueError, match="cannot weaken required acceptance"):
+        ContextCompactionRecord(
+            **{
+                **record.model_dump(mode="json"),
+                "effective_required_acceptance_hash": "e" * 64,
+            }
+        )
 
 
 def test_projection_compacts_when_full_request_token_ceiling_exceeds_budget():

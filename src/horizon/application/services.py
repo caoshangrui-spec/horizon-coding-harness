@@ -9,6 +9,7 @@ from uuid import uuid4
 from horizon.domain.agent import AgentSessionRecord
 from horizon.domain.budget import Usage
 from horizon.domain.common import Contract, digest, timestamp
+from horizon.domain.context import ContextCompactionRecord
 from horizon.domain.errors import (
     BudgetExceeded,
     BudgetStop,
@@ -1401,11 +1402,30 @@ class HarnessService:
                 "amount": amount.model_dump(mode="json"),
                 "token": token.model_dump(),
             }
+            model_payload: dict[str, Any] = {"reservation": reservation.as_dict()}
+            if reservation.compacted_unit_count:
+                if reservation.context_source_digest is None:
+                    raise Conflict("Compacted model reservation is missing its source digest")
+                required_acceptance_hash = digest(
+                    tuple(check.id for check in run.task.acceptance if check.required)
+                )
+                compaction = ContextCompactionRecord(
+                    source_model_call_id=reservation.call_id,
+                    context_projection_ref=reservation.context_projection_ref,
+                    source_digest=reservation.context_source_digest,
+                    source_message_count=reservation.source_message_count,
+                    projected_message_count=reservation.projected_message_count,
+                    compacted_unit_count=reservation.compacted_unit_count,
+                    task_spec_hash=run.task.sha256,
+                    required_acceptance_hash=required_acceptance_hash,
+                    effective_required_acceptance_hash=required_acceptance_hash,
+                )
+                model_payload["context_compaction"] = compaction.model_dump(mode="json")
             return [
                 NewEvent(event_type="BUDGET_RESERVED", payload=budget_payload),
                 NewEvent(
                     event_type="MODEL_CALL_RESERVED",
-                    payload={"reservation": reservation.as_dict()},
+                    payload=model_payload,
                 ),
             ]
 

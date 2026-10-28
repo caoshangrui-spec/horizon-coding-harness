@@ -60,9 +60,11 @@ schema v2 还包含 `reliability_summary`：
 `degraded` 时，原因、策略、quality flag、Task/required-acceptance hash、工具 call ID 与内容寻址
 Artifact ref 会作为同一个 `TOOL_CALL_SETTLED` 事件的可选字段原子提交；重放时再次校验它只能
 绑定对应的成功检索回执。终态包因此可以真实列出 lexical fallback 或部分索引跳过等检索降级。
-自动 model fallback、context-summary degradation 和 model degradation 尚无生产事件，相关 history
-仍为空。导出器不会从临时日志或不可定位的 Artifact 猜测历史；trace-bound 范围会继续写入
-`limitations`，不能把空数组解释为“可证明从未发生过对应降级”。
+确定性上下文折叠现以独立 `ContextCompactionRecord` 与 `MODEL_CALL_RESERVED` 同事件提交，并在
+终态 facts 中产生 `context_compacted`；它不会伪装成 retrieval degradation。自动 model fallback、
+模型语义摘要和 model degradation 尚无生产事件，相关 history 仍为空。导出器不会从临时日志或
+不可定位的 Artifact 猜测历史；trace-bound 范围会继续写入 `limitations`，不能把空数组解释为
+“可证明从未发生过对应降级”。
 
 ## 4. 固定声明边界
 
@@ -86,6 +88,8 @@ Provider receipt 或独立审计。它也不重新执行原 Run，所以不会�
 - `FAILED / wall_clock_limit` 保留一个 unknown 且仍占用预算的 Provider 调用；
 - 已知但未通过 required check 与完全缺失当前验收证据会得到不同 quality flag；
 - lexical scan 的真实 Agent 检索降级与其工具回执同事件提交、重放并进入终态摘要；
+- 确定性上下文折叠与 model reservation 同事件绑定，成功 Run 保留 task success 但报告
+  `context_compacted`，不冒充 clean success 或 retrieval degradation；
 - `CANCELLED` 的 CLI 导出、无任务成功误报和独立 `verify-bundle`；
 - schema v1 历史包仍可按原摘要和边界离线复核；
 - 非终态 Run 在创建输出目录前拒绝；

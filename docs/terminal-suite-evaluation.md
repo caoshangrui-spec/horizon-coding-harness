@@ -118,8 +118,9 @@ nightly-terminal-runs/
 6. suite 只汇总已经由子 EvidencePack 验证的可靠性信息。
 
 验证器继续读取历史 schema v1 suite，并按原来的四条边界复核；不会为旧包推断当时不存在的
-可靠性字段。当前生产 Trace 已能提供 retrieval degradation；自动 model fallback 以及
-context-summary/model degradation 尚无生产 history，因此相应计数通常为 0，不能据此宣称这些
+可靠性字段。当前生产 Trace 已能提供 retrieval degradation；确定性上下文折叠还会通过子包的
+`context_compacted` 进入逐 flag Run 数，但不计入 retrieval degradation。自动 model fallback、
+模型语义摘要和 model degradation 尚无生产 history，因此相应计数通常为 0，不能据此宣称这些
 能力已经执行过。
 
 当前也不汇总历史模型费用总额：unknown 用量和不同币种不能安全地被折算成一个“准确总费用”。

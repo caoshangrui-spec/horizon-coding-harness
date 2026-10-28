@@ -97,10 +97,44 @@ def test_model_reservation_omits_absent_budget_for_historical_wire_compatibility
 
     assert "input_token_budget" not in historical.as_dict()
     assert "client_trace_id" not in historical.as_dict()
+    assert "compacted_unit_count" not in historical.as_dict()
+    assert "context_source_digest" not in historical.as_dict()
     assert current.as_dict()["client_trace_id"] == f"horizon-{'c' * 32}"
     assert current.as_dict()["input_token_budget"]["estimate"]["token_ceiling"] == 3_024
     with pytest.raises(ValidationError, match="client_trace_id"):
         ModelCallReservation(**shared, client_trace_id="unsafe\r\ntrace")
+
+
+def test_model_reservation_binds_compacted_context_source():
+    shared = {
+        "call_id": "execution-compacted",
+        "request_hash": "a" * 64,
+        "provider_id": "fake-provider",
+        "model": "fake-model",
+        "currency": "CNY",
+        "reserved_cost": "0.01",
+        "context_projection_ref": "b" * 64,
+        "mandatory_facts_ref": "c" * 64,
+        "mandatory_facts_hash": "c" * 64,
+        "run_memory_ref": "d" * 64,
+        "run_memory_hash": "d" * 64,
+        "run_memory_covered_event_seq": 4,
+        "source_message_count": 8,
+        "projected_message_count": 5,
+    }
+
+    reservation = ModelCallReservation(
+        **shared,
+        compacted_unit_count=2,
+        context_source_digest="e" * 64,
+    )
+
+    assert reservation.as_dict()["compacted_unit_count"] == 2
+    assert reservation.as_dict()["context_source_digest"] == "e" * 64
+    with pytest.raises(ValidationError, match="source digest"):
+        ModelCallReservation(**shared, compacted_unit_count=2)
+    with pytest.raises(ValidationError, match="actual compaction"):
+        ModelCallReservation(**shared, context_source_digest="e" * 64)
 
 
 def test_model_reservation_builds_pre_dispatch_budget_evidence():

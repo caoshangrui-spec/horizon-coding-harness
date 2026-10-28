@@ -1,6 +1,6 @@
 # 确定性上下文投影：实现与恢复合同
 
-更新：2026-10-06。本文描述当前已经接入 `CodingAgentRunner` 的实现，不把确定性裁剪冒充
+更新：2026-10-28。本文描述当前已经接入 `CodingAgentRunner` 的实现，不把确定性裁剪冒充
 语义摘要或 RAG。权威完整消息始终保留；投影只是一次模型调用的可重放视图。证据驱动的
 Run Memory 已作为独立派生层接入，其边界见 [Run Memory](run-memory.md)。
 
@@ -15,6 +15,8 @@ Run Memory 已作为独立派生层接入，其边界见 [Run Memory](run-memory
    可重放的保守 input-token 上界。
 5. 执行期 Run/Campaign 余额不足以容纳完整历史时，应先在同一保守公式下压缩可压缩历史，
    而不是直接停止或暗中放宽费用上限。
+6. 只要某次请求折叠了历史，终态证据必须把它标为执行质量事实；任务成功不能因此被误报为
+   clean success。
 
 当前明确不解决：
 
@@ -33,13 +35,16 @@ Run Memory 已作为独立派生层接入，其边界见 [Run Memory](run-memory
 | 强制事实 | `MandatoryFactLedger` | 每次模型调用前的内容寻址 Artifact | Task/Plan/权限/验收/预算/策略/工具 Schema/workspace 的控制器事实 |
 | Run 记忆 | `RunMemorySnapshot` | 每次模型调用前的内容寻址 Artifact | 工具事件与输出证据的有界、可失效投影 |
 | 调用投影 | `ContextProjection.messages` | 每次模型调用前的内容寻址 Artifact | 该次请求的派生、可验证视图，并绑定强制事实、Run Memory 和 input-token budget |
+| 压缩事实 | `ContextCompactionRecord` | 与 `MODEL_CALL_RESERVED` 同一事件 | 绑定 model call、投影 ref、源 digest、消息/单元数量、Task 和 required acceptance |
 | Provider 请求 | `ModelRequest` | request hash + Provider response Artifact | 实际工具 Schema、模型参数与投影消息的请求合同 |
 
 `ContextProjection.source_digest` 对完整源消息的规范 JSON 做 SHA-256；schema v2 保留算法、
 字符预算与实际字符数、近期单元数、源/投影消息数、强制事实 ref/hash、Run Memory
 ref/hash/count、`InputTokenBudget` 和实际投影消息。`ModelCallReservation` 再绑定 Fact Ledger
 Artifact、Memory Artifact 及历史事件边界、投影 Artifact、两个消息数、同一 token budget 及
-完整 `ModelRequest` hash。各对象不互相替代。
+完整 `ModelRequest` hash。发生折叠时 reservation 还保存 `compacted_unit_count` 与
+`context_source_digest`；没有折叠的历史 wire shape 不增加这两个字段，以保持旧 Trace 的投影 hash。
+各对象不互相替代。
 
 `MandatoryFactLedger` 不复制秘密或完整任务文本。schema v2 记录 TaskSpec/objective、Plan/当前
 WorkItem、按 Plan 顺序排列的已完成 WorkItems、
@@ -153,6 +158,24 @@ effective_input_cap = min(configured_input_cap, affordable_input)
 预留后、Run intent 前退出沿用已有 campaign-only hold 对账。Run intent 之后的 Provider/receipt
 窗口沿用模型调用恢复规则；投影并未放宽 unknown 费用处理。
 
+### 4.1 Trace-bound 压缩质量
+
+当且仅当 `ContextProjection.compacted_unit_count > 0`，同一个 `MODEL_CALL_RESERVED` 事件还包含
+`ContextCompactionRecord`。重放器要求记录与 reservation 的 model call ID、投影 ref、源 digest、
+源/投影消息数、折叠单元数完全一致，并重新核对 TaskSpec 与 required acceptance hash；伪造一条
+“发生过压缩”的独立日志不能进入 Run 投影。TaskSpec 修订会清空当前合同下的压缩投影列表，旧
+事件仍留在 append-only Trace 中。
+
+终态可靠性 facts 在存在该记录时增加 `context_compacted` quality flag 和实际压缩请求数说明。
+原始 Run 状态、required-check 结果和 task success 不变，但成功会归入 quality-flagged success，
+不再计作 clean success；terminal-suite 与 Run A/B 的逐 flag 聚合会自然统计它。确定性压缩不是
+检索降级，因此不会虚增 `retrieval_degraded` 或 `degradation_record_count`。
+
+通用 Terminal EvidencePack 会通过 Trace 重放复算该 flag，并在 `final-run.json` 保留完整 typed
+history；当前包仍不复制 `ContextProjection` Artifact 字节，所以它证明 Trace/最终投影/摘要的
+自洽绑定，不是 Artifact 来源签名。运行期恢复则会从 ArtifactStore 回读投影并逐字段比较。该记录
+也不证明保留片段与完整 transcript 语义等价。
+
 ## 5. 跨进程恢复校验
 
 当 Run 已有可信 response Artifact/receipt，但上次进程未完成 Campaign settlement 或工具轮次
@@ -212,6 +235,10 @@ Schema 约束为：字符上限 2,000～1,000,000；保守 input-token 上限
 - workspace 写入生成新 ledger，Task/Plan/required acceptance 保持绑定；
 - 待恢复 response 遇到工具 Schema 漂移时在调用 Provider 前拒绝；
 - reservation 中的 projection Artifact 可解析且与实际模型请求一致；
+- 发生折叠时，`MODEL_CALL_RESERVED` 同事件保存与 projection/reservation 一致的 typed
+  `ContextCompactionRecord`；没有折叠的 reservation 继续保持历史 wire shape；
+- 成功闭环的终态 EvidencePack 重放后带 `context_compacted`，同时保持 required checks passed、
+  原始 task success 和空 retrieval degradation history；
 - projection 与 reservation 保存相同 `InputTokenBudget`，其 estimate 可由完整请求逐字节重算；
 - 字符预算仍宽裕时，执行调用会按 Run/Campaign/单调用的最小费用余量降低 effective input cap，
   折叠完整历史工具单元并在低余额 Campaign 内成功闭环；

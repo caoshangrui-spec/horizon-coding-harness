@@ -5,6 +5,12 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Made deterministic context compaction a trace-bound execution-quality fact. Compacted execution
+  reservations now bind the projection artifact, canonical transcript digest, source/projected
+  message counts, compacted unit count, TaskSpec, and required acceptance in one event. Terminal
+  EvidencePack, terminal-suite, and Run A/B quality aggregation report `context_compacted` without
+  changing raw task success or misclassifying it as retrieval degradation; uncompacted historical
+  reservation wire shapes remain unchanged.
 - Extended source-bound Run A/B reliability from recovery-only suite metrics to per-arm acceptance
   and execution-quality facts. New reports distinguish unknown acceptance, known required-check
   failure, clean success, quality-flagged success, fallback, all degradation records, and

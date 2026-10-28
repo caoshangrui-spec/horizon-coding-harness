@@ -36,6 +36,7 @@ from horizon.domain.context import ContextProjection, MandatoryFactLedger
 from horizon.domain.errors import (
     BudgetStopReason,
     Conflict,
+    IntegrityError,
     LeaseConflict,
     ProviderConnectionError,
     RunCancellationRequested,
@@ -53,7 +54,7 @@ from horizon.domain.model import (
     ToolCall,
 )
 from horizon.domain.plan import Plan, WorkItem
-from horizon.domain.run import projection_hash
+from horizon.domain.run import project, projection_hash
 from horizon.domain.states import RunStatus
 from horizon.domain.task import TaskSpec
 from horizon.domain.tools import AcceptanceResult, ToolCallRecord, ToolCallReservation
@@ -2749,6 +2750,8 @@ def test_agent_loop_persists_bounded_context_projection_without_losing_transcrip
     assert projection.source_message_count == len(session.messages)
     assert projection.projected_message_count == len(model.requests[-1].messages)
     assert projection.compacted is True
+    assert last_reservation.compacted_unit_count == projection.compacted_unit_count
+    assert last_reservation.context_source_digest == projection.source_digest
     assert projection.input_token_budget == last_reservation.input_token_budget
     assert projection.input_token_budget.max_input_tokens == runner.config.max_input_tokens
     assert projection.input_token_budget.estimate == conservative_input_estimate(model.requests[-1])
@@ -2765,6 +2768,39 @@ def test_agent_loop_persists_bounded_context_projection_without_losing_transcrip
     )
     assert facts.sha256 == last_reservation.mandatory_facts_hash
     assert facts.task_spec_hash in (projection.messages[0].content or "")
+    assert len(result.context_compactions) == len(compacted_requests)
+    last_compaction = result.context_compactions[-1]
+    assert last_compaction.source_model_call_id == last_reservation.call_id
+    assert last_compaction.context_projection_ref == last_reservation.context_projection_ref
+    assert last_compaction.source_digest == projection.source_digest
+    assert last_compaction.source_message_count == projection.source_message_count
+    assert last_compaction.projected_message_count == projection.projected_message_count
+    assert last_compaction.compacted_unit_count == projection.compacted_unit_count
+    assert reservation_events[-1].payload["context_compaction"] == last_compaction.model_dump(
+        mode="json"
+    )
+    events = store.events(run_id)
+    event_index = events.index(reservation_events[-1])
+    tampered_payload = dict(reservation_events[-1].payload)
+    tampered_payload.pop("context_compaction")
+    tampered = reservation_events[-1].model_copy(
+        update={"payload": tampered_payload, "event_hash": ""}
+    )
+    tampered = tampered.model_copy(update={"event_hash": tampered.calculated_hash()})
+    with pytest.raises(IntegrityError, match="requires compaction evidence"):
+        project([*events[:event_index], tampered])
+
+    terminal = export_terminal_evidence_pack(
+        store,
+        run_id,
+        tmp_path / "context-compaction-terminal",
+    )
+    reliability = terminal.evidence_pack.evidence.reliability_summary
+    assert reliability is not None
+    assert reliability.status == "passed"
+    assert reliability.quality_flags == ("context_compacted",)
+    assert reliability.degradations == ()
+    assert any("deterministic context compaction" in item for item in reliability.limitations)
 
 
 def test_agent_loop_compacts_history_to_fit_remaining_campaign_budget(tmp_path, task_dict):

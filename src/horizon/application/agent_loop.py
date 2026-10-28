@@ -651,6 +651,9 @@ class CodingAgentRunner:
                 or recorded_projection.run_memory_entry_count != reservation.run_memory_entry_count
                 or reservation.source_message_count != projection.source_message_count
                 or reservation.projected_message_count != projection.projected_message_count
+                or reservation.compacted_unit_count != projection.compacted_unit_count
+                or reservation.context_source_digest
+                != (projection.source_digest if projection.compacted else None)
                 or reservation.input_token_budget != projection.input_token_budget
             ):
                 raise Conflict(
@@ -723,6 +726,8 @@ class CodingAgentRunner:
             run_memory_entry_count=memory.included_entry_count,
             source_message_count=projection.source_message_count,
             projected_message_count=projection.projected_message_count,
+            compacted_unit_count=projection.compacted_unit_count,
+            context_source_digest=(projection.source_digest if projection.compacted else None),
             input_token_budget=projection.input_token_budget,
             request_payload=request_payload,
         )

@@ -99,3 +99,28 @@ class ContextProjection(Contract):
                 "A context projection must preserve the initial system and user messages"
             )
         return self
+
+
+class ContextCompactionRecord(Contract):
+    """Trace-bound evidence that one model request used a bounded history projection."""
+
+    schema_version: Literal[1] = 1
+    source_model_call_id: Identifier
+    context_projection_ref: Sha256
+    source_digest: Sha256
+    source_message_count: Annotated[StrictInt, Field(ge=2)]
+    projected_message_count: Annotated[StrictInt, Field(ge=2)]
+    compacted_unit_count: Annotated[StrictInt, Field(ge=1)]
+    strategy: Literal["deterministic_hash_excerpt_v1"] = "deterministic_hash_excerpt_v1"
+    quality_flag: Literal["context_compacted"] = "context_compacted"
+    task_spec_hash: Sha256
+    required_acceptance_hash: Sha256
+    effective_required_acceptance_hash: Sha256
+
+    @model_validator(mode="after")
+    def check_contract(self) -> Self:
+        if self.projected_message_count > self.source_message_count:
+            raise ValueError("A compacted context cannot add projected messages")
+        if self.required_acceptance_hash != self.effective_required_acceptance_hash:
+            raise ValueError("Context compaction cannot weaken required acceptance")
+        return self

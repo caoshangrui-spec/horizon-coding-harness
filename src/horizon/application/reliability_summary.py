@@ -75,6 +75,13 @@ def derive_run_reliability_facts(run: Run) -> RunReliabilityFacts:
             f"{degradation.operation} used {degradation.strategy}; original reason(s): "
             f"{degradation.original_error_type}."
         )
+    if run.context_compactions:
+        if "context_compacted" not in quality_flags:
+            quality_flags.append("context_compacted")
+        limitations.append(
+            f"{len(run.context_compactions)} model request(s) used deterministic context "
+            "compaction; the canonical transcript remains authoritative."
+        )
     return RunReliabilityFacts(
         task_spec_hash=run.task.sha256,
         required_acceptance_hash=required_acceptance_hash,

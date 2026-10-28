@@ -113,8 +113,10 @@ permit -> Campaign/Run reservation -> 单次 transport dispatch
 quality flag；CLI 导出与离线验证都会返回相同结构。为保持证据边界，fallback/degradation history
 只接受绑定进 Trace 的记录。生产 `retrieve_code` 的 typed EvidencePack 若明确为 `degraded`，会将
 原因、策略、call ID 和 Artifact ref 与工具 receipt 原子写入同一个事件，并在重放后进入终态
-`degradations`。model fallback、context-summary 和 model degradation 仍没有生产事件，因此对应
-history 为空并在 `limitations` 中明确范围；不会从非定位日志猜测或把空数组宣传为“从未降级”。
+`degradations`。确定性上下文折叠已有独立的 `ContextCompactionRecord` 和
+`context_compacted` quality flag，但不混入 Provider degradation。model fallback、模型语义摘要和
+model degradation 仍没有生产事件，因此对应 history 为空并在 `limitations` 中明确范围；不会从
+非定位日志猜测或把空数组宣传为“从未降级”。
 schema v1 历史包仍可按旧规则验证。
 
 ## 6. 已验证与未验证
@@ -139,6 +141,6 @@ schema v1 历史包仍可按旧规则验证。
 - Provider 主动 receipt/usage 查询和 unknown 费用自动对账；
 - 自动执行安全 pre-dispatch retry；
 - fallback 实际切换、ContextPack 跨 provider 重建和 Run 事件；
-- 为 model fallback、context-summary/model degradation 增加生产 Trace 事件；
+- 为 model fallback、模型语义摘要/model degradation 增加生产 Trace 事件；
 - 分布式 breaker、跨主机时钟协调或生产监控；
 - 任何新的付费模型验证。

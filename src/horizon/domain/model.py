@@ -371,6 +371,8 @@ class ModelCallReservation(Contract):
     run_memory_entry_count: NonNegativeInt = 0
     source_message_count: NonNegativeInt = 0
     projected_message_count: NonNegativeInt = 0
+    compacted_unit_count: NonNegativeInt = 0
+    context_source_digest: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")] | None = None
     input_token_budget: InputTokenBudget | None = None
     request_payload: ModelRequestPayloadEvidence | None = None
 
@@ -385,6 +387,17 @@ class ModelCallReservation(Contract):
             or self.projected_message_count > self.source_message_count
         ):
             raise ValueError("Context projection message counts are inconsistent")
+        if self.compacted_unit_count == 0:
+            if self.context_source_digest is not None:
+                raise ValueError("A context source digest requires actual compaction")
+        elif (
+            self.purpose != "execution"
+            or self.context_projection_ref is None
+            or self.context_source_digest is None
+        ):
+            raise ValueError(
+                "Context compaction requires an execution projection and source digest"
+            )
         if (self.mandatory_facts_ref is None) != (self.mandatory_facts_hash is None):
             raise ValueError("Mandatory facts require both an artifact reference and hash")
         if self.mandatory_facts_ref is not None and (
@@ -436,6 +449,9 @@ class ModelCallReservation(Contract):
             result.pop("input_token_budget")
         if self.request_payload is None:
             result.pop("request_payload")
+        if self.compacted_unit_count == 0:
+            result.pop("compacted_unit_count")
+            result.pop("context_source_digest")
         return result
 
     def budget_evidence(self, output_token_ceiling: int) -> ModelRequestBudgetEvidence:

@@ -9,6 +9,7 @@ from typing import Any
 from horizon.domain.agent import AgentSessionRecord
 from horizon.domain.budget import Usage
 from horizon.domain.common import digest
+from horizon.domain.context import ContextCompactionRecord
 from horizon.domain.errors import BudgetStop, IntegrityError, InvalidTransition, PolicyDenied
 from horizon.domain.events import Event
 from horizon.domain.human import (
@@ -79,6 +80,7 @@ class Run:
     unknown_tool_calls: set[str] = field(default_factory=set)
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
     reliability_degradations: list[DegradationRecord] = field(default_factory=list)
+    context_compactions: list[ContextCompactionRecord] = field(default_factory=list)
     agent_session: AgentSessionRecord | None = None
     last_checkpoint: dict[str, Any] | None = None
     workspace_origin: WorkspaceOrigin | None = None
@@ -192,6 +194,12 @@ class Run:
         if self.reliability_degradations:
             result["reliability_degradations"] = [
                 record.model_dump(mode="json") for record in self.reliability_degradations
+            ]
+        # Preserve historical projection hashes: context compaction history is present only when
+        # a model reservation explicitly binds one content-addressed projection.
+        if self.context_compactions:
+            result["context_compactions"] = [
+                record.model_dump(mode="json") for record in self.context_compactions
             ]
         # Keep historical projection hashes stable: these keys exist only for traces using the
         # recovery-safe cancellation protocol.
@@ -740,6 +748,32 @@ def apply(run: Run | None, event: Event) -> Run:
             raise IntegrityError("Model reservation exceeds the bound per-run cost")
         if reservation.call_id not in run.reservations:
             raise IntegrityError("Model reservation requires a generic budget reservation")
+        compaction_payload = p.get("context_compaction")
+        if reservation.compacted_unit_count:
+            if compaction_payload is None:
+                raise IntegrityError("Compacted model reservation requires compaction evidence")
+            compaction = ContextCompactionRecord.model_validate(compaction_payload)
+            required_acceptance_hash = digest(
+                tuple(check.id for check in run.task.acceptance if check.required)
+            )
+            if (
+                compaction.source_model_call_id != reservation.call_id
+                or compaction.context_projection_ref != reservation.context_projection_ref
+                or compaction.source_digest != reservation.context_source_digest
+                or compaction.source_message_count != reservation.source_message_count
+                or compaction.projected_message_count != reservation.projected_message_count
+                or compaction.compacted_unit_count != reservation.compacted_unit_count
+                or compaction.task_spec_hash != run.task.sha256
+                or compaction.required_acceptance_hash != required_acceptance_hash
+                or any(
+                    item.source_model_call_id == reservation.call_id
+                    for item in run.context_compactions
+                )
+            ):
+                raise IntegrityError("Context compaction does not match its model reservation")
+            run.context_compactions.append(compaction)
+        elif compaction_payload is not None:
+            raise IntegrityError("Uncompacted model reservation cannot carry compaction evidence")
         run.model_reservations[reservation.call_id] = reservation
     elif event.event_type == "MODEL_CALL_SETTLED":
         record = ModelCallRecord.model_validate(p["record"])
@@ -897,6 +931,7 @@ def apply(run: Run | None, event: Event) -> Run:
         run.passed_items.clear()
         run.validation = None
         run.reliability_degradations.clear()
+        run.context_compactions.clear()
         run.agent_session = None
         run.status, run.resume_state = RunStatus.PLANNING, None
         run.lease_id = run.worker_id = run.lease_expires_at = None
