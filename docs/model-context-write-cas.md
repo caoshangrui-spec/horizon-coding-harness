@@ -136,3 +136,17 @@ SHA-256。因此 `R_expected == R_observed` 表示模型请求与派发前 manif
 - 没有 OS 级全局文件锁。恶意或高频并发写会被拒绝、回滚或进入 unknown，而不是透明合并。
 - 使用 SHA-256 内容寻址，安全边界依赖其碰撞抗性；当前没有外部签名、可信时间戳或远端证明。
 - 该能力不替代 Git merge、冲突合并、通用审批、生产级恶意代码隔离或跨主机事务。
+
+## 9. 公开验收证据
+
+实现提交 `f18dfec` 的三个公开 workflow 均已通过：
+
+- [标准 CI `40701404771`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40701404771)：
+  Python 3.12 离线质量门禁、EvidencePack 与发行包构建；
+- [来源绑定 Docker 证据 `40701404803`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40701404803)：
+  Docker 合同以及 dependency-reduced、full-checkout、multi-stage、hard-crash 四组 suite；
+- [外部检索证据 `40701405187`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40701405187)：
+  16 个 development cases 的重建和验证。
+
+这些 workflow 没有读取模型 API Key，也没有运行或计费真实模型。它们证明的是该提交的离线合同、
+重放、既有来源 suite 和构建门禁通过，不等同于真实模型在并发编辑环境中的成功率结论。

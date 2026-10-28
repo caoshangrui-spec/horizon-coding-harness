@@ -27,8 +27,15 @@
   内容完整保留，错误 Artifact、reservation、manifest 与 Trace 重放一致。Gateway、Agent Loop、
   CLI、崩溃恢复及模型合同的扩大聚焦回归为 **161 passed**；最终离线全量为
   **611 passed，11 skipped**，Ruff 格式/静态检查、Doctor smoke 和离线 sdist/wheel 构建通过。
-  11 项 skip 仍是需要显式本机镜像的 Docker 合同；本轮未联网执行模型、未调用付费模型。公开
-  CI 需在提交推送后单独报告。
+  11 项 skip 仍是需要显式本机镜像的 Docker 合同；本轮未联网执行模型、未调用付费模型。
+- 精确实现提交 `f18dfec` 的公开[标准 CI `40701404771`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40701404771)、
+  [来源绑定 Docker 证据 `40701404803`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40701404803)
+  与[外部检索证据 `40701405187`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40701405187)
+  均成功。标准 CI 完成离线质量门禁并发布 distributions、portfolio 与 process-timeout 三个
+  artifact；Docker workflow 完成四组 suite，统一证据 artifact ID `12821274369`、201,967,949
+  bytes、digest `sha256:e725a56d688d767196c641e7eadd4a99d86a7c9511e0612c563713afeb04d841`，
+  保留至 2026-11-27。外部检索 workflow 重建并验证 16 个 development cases。本次公开执行同样
+  不读取模型 API Key、不发起模型调用。
 - 完整算法、Trace 不变量和明确限制见
   [模型上下文绑定的写入 CAS](model-context-write-cas.md)。当前是模型请求 tree CAS，不是特定
   `read_file` receipt 到 write 的因果证明，也不是 OS 锁、冲突合并或跨 SQLite/文件系统事务。
