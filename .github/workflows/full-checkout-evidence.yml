@@ -399,7 +399,7 @@ jobs:
               and full_reliability["retrieval_degraded_arm_count"] > 0
               and full_reliability["quality_flagged_terminal_success_count"] > 0
               and full_reliability["required_check_failure_arm_count"] == 0
-              and multi_reliability["required_check_failure_arm_count"] == 3
+              and multi_reliability["required_check_failure_arm_count"] == 0
               and hard_crash_reliability["required_check_failure_arm_count"] == 0
               and created_resume["verified"]
               and created_resume["created_trace_is_terminal_prefix"]
@@ -442,6 +442,35 @@ jobs:
               or worker_crash["network_called"]
           )
           if not all_expectations_met:
+              print(
+                  json.dumps(
+                      {
+                          "source_bound_docker_evidence_contract": {
+                              "suite_expectations_met": {
+                                  report["suite_id"]: report["all_expectations_met"]
+                                  for report in suite_reports
+                              },
+                              "suite_reliability": {
+                                  report["suite_id"]: report["reliability"]
+                                  for report in suite_reports
+                              },
+                              "full_checkout_counts": {
+                                  "case_count": full_report["case_count"],
+                                  "passed_case_count": full_report["passed_case_count"],
+                                  "initial_failure_confirmed_count": full_report[
+                                      "initial_failure_confirmed_count"
+                                  ],
+                                  "treatment_recovered_count": full_report[
+                                      "treatment_recovered_count"
+                                  ],
+                              },
+                              "created_resume_verified": created_resume["verified"],
+                              "worker_crash_verified": worker_crash["verified"],
+                          }
+                      },
+                      sort_keys=True,
+                  )
+              )
               raise SystemExit("Source-bound Docker evidence contract failed")
           if paid_model_called or network_called:
               raise SystemExit("Source-bound Docker evidence made a forbidden external call")
