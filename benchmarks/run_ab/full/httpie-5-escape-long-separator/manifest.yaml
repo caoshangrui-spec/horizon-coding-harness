@@ -1,0 +1,130 @@
+schema_version: 1
+benchmark_id: httpie-5-escape-long-separator-full
+fixture_path: fixture
+
+task:
+  task_id: httpie-escape-long-separator-full
+  title: Preserve escaped multi-character item separators
+  objective: Parse the first unescaped separator without splitting inside an escaped longer separator
+  repository:
+    source: local
+    path: /fixture
+    base_commit: 16df8848e81eefac830f407e4b985f42b52970da
+  constraints:
+    allowed_paths: ["**"]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+  acceptance:
+    - id: httpie-escape-long-separator-full
+      command: >-
+        python -B -c "import argparse,ast,re; from collections import namedtuple; from pathlib import Path; tree=ast.parse(Path('httpie/cli.py').read_text(encoding='utf-8')); klass=next(item for item in tree.body if isinstance(item,ast.ClassDef) and item.name=='KeyValueType'); namespace={'argparse':argparse,'re':re,'KeyValue':namedtuple('KeyValue',['key','value','sep','orig'])}; exec(compile(ast.Module(body=[klass],type_ignores=[]),'httpie/cli.py','exec'),namespace); parsed=namespace['KeyValueType'](':','=',':=','@')('bob\\:==foo'); assert parsed.key=='bob:=' and parsed.value=='foo' and parsed.sep=='=',parsed"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 20
+    max_model_calls: 16
+    max_tool_calls: 20
+    max_wall_time_seconds: 600
+    max_cost_usd: "1.00"
+    max_input_tokens: 100000
+    max_output_tokens: 5000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+
+initial_plan:
+  version: 1
+  items:
+    - work_item_id: locate-long-separator-parser-full
+      title: Locate escaped item-separator parsing
+      objective: Retrieve revision-bound evidence before changing separator matching
+      dependencies: []
+      expected_artifacts: [Code EvidencePack, httpie-escape-long-separator-full receipt]
+      acceptance_ids: [httpie-escape-long-separator-full]
+      allowed_tools: [retrieve_code]
+
+expected_initial_failed_checks: [httpie-escape-long-separator-full]
+
+arms:
+  - arm_id: no-replan
+    role: baseline
+    description: Continue the stalled source retrieval until deterministic guidance is required.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items: []
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 4
+    expected_tool_calls: 4
+    expected_steps: 4
+    actions:
+      - &retrieve_target
+        tool: retrieve_code
+        arguments:
+          query: KeyValueType escaped multi-character separator item parsing
+          max_chunks: 8
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+
+  - arm_id: single-replan
+    role: single_replan
+    description: Replace the stalled investigation with the bounded upstream separator repair.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items: [repair-long-separator-parser-full]
+    expected_model_calls: 11
+    expected_tool_calls: 12
+    expected_steps: 12
+    actions:
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+      - tool: revise_plan
+        arguments:
+          reason: Repeated retrieval produced no new evidence; exclude separator matches contained by an escaped longer separator.
+          items:
+            - work_item_id: repair-long-separator-parser-full
+              title: Exclude separator matches inside escapes
+              objective: Track escaped spans before selecting the earliest real separator
+              dependencies: []
+              expected_artifacts: [httpie/cli.py, httpie-escape-long-separator-full receipt]
+              acceptance_ids: [httpie-escape-long-separator-full]
+              allowed_tools: [retrieve_code, replace_text, run_check]
+      - tool: replace_text
+        arguments:
+          path: httpie/cli.py
+          old: "        self.separators = separators"
+          new: "        self.separators = separators\n        self.escapes = ['\\\\\\\\' + sep for sep in separators]"
+      - tool: replace_text
+        arguments:
+          path: httpie/cli.py
+          old: "        found = {}"
+          new: "        found = {}\n        found_escapes = []\n        for esc in self.escapes:\n            found_escapes += [m.span() for m in re.finditer(esc, string)]"
+      - tool: replace_text
+        arguments:
+          path: httpie/cli.py
+          old: '            regex = ''[^\\\\]'' + sep'
+          new: "            matches = re.finditer(sep, string)"
+      - tool: replace_text
+        arguments:
+          path: httpie/cli.py
+          old: "            match = re.search(regex, string)"
+          new: "            for match in matches:"
+      - tool: replace_text
+        arguments:
+          path: httpie/cli.py
+          old: "            if match:"
+          new: "                start, end = match.span()\n                inside_escape = False\n                for estart, eend in found_escapes:\n                    if start >= estart and end <= eend:\n                        inside_escape = True\n                        break\n                if not inside_escape:"
+      - tool: replace_text
+        arguments:
+          path: httpie/cli.py
+          old: "                found[match.start() + 1] = sep"
+          new: "                    found[start] = sep"
+      - tool: submit
+        arguments:
+          summary: Preserved escaped multi-character separators and ran the protected item-parsing regression check.
+

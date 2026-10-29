@@ -13,6 +13,7 @@ on:
       - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v6.yaml"
       - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v7.yaml"
       - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v8.yaml"
+      - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v9.yaml"
       - "benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v1.yaml"
       - "benchmarks/run_ab/bugsinpy-multi-stage-pilot-v*.yaml"
       - "benchmarks/run_ab/bugsinpy-reduced-v2.yaml"
@@ -78,6 +79,21 @@ jobs:
             git -C "$destination" remote add origin "$repository"
             git -C "$destination" fetch --quiet --depth 1 origin "$commit"
             git -C "$destination" checkout --quiet --detach FETCH_HEAD
+
+            test "$(git -C "$destination" rev-parse HEAD)" = "$commit"
+            test -z "$(git -C "$destination" status --porcelain --untracked-files=all)"
+            test "$(git -C "$destination" ls-files | wc -l | tr -d ' ')" = "$expected_files"
+          }
+
+          prepare_history_fixture() {
+            local repository="$1"
+            local commit="$2"
+            local destination="$3"
+            local expected_files="$4"
+
+            mkdir -p "$(dirname "$destination")"
+            git clone --quiet --filter=blob:none --no-checkout "$repository" "$destination"
+            git -C "$destination" checkout --quiet --detach "$commit"
 
             test "$(git -C "$destination" rev-parse HEAD)" = "$commit"
             test -z "$(git -C "$destination" status --porcelain --untracked-files=all)"
@@ -159,6 +175,18 @@ jobs:
             baa54c9f4f809692d62d4c3e4497161717c76550 \
             benchmarks/run_ab/full/luigi-2-beam-target-path/fixture \
             382
+          # These historical commits are reachable from current history but GitHub
+          # rejects direct unadvertised-SHA fetches, so clone the filtered history.
+          prepare_history_fixture \
+            https://github.com/httpie/cli.git \
+            16df8848e81eefac830f407e4b985f42b52970da \
+            benchmarks/run_ab/full/httpie-5-escape-long-separator/fixture \
+            15
+          prepare_history_fixture \
+            https://github.com/tornadoweb/tornado.git \
+            2ca8821d006f6693f920a4b183a3a7c985a5c8ad \
+            benchmarks/run_ab/full/tornado-2-redirect-put-without-body/fixture \
+            300
 
       - name: Pull the validation image
         run: docker pull python:3.12-alpine
@@ -211,16 +239,16 @@ jobs:
             --state-dir "$state_dir" \
             | tee "$state_dir/cli-result.json"
 
-      - name: Run the fifteen-case full-checkout suite in network-disabled containers
+      - name: Run the seventeen-case full-checkout suite in network-disabled containers
         shell: bash
         run: |
           set -euo pipefail
-          state_dir=.horizon/full-checkout-docker-v8
+          state_dir=.horizon/full-checkout-docker-v9
           mkdir -p "$state_dir"
           docker image inspect python:3.12-alpine --format '{{.Id}}'
           set +e
           uv run --locked horizon eval run-ab-suite \
-            benchmarks/run_ab/bugsinpy-full-checkout-pilot-v8.yaml \
+            benchmarks/run_ab/bugsinpy-full-checkout-pilot-v9.yaml \
             --image python:3.12-alpine \
             --state-dir "$state_dir" \
             2>&1 | tee "$state_dir/cli-result.json"
@@ -228,7 +256,7 @@ jobs:
           set -e
           if (( suite_status != 0 )); then
             detail="$(tail -c 2000 "$state_dir/cli-result.json" | tr '\n\r' '  ' | sed 's/%/%25/g')"
-            echo "::error title=Full-checkout v8 failed::$detail"
+            echo "::error title=Full-checkout v9 failed::$detail"
             exit "$suite_status"
           fi
 
@@ -269,7 +297,7 @@ jobs:
             .horizon/docker-worker-crash-evidence
             .horizon/docker-worker-crash-cli.json
             .horizon/reduced-docker-v2
-            .horizon/full-checkout-docker-v8
+            .horizon/full-checkout-docker-v9
             .horizon/multi-stage-docker-v4
             .horizon/multi-stage-hard-crash-docker-v1
           if-no-files-found: warn
@@ -320,7 +348,7 @@ jobs:
               Path(".horizon/reduced-docker-v2/cli-result.json").read_text(encoding="utf-8")
           )
           full = json.loads(
-              Path(".horizon/full-checkout-docker-v8/cli-result.json").read_text(
+              Path(".horizon/full-checkout-docker-v9/cli-result.json").read_text(
                   encoding="utf-8"
               )
           )
@@ -386,16 +414,16 @@ jobs:
                   == reliability["terminal_success_count"]
                   for reliability in suite_reliability
               )
-              and full_report["case_count"] == 15
-              and full_report["passed_case_count"] == 15
-              and full_report["initial_failure_confirmed_count"] == 15
-              and full_report["treatment_recovered_count"] == 15
+              and full_report["case_count"] == 17
+              and full_report["passed_case_count"] == 17
+              and full_report["initial_failure_confirmed_count"] == 17
+              and full_report["treatment_recovered_count"] == 17
               and reduced_reliability["unknown_acceptance_arm_count"] == 5
               and reduced_reliability["clean_terminal_success_count"] == 5
               and reduced_reliability["quality_flagged_terminal_success_count"] == 0
               and reduced_reliability["retrieval_degraded_arm_count"] == 0
               and reduced_reliability["required_check_failure_arm_count"] == 0
-              and full_reliability["unknown_acceptance_arm_count"] == 15
+              and full_reliability["unknown_acceptance_arm_count"] == 17
               and full_reliability["retrieval_degraded_arm_count"] > 0
               and full_reliability["quality_flagged_terminal_success_count"] > 0
               and full_reliability["required_check_failure_arm_count"] == 0

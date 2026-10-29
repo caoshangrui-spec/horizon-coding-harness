@@ -42,6 +42,7 @@ FULL_SUITE_V5_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pi
 FULL_SUITE_V6_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v6.yaml"
 FULL_SUITE_V7_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v7.yaml"
 FULL_SUITE_V8_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v8.yaml"
+FULL_SUITE_V9_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v9.yaml"
 LUIGI_FULL_MANIFEST_PATH = (
     ROOT / "benchmarks" / "run_ab" / "full" / "luigi-1-metrics-handler" / "manifest.yaml"
 )
@@ -87,6 +88,17 @@ THEFUCK_PATHSEP_FULL_MANIFEST_PATH = (
 )
 LUIGI_BEAM_FULL_MANIFEST_PATH = (
     ROOT / "benchmarks" / "run_ab" / "full" / "luigi-2-beam-target-path" / "manifest.yaml"
+)
+HTTPIE_LONGSEP_FULL_MANIFEST_PATH = (
+    ROOT / "benchmarks" / "run_ab" / "full" / "httpie-5-escape-long-separator" / "manifest.yaml"
+)
+TORNADO_REDIRECT_FULL_MANIFEST_PATH = (
+    ROOT
+    / "benchmarks"
+    / "run_ab"
+    / "full"
+    / "tornado-2-redirect-put-without-body"
+    / "manifest.yaml"
 )
 BLIND_RETRIEVAL_SELECTION_PATH = (
     ROOT / "benchmarks" / "retrieval" / "external-blind-v1" / "selection.yaml"
@@ -1573,6 +1585,113 @@ def test_full_checkout_v8_repairs_are_bounded_and_line_ending_independent():
     assert "'sanic.root' in loggers" in sanic_command
     assert "pathsep=';'" in thefuck_command
     assert "target.table=SimpleNamespace" in luigi_command
+
+
+def test_full_checkout_v9_preserves_v8_and_binds_two_development_cases():
+    v8 = RunABSuiteManifest.model_validate(
+        yaml.safe_load(FULL_SUITE_V8_PATH.read_text(encoding="utf-8"))
+    )
+    v9 = RunABSuiteManifest.model_validate(
+        yaml.safe_load(FULL_SUITE_V9_PATH.read_text(encoding="utf-8"))
+    )
+
+    assert v9.sha256 == "b35d10759f7104f3db57ed773d537fe323bc19a47a465cfb1faa94d49aa94611"
+    assert list(v9.cases[:15]) == list(v8.cases)
+    assert [case.case_id for case in v9.cases[15:]] == [
+        "httpie-5-escape-long-separator-full",
+        "tornado-2-redirect-put-without-body-full",
+    ]
+    assert len(v9.cases) == 17
+    assert len({case.source.project.casefold() for case in v9.cases}) == 9
+
+    expected = {
+        "httpie-5-escape-long-separator-full": (
+            HTTPIE_LONGSEP_FULL_MANIFEST_PATH,
+            "7aeaf838ab11c97619fd59efa46ce4d18cac0f18cae9d5dc5c2d3ad62e9e93c9",
+            (11, 12),
+        ),
+        "tornado-2-redirect-put-without-body-full": (
+            TORNADO_REDIRECT_FULL_MANIFEST_PATH,
+            "7e045205b73912c9b23b391a160ea5c1a0fb2eac5540c559bbcd797cdc028bf1",
+            (6, 7),
+        ),
+    }
+    for case in v9.cases[15:]:
+        manifest_path, digest, usage = expected[case.case_id]
+        manifest = RunABEvalManifest.model_validate(
+            yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+        )
+        case.check_manifest(manifest)
+        assert manifest.sha256 == digest
+        assert manifest.expected_initial_failed_checks == (manifest.task.acceptance[0].id,)
+        assert manifest.arms[1].expected_model_calls == usage[0]
+        assert manifest.arms[1].expected_tool_calls == usage[1]
+        assert manifest.arms[1].expected_steps == usage[1]
+
+
+def test_full_checkout_v9_additions_match_prefrozen_development_sources():
+    suite = RunABSuiteManifest.model_validate(
+        yaml.safe_load(FULL_SUITE_V9_PATH.read_text(encoding="utf-8"))
+    )
+    selection = yaml.safe_load(DEVELOPMENT_RETRIEVAL_SELECTION_PATH.read_text(encoding="utf-8"))
+    selected_by_id = {case["case_id"]: case for case in selection["cases"]}
+    source_ids = [
+        "httpie-5-escape-long-separator",
+        "tornado-2-redirect-put-without-body",
+    ]
+
+    for case, source_id in zip(suite.cases[15:], source_ids, strict=True):
+        selected = selected_by_id[source_id]
+        assert selected["partition"] == "development"
+        assert case.source.project == selected["project"]
+        assert case.source.bug_id == selected["bug_id"]
+        assert case.source.repository_url == selected["repository_url"]
+        assert case.source.buggy_commit == selected["buggy_commit"]
+        assert case.source.fixed_commit == selected["fixed_commit"]
+
+
+def test_full_checkout_v9_repairs_are_bounded_and_line_ending_independent():
+    manifests = [
+        RunABEvalManifest.model_validate(
+            yaml.safe_load(HTTPIE_LONGSEP_FULL_MANIFEST_PATH.read_text(encoding="utf-8"))
+        ),
+        RunABEvalManifest.model_validate(
+            yaml.safe_load(TORNADO_REDIRECT_FULL_MANIFEST_PATH.read_text(encoding="utf-8"))
+        ),
+    ]
+    expected_paths = ["httpie/cli.py", "tornado/http1connection.py"]
+    for manifest, expected_path in zip(manifests, expected_paths, strict=True):
+        edits = [action for action in manifest.arms[1].actions if action.tool == "replace_text"]
+        assert edits
+        assert {edit.arguments["path"] for edit in edits} == {expected_path}
+        assert all("\n" not in edit.arguments["old"] for edit in edits)
+
+    httpie_lines = [
+        "        self.separators = separators",
+        "        found = {}",
+        "            regex = '[^\\\\\\\\]' + sep",
+        "            match = re.search(regex, string)",
+        "            if match:",
+        "                found[match.start() + 1] = sep",
+    ]
+    tornado_lines = [
+        '                and "Transfer-Encoding" not in headers',
+        '                and "Transfer-Encoding" not in headers',
+    ]
+    for manifest, lines in zip(manifests, (httpie_lines, tornado_lines), strict=True):
+        edits = [action for action in manifest.arms[1].actions if action.tool == "replace_text"]
+        for newline in ("\n", "\r\n"):
+            source = newline.join(lines)
+            for edit in edits:
+                expected_occurrences = edit.arguments.get("expected_occurrences", 1)
+                assert source.count(edit.arguments["old"]) == expected_occurrences
+                source = source.replace(edit.arguments["old"], edit.arguments["new"])
+            assert all(edit.arguments["new"] in source for edit in edits)
+
+    assert "parsed.key=='bob:='" in manifests[0].task.acceptance[0].command
+    assert "request('PUT'),{'Transfer-Encoding':'chunked'}) is True" in (
+        manifests[1].task.acceptance[0].command
+    )
 
 
 def test_luigi_full_checkout_repair_is_line_ending_independent():
