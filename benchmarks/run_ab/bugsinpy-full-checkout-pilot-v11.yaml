@@ -1,7 +1,7 @@
 schema_version: 1
 suite_id: bugsinpy-full-checkout-pilot-v11
 
-# v10 preserves all seventeen frozen v9 cases and adds two pre-frozen development cases with filesystem-limit and byte-range failures.
+# v11 preserves all nineteen frozen v10 cases and adds three pre-frozen development cases covering URL hosts, command suggestions, and task-status ownership.
 cases:
   - case_id: tqdm-1-tenumerate-start-full
     manifest_path: full/tqdm-1-tenumerate-start/manifest.yaml

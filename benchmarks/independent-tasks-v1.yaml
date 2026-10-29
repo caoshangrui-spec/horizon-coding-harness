@@ -170,6 +170,9 @@ tasks:
   selection_reason: Preserved from the pre-reveal 2026-10-24 development partition; distinct BugsInPy project+bug identity; no post-freeze filtering.
   evidence:
     source_recipe_manifest: retrieval/external-development-v3/source-materialization.yaml
+    execution_suite_manifest: run_ab/bugsinpy-full-checkout-pilot-v11.yaml
+    execution_case_id: luigi-7-status-wont-override-full
+    historical_run_url: https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40804131201
 - partition: development
   project: PySnooper
   bug_id: '2'
@@ -215,6 +218,9 @@ tasks:
   selection_reason: Preserved from the pre-reveal 2026-10-24 development partition; distinct BugsInPy project+bug identity; no post-freeze filtering.
   evidence:
     source_recipe_manifest: retrieval/external-development-v3/source-materialization.yaml
+    execution_suite_manifest: run_ab/bugsinpy-full-checkout-pilot-v11.yaml
+    execution_case_id: sanic-3-routes-with-host-full
+    historical_run_url: https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40804131201
 - partition: development
   project: sanic
   bug_id: '5'
@@ -260,6 +266,9 @@ tasks:
   selection_reason: Preserved from the pre-reveal 2026-10-24 development partition; distinct BugsInPy project+bug identity; no post-freeze filtering.
   evidence:
     source_recipe_manifest: retrieval/external-development-v3/source-materialization.yaml
+    execution_suite_manifest: run_ab/bugsinpy-full-checkout-pilot-v11.yaml
+    execution_case_id: thefuck-5-git-push-bitbucket-full
+    historical_run_url: https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40804131201
 - partition: development
   project: tornado
   bug_id: '2'

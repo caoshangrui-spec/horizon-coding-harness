@@ -52,7 +52,7 @@
 ```powershell
 uv run --locked --cache-dir .uv-cache horizon eval task-registry-preflight `
   benchmarks/independent-tasks-v1.yaml `
-  --state-dir .horizon/task-registry-preflight-v10
+  --state-dir .horizon/task-registry-preflight-v11
 ```
 
 该命令只读 YAML，并把报告写入内容寻址 ArtifactStore。它不读取 API Key、不联网、不运行 Docker、
@@ -63,15 +63,15 @@ uv run --locked --cache-dir .uv-cache horizon eval task-registry-preflight `
 | 冻结任务 / 唯一上游 bug | 24 / 24 |
 | development / holdout | 16 / 8 |
 | 有源码物化配方 / 仅元数据 | 16 / 8 |
-| 绑定公开历史初始失败证据 / 仅 benchmark 声明 | 12 / 12 |
-| 完整 checkout manifest | 11 |
+| 绑定公开历史初始失败证据 / 仅 benchmark 声明 | 15 / 9 |
+| 完整 checkout manifest | 14 |
 | 依赖裁剪 manifest | 1 |
-| 尚未准备执行 manifest | 12 |
+| 尚未准备执行 manifest | 9 |
 | 本次模型调用 / 网络调用 / 仓库代码执行 | 0 / 0 / 0 |
 
 注册表 digest 为
-`ef0e1e603d5f0c0e1e167f3db780a02ebe2b6bcffa2a61015d5f98e14580a321`；预检 report ref 为
-`8cf56daceda9b6c69f723f58d006f6c264b88dd406b763de72eeb2647f0c6489`。它绑定的原始选择
+`8779c1effc8dee794322c7530e171b78ab5df89995086fcf7d5c1e69a1b1acbe`；预检 report ref 为
+`4749677f5f10551057c1701cc3a0bbfe90c86697e259b3ddf826f1bd6cd3fac0`。它绑定的原始选择
 digest 为 `7789f0c7e9cbd63afe23c523627a1c3921facc97dda4df74c19b140a3b20f9c7`。
 
 ## 4. 当前能说什么，不能说什么
@@ -80,7 +80,7 @@ digest 为 `7789f0c7e9cbd63afe23c523627a1c3921facc97dda4df74c19b140a3b20f9c7`。
 
 - 已固定 24 个不重复的公开 BugsInPy 缺陷身份；
 - 来源、commit、许可证、失败测试、分区和现有证据引用可以离线交叉验证；
-- 其中 12 条已有 Harness 执行 manifest，11 条为完整 checkout、1 条为依赖裁剪；
+- 其中 15 条已有 Harness 执行 manifest，14 条为完整 checkout、1 条为依赖裁剪；
 - 这份报告可以作为后续批量执行的确定性输入基线。
 
 不能说：
@@ -94,7 +94,8 @@ digest 为 `7789f0c7e9cbd63afe23c523627a1c3921facc97dda4df74c19b140a3b20f9c7`。
 
 ## 5. 下一批最短路径
 
-下一步只处理仍属于 development 的 4 条 `not_prepared`：按 exact buggy commit 构建完整 checkout
-任务、先复现初始失败，再接入顺序 batch。holdout 继续保持不物化、不揭示 gold。这样可以先把
-development 从 12/16 提升到 16/16 可执行，再决定是否需要真实模型预算；不会为了凑数复制已有
-scenario，也不会提前花费模型费用。
+当前 development 已有 15/16 条执行 manifest。唯一剩余的 Cookiecutter-3 候选 checkout 含 7 个
+tracked 文档符号链接，生产快照安全门按既有合同拒绝 links/junctions；本批没有排除链接、改写上游
+内容或放宽安全门来凑齐 16/16。其余 8 条 `not_prepared` 全部属于仍密封的 holdout，不物化、不揭示
+patch 或 gold path。下一步应先决定是否为 Cookiecutter-3 设计不降低安全性的来源包装；真实模型
+预算仍需单独明确授权。
