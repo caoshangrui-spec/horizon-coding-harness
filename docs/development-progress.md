@@ -12,18 +12,27 @@
   retrieval 结果是否真正进入后续模型上下文。新增 `retrieval_lineage.py`，从 EventLog、模型/工具
   reservation、内容寻址 EvidencePack、ContextProjection、RunMemory 和写前 CAS 合同复算每条
   `retrieve_code -> model context -> write` 链。
-- replan 后的 session 不再依赖旧 transcript。成功 retrieval 的 RunMemory excerpt 改为优先保留
-  primary chunk 的 path/snippet，并在模型可见 binding 中带 source call、evidence ref 和依赖 revision；
+- replan 后的 session 不再依赖旧 transcript。成功 retrieval 的 RunMemory excerpt 改为有界保留
+  前两名 chunk 的 path/snippet，并在模型可见 binding 中带 source call、evidence ref 和依赖 revision；
   stale/unresolved 仍不暴露内容。Artifact 存在但未进入保存投影时不会计为 delivered。
 - Arm、case、suite 报告新增 lineage 与五项聚合计数；旧报告字段缺失仍可解析。公开 Docker workflow
-  已增加全 arm lineage、full-checkout 全 retrieval delivery 和每案例至少一个 evidence-backed write
-  的门。
+  已增加全 arm lineage，并要求 full-checkout 每个案例至少有 retrieval delivery 和一个
+  evidence-backed write；不要求把未进入后续模型投影的检索伪报为 delivered。
 - 当前本地整仓离线回归为 **633 passed，11 skipped**，Ruff 全通过；11 项跳过仍因本机 Docker
   daemon 未启动，不改写为通过。
 - 针对性回归 69 项通过；另以 test-only exact-change validator 对 900 文件的 youtube-dl 完整
   checkout 运行一次真实 Harness 烟测，确认 post-replan `run_memory_excerpt` 覆盖
   `youtube_dl/utils.py` 且产生 1 条 evidence-backed write。当前机器 Docker daemon 未启动，因此
   这不是新的公开 Docker 证据；公开门仍需当前提交的 CI 复跑确认。
+- 首次公开 lineage 门在四组执行 suite 全通过后保留了一个真实负结果：full-checkout 的成功/交付
+  retrieval 为 88/88，22 条写入有 retrieval 上下文，但 evidence-backed write 仅 18；HTTPie-2、
+  Sanic-3、TheFuck-5、Luigi-7 的目标文件均排 rank 2，被当时只保留首块的 RunMemory 丢失。
+  诊断 run 为 [`40858869570`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40858869570)，
+  没有把 18/22 改写成通过。
+- RunMemory 随后改为最多保留两个 ranked chunk、每块最多 96 字符 snippet、总 excerpt 最多 400
+  字符；lineage 解析结构化 excerpt，并要求目标 path 对应非空 snippet 且确实属于原 EvidencePack。
+  四个缺口案例的本地完整 checkout 烟测现均产生至少一条 evidence-backed write；整仓回归仍为
+  **633 passed，11 skipped**，最终公开 Docker 复跑待当前提交确认。
 - 边界保持：lineage 只证明内容交付、revision 与 target path 对齐；Scripted Model 的冻结写入不能
   推导“检索导致修改”或真实模型成功率。8 条 sealed holdout 未物化、未揭示、未运行。
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 
 from horizon.application.context import visible_run_memory_binding
@@ -32,7 +33,7 @@ class _RetrievalEvidence:
 class _DeliveredRetrieval:
     retrieval: _RetrievalEvidence
     channels: frozenset[str]
-    memory_excerpt: str = ""
+    memory_paths: frozenset[str] = frozenset()
 
 
 def _event_contracts(
@@ -156,6 +157,35 @@ def _memory_delivery(
     }
 
 
+def _retrieval_excerpt_paths(excerpt: str) -> frozenset[str]:
+    """Return paths whose retrieval snippets were actually exposed in Run memory."""
+
+    try:
+        payload = json.loads(excerpt)
+    except json.JSONDecodeError as exc:
+        raise IntegrityError("Retrieval Run-memory excerpt is not valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise IntegrityError("Retrieval Run-memory excerpt must be a JSON object")
+
+    legacy_path = payload.get("path")
+    legacy_snippet = payload.get("snippet")
+    if isinstance(legacy_path, str) and isinstance(legacy_snippet, str) and legacy_snippet:
+        return frozenset({legacy_path})
+
+    chunks = payload.get("chunks", [])
+    if not isinstance(chunks, list):
+        raise IntegrityError("Retrieval Run-memory chunks must be a JSON list")
+    paths: set[str] = set()
+    for chunk in chunks:
+        if not isinstance(chunk, dict):
+            raise IntegrityError("Retrieval Run-memory chunk must be a JSON object")
+        path = chunk.get("path")
+        snippet = chunk.get("snippet")
+        if isinstance(path, str) and isinstance(snippet, str) and snippet:
+            paths.add(path)
+    return frozenset(paths)
+
+
 def _deliveries_for_model_call(
     reservation: ModelCallReservation,
     reservation_seq: int,
@@ -178,18 +208,25 @@ def _deliveries_for_model_call(
             channels.add("direct_tool_message")
         memory_binding = memory_excerpts.get(retrieval.record.call_id)
         memory_excerpt = memory_binding[0] if memory_binding is not None else ""
+        memory_paths: frozenset[str] = frozenset()
         if (
             memory_binding is not None
             and memory_binding[1] == retrieval.record.artifact_ref
             and memory_binding[2] == retrieval.evidence.workspace_revision
         ):
+            memory_paths = _retrieval_excerpt_paths(memory_excerpt)
+            evidence_paths = {chunk.path for chunk in retrieval.evidence.chunks}
+            if not memory_paths <= evidence_paths:
+                raise IntegrityError(
+                    "Retrieval Run-memory excerpt names a path absent from evidence"
+                )
             channels.add("run_memory_excerpt")
         if channels:
             delivered.append(
                 _DeliveredRetrieval(
                     retrieval=retrieval,
                     channels=frozenset(channels),
-                    memory_excerpt=memory_excerpt,
+                    memory_paths=memory_paths,
                 )
             )
     return tuple(sorted(delivered, key=lambda item: item.retrieval.settled_seq))
@@ -296,8 +333,7 @@ def derive_run_ab_retrieval_lineage(
             for target_path in precondition.target_paths:
                 direct_visible = "direct_tool_message" in item.channels
                 memory_visible = (
-                    "run_memory_excerpt" in item.channels
-                    and canonical_json(target_path) in item.memory_excerpt
+                    "run_memory_excerpt" in item.channels and target_path in item.memory_paths
                 )
                 if target_path in chunk_paths and (direct_visible or memory_visible):
                     covered.add(target_path)

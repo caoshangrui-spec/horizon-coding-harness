@@ -105,7 +105,7 @@ def visible_run_memory_binding(
             "status": entry.status,
             "dependency_revision": entry.dependency_revision,
             "evidence_ref": entry.evidence_ref,
-            "excerpt": (entry.excerpt[:240] if entry.status == "active" else ""),
+            "excerpt": (entry.excerpt if entry.status == "active" else ""),
         }
         for entry in run_memory.entries[-2:]
     ]

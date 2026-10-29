@@ -8,8 +8,12 @@ for public releases; unreleased work must not be presented as a published releas
 - Added Trace-derived retrieval-consumption lineage to source-bound Run A/B reports. Successful
   `retrieve_code` receipts are now matched to exact later ContextProjection tool messages or active
   post-replan RunMemory excerpts, then joined to write compare-and-swap preconditions by source model
-  call, workspace revision, and target path. RunMemory now prioritizes the primary retrieval chunk's
-  path/snippet and exposes content-addressed provenance while hiding stale excerpts. Arm/case/suite
+  call, workspace revision, and target path. RunMemory now preserves bounded path/snippet excerpts
+  for the two highest-ranked retrieval chunks and exposes content-addressed provenance while hiding
+  stale excerpts. The first public lineage gate retained a real 18/22 negative result: four write
+  targets ranked second and were lost by the former primary-only memory projection. The top-two
+  projection closes that context-loss gap without changing retrieval ranking or weakening the gate.
+  Arm/case/suite
   reports aggregate delivered retrievals and context-bound/evidence-backed writes; legacy reports
   remain readable. The public full-checkout workflow gates this structural provenance separately
   from protected validation, without claiming semantic causality or real-model success.

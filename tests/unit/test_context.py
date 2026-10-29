@@ -1,6 +1,6 @@
 import pytest
 
-from horizon.application.context import ContextProjector
+from horizon.application.context import ContextProjector, visible_run_memory_binding
 from horizon.application.model_probe import conservative_input_estimate
 from horizon.domain.common import canonical_json
 from horizon.domain.context import ContextCompactionRecord, MandatoryFactLedger
@@ -81,7 +81,11 @@ def _mandatory_facts(workspace_revision: str = "e" * 64) -> MandatoryFactLedger:
     )
 
 
-def _run_memory(*, status: str = "active") -> RunMemorySnapshot:
+def _run_memory(
+    *,
+    status: str = "active",
+    excerpt: str = "def parse(value): return value",
+) -> RunMemorySnapshot:
     revision = "e" * 64
     entry = RunMemoryEntry.create(
         scope_id="run-context",
@@ -100,7 +104,7 @@ def _run_memory(*, status: str = "active") -> RunMemorySnapshot:
         evidence_ref="7" * 64,
         evidence_hash="7" * 64,
         statement="Controller observed tool read_file succeeded.",
-        excerpt="def parse(value): return value",
+        excerpt=excerpt,
     )
     return RunMemorySnapshot(
         run_id="run-context",
@@ -111,7 +115,7 @@ def _run_memory(*, status: str = "active") -> RunMemorySnapshot:
         workspace_revision=revision,
         relevant_event_digest="8" * 64,
         max_entries=12,
-        excerpt_chars=240,
+        excerpt_chars=400,
         total_entry_count=1,
         included_entry_count=1,
         omitted_entry_count=0,
@@ -420,6 +424,15 @@ def test_projection_injects_only_active_run_memory_evidence():
     assert '"stale_count":1' in system
     assert '"status":"stale"' in system
     assert "def parse(value)" not in system
+
+
+def test_visible_run_memory_binding_preserves_the_projector_bounded_excerpt():
+    excerpt = "x" * 400
+    memory = _run_memory(excerpt=excerpt)
+
+    binding = visible_run_memory_binding(memory, memory.sha256)
+
+    assert binding["recent_entries"][0]["excerpt"] == excerpt
 
 
 def test_compaction_preserves_run_memory_binding():

@@ -49,7 +49,7 @@ digest 没有被改写。
 | `degradation_arm_count` / `degradation_record_count` | 至少一条 degradation 的 arm / 全部记录数 | 同一 arm 多次真实降级调用会保留多条记录；NoProgress 拒绝回执不伪装成检索降级 |
 | `retrieval_degraded_arm_count` | 带 `retrieval_degraded` 的 arm | 来自成功 `retrieve_code` 回执内的 typed EvidencePack，并与 call ID、Artifact、Task 和 acceptance hash 绑定 |
 | `retrieval_lineage_arm_count` | 带 retrieval lineage 的 arm | 新报告必须覆盖全部 arm；0 只表示旧报告没有该证据，不能解释为“没有使用 RAG” |
-| `successful_retrieval_count` / `delivered_retrieval_count` | 成功 EvidencePack 数 / 至少进入一个后续已保存模型投影的数量 | delivery 必须是 exact tool message，或 replan 后 active RunMemory primary-chunk excerpt；只有 Artifact ref 不算交付 |
+| `successful_retrieval_count` / `delivered_retrieval_count` | 成功 EvidencePack 数 / 至少进入一个后续已保存模型投影的数量 | delivery 必须是 exact tool message，或 replan 后 active RunMemory top-two ranked-chunk excerpt；只有 Artifact ref 不算交付，且没有后续投影的成功检索不得伪报为 delivered |
 | `successful_write_count` | 成功 `replace_text/apply_patch/create_file` receipt 数 | 只统计已结算成功写入，不包含 proposal、拒绝或 unknown effect |
 | `write_context_bound_count` | source model context 中可见至少一条 retrieval 的成功写入数 | 证明投影绑定，不证明检索导致了写入决策 |
 | `evidence_backed_write_count` | context-bound 且 EvidencePack revision 与写前 CAS revision 一致、全部 target path 被可见 chunk 覆盖的写入数 | 是结构化 provenance 门，不是代码正确性；正确性仍由 protected validation 决定 |
@@ -162,6 +162,9 @@ arm 全部恢复、recovery rate 1.0、redispatch 0、duplicate side effect 0、
 final open effect 0。四组 suite 还必须让 reliability facts 覆盖全部 arm，并让 clean 与
 quality-flagged success 之和等于原始 terminal success；dependency-reduced suite 固定为 5 个 clean
 Treatment，完整 checkout 必须实际观察到 retrieval-degraded arm 与 quality-flagged success。
+新报告还要求 retrieval lineage 覆盖全部 arm；完整 checkout 的每个案例都必须至少有一次 retrieval
+进入后续保存的模型投影，并至少有一条成功写入同时满足 same-revision、target-path 和非空 snippet
+覆盖。`delivered` 只能是成功检索的子集，门禁不要求凭空消费没有后续模型调用的结果。
 三阶段 Baseline 虽已完成部分 WorkItem 检查，但当前 Task 的全部 required acceptance 尚无最终
 receipt，因此保留为 `acceptance_evidence_unknown`；只有存在当前、已知且未全过的最终验收
 receipt 才计入 `required_checks_failed`。任一门槛失败都会让证据发布步骤失败，而不是只在
@@ -173,6 +176,14 @@ Markdown 中显示警告。
 失败。门禁按 Trace 语义修正为 known failure 0，并增加失败时打印全部 suite reliability facts；
 随后 run `40682108470` 全部通过。这里保留第一次失败，避免把门禁错误包装成任务执行失败或静默
 删除负结果。
+
+首次加入逐案例 lineage 门的公开 run
+[`40858869570`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40858869570)
+四组执行 suite 均通过、62/62 arm 有 lineage、88/88 成功检索进入后续模型投影，但只有 18 个完整
+checkout 案例产生 evidence-backed write。缺口是 HTTPie-2、Sanic-3、TheFuck-5、Luigi-7：四个
+写入目标都在 EvidencePack 排 rank 2，而 primary-only RunMemory 只把 rank 1 内容带过 replan 边界。
+该 run 保留为负结果；随后代码只扩大有界 memory excerpt 到前两块，没有改 query、排序、manifest
+或验收门。
 
 `network_called=false` 表示评测中的 Harness/模型路径没有出站调用；GitHub job 在评测前获取公开
 源码和 Docker image 仍需要网络。`paid_model_called=false` 表示全部动作来自冻结 Scripted Model，

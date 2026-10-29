@@ -67,24 +67,29 @@ Hit/MRR 只证明 retriever 返回了什么，不证明这些内容进入了后�
 retrieve_code ToolCallRecord + EvidencePack
   -> 后续 ModelCallReservation
   -> ContextProjection 中的 exact tool message
-     或 replan 后 RunMemory 的 active primary-chunk excerpt
+     或 replan 后 RunMemory 的 active top-two ranked-chunk excerpt
   -> write WorkspaceWritePrecondition(source model call / revision / target paths)
   -> RunABWriteEvidenceLineage
 ```
 
 重规划会创建新 Agent session，因此旧 retrieval 不再依赖直接 transcript。`RunMemoryProjector`
-现在把成功检索的首个 chunk 压成有界 `path + snippet`，上下文同时公开 controller 记录的
-`source_call_id`、`evidence_ref` 与 `dependency_revision`；只暴露最近两条，且 stale/unresolved
-条目不暴露 excerpt。分析器必须在保存的 system message 中找到这份精确 binding，不能仅因为
-Artifact 存在就声称模型看见过它。
+现在把成功检索的前两个 chunk 压成总计不超过 400 字符的 `rank + path + snippet`，单块 snippet
+最多 96 字符；上下文同时公开 controller 记录的 `source_call_id`、`evidence_ref` 与
+`dependency_revision`；只暴露最近两条，且 stale/unresolved 条目不暴露 excerpt。分析器必须在
+保存的 system message 中找到这份精确 binding，不能仅因为 Artifact 存在就声称模型看见过它。
+
+这个 top-two 边界来自公开负结果而不是预设美化：首轮统一 lineage 门只有 18/22 个完整 checkout
+案例产生 evidence-backed write；HTTPie-2、Sanic-3、TheFuck-5、Luigi-7 的真实写入目标均在各自
+EvidencePack 排 rank 2，primary-only excerpt 把它们丢掉。修复没有改排序、query 或 manifest；
+lineage 还会解析 excerpt，要求目标 path 带非空 snippet 且属于原 EvidencePack，单纯路径名不算消费。
 
 对每个成功写入，`evidence_backed=true` 还要求：写入的 source model call 有已保存
 ContextProjection；至少一条成功 retrieval 确实在该投影可见；EvidencePack、写前 CAS revision
 与工具 receipt revision 一致；所有 target path 都在可见 retrieval chunk 中。case/suite 聚合
 `successful_retrieval_count`、`delivered_retrieval_count`、`successful_write_count`、
 `write_context_bound_count` 和 `evidence_backed_write_count`，CI 要求新报告的 lineage 覆盖全部
-arm，并对 full-checkout 要求所有成功 retrieval 均被后续请求消费、每个案例至少有一个
-evidence-backed write。
+arm，并对 full-checkout 逐案例要求至少一次真实 retrieval delivery 和一个 evidence-backed write。
+`delivered` 必须是 `successful` 的子集；门禁不会把没有后续模型投影的成功检索伪报为已消费。
 
 这仍是**交付与对齐证据**，不是因果解释：Scripted Model 的候选写入是预先冻结的，lineage
 不能证明模型因检索内容才做出修改，也不能替代真实模型成功率。现有 sealed holdout 不因增加

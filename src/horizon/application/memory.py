@@ -25,6 +25,8 @@ SUPPORTED_MEMORY_TOOLS = frozenset(
     }
 )
 MAX_MEMORY_EVIDENCE_BYTES = 512 * 1024
+MAX_RETRIEVAL_MEMORY_CHUNKS = 2
+MAX_RETRIEVAL_SNIPPET_CHARS = 96
 
 
 def _kind(tool_name: str) -> str:
@@ -53,28 +55,36 @@ def _bounded_evidence_excerpt(
     content: str,
     max_chars: int,
 ) -> str:
+    if max_chars == 0:
+        return ""
     if record.name != "retrieve_code" or record.status != "success":
         return content[:max_chars]
     try:
         evidence = EvidencePack.model_validate_json(raw)
     except ValidationError as exc:
         raise IntegrityError("Successful retrieval memory requires a valid EvidencePack") from exc
-    if evidence.chunks:
-        primary = evidence.chunks[0]
-        visible = canonical_json(
-            {
-                "path": primary.path,
-                "snippet": primary.snippet,
+    visible_chunks: list[dict[str, int | str]] = []
+    for chunk in evidence.chunks[:MAX_RETRIEVAL_MEMORY_CHUNKS]:
+        snippet = chunk.snippet[:MAX_RETRIEVAL_SNIPPET_CHARS]
+        fitted: dict[str, int | str] | None = None
+        for snippet_chars in range(len(snippet), 0, -1):
+            candidate = {
+                "rank": chunk.rank,
+                "path": chunk.path,
+                "snippet": snippet[:snippet_chars],
             }
-        )
-    else:
-        visible = canonical_json(
-            {
-                "query": evidence.query,
-                "status": evidence.status,
-            }
-        )
-    return visible[:max_chars]
+            rendered = canonical_json({"chunks": [*visible_chunks, candidate]})
+            if len(rendered) <= max_chars:
+                fitted = candidate
+                break
+        if fitted is None:
+            break
+        visible_chunks.append(fitted)
+    if visible_chunks:
+        return canonical_json({"chunks": visible_chunks})
+
+    status_only = canonical_json({"status": evidence.status})
+    return status_only if len(status_only) <= max_chars else ""
 
 
 class RunMemoryProjector:
@@ -85,7 +95,7 @@ class RunMemoryProjector:
         artifacts: ArtifactStorePort,
         *,
         max_entries: int = 12,
-        excerpt_chars: int = 240,
+        excerpt_chars: int = 400,
     ):
         if not 1 <= max_entries <= 50:
             raise ValueError("Run memory accepts between 1 and 50 entries")

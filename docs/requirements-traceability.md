@@ -108,7 +108,9 @@
 > 2026-10-29 FR-903 当前增量：Run A/B 已把作品集中的单例 retrieval→write lineage 提升为
 > 通用 arm/case/suite 证据。分析器从 durable reservation/receipt、EvidencePack、ContextProjection、
 > RunMemory 与 write CAS 复算 exact delivery、same-revision 和 target-path coverage；replan 后只接受
-> 实际出现在模型 system binding 中的 active primary-chunk excerpt，Artifact 仅存在不算消费。
+> 实际出现在模型 system binding 中的 active top-two ranked-chunk excerpt，且目标 path 必须带非空
+> snippet 并属于原 EvidencePack；Artifact 仅存在不算消费。首轮公开门保留 18/22 的负结果后，
+> 才把 RunMemory 从 primary-only 修为前两块、总计最多 400 字符，没有修改检索排名或降低门槛。
 > 新报告聚合 delivered retrieval 与 context-bound/evidence-backed write，旧报告仍兼容。该证据仍
 > 不是语义因果或真实模型能力；尚未把检索设为所有生产写工具的强制前置策略，生产脱敏也未完成。
 

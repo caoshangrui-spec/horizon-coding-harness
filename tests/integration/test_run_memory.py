@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -110,7 +111,7 @@ def test_run_memory_preserves_observed_success_failure_and_staleness(
     assert all(entry.confidence == "observed" for entry in stale.entries)
 
 
-def test_run_memory_prioritizes_primary_retrieval_chunk_for_replan_context(
+def test_run_memory_preserves_two_ranked_retrieval_chunks_for_replan_context(
     tmp_path: Path,
     running,
     service,
@@ -126,16 +127,32 @@ def test_run_memory_prioritizes_primary_retrieval_chunk_for_replan_context(
         index_key="d" * 64,
         backend="sqlite_fts5",
         status="ok",
-        indexed_file_count=1,
+        indexed_file_count=3,
         skipped_file_count=0,
         chunks=(
             EvidenceChunk(
                 rank=1,
-                path="src/parser.py",
+                path="src/request.py",
                 start_line=1,
                 end_line=2,
                 content_hash="e" * 64,
+                snippet="def request(value):\n    return value",
+            ),
+            EvidenceChunk(
+                rank=2,
+                path="src/parser.py",
+                start_line=10,
+                end_line=12,
+                content_hash="f" * 64,
                 snippet="def parse(value):\n    return value or '[]'",
+            ),
+            EvidenceChunk(
+                rank=3,
+                path="tests/test_parser.py",
+                start_line=1,
+                end_line=2,
+                content_hash="1" * 64,
+                snippet="def test_parse():\n    assert parse('') == '[]'",
             ),
         ),
     )
@@ -158,9 +175,14 @@ def test_run_memory_prioritizes_primary_retrieval_chunk_for_replan_context(
     )
 
     assert len(snapshot.entries) == 1
-    assert '"path":"src/parser.py"' in snapshot.entries[0].excerpt
-    assert "def parse(value)" in snapshot.entries[0].excerpt
-    assert '"query":"parser empty value"' not in snapshot.entries[0].excerpt
+    visible = json.loads(snapshot.entries[0].excerpt)
+    assert [chunk["path"] for chunk in visible["chunks"]] == [
+        "src/request.py",
+        "src/parser.py",
+    ]
+    assert all(chunk["snippet"] for chunk in visible["chunks"])
+    assert "tests/test_parser.py" not in snapshot.entries[0].excerpt
+    assert len(snapshot.entries[0].excerpt) <= snapshot.excerpt_chars == 400
 
 
 def test_run_memory_excludes_model_submit_claims_and_bounds_projection(
