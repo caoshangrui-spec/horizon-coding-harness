@@ -1,0 +1,74 @@
+schema_version: 1
+pilot_id: httpie-4-host-header-overwrite-real-model-v1
+source_path: fixture
+
+source:
+  benchmark: BugsInPy
+  project: httpie
+  bug_id: "4"
+  repository_url: https://github.com/httpie/cli
+  buggy_commit: 8c892edd4fe700a7ca5cc733dcb4817831d253e2
+  fixed_commit: 040d981f00c3f6830b2d0db3daf3c64c080e96e3
+  fix_url: https://github.com/httpie/cli/commit/040d981f00c3f6830b2d0db3daf3c64c080e96e3
+  upstream_test: tests/test_regressions.py::test_Host_header_overwrite
+  license_spdx: BSD-3-Clause
+  license_url: https://github.com/httpie/cli/blob/8c892edd4fe700a7ca5cc733dcb4817831d253e2/LICENSE
+  reduction: full_checkout
+  reduction_note: >-
+    The model receives the clean 59-file upstream checkout at the exact buggy commit.
+    The fixed commit and private repair literal remain controller-only evidence.
+
+task:
+  schema_version: "1.0"
+  spec_version: 1
+  task_id: httpie-host-header-overwrite-real-model-v1
+  title: Preserve a case-insensitive custom Host header
+  objective: >-
+    Avoid duplicating or replacing a caller-provided Host header while preserving the
+    request rendering behavior for requests that do not provide one.
+  repository:
+    source: local
+    path: /pilot-source
+    base_commit: 8c892edd4fe700a7ca5cc733dcb4817831d253e2
+  constraints:
+    allowed_paths: [httpie/**]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    # The rank-1 revision-bound chunk contains the exact old preimage and surrounding
+    # request-rendering flow, so this candidate does not need a separate read_file call.
+    allowed_tools: [retrieve_code, replace_text]
+    network: deny
+    requirements:
+      - Do not change tests, dependencies, or public APIs.
+      - Use revision-bound repository evidence before editing production code.
+  acceptance:
+    - id: httpie-host-header-real-model
+      command: >-
+        python -B -c "import ast; from pathlib import Path; from types import SimpleNamespace; from urllib.parse import urlsplit; source=Path('httpie/models.py').read_text(encoding='utf-8'); tree=ast.parse(source); nodes=[item for item in tree.body if isinstance(item,ast.ClassDef) and item.name in {'HTTPMessage','HTTPRequest'}]; namespace={'urlsplit':urlsplit,'str':str}; exec(compile(ast.Module(body=nodes,type_ignores=[]),'httpie/models.py','exec'),namespace); Headers=type('Headers',(dict,),{'__contains__':lambda self,key:any(str(existing).lower()==str(key).lower() for existing in self)}); original=SimpleNamespace(url='http://127.0.0.1/resource',method='GET',headers=Headers({'host':'custom.example'}),body=b''); rendered=namespace['HTTPRequest'](original).headers; assert rendered.lower().count('host:')==1,rendered; assert 'host: custom.example' in rendered.lower(),rendered"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 10
+    max_model_calls: 5
+    max_tool_calls: 10
+    max_wall_time_seconds: 600
+    # Legacy TaskSpec field; the enforced paid limit is the CNY provider Run cap below.
+    max_cost_usd: "0.053"
+    max_input_tokens: 50000
+    max_output_tokens: 2048
+    max_repair_cycles: 1
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: siliconflow-deepseek-v4-flash-httpie-pilot-0053-v1
+  memory_scope: httpie-4-host-header-overwrite-real-model-v1
+
+provider_policy_id: siliconflow-deepseek-v4-flash-httpie-pilot-0053-v1
+currency: CNY
+max_paid_cost: "0.053"
+expected_initial_failed_checks: [httpie-host-header-real-model]
+auto_plan: true
+
+solution_isolation:
+  acceptance_visibility: visible
+  forbidden_task_literals:
+    - "if 'Host' not in self._orig.headers:"

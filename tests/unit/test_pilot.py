@@ -62,6 +62,15 @@ TQDM_NARROW_PILOT_MANIFEST = (
     ROOT / "benchmarks" / "run_ab" / "full" / "tqdm-1-tenumerate-start" / "real-model-pilot-v3.yaml"
 )
 TQDM_NARROW_PILOT_CONFIG = ROOT / "config" / "providers" / "siliconflow-tqdm-pilot-v3.yaml"
+HTTPIE_PILOT_MANIFEST = (
+    ROOT
+    / "benchmarks"
+    / "run_ab"
+    / "full"
+    / "httpie-4-host-header-overwrite"
+    / "real-model-pilot.yaml"
+)
+HTTPIE_PILOT_CONFIG = ROOT / "config" / "providers" / "siliconflow-httpie-pilot.yaml"
 
 
 def load_manifest() -> RealModelPilotManifest:
@@ -179,6 +188,28 @@ def test_tqdm_v3_pilot_adds_task_tool_least_privilege_within_remaining_caps():
     assert Decimal("0.1302414") + provider.run_budget.max_cost <= provider.campaign.max_cost
     assert Decimal("0.1954812") + provider.run_budget.max_cost <= Decimal("0.25")
     assert provider.request.max_attempts == 1
+    assert provider.fallback_enabled is False
+
+
+def test_httpie_pilot_is_retrieval_first_and_requires_a_fresh_cumulative_cap():
+    manifest = RealModelPilotManifest.model_validate(
+        yaml.safe_load(HTTPIE_PILOT_MANIFEST.read_text(encoding="utf-8"))
+    )
+    provider = load_provider_config(HTTPIE_PILOT_CONFIG)
+
+    assert manifest.provider_policy_id == provider.policy_id
+    assert manifest.max_paid_cost == Decimal("0.053")
+    assert manifest.task.constraints.allowed_paths == ("httpie/**",)
+    assert manifest.task.constraints.allowed_tools == ("retrieve_code", "replace_text")
+    assert manifest.task.budgets.max_model_calls == 5
+    assert provider.request.max_output_tokens == 384
+    assert provider.request.max_context_chars == 5_000
+    assert provider.request.max_attempts == 1
+    assert provider.campaign.campaign_id == "siliconflow-httpie-pilot-2026-10"
+    assert provider.campaign.max_cost == Decimal("0.053")
+    assert provider.run_budget.max_cost == Decimal("0.053")
+    assert Decimal("0.2064492") + provider.run_budget.max_cost > Decimal("0.25")
+    assert Decimal("0.2064492") + provider.run_budget.max_cost <= Decimal("0.26")
     assert provider.fallback_enabled is False
 
 

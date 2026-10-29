@@ -612,3 +612,36 @@ fallback、人工补丁或 candidate promotion。正确 Plan 与 rank-1 检索�
 成功率。七轮均是失败个案。任何下一次付费 continuation 都需要
 新的零费用 preflight、与剩余额度一致的新 Run cap，以及新的明确授权；仍不增加向量库、多
 Agent、Project Memory、自动 fallback 或第二次 replan。
+
+## 16. HTTPie-4：面向成功闭环的零费用候选
+
+第七轮后没有继续消耗旧授权。先在 22 个已物化的 development 完整 checkout 上复用各自
+Treatment 的检索词，以真实 SQLite FTS5 检索前 8 个 chunk，再由控制器检查精确旧文本是否完整
+出现在返回证据中。该筛选使用了已知修复的 preimage，只用于**选择后续 Pilot**，不能作为盲测、
+泛化率或模型成功证据。
+
+满足“目标文件进入前二、全部旧文本可见”的候选中，HTTPie-4 最小：59 files、单文件单处修改、
+目标 `httpie/models.py` rank 1。与 tqdm-1 不同，这个 rank-1 chunk 已包含精确旧文本和周围的
+request-rendering 逻辑，因此任务级工具可以收窄为 `retrieve_code` 与 `replace_text`；`submit` 仍由
+控制器提供，最终 required acceptance 仍在提交后自动执行。
+
+冻结文件如下：
+
+- manifest：
+  [`real-model-pilot.yaml`](../benchmarks/run_ab/full/httpie-4-host-header-overwrite/real-model-pilot.yaml)；
+- Provider policy：
+  [`siliconflow-httpie-pilot.yaml`](../config/providers/siliconflow-httpie-pilot.yaml)；
+- 模型仍为 `deepseek-ai/DeepSeek-V4-Flash`，`max_attempts=1`、`fallback_enabled=false`，
+  context 上限 5,000 chars，输出上限 384 tokens；
+- Run/Campaign cap 均为 `CNY 0.053`，使用新的不可变 Campaign ID。该 Campaign 只允许零费用
+  preflight 初始化，不授权任何 Provider 请求。
+
+截至第七轮实际结算，系列累计为 `CNY 0.2064492`。若新 Run 完整占用，理论累计为
+`0.2064492 + 0.053 = CNY 0.2594492`：它**超过旧的 CNY 0.25 授权**，但低于一个可能的新
+`CNY 0.26` 累计上限。这里仅冻结可审计配置；只有禁网 Docker preflight 通过，并且用户另行明确
+授权“该任务可发送的上下文、单次 Run cap 与新的累计上限”后，才能启动一次付费运行。
+
+专用 CI 步骤会在精确 buggy commit 上运行初始保护性验收、source 再快照、solution-isolation、
+首次规划 reservation 与输入上限门，并断言 `credential_loaded=false`、`paid_model_called=false`、
+`network_called=false`。在公开 CI 实际通过之前，本节状态只能写作“候选已配置、Docker preflight
+待验证”，不能写作 ready，更不能写作真实模型成功。

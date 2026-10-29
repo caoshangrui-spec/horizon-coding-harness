@@ -22,8 +22,11 @@ on:
       - "benchmarks/run_ab/external/**/manifest.yaml"
       - "benchmarks/run_ab/full/**/manifest.yaml"
       - "benchmarks/run_ab/full/**/multi-stage*.yaml"
+      - "benchmarks/run_ab/full/httpie-4-host-header-overwrite/real-model-pilot.yaml"
+      - "config/providers/siliconflow-httpie-pilot.yaml"
       - "src/horizon/adapters/sandbox/**"
       - "src/horizon/application/run_ab_eval.py"
+      - "src/horizon/application/pilot.py"
       - "src/horizon/application/retrieval_lineage.py"
       - "src/horizon/application/context.py"
       - "src/horizon/application/memory.py"
@@ -34,6 +37,7 @@ on:
       - "src/horizon/application/_docker_agent_worker.py"
       - "src/horizon/domain/docker_created_recovery.py"
       - "src/horizon/domain/run_evaluation.py"
+      - "src/horizon/domain/pilot.py"
       - "src/horizon/interfaces/cli/app.py"
       - "tests/contract/test_docker.py"
       - "tests/fault_injection/_docker_check_worker.py"
@@ -221,6 +225,36 @@ jobs:
       - name: Pull the validation image
         run: docker pull python:3.12-alpine
 
+      - name: Preflight the zero-spend HTTPie real-model candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          state_dir=.horizon/real-model-pilot-httpie-v1
+          mkdir -p "$state_dir"
+          uv run --locked horizon eval pilot-preflight \
+            benchmarks/run_ab/full/httpie-4-host-header-overwrite/real-model-pilot.yaml \
+            --image python:3.12-alpine \
+            --config config/providers/siliconflow-httpie-pilot.yaml \
+            --state-dir "$state_dir" \
+            | tee "$state_dir/cli-result.json"
+          uv run --locked python - <<'PY'
+          import json
+          from pathlib import Path
+
+          result = json.loads(
+              Path(".horizon/real-model-pilot-httpie-v1/cli-result.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          report = result["report"]
+          assert report["ready"] is True
+          assert report["credential_loaded"] is False
+          assert report["paid_model_called"] is False
+          assert report["network_called"] is False
+          assert report["initial_failure_matches"] is True
+          assert result["requires_paid_confirmation"] is True
+          PY
+
       - name: Run the Docker sandbox contracts
         shell: bash
         env:
@@ -330,6 +364,7 @@ jobs:
             .horizon/full-checkout-docker-v11
             .horizon/multi-stage-docker-v4
             .horizon/multi-stage-hard-crash-docker-v1
+            .horizon/real-model-pilot-httpie-v1
           if-no-files-found: warn
           retention-days: 30
 

@@ -6,6 +6,21 @@
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
 
+## 2026-10-29 HTTPie-4 真实模型候选与零费用预检合同
+
+- 对 22 个已物化 development checkout 做控制器侧候选筛选后，选择
+  `httpie-4-host-header-overwrite-full`：59 files、单处生产修改；已有 Treatment 查询把
+  `httpie/models.py` 排到 rank 1，返回 chunk 包含精确旧文本。该筛选使用已知修复 preimage，
+  只用于选 Pilot，不是盲测或模型能力证据。
+- 新 manifest 把任务级工具上界收窄为 `retrieve_code / replace_text`，保留提交后的控制器 protected
+  acceptance；Provider policy 固定 384 output tokens、5,000 context chars、单请求不重试且无 fallback。
+- 新的零费用 Campaign/Run cap 为 `CNY 0.053`。历史实际累计 `CNY 0.2064492` 加满额 Run 后为
+  `CNY 0.2594492`，明确超过旧 `CNY 0.25` 授权；配置与测试因此要求新的明确累计上限，不能复用
+  任何旧 preflight 或付费确认。
+- 本地整仓离线回归为 **635 passed，11 skipped**，`ruff check src tests` 与
+  `ruff format --check src tests` 均通过。11 项跳过因本机 Docker daemon 未启动；新的公开 workflow
+  步骤负责在精确 buggy commit 上补做禁网 Docker preflight，实际通过前不标记 ready。
+
 ## 2026-10-29 RAG 证据消费与写入 lineage
 
 - 没有重复实现已有 Hit@K、Recall、MRR、MAP、nDCG、empty/degraded 与 cold/warm 评测；缺口是
@@ -18,7 +33,7 @@
 - Arm、case、suite 报告新增 lineage 与五项聚合计数；旧报告字段缺失仍可解析。公开 Docker workflow
   已增加全 arm lineage，并要求 full-checkout 每个案例至少有 retrieval delivery 和一个
   evidence-backed write；不要求把未进入后续模型投影的检索伪报为 delivered。
-- 当前本地整仓离线回归为 **633 passed，11 skipped**，Ruff 全通过；11 项跳过仍因本机 Docker
+- 该批提交时本地整仓离线回归为 **633 passed，11 skipped**，Ruff 全通过；11 项跳过仍因本机 Docker
   daemon 未启动，不改写为通过。
 - 针对性回归 69 项通过；另以 test-only exact-change validator 对 900 文件的 youtube-dl 完整
   checkout 运行一次真实 Harness 烟测，确认 post-replan `run_memory_excerpt` 覆盖
