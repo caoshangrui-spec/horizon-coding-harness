@@ -143,6 +143,9 @@ class IndependentTaskRegistryPreflight:
                 source = suite_case.source
                 license_record = licenses[task.license_id]
                 expected_license_url = license_record.url_for(task.buggy_commit)
+                upstream_tests = tuple(
+                    test.strip() for test in source.upstream_test.split(";") if test.strip()
+                )
                 if (
                     source.benchmark != registry.source_dataset
                     or source.project != task.project
@@ -150,7 +153,8 @@ class IndependentTaskRegistryPreflight:
                     or source.repository_url.rstrip("/") != task.repository_url.rstrip("/")
                     or source.buggy_commit != task.buggy_commit
                     or source.fixed_commit != task.fixed_commit
-                    or source.upstream_test not in task.failing_tests
+                    or not upstream_tests
+                    or any(test not in task.failing_tests for test in upstream_tests)
                     or source.license_spdx != license_record.spdx
                     or source.license_url != expected_license_url
                 ):

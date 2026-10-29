@@ -6,6 +6,22 @@
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
 
+## 2026-10-29 完整 checkout v10：19 条开发案例
+
+- v10 原样保留 v9 的 17 条案例，并从预冻结 development 集增加 HTTPie-1 unique download
+  filename 与 Tornado-4 static range bounds；完整 checkout 增至 19 条、9 个项目、5,177 个 tracked
+  files，holdout 未物化、未揭示 patch 或 gold path。
+- 两个 exact buggy commit 的保护检查均失败；本地完整 Harness 的两个 Baseline 均进入
+  `WAITING_FOR_USER`，两个 Treatment 均单次 replan 后 `SUCCEEDED`，Trace 可重放且 source
+  checkout 保持 clean。Tornado 初版探针曾错误地无条件执行负数归一分支，保留为负结果并改为执行
+  真实 AST `if` 节点；未降低验收门槛，也没有付费模型调用。
+- 本地整仓回归为 **629 passed，11 skipped**；跳过项仍为未启动本机 Docker 的合同。提交
+  `68be35a` 的[标准 CI](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40799174690)
+  以 1m21s 通过；[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40799174668)
+  以 6m26s 通过 19/19 完整 suite、5/5 依赖裁剪、3/3 三阶段与 1/1 硬崩溃 suite。统一 artifact
+  ID `12865471959`，214,329,764 bytes，digest
+  `sha256:d33a1f98990849b6a0f1510b2d7728cf055f1dae0d0b6f9eef0f643fcddc3110`，保留至 2026-11-28。
+
 ## 2026-10-29 完整 checkout v9：17 条开发案例
 
 - v9 原样保留 v8 的 15 条案例，并从预冻结 development 集增加 HTTPie-5 escaped long separator
@@ -25,11 +41,12 @@
 - `eval task-registry-preflight` 离线交叉验证 selection digest、exact buggy/fixed commit、失败测试、
   commit-bound license 元数据、源码物化配方和既有执行 manifest。注册表明确不含 patch 内容和
   gold path；本次不联网下载或独立审计许可证文件。
-- 当前基线不是 24 条可执行：16 条有源码物化配方；10 条有执行 manifest，其中完整 checkout 9 条、
-  依赖裁剪 1 条；其余 14 条仍为 `not_prepared`。10 条历史初始失败引用本次不联网重验，另 14 条
+- 当前基线不是 24 条可执行：16 条有源码物化配方；12 条有执行 manifest，其中完整 checkout 11 条、
+  依赖裁剪 1 条；其余 12 条仍为 `not_prepared`。12 条历史初始失败引用本次不联网重验，另 12 条
   只有 BugsInPy 声明。
-- 注册表回填两条公开 v9 证据后，预检
-  `report_ref=d4f78f77b6de294d25793d718f3fcdd4af9718fd602a49af631528b3a300993b`，模型、网络和仓库代码
+- 注册表回填两条公开 v10 证据后，digest
+  `ef0e1e603d5f0c0e1e167f3db780a02ebe2b6bcffa2a61015d5f98e14580a321`，预检
+  `report_ref=8cf56daceda9b6c69f723f58d006f6c264b88dd406b763de72eeb2647f0c6489`，模型、网络和仓库代码
   执行均为 0。详细边界见[24 条独立任务注册表](independent-task-registry.md)。
 
 ## 2026-10-28 可恢复的顺序 Agent 任务批次
@@ -359,10 +376,10 @@
 | Revision-aware 词法 Code RAG | [retrieval.py](../src/horizon/domain/retrieval.py)、[sqlite_fts.py](../src/horizon/adapters/retrieval/sqlite_fts.py)、[retrieval_eval.py](../src/horizon/application/retrieval_eval.py)、[retrieval_sources.py](../src/horizon/application/retrieval_sources.py) | SQLite FTS5/BM25、有界 EvidencePack、权限/revision/hash 回查、显式 scan fallback；内部/命名变体/同名符号与两批外部小样本均保留成功和负结果。新增 7 项目 24 案例冻结集：16 个 development 的 Hit@1=11/16、Hit@5=16/16、Recall@5=18/20、MRR=0.817708，3 个 degraded，另 8 个 holdout 仍密封；development 源码现可从固定公开 URL/commit/package 一键重建并核对文件数、字节数、内容树 digest，冻结排名可排除机器耗时后逐项验真。已知困难子集的 16 个冻结查询扰动显示英文改写 Recall@8=8/8、中文描述仅 1/8，保留为多语言负结果。七轮真实模型 Trace 的 10 次 `retrieve_code` 中，6 次可由 canonical 参数哈希匹配到 3 种公开英文 query，保守候选 6/6 原样旁路；另外 4 次原文和语言保持 `UNKNOWN`。无 AST/向量/symbol 图、真实查询分布或模型修复收益结论 |
 | 冻结控制器策略评测 | [reliability.py](../src/horizon/domain/reliability.py)、[reliability_eval.py](../src/horizon/application/reliability_eval.py) | 14 案例/62 判断覆盖精确 period-1/2/3/4 NoProgress 与单次 replan 接受/拒绝；生产路径共享判定函数、报告内容寻址、零外部调用；不是模型或真实 Issue 效果评测 |
 | 有界恢复矩阵 v3 | [recovery_evaluation.py](../src/horizon/domain/recovery_evaluation.py)、[recovery_eval.py](../src/horizon/application/recovery_eval.py)、[horizon-recovery-matrix-v3.yaml](../benchmarks/recovery/horizon-recovery-matrix-v3.yaml)、[recovery-matrix-evaluation.md](recovery-matrix-evaluation.md) | 保留 v1/v2 digest；新增 promotion effect→receipt 前真实硬退出，与既有写入/模型响应硬退出及 18 个三工具状态/决策组合合计 21/21。自动恢复 11/11、安全阻塞 10/10、incorrect resume/redispatch/重复副作用均 0；三条 Trace replay。仍非完整设计故障矩阵、主机故障或 exactly-once 验收 |
-| 完整 Run A/B 与来源绑定 Suite | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[scripted.py](../src/horizon/adapters/model/scripted.py) | 同一 Task/Plan/workspace 的 baseline 与单次 replan arm；先真实确认初始失败，再检查 EventLog/预算/Gateway/Trace；1 个内部、v2 的 5 个 BugsInPy 依赖裁剪案例，以及覆盖 9 个项目的 17 个完整 checkout 案例。依赖裁剪 v2 与完整 checkout v9 已由公开禁网 Docker 分别通过 5/5 与 17/17。完整案例还验证干净 Git HEAD 与 Code RAG，仍是脚本模型 |
+| 完整 Run A/B 与来源绑定 Suite | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[scripted.py](../src/horizon/adapters/model/scripted.py) | 同一 Task/Plan/workspace 的 baseline 与单次 replan arm；先真实确认初始失败，再检查 EventLog/预算/Gateway/Trace；1 个内部、v2 的 5 个 BugsInPy 依赖裁剪案例，以及覆盖 9 个项目的 19 个完整 checkout 案例。依赖裁剪 v2 与完整 checkout v10 已由公开禁网 Docker 分别通过 5/5 与 19/19。完整案例还验证干净 Git HEAD 与 Code RAG，仍是脚本模型 |
 | 完整 checkout 多阶段/重启 A/B | [bugsinpy-multi-stage-pilot-v4.yaml](../benchmarks/run_ab/bugsinpy-multi-stage-pilot-v4.yaml) | youtube-dl 872 files、Luigi 382 files 与 FastAPI 629 files 上各有三个依赖 WorkItem；六条 arm 均跨两个持久边界到 epoch 3，合计 12 次重启，并覆盖跨 revision RAG、active/stale Run Memory、完成项保留 replan、最终三项 required checks 与 Trace replay。本地可信与公开禁网 Docker 均为 3/3，doctor 的 case/Docker 计数均为 3。v1 的 CRLF、60 秒 Lease 以及本轮 Tornado 歧义替换负结果继续保留 |
 | 源码绑定的写入硬崩溃 A/B | [bugsinpy-multi-stage-hard-crash-v1.yaml](../benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v1.yaml)、[设计与证据](source-bound-hard-crash-recovery.md) | Luigi 382-file checkout 的两条 arm 都由真实子进程在第一个生产写入 effect 后、receipt 前退出；父进程先记录 unknown、围栏旧 lease，再按精确后态 `accept_replace`，不重派模型，并继续两个 WorkItem 边界到 epoch 4。本地可信与公开禁网 Docker 均为 1/1、Trace replay、source unchanged、unknown/open 0；doctor 的 Docker 计数为 1 |
-| 公开仓库长程可靠性指标 | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[指标合同](long-horizon-reliability-metrics.md) | 新生成的每个 case 记录单调时钟观测耗时；suite typed aggregate 直接给出 scenario/arm、P95、Worker 重启、硬崩溃恢复率、恢复重派、重复副作用、Trace replay、source isolation 与最终 open effect。旧报告仍可读取，冻结 manifest digest 不变；公开 Docker workflow 将多阶段与硬崩溃关键指标设为失败门槛并写入 Job Summary。当前 suite 共 26 个 manifest 场景，现均有公开统一验证。场景含重复 bug，仍无 20～30 个独立真实任务或真实模型成功率证据 |
+| 公开仓库长程可靠性指标 | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[指标合同](long-horizon-reliability-metrics.md) | 新生成的每个 case 记录单调时钟观测耗时；suite typed aggregate 直接给出 scenario/arm、P95、Worker 重启、硬崩溃恢复率、恢复重派、重复副作用、Trace replay、source isolation 与最终 open effect。旧报告仍可读取，冻结 manifest digest 不变；公开 Docker workflow 将多阶段与硬崩溃关键指标设为失败门槛并写入 Job Summary。当前 suite 共 28 个 manifest 场景，现均有公开统一验证。场景含重复 bug，仍无 20～30 个独立真实任务或真实模型成功率证据 |
 | 真实模型 Pilot | [pilot.py](../src/horizon/domain/pilot.py)、[pilot.py](../src/horizon/application/pilot.py)、[real-model-pilot.md](real-model-pilot.md) | 离线预检绑定完整干净 checkout、初始失败、source snapshot、Docker image、Provider policy、Harness 源码指纹、费用 cap 和首次规划保守预留。七个付费 Run 均无编辑/验证、Trace 可重放且 source 未变；第七轮 Planner 直接定位真实 `__init__.py`，execution 再次取得 rank-1 证据，但消费回执前因 Campaign 预留不足停止。当前实际累计为 `CNY 0.2064492`，没有自动复跑或真实 Issue 成功 |
 | 模型预留压力诊断 | [reservation_analysis.py](../src/horizon/application/reservation_analysis.py)、[reservation-diagnostics.md](reservation-diagnostics.md) | `trace reservation-report` 在 replay/hash-chain 校验后关联 reservation、settlement 和新 BudgetStop 请求尺寸；七轮 22 次调用的聚合预留/结算比为 6.860516。候选 `request_bytes + 1024` 可回放 5 次，并按旧领域 JSON / 当前 wire basis 分层；当前口径仅 2 次、0 次观测低估、中位比 4.230001。生产 estimator、费用门禁和付费预算均未改变 |
 | 安全轮次续跑 | [agent.py](../src/horizon/domain/agent.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 消息 Artifact + event/revision 绑定；新 Worker 续跑；PLANNING/READY 也可恢复，任意崩溃窗口对账未完成 |
@@ -1401,11 +1418,12 @@ source 未变。第六轮 Run `run_7fab106a71174c77bb0a82a8a054d3ed` 使用该 v
 都不能自动扩权，任何新付费 Run 仍须取得明确授权。当前优先继续零费用可靠性验证，现有证据不支持立即引入 symbol/vector
 索引、模型摘要或自动 replan。Run Memory 已形成最小垂直切片，
 精确 NoProgress/replan 的冻结策略 Trace 已建立 14 案例基线；内部 A/B、五个来源绑定的依赖裁剪
-案例和覆盖九个项目的十七个完整 checkout 案例均已执行初始负例或新增单案、Trace、验收、调用数和
-合成费用合同；依赖裁剪 v2 与完整 checkout v9 已有公开禁网 Docker 5/5 与 17/17 报告和统一证据
-artifact；v8 新增三例本地完整 Harness 为 3/3，v9 新增两例本地保护探针通过。
+案例和覆盖九个项目的十九个完整 checkout 案例均已执行初始负例或新增单案、Trace、验收、调用数和
+合成费用合同；依赖裁剪 v2 与完整 checkout v10 已有公开禁网 Docker 5/5 与 19/19 报告和统一证据
+artifact；v8 新增三例本地完整 Harness 为 3/3，v9 新增两例本地保护探针通过，v10 新增两例本地完整
+Harness 为 2/2。
 完整 suite
-中历史三例、v7 新增三例及 v8 新增三例均给出 Code RAG rank 1；v9 新增两例也已通过公开生产
+中历史三例、v7 新增三例及 v8 新增三例均给出 Code RAG rank 1；v9/v10 新增四例也已通过公开生产
 检索与验收路径。v8 新增三例分别保留
 2/2/55 个文件跳过的显式
 降级证据。重复 CAS blob 校验的

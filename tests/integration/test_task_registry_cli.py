@@ -28,8 +28,8 @@ def test_task_registry_preflight_cli_is_zero_cost_and_persists_report(tmp_path):
     report = payload["report"]
     assert report["task_count"] == 24
     assert report["unique_source_task_count"] == 24
-    assert report["execution_manifest_count"] == 10
-    assert report["not_prepared_execution_count"] == 14
+    assert report["execution_manifest_count"] == 12
+    assert report["not_prepared_execution_count"] == 12
     assert report["paid_model_called"] is False
     assert report["network_called"] is False
     assert report["repository_code_executed"] is False

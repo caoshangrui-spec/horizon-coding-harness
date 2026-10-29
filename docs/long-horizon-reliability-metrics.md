@@ -70,11 +70,12 @@ status-independent facts 计算器，避免 required-check 和 degradation 在�
 | `bugsinpy-reduced-v2` | Cookiecutter、FastAPI、tqdm、Luigi、Tornado | 5 | dependency-reduced A/B；用于较快回归 |
 | `bugsinpy-full-checkout-pilot-v8`（历史精确质量基线） | v7 十二例 + Sanic-5、TheFuck-2、Luigi-2 | 15 | 9 个项目、4,491 tracked files；三个新增案例本地完整 Harness 为 3/3，生产目标检索均为 rank 1；统一质量聚合公开 run `40682108470` 已通过 15/15 |
 | `bugsinpy-full-checkout-pilot-v9` | v8 十五例 + HTTPie-5、Tornado-2 | 17 | 9 个项目、4,806 tracked files；两个新增案例的本地 buggy/candidate 保护探针通过；公开 run `40794561712` 已通过 17/17 |
+| `bugsinpy-full-checkout-pilot-v10` | v9 十七例 + HTTPie-1、Tornado-4 | 19 | 9 个项目、5,177 tracked files；两个新增案例的本地完整 Harness 为 2/2；公开 run `40799174668` 已通过 19/19 |
 | `bugsinpy-multi-stage-pilot-v4` | youtube-dl、Luigi、FastAPI | 3 | 每条 arm 为 3 WorkItem、2 次 Worker 重启；合计 6 条 Trace、12 次重启 |
 | `bugsinpy-multi-stage-hard-crash-v1` | Luigi | 1 | 两条 arm 均真实写入后、receipt 前退出，再跨两个 WorkItem 边界；合计 2 次恢复尝试、6 次重启 |
 
-同一 bug 在不同 suite 中用于不同实验变量，因此不能把当前 26 个场景宣传成 26 个独立真实任务。
-当前 suite 共 26 个 manifest 场景，现均有公开 Docker 统一验证；历史
+同一 bug 在不同 suite 中用于不同实验变量，因此不能把当前 28 个场景宣传成 28 个独立真实任务。
+当前 suite 共 28 个 manifest 场景，现均有公开 Docker 统一验证；历史
 v1/v2/v3/v4/v5/v6/v7 版本不重复累加。
 按 `(benchmark, project, bug_id, buggy_commit)` 去重后仍是作者选择的小样本。当前项目继续保留
 “尚无 20～30 个独立真实任务和真实模型成功率”的负面边界。
@@ -114,13 +115,21 @@ report、JSONL Trace、content-addressed Artifact 与顶层 CLI JSON，可对摘
 | multi-stage v4 | 3/3 | 6 | 3 | 0 / 3 | 0 | 6 | 27 |
 | hard-crash v1 | 1/1 | 2 | 1 | 0 / 1 | 0 | 2 | 9 |
 
-2026-10-29 的当前公开复跑
+2026-10-29 的 v9 公开复跑
 [`40794561712`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40794561712)
 把 full-checkout 升至 v9。workflow 明确门控 full-checkout 17/17、初始失败 17、Treatment 恢复 17、
 unknown acceptance 17、known check failure 0，并要求质量标记与检索降级均有 Trace-bound 记录；
 同一 run 也再次通过 dependency-reduced 5/5、multi-stage 3/3 与 hard-crash 1/1。此处不把未从
 207,784,842-byte artifact 下载复算的 v9 精确 clean/flagged 与 degradation 数值填入表格。当前
 统一 artifact ID 为 `12862738627`。
+
+同日的当前 v10 公开复跑
+[`40799174668`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40799174668)
+把 full-checkout 再升至 19/19，并门控初始失败 19、Treatment 恢复 19、unknown acceptance 19、
+known check failure 0；同一 run 再次通过 dependency-reduced 5/5、multi-stage 3/3 与 hard-crash
+1/1。统一 artifact ID `12865471959`，214,329,764 bytes，digest
+`sha256:d33a1f98990849b6a0f1510b2d7728cf055f1dae0d0b6f9eef0f643fcddc3110`。此处同样不在未下载
+214 MB artifact 的情况下追写 v10 精确 clean/flagged 与 degradation 数值。
 
 上述 v8 质量聚合中，三阶段与硬崩溃 suite 还分别记录 12/6 次 Worker restart；硬崩溃的 2 条 arm 均恢复，恢复率
 1.0、模型重派 0、重复副作用 0。统一 artifact ID `12813023460`，201,900,712 bytes，digest

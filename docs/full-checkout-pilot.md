@@ -1,9 +1,9 @@
-# 完整上游 Checkout Suite：BugsInPy 十七案例、九项目
+# 完整上游 Checkout Suite：BugsInPy 十九案例、九项目
 
-更新：2026-10-29。v9 原样保留已由公开禁网 Docker 统一通过的 v8 十五个完整 checkout，再加入
-HTTPie bug 5 与 Tornado bug 2。当前共十七个案例、九个不同项目、4,806 个
-tracked 文件；同一项目的不同 bug 分别计为不同案例，不冒充十七个独立项目。两个新增案例已通过
-本地 buggy→candidate 保护探针，公开十七案例统一门也已通过。v7 首次公开 run 的 Cookiecutter 符号链接
+更新：2026-10-29。v10 原样保留已由公开禁网 Docker 统一通过的 v9 十七个完整 checkout，再加入
+HTTPie bug 1 与 Tornado bug 4。当前共十九个案例、九个不同项目、5,177 个
+tracked 文件；同一项目的不同 bug 分别计为不同案例，不冒充十九个独立项目。两个新增案例已通过
+本地完整 Harness 与公开十九案例统一门。v7 首次公开 run 的 Cookiecutter 符号链接
 拒绝与替换版 12/12 成功均继续保留。每个案例先执行
 初始失败门，再运行 Baseline 与单次 replan Treatment。执行使用冻结脚本模型，验证的是 Harness、
 Code RAG、预算、可恢复等待和 Trace 合同，不是模型能力跑分。
@@ -37,6 +37,9 @@ Code RAG、预算、可恢复等待和 Trace 合同，不是模型能力跑分�
 - v9：[`bugsinpy-full-checkout-pilot-v9.yaml`](../benchmarks/run_ab/bugsinpy-full-checkout-pilot-v9.yaml)，
   原样保留 v8 十五个 case，再追加 HTTPie-5 与 Tornado-2，digest
   `b35d10759f7104f3db57ed773d537fe323bc19a47a465cfb1faa94d49aa94611`。
+- v10：[`bugsinpy-full-checkout-pilot-v10.yaml`](../benchmarks/run_ab/bugsinpy-full-checkout-pilot-v10.yaml)，
+  原样保留 v9 十七个 case，再追加 HTTPie-1 与 Tornado-4，digest
+  `328007b101620c79ff79faba16da7b7ed7398c29f5543c3015303c05a3d9168f`。
 
 | Case | Buggy → fixed | 完整 checkout | 保护验收 |
 |---|---|---:|---|
@@ -57,6 +60,8 @@ Code RAG、预算、可恢复等待和 Trace 合同，不是模型能力跑分�
 | [`luigi-2-beam-target-path-full`](../benchmarks/run_ab/full/luigi-2-beam-target-path/manifest.yaml) | [`baa54c9`](https://github.com/spotify/luigi/commit/baa54c9f4f809692d62d4c3e4497161717c76550) → [`24e8594`](https://github.com/spotify/luigi/commit/24e85945ae39e5975491527e00c3f0f64b42ea6e) | 382 files | Beam BigQuery output 从 `target.table` 读取 project/dataset/table 并格式化为 `p:d.t` |
 | [`httpie-5-escape-long-separator-full`](../benchmarks/run_ab/full/httpie-5-escape-long-separator/manifest.yaml) | [`16df884`](https://github.com/httpie/cli/commit/16df8848e81eefac830f407e4b985f42b52970da) → [`90af1f7`](https://github.com/httpie/cli/commit/90af1f742230831792d74d303d1e7ce56c96d4bd) | 15 files | `bob\:==foo` 保留 escaped `:=`，并在后续真实 `=` 处分割为 key `bob:=` 与 value `foo` |
 | [`tornado-2-redirect-put-without-body-full`](../benchmarks/run_ab/full/tornado-2-redirect-put-without-body/manifest.yaml) | [`2ca8821`](https://github.com/tornadoweb/tornado/commit/2ca8821d006f6693f920a4b183a3a7c985a5c8ad) → [`4f486a4`](https://github.com/tornadoweb/tornado/commit/4f486a4aec746e9d66441600ee3b0743228b061c) | 300 files | redirected bodyless PUT 已带 `Transfer-Encoding: chunked` 时保持 client chunking，且不改变 server 分支语义 |
+| [`httpie-1-unique-download-filename-full`](../benchmarks/run_ab/full/httpie-1-unique-download-filename/manifest.yaml) | [`001bda1`](https://github.com/httpie/cli/commit/001bda19450ad85c91345eea3cfa3991e1d492ba) → [`5300b0b`](https://github.com/httpie/cli/commit/5300b0b490b8db48fac30b5e32164be93dc574b7) | 73 files | 超长下载文件名在追加碰撞后缀前保留扩展名并预留后缀空间，最终组件不超过文件系统上限 |
+| [`tornado-4-static-range-bounds-full`](../benchmarks/run_ab/full/tornado-4-static-range-bounds/manifest.yaml) | [`a8420fc`](https://github.com/tornadoweb/tornado/commit/a8420fc681c5423d072978f00eab4d0645057d16) → [`db52903`](https://github.com/tornadoweb/tornado/commit/db529031a1e1a6e951826aba0b7d0b18f05cd4c7) | 298 files | 超出文件头部的 suffix range 归一到 0，显式 end 不大于 start 的 range 被拒绝 |
 
 缺陷元数据来自 [BugsInPy](https://github.com/soarsmu/BugsInPy)。执行前 CLI 会拒绝以下任一情况：
 
@@ -189,14 +194,22 @@ $tornadoRedirect = "benchmarks/run_ab/full/tornado-2-redirect-put-without-body/f
 git clone --filter=blob:none --no-checkout https://github.com/tornadoweb/tornado.git $tornadoRedirect
 git -C $tornadoRedirect checkout --detach 2ca8821d006f6693f920a4b183a3a7c985a5c8ad
 
+$httpieFilename = "benchmarks/run_ab/full/httpie-1-unique-download-filename/fixture"
+git clone --filter=blob:none --no-checkout https://github.com/httpie/cli.git $httpieFilename
+git -C $httpieFilename checkout --detach 001bda19450ad85c91345eea3cfa3991e1d492ba
+
+$tornadoRange = "benchmarks/run_ab/full/tornado-4-static-range-bounds/fixture"
+git clone --filter=blob:none --no-checkout https://github.com/tornadoweb/tornado.git $tornadoRange
+git -C $tornadoRange checkout --detach a8420fc681c5423d072978f00eab4d0645057d16
+
 uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
-  benchmarks/run_ab/bugsinpy-full-checkout-pilot-v9.yaml `
+  benchmarks/run_ab/bugsinpy-full-checkout-pilot-v10.yaml `
   --image python:3.12-alpine `
-  --state-dir .horizon/run-ab-suite-full-seventeen-v9
+  --state-dir .horizon/run-ab-suite-full-nineteen-v10
 ```
 
 前三个直接导入类案例（tqdm、youtube-dl、PySnooper）运行完整 checkout 中的真实生产代码；
-PySnooper 只为 Python 3.12 注入历史 `collections` 标准库别名，不修改被测逻辑。另外十四个案例为
+PySnooper 只为 Python 3.12 注入历史 `collections` 标准库别名，不修改被测逻辑。另外十六个案例为
 避免安装历史依赖栈，使用标准库 AST 从真实生产文件提取目标函数或类后执行：Luigi 验证 `MetricsHandler` 的 collector
 所有权；FastAPI 以最小 stdlib 假对象执行真实 `create_cloned_field`，验证嵌套字段不再复用原对象；
 Tornado 执行真实 handler/protocol 方法，验证抽象合同以及 handler → protocol → stream 的 nodelay
@@ -204,12 +217,28 @@ Tornado 执行真实 handler/protocol 方法，验证抽象合同以及 handler 
 `get_new_command`，Sanic-1 执行真实 `register_named_middleware`；v7 新增三例分别执行真实
 `AsyncioServer` lifecycle methods、`HTTPRequest` 和 `TupleParameter.parse`；v8 新增三例执行真实
 logging config assignment、`get_all_executables` 与 `BeamDataflowJobTask.get_target_path`；v9 新增两例执行真实
-`KeyValueType` 与 client/server chunking predicate。它们不是文本 marker 检查，但也
+`KeyValueType` 与 client/server chunking predicate；v10 新增两例执行真实 filename helpers 与
+static range predicate/normalizer。它们不是文本 marker 检查，但也
 不运行各项目原 Python 版本和完整依赖矩阵，不能替代官方 BugsInPy runner。
 
 ## 3. 当前 A/B 证据
 
-### 3.1 v9 两种失效模式的本地与公开证据
+### 3.1 v10 两种失效模式的本地与公开证据
+
+HTTPie-1 与 Tornado-4 均来自 2026-10-24 在补丁揭示前冻结的 development 选择；holdout 保持密封。
+本地完整 Harness 先确认两个 exact buggy commit 的保护检查失败；两个 Baseline 均因精确重复检索进入
+`WAITING_FOR_USER`，两个 Treatment 均单次 replan 后 `SUCCEEDED`。四条 Trace 可重放、source checkout
+保持 clean，且没有模型网络或付费调用。Tornado 初版保护探针曾把负数分支 body 无条件执行，导致合法
+正数 range 被错误归一；该负结果保留并改为执行真实 `if` 节点后通过，没有放宽验收。
+
+公开禁网 Docker run
+[`40799174668`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40799174668)
+进一步通过 exact checkout 准备、19/19 完整 checkout、3/3 三阶段、1/1 写入硬崩溃和最终证据门。
+统一 artifact ID `12865471959`，214,329,764 bytes，digest
+`sha256:d33a1f98990849b6a0f1510b2d7728cf055f1dae0d0b6f9eef0f643fcddc3110`，保留至 2026-11-28。
+该结果证明两条 Scripted Treatment 能在受保护验证下恢复，不是任何真实模型成功率。
+
+### 3.2 v9 两种失效模式的本地与公开证据
 
 HTTPie-5 与 Tornado-2 均来自 2026-10-24 在补丁揭示前冻结的 development 选择；holdout 保持密封。
 本地只执行受限 AST 保护探针：两个 exact buggy commit 都返回非零，应用候选修复后都返回 0；没有
@@ -218,7 +247,7 @@ HTTPie-5 与 Tornado-2 均来自 2026-10-24 在补丁揭示前冻结的 developm
 进一步通过 exact checkout 准备、17/17 完整 checkout、3/3 三阶段、1/1 写入硬崩溃和最终证据门。
 该结果证明两条 Scripted Treatment 能在受保护验证下恢复，不是任何真实模型成功率。
 
-### 3.2 v8 三种失效模式的本地与公开证据
+### 3.3 v8 三种失效模式的本地与公开证据
 
 Sanic-5、TheFuck-2 与 Luigi-2 均来自 2026-10-24 在补丁揭示前冻结的 development 选择；不占用
 仍密封的八案例 holdout。buggy 保护检查分别以错误 logger key、Windows-style PATH 被冒号切碎，
@@ -262,7 +291,7 @@ Docker verified count 均为 15。
 dependency-reduced 5/5、三阶段 3/3、硬崩溃 1/1 和全部 Docker 合同。旧 run `40311947427`
 继续作为 v8 初次公开 15/15 的历史证据，不回填当时不存在的质量字段。
 
-### 3.3 v7 三种失效模式的本地证据
+### 3.4 v7 三种失效模式的本地证据
 
 Sanic-2、HTTPie-4 与 Luigi-3 均来自 2026-10-24 在补丁揭示前冻结的 development
 选择；它们不占用仍密封的八案例 holdout，也不把随后依据 gold 制作的端到端 manifest 称为盲测。
@@ -304,7 +333,7 @@ CRLF checkout，随后 Cookiecutter 又在长 state 路径上触发 Win32 path-l
 `2026-10-26T10:19:12Z`、到期于 `2026-11-25T10:18:53Z`。该 v7 提交时 doctor 的来源案例数与
 公开 Docker verified count 均为 12；v8 的最新计数见上节。
 
-### 3.4 v6 PySnooper 两文件案例的本地证据
+### 3.5 v6 PySnooper 两文件案例的本地证据
 
 PySnooper-2 来自 2026-10-24 在补丁揭示前冻结的 development 选择，不占用仍密封的八案例
 holdout，也不把随后依据 gold 制作的端到端 manifest 称为盲测。buggy commit 的真实包导入保护
@@ -338,7 +367,7 @@ source isolation 成立；没有读取 API Key 或调用付费模型。统一 ar
 `sha256:8c991b53d88d2934459e940ca7ba20fcba8dd13f8fd14faf4361cb01c331a224`，计划保留至
 2026-11-24。doctor 的来源案例与公开 Docker verified count 现均为 9。
 
-### 3.5 v5 两个预冻结来源案例的本地与公开证据
+### 3.6 v5 两个预冻结来源案例的本地与公开证据
 
 新增任务没有从当前失败日志临时挑选：TheFuck-1 来自 2026-10-04 在补丁揭示前提交的
 [三项目外部定位盲测](retrieval-evaluation.md#7-三项目外部定位盲测)，Sanic-1 来自随后独立冻结的
@@ -365,7 +394,7 @@ source isolation 成立；没有读取 API Key 或调用付费模型。统一 ar
 `sha256:319ad06ae83d92fb1f921cf49dab71f019987d1bab75533306d334c89ef4c330`，计划保留至
 2026-11-24。doctor 的来源绑定 case count 与公开 Docker verified count 现均为 8。
 
-### 3.6 v4 第六案例本地证据与统一验收门
+### 3.7 v4 第六案例本地证据与统一验收门
 
 HTTPie 单案在完整 70-file checkout 上先确认保护检查失败；Baseline 产生 48 个事件并按预期进入
 `WAITING_FOR_USER`，Treatment 产生 74 个事件、执行一次 replan 后进入 `SUCCEEDED`。report ref 为
@@ -389,7 +418,7 @@ source isolation 成立；没有读取 API Key 或调用付费模型。统一 ar
 `sha256:a70612aab310c6d6c09c9ea0796242da75877fe025b10a9c72d76a525bd3c0e8`，计划保留至
 2026-11-24。该公开结果把 doctor 的 full-checkout Docker verified count 从 5 提升到 6。
 
-### 3.7 v3 五项目公开 Docker 执行
+### 3.8 v3 五项目公开 Docker 执行
 
 2026-10-24 的专用 [Source-bound Docker evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40080364921)
 在 GitHub-hosted Linux runner 上重新 shallow-fetch 五个固定 buggy commit，并逐一检查 HEAD、tracked
@@ -406,7 +435,7 @@ API Key、不调用付费模型，动作仍来自冻结 Scripted Model。统一 
 Treatment 分别产生 74 / 92 个事件、生成 Plan v2 并进入 `SUCCEEDED`，Trace 可重放且两个源 checkout
 保持干净。该证据验证的是 Harness 与冻结修复动作，不是模型自主定位能力。
 
-### 3.8 v2 三项目历史公开 Docker 执行
+### 3.9 v2 三项目历史公开 Docker 执行
 
 2026-10-06 的专用 [Source-bound Docker evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/37436568589)
 工作流在 GitHub-hosted Linux runner 上重新 shallow-fetch 三个固定 buggy commit，并逐一检查 HEAD、
@@ -426,7 +455,7 @@ tracked 文件数和 clean status。随后它拉取 `python:3.12-alpine`，通�
 BugsInPy 官方 runner 成绩。工作流只在自身、v2 manifests 或直接的 runner/sandbox 合同变化时
 自动执行，也可手动触发；不拖慢每个普通文档提交。
 
-### 3.9 v2 三项目历史本地可信执行
+### 3.10 v2 三项目历史本地可信执行
 
 2026-10-06 使用 Python 3.12 的 test-only 本地执行器实际运行三个冻结保护命令；Harness 的源码门、
 快照、RAG、Gateway、预算、Run/Trace 和重放路径保持不变，只有生产 Docker acceptance adapter 被
@@ -454,7 +483,7 @@ BugsInPy 官方 runner 成绩。工作流只在自身、v2 manifests 或直接�
 checkout，Gateway 正确返回 `Exact replacement occurrence count did not match`，Treatment 最终失败。
 修正为两个行结尾无关的原子单行替换后，单案和三项目 suite 均通过；没有放宽 exact-match 合同。
 
-### 3.10 v1 双项目历史 Docker 结果
+### 3.11 v1 双项目历史 Docker 结果
 
 2026-10-03 使用本机已有禁网镜像 digest
 `sha256:0687a6bc9716edc2a6ee0fbfb0f87e7ee358b262b67c9215de91bc9b2d38ba71`：
@@ -557,8 +586,9 @@ PySnooper bug 3 的 BugsInPy `requirements.txt` 为空，但真实源码导入
 4,491 files；三个新增案例的 buggy/fixed 探针、本地完整 Harness、rank-1 生产路径检索、Trace replay
 与 source isolation 均成立，公开十五案例门也已通过 15/15。v9 继续加入 HTTPie-5 与 Tornado-2，
 十七案例、九项目合计 4,806 files；两个 buggy commit 的保护探针失败、候选修复通过，公开生产路径
-已通过 17/17、Trace replay、source isolation 与零付费模型调用门。TheFuck、Sanic、PySnooper 及
-v7/v8/v9 新增案例来自预冻结检索集合，
+已通过 17/17、Trace replay、source isolation 与零付费模型调用门。v10 再加入 HTTPie-1 与
+Tornado-4，十九案例、九项目合计 5,177 files；两个新增案例的本地完整 Harness 与公开 19/19
+生产路径均通过。TheFuck、Sanic、PySnooper 及 v7/v8/v9/v10 新增案例来自预冻结检索集合，
 但端到端 manifest 是揭示 gold 后制作，不能称为新 holdout。第一次 Windows 六案例联合运行的 4/6、
 PySnooper YAML 缩进失败、v7 Luigi 非唯一锚点失败、Windows 十二案例联合运行的 CRLF/长路径失败，
 以及公开 Cookiecutter 符号链接拒绝均保留，不用后续成功覆盖负结果。
@@ -566,7 +596,7 @@ PySnooper YAML 缩进失败、v7 Luigi 非唯一锚点失败、Windows 十二案
 
 - 这是 BugsInPy 官方分数、原 Python 版本或完整依赖环境的测试结果；
 - 脚本模型证明真实模型能自主生成查询、定位缺陷或选择 replan；
-- 17 个作者选择案例足以估计泛化成功率、误触发率或成本收益。
+- 19 个作者选择案例足以估计泛化成功率、误触发率或成本收益。
 
 后续增量已把 youtube-dl、Luigi 与 FastAPI 扩展为[三阶段完整 checkout](multi-stage-full-checkout-pilot.md)，
 每条 arm 均跨两个持久边界到 epoch 3，联合观察上下文、Memory、检索、replan 与恢复；v4 本地可信

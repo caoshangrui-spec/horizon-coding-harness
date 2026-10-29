@@ -90,6 +90,9 @@ tasks:
   selection_reason: Preserved from the pre-reveal 2026-10-24 development partition; distinct BugsInPy project+bug identity; no post-freeze filtering.
   evidence:
     source_recipe_manifest: retrieval/external-development-v3/source-materialization.yaml
+    execution_suite_manifest: run_ab/bugsinpy-full-checkout-pilot-v10.yaml
+    execution_case_id: httpie-1-unique-download-filename-full
+    historical_run_url: https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40799174668
 - partition: development
   project: httpie
   bug_id: '4'
@@ -287,6 +290,9 @@ tasks:
   selection_reason: Preserved from the pre-reveal 2026-10-24 development partition; distinct BugsInPy project+bug identity; no post-freeze filtering.
   evidence:
     source_recipe_manifest: retrieval/external-development-v3/source-materialization.yaml
+    execution_suite_manifest: run_ab/bugsinpy-full-checkout-pilot-v10.yaml
+    execution_case_id: tornado-4-static-range-bounds-full
+    historical_run_url: https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40799174668
 - partition: holdout
   project: cookiecutter
   bug_id: '4'
