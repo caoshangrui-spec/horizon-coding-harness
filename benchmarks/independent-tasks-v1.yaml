@@ -119,6 +119,9 @@ tasks:
   selection_reason: Preserved from the pre-reveal 2026-10-24 development partition; distinct BugsInPy project+bug identity; no post-freeze filtering.
   evidence:
     source_recipe_manifest: retrieval/external-development-v3/source-materialization.yaml
+    execution_suite_manifest: run_ab/bugsinpy-full-checkout-pilot-v9.yaml
+    execution_case_id: httpie-5-escape-long-separator-full
+    historical_run_url: https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40794561712
 - partition: development
   project: luigi
   bug_id: '2'
@@ -267,6 +270,9 @@ tasks:
   selection_reason: Preserved from the pre-reveal 2026-10-24 development partition; distinct BugsInPy project+bug identity; no post-freeze filtering.
   evidence:
     source_recipe_manifest: retrieval/external-development-v3/source-materialization.yaml
+    execution_suite_manifest: run_ab/bugsinpy-full-checkout-pilot-v9.yaml
+    execution_case_id: tornado-2-redirect-put-without-body-full
+    historical_run_url: https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40794561712
 - partition: development
   project: tornado
   bug_id: '4'
