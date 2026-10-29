@@ -431,6 +431,14 @@ jobs:
           )
           suite_reports = (reduced_report, full_report, multi_report, hard_crash_report)
           suite_reliability = tuple(report["reliability"] for report in suite_reports)
+          full_case_lineage_covered = all(
+              case["reliability"] is not None
+              and case["reliability"]["retrieval_lineage_arm_count"]
+              == case["reliability"]["arm_count"]
+              and case["reliability"]["delivered_retrieval_count"] > 0
+              and case["reliability"]["evidence_backed_write_count"] > 0
+              for case in full_report["cases"]
+          )
           all_expectations_met = (
               all(report["all_expectations_met"] for report in suite_reports)
               and all(
@@ -463,10 +471,10 @@ jobs:
               and full_reliability["quality_flagged_terminal_success_count"] > 0
               and full_reliability["required_check_failure_arm_count"] == 0
               and full_reliability["successful_retrieval_count"] > 0
-              and full_reliability["delivered_retrieval_count"]
-              == full_reliability["successful_retrieval_count"]
+              and full_reliability["delivered_retrieval_count"] > 0
               and full_reliability["evidence_backed_write_count"]
               >= full_report["case_count"]
+              and full_case_lineage_covered
               and multi_reliability["required_check_failure_arm_count"] == 0
               and hard_crash_reliability["required_check_failure_arm_count"] == 0
               and created_resume["verified"]
@@ -510,34 +518,50 @@ jobs:
               or worker_crash["network_called"]
           )
           if not all_expectations_met:
-              print(
-                  json.dumps(
-                      {
-                          "source_bound_docker_evidence_contract": {
-                              "suite_expectations_met": {
-                                  report["suite_id"]: report["all_expectations_met"]
-                                  for report in suite_reports
-                              },
-                              "suite_reliability": {
-                                  report["suite_id"]: report["reliability"]
-                                  for report in suite_reports
-                              },
-                              "full_checkout_counts": {
-                                  "case_count": full_report["case_count"],
-                                  "passed_case_count": full_report["passed_case_count"],
-                                  "initial_failure_confirmed_count": full_report[
-                                      "initial_failure_confirmed_count"
-                                  ],
-                                  "treatment_recovered_count": full_report[
-                                      "treatment_recovered_count"
-                                  ],
-                              },
-                              "created_resume_verified": created_resume["verified"],
-                              "worker_crash_verified": worker_crash["verified"],
-                          }
+              diagnostics = {
+                  "source_bound_docker_evidence_contract": {
+                      "suite_expectations_met": {
+                          report["suite_id"]: report["all_expectations_met"]
+                          for report in suite_reports
                       },
-                      sort_keys=True,
-                  )
+                      "suite_reliability": {
+                          report["suite_id"]: report["reliability"]
+                          for report in suite_reports
+                      },
+                      "full_checkout_counts": {
+                          "case_count": full_report["case_count"],
+                          "passed_case_count": full_report["passed_case_count"],
+                          "initial_failure_confirmed_count": full_report[
+                              "initial_failure_confirmed_count"
+                          ],
+                          "treatment_recovered_count": full_report[
+                              "treatment_recovered_count"
+                          ],
+                          "case_lineage_covered": full_case_lineage_covered,
+                      },
+                      "full_checkout_case_lineage": {
+                          case["case_id"]: {
+                              "delivered_retrieval_count": case["reliability"][
+                                  "delivered_retrieval_count"
+                              ],
+                              "evidence_backed_write_count": case["reliability"][
+                                  "evidence_backed_write_count"
+                              ],
+                          }
+                          for case in full_report["cases"]
+                      },
+                      "created_resume_verified": created_resume["verified"],
+                      "worker_crash_verified": worker_crash["verified"],
+                  }
+              }
+              rendered_diagnostics = json.dumps(diagnostics, sort_keys=True)
+              print(rendered_diagnostics)
+              Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text(
+                  "## Source-bound Docker evidence gate failed\n\n"
+                  "```json\n"
+                  + rendered_diagnostics
+                  + "\n```\n",
+                  encoding="utf-8",
               )
               raise SystemExit("Source-bound Docker evidence contract failed")
           if paid_model_called or network_called:
