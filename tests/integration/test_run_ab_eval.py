@@ -44,6 +44,7 @@ FULL_SUITE_V7_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pi
 FULL_SUITE_V8_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v8.yaml"
 FULL_SUITE_V9_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v9.yaml"
 FULL_SUITE_V10_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v10.yaml"
+FULL_SUITE_V11_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v11.yaml"
 LUIGI_FULL_MANIFEST_PATH = (
     ROOT / "benchmarks" / "run_ab" / "full" / "luigi-1-metrics-handler" / "manifest.yaml"
 )
@@ -106,6 +107,15 @@ HTTPIE_FILENAME_FULL_MANIFEST_PATH = (
 )
 TORNADO_RANGE_FULL_MANIFEST_PATH = (
     ROOT / "benchmarks" / "run_ab" / "full" / "tornado-4-static-range-bounds" / "manifest.yaml"
+)
+SANIC_HOST_FULL_MANIFEST_PATH = (
+    ROOT / "benchmarks" / "run_ab" / "full" / "sanic-3-routes-with-host" / "manifest.yaml"
+)
+THEFUCK_BITBUCKET_FULL_MANIFEST_PATH = (
+    ROOT / "benchmarks" / "run_ab" / "full" / "thefuck-5-git-push-bitbucket" / "manifest.yaml"
+)
+LUIGI_STATUS_FULL_MANIFEST_PATH = (
+    ROOT / "benchmarks" / "run_ab" / "full" / "luigi-7-status-wont-override" / "manifest.yaml"
 )
 BLIND_RETRIEVAL_SELECTION_PATH = (
     ROOT / "benchmarks" / "retrieval" / "external-blind-v1" / "selection.yaml"
@@ -1809,6 +1819,129 @@ def test_full_checkout_v10_repairs_are_bounded_and_line_ending_independent():
     assert "'A'*4+'.txt-1'" in httpie.task.acceptance[0].command
     assert "evaluate(10,4,26)=='invalid'" in manifests[1].task.acceptance[0].command
     assert "evaluate(-1000000,None,26)==(0,None)" in manifests[1].task.acceptance[0].command
+
+
+def test_full_checkout_v11_preserves_v10_and_binds_three_development_cases():
+    v10 = RunABSuiteManifest.model_validate(
+        yaml.safe_load(FULL_SUITE_V10_PATH.read_text(encoding="utf-8"))
+    )
+    suite = RunABSuiteManifest.model_validate(
+        yaml.safe_load(FULL_SUITE_V11_PATH.read_text(encoding="utf-8"))
+    )
+
+    assert suite.sha256 == "4056bd9cf49bf3373685acd0fd0732ea64f24eee4a39e88640d1728dbcf3fc98"
+    assert suite.cases[:19] == v10.cases
+    assert [case.case_id for case in suite.cases[19:]] == [
+        "sanic-3-routes-with-host-full",
+        "thefuck-5-git-push-bitbucket-full",
+        "luigi-7-status-wont-override-full",
+    ]
+    assert len(suite.cases) == 22
+    assert len({case.source.project.casefold() for case in suite.cases}) == 9
+
+    expected = {
+        "sanic-3-routes-with-host-full": (
+            SANIC_HOST_FULL_MANIFEST_PATH,
+            "09d318d4b8fdd34ece2c1f2a02bd675d6c4a9356a691f708fb08a455f22eb27b",
+            (7, 8),
+        ),
+        "thefuck-5-git-push-bitbucket-full": (
+            THEFUCK_BITBUCKET_FULL_MANIFEST_PATH,
+            "a90e3488179577283337da450805e88b44957e860591d62b53a2120f50227eda",
+            (6, 7),
+        ),
+        "luigi-7-status-wont-override-full": (
+            LUIGI_STATUS_FULL_MANIFEST_PATH,
+            "3a82cf4c44425fb9fe74603619c8632aad1d5cc766974c529f0182f701719b37",
+            (7, 8),
+        ),
+    }
+    for case in suite.cases[19:]:
+        manifest_path, manifest_digest, usage = expected[case.case_id]
+        manifest = RunABEvalManifest.model_validate(
+            yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+        )
+        case.check_manifest(manifest)
+        assert manifest.sha256 == manifest_digest
+        assert manifest.expected_initial_failed_checks == (manifest.task.acceptance[0].id,)
+        assert manifest.arms[1].expected_model_calls == usage[0]
+        assert manifest.arms[1].expected_tool_calls == usage[1]
+        assert manifest.arms[1].expected_steps == usage[1]
+
+
+def test_full_checkout_v11_additions_match_prefrozen_development_sources():
+    suite = RunABSuiteManifest.model_validate(
+        yaml.safe_load(FULL_SUITE_V11_PATH.read_text(encoding="utf-8"))
+    )
+    selection = yaml.safe_load(DEVELOPMENT_RETRIEVAL_SELECTION_PATH.read_text(encoding="utf-8"))
+    selected_by_id = {case["case_id"]: case for case in selection["cases"]}
+    source_ids = [
+        "sanic-3-routes-with-host",
+        "thefuck-5-git-push-bitbucket",
+        "luigi-7-status-wont-override",
+    ]
+
+    for case, source_id in zip(suite.cases[19:], source_ids, strict=True):
+        selected = selected_by_id[source_id]
+        assert selected["partition"] == "development"
+        assert case.source.project == selected["project"]
+        assert case.source.bug_id == selected["bug_id"]
+        assert case.source.repository_url == selected["repository_url"]
+        assert case.source.buggy_commit == selected["buggy_commit"]
+        assert case.source.fixed_commit == selected["fixed_commit"]
+
+
+def test_full_checkout_v11_repairs_are_bounded_and_line_ending_independent():
+    manifests = [
+        RunABEvalManifest.model_validate(
+            yaml.safe_load(SANIC_HOST_FULL_MANIFEST_PATH.read_text(encoding="utf-8"))
+        ),
+        RunABEvalManifest.model_validate(
+            yaml.safe_load(THEFUCK_BITBUCKET_FULL_MANIFEST_PATH.read_text(encoding="utf-8"))
+        ),
+        RunABEvalManifest.model_validate(
+            yaml.safe_load(LUIGI_STATUS_FULL_MANIFEST_PATH.read_text(encoding="utf-8"))
+        ),
+    ]
+    expected_paths = ["sanic/app.py", "thefuck/rules/git_push.py", "luigi/scheduler.py"]
+    fixture_lines = [
+        [
+            '        if view_name == "static" or view_name.endswith(".static"):',
+            '            netloc = self.config.get("SERVER_NAME", "")',
+        ],
+        [
+            "def match(command):",
+            "    return (command.script_parts[0:2] == ['git', 'push']",
+            "            and 'set-upstream' in command.output)",
+        ],
+        [
+            "        if not (task.status in (RUNNING, BATCH_RUNNING) "
+            "and status == PENDING) or new_deps:",
+            "            # don't allow re-scheduling of task while it is running, "
+            "it must either fail or succeed first",
+        ],
+    ]
+
+    for manifest, expected_path, lines in zip(
+        manifests, expected_paths, fixture_lines, strict=True
+    ):
+        edits = [action for action in manifest.arms[1].actions if action.tool == "replace_text"]
+        assert edits
+        assert {edit.arguments["path"] for edit in edits} == {expected_path}
+        assert all("\n" not in edit.arguments["old"] for edit in edits)
+        for newline in ("\n", "\r\n"):
+            source = newline.join(lines)
+            for edit in edits:
+                assert source.count(edit.arguments["old"]) == 1
+                source = source.replace(edit.arguments["old"], edit.arguments["new"])
+            assert all(edit.arguments["new"] in source for edit in edits)
+
+    assert "host = uri.find" in manifests[0].arms[1].actions[4].arguments["new"]
+    assert "http://path.example.com/path" in manifests[0].task.acceptance[0].command
+    assert "git push --set-upstream" in manifests[1].arms[1].actions[4].arguments["new"]
+    assert "bitbucket" in manifests[1].task.acceptance[0].command
+    assert "task.worker_running != worker_id" in manifests[2].arms[1].actions[4].arguments["new"]
+    assert "decide('RUNNING','DONE','X','X') is True" in (manifests[2].task.acceptance[0].command)
 
 
 def test_luigi_full_checkout_repair_is_line_ending_independent():

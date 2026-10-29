@@ -404,7 +404,7 @@ class RunABSuiteCase(Contract):
 class RunABSuiteManifest(Contract):
     schema_version: Literal[1] = 1
     suite_id: Identifier
-    cases: Annotated[tuple[RunABSuiteCase, ...], Field(min_length=1, max_length=20)]
+    cases: Annotated[tuple[RunABSuiteCase, ...], Field(min_length=1, max_length=32)]
 
     @model_validator(mode="after")
     def validate_cases(self) -> Self:
@@ -684,7 +684,7 @@ class RunABSuiteReport(Contract):
     suite_manifest_digest: Sha256
     validation_backend: Identifier
     validation_backend_ref: Text
-    cases: Annotated[tuple[RunABSuiteCaseResult, ...], Field(min_length=1, max_length=20)]
+    cases: Annotated[tuple[RunABSuiteCaseResult, ...], Field(min_length=1, max_length=32)]
     case_count: NonNegativeInt
     passed_case_count: NonNegativeInt
     initial_failure_confirmed_count: NonNegativeInt

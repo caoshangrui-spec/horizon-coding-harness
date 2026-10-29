@@ -1,0 +1,104 @@
+schema_version: 1
+benchmark_id: thefuck-5-git-push-bitbucket-full
+fixture_path: fixture
+
+task:
+  task_id: thefuck-git-push-bitbucket-full
+  title: Ignore Bitbucket output that only mentions set-upstream
+  objective: Match git push failures only when Git emits the actual upstream command suggestion
+  repository:
+    source: local
+    path: /fixture
+    base_commit: 7c858fadb3458be829d3d43666ccb46c3ed5b8a0
+  constraints:
+    allowed_paths: ["**"]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+  acceptance:
+    - id: thefuck-git-push-bitbucket-full
+      command: >-
+        python -B -c "import ast; from pathlib import Path; from types import SimpleNamespace; tree=ast.parse(Path('thefuck/rules/git_push.py').read_text(encoding='utf-8')); fn=next(x for x in tree.body if isinstance(x,ast.FunctionDef) and x.name=='match'); fn.decorator_list=[]; ns={}; exec(compile(ast.Module(body=[fn],type_ignores=[]),'thefuck/rules/git_push.py','exec'),ns); bitbucket='remote: Create pull request for feature/set-upstream:\nremote: https://bitbucket.org/set-upstream\nTo git@bitbucket.org:test.git'; suggestion='fatal: no upstream branch\n    git push --set-upstream origin main'; assert ns['match'](SimpleNamespace(script_parts=['git','push','origin'],output=bitbucket)) is False; assert ns['match'](SimpleNamespace(script_parts=['git','push'],output=suggestion)) is True; assert ns['match'](SimpleNamespace(script_parts=['git','pull'],output=suggestion)) is False"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 16
+    max_model_calls: 12
+    max_tool_calls: 16
+    max_wall_time_seconds: 600
+    max_cost_usd: "1.00"
+    max_input_tokens: 100000
+    max_output_tokens: 5000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+
+initial_plan:
+  version: 1
+  items:
+    - work_item_id: locate-git-push-bitbucket-full
+      title: Locate git push upstream suggestion matching
+      objective: Retrieve revision-bound evidence before narrowing the rule predicate
+      dependencies: []
+      expected_artifacts: [Code EvidencePack, thefuck-git-push-bitbucket-full receipt]
+      acceptance_ids: [thefuck-git-push-bitbucket-full]
+      allowed_tools: [retrieve_code]
+
+expected_initial_failed_checks: [thefuck-git-push-bitbucket-full]
+
+arms:
+  - arm_id: no-replan
+    role: baseline
+    description: Continue the stalled source retrieval until deterministic guidance is required.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items: []
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 4
+    expected_tool_calls: 4
+    expected_steps: 4
+    actions:
+      - &retrieve_target
+        tool: retrieve_code
+        arguments:
+          query: git push match set-upstream Bitbucket output
+          max_chunks: 8
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+
+  - arm_id: single-replan
+    role: single_replan
+    description: Replace the stalled investigation with the bounded command-suggestion predicate.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items: [repair-git-push-bitbucket-full]
+    expected_model_calls: 6
+    expected_tool_calls: 7
+    expected_steps: 7
+    actions:
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+      - tool: revise_plan
+        arguments:
+          reason: Repeated retrieval produced no new evidence; require Git's complete upstream command instead of a loose substring.
+          items:
+            - work_item_id: repair-git-push-bitbucket-full
+              title: Narrow git push suggestion matching
+              objective: Reject Bitbucket branch text while preserving real git push --set-upstream suggestions
+              dependencies: []
+              expected_artifacts: [thefuck/rules/git_push.py, thefuck-git-push-bitbucket-full receipt]
+              acceptance_ids: [thefuck-git-push-bitbucket-full]
+              allowed_tools: [retrieve_code, replace_text, run_check]
+      - tool: replace_text
+        arguments:
+          path: thefuck/rules/git_push.py
+          old: "            and 'set-upstream' in command.output)"
+          new: "            and 'git push --set-upstream' in command.output)"
+      - tool: submit
+        arguments:
+          summary: Required the full git push --set-upstream suggestion and ran the protected Bitbucket regression check.

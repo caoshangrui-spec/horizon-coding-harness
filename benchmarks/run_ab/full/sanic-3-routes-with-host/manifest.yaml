@@ -1,0 +1,118 @@
+schema_version: 1
+benchmark_id: sanic-3-routes-with-host-full
+fixture_path: fixture
+
+task:
+  task_id: sanic-routes-with-host-full
+  title: Preserve route hosts when building external URLs
+  objective: Strip a route host from its internal path while using that host as the default external netloc
+  repository:
+    source: local
+    path: /fixture
+    base_commit: 91f6abaa81248189fbcbdf685e8bdcbb7846609f
+  constraints:
+    allowed_paths: ["**"]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+  acceptance:
+    - id: sanic-routes-with-host-full
+      command: >-
+        python -B -c "import ast,re; from pathlib import Path; from types import SimpleNamespace; from typing import Dict; from urllib.parse import urlencode,urlunparse; tree=ast.parse(Path('sanic/app.py').read_text(encoding='utf-8')); cls=next(x for x in tree.body if isinstance(x,ast.ClassDef) and x.name=='Sanic'); fn=next(x for x in cls.body if isinstance(x,ast.FunctionDef) and x.name=='url_for'); ns={'Dict':Dict,'re':re,'urlencode':urlencode,'urlunparse':urlunparse,'URLBuildError':ValueError}; exec(compile(ast.Module(body=[fn],type_ignores=[]),'sanic/app.py','exec'),ns); routes={'hostindex':'example.com/','hostpath':'path.example.com/path'}; router=SimpleNamespace(parameter_pattern=r'<([^>]+)>',find_route_by_view_name=lambda name,**kw:(routes[name],object()),parse_parameter_string=lambda value:None); app=SimpleNamespace(router=router,config={}); assert ns['url_for'](app,'hostindex')=='/'; assert ns['url_for'](app,'hostpath')=='/path'; assert ns['url_for'](app,'hostindex',_external=True)=='http://example.com/'; assert ns['url_for'](app,'hostpath',_external=True)=='http://path.example.com/path'"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 16
+    max_model_calls: 12
+    max_tool_calls: 16
+    max_wall_time_seconds: 600
+    max_cost_usd: "1.00"
+    max_input_tokens: 100000
+    max_output_tokens: 5000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+
+initial_plan:
+  version: 1
+  items:
+    - work_item_id: locate-routes-with-host-full
+      title: Locate external URL construction for host-bound routes
+      objective: Retrieve revision-bound evidence before changing route host handling
+      dependencies: []
+      expected_artifacts: [Code EvidencePack, sanic-routes-with-host-full receipt]
+      acceptance_ids: [sanic-routes-with-host-full]
+      allowed_tools: [retrieve_code]
+
+expected_initial_failed_checks: [sanic-routes-with-host-full]
+
+arms:
+  - arm_id: no-replan
+    role: baseline
+    description: Continue the stalled source retrieval until deterministic guidance is required.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items: []
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 4
+    expected_tool_calls: 4
+    expected_steps: 4
+    actions:
+      - &retrieve_target
+        tool: retrieve_code
+        arguments:
+          query: Sanic url_for route host external SERVER_NAME
+          max_chunks: 8
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+
+  - arm_id: single-replan
+    role: single_replan
+    description: Replace the stalled investigation with bounded route-host parsing.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items: [repair-routes-with-host-full]
+    expected_model_calls: 7
+    expected_tool_calls: 8
+    expected_steps: 8
+    actions:
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+      - tool: revise_plan
+        arguments:
+          reason: Repeated retrieval produced no new evidence; separate the route host from its path before URL construction.
+          items:
+            - work_item_id: repair-routes-with-host-full
+              title: Preserve host-bound route URLs
+              objective: Return path-only internal URLs and use the route host for external URLs
+              dependencies: []
+              expected_artifacts: [sanic/app.py, sanic-routes-with-host-full receipt]
+              acceptance_ids: [sanic-routes-with-host-full]
+              allowed_tools: [retrieve_code, replace_text, run_check]
+      - tool: replace_text
+        arguments:
+          path: sanic/app.py
+          old: '        if view_name == "static" or view_name.endswith(".static"):'
+          new: |2-
+                    # If the route has host defined, split that off
+                    # TODO: Retain netloc and path separately in Route objects
+                    host = uri.find("/")
+                    if host > 0:
+                        host, uri = uri[:host], uri[host:]
+                    else:
+                        host = None
+
+                    if view_name == "static" or view_name.endswith(".static"):
+      - tool: replace_text
+        arguments:
+          path: sanic/app.py
+          old: '            netloc = self.config.get("SERVER_NAME", "")'
+          new: '            netloc = host or self.config.get("SERVER_NAME", "")'
+      - tool: submit
+        arguments:
+          summary: Separated host-bound route paths, reused the host for external URLs, and ran the protected regression check.
