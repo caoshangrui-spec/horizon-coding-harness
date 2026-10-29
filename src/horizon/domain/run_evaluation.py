@@ -209,9 +209,7 @@ class RunABWriteEvidenceLineage(Contract):
     def validate_lineage(self) -> Self:
         if len(self.target_paths) != len(set(self.target_paths)):
             raise ValueError("Run A/B write lineage target paths must be unique")
-        if len(self.delivered_retrieval_call_ids) != len(
-            set(self.delivered_retrieval_call_ids)
-        ):
+        if len(self.delivered_retrieval_call_ids) != len(set(self.delivered_retrieval_call_ids)):
             raise ValueError("Run A/B delivered retrieval call IDs must be unique")
         if tuple(self.delivery_channels) != tuple(sorted(set(self.delivery_channels))):
             raise ValueError("Run A/B retrieval delivery channels must be unique and sorted")
@@ -253,32 +251,23 @@ class RunABRetrievalLineageSummary(Contract):
 
     @model_validator(mode="after")
     def validate_summary(self) -> Self:
-        if len(self.successful_retrieval_call_ids) != len(
-            set(self.successful_retrieval_call_ids)
-        ):
+        if len(self.successful_retrieval_call_ids) != len(set(self.successful_retrieval_call_ids)):
             raise ValueError("Run A/B successful retrieval call IDs must be unique")
-        if len(self.delivered_retrieval_call_ids) != len(
-            set(self.delivered_retrieval_call_ids)
-        ):
+        if len(self.delivered_retrieval_call_ids) != len(set(self.delivered_retrieval_call_ids)):
             raise ValueError("Run A/B delivered retrieval call IDs must be unique")
-        if not set(self.delivered_retrieval_call_ids) <= set(
-            self.successful_retrieval_call_ids
-        ):
+        if not set(self.delivered_retrieval_call_ids) <= set(self.successful_retrieval_call_ids):
             raise ValueError("Run A/B delivered retrievals must be successful retrievals")
         if self.successful_write_count != len(self.writes):
             raise ValueError("Run A/B successful write count does not match write lineage")
         if self.write_context_bound_count != sum(item.context_bound for item in self.writes):
             raise ValueError("Run A/B context-bound write count does not match write lineage")
-        if self.evidence_backed_write_count != sum(
-            item.evidence_backed for item in self.writes
-        ):
+        if self.evidence_backed_write_count != sum(item.evidence_backed for item in self.writes):
             raise ValueError("Run A/B evidence-backed write count does not match write lineage")
         write_ids = [item.write_call_id for item in self.writes]
         if len(write_ids) != len(set(write_ids)):
             raise ValueError("Run A/B write lineage call IDs must be unique")
         if any(
-            not set(item.delivered_retrieval_call_ids)
-            <= set(self.successful_retrieval_call_ids)
+            not set(item.delivered_retrieval_call_ids) <= set(self.successful_retrieval_call_ids)
             for item in self.writes
         ):
             raise ValueError("Run A/B write lineage references an unsuccessful retrieval")
@@ -957,9 +946,7 @@ class RunABSuiteReport(Contract):
             "delivered_retrieval_count": sum(
                 metrics.delivered_retrieval_count for metrics in observed
             ),
-            "successful_write_count": sum(
-                metrics.successful_write_count for metrics in observed
-            ),
+            "successful_write_count": sum(metrics.successful_write_count for metrics in observed),
             "write_context_bound_count": sum(
                 metrics.write_context_bound_count for metrics in observed
             ),

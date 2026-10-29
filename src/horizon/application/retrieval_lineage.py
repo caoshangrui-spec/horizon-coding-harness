@@ -78,9 +78,7 @@ def _retrieval_provider_tool_call_ids(
         record = ModelCallRecord.model_validate(event.payload["record"])
         if record.response_artifact_ref is None:
             raise IntegrityError("Retrieval lineage requires recorded model responses")
-        response = ModelResponse.model_validate_json(
-            artifacts.read(record.response_artifact_ref)
-        )
+        response = ModelResponse.model_validate_json(artifacts.read(record.response_artifact_ref))
         upper = next((seq for seq in model_reserved_seqs if seq > event.seq), None)
         candidates = [
             reservation
@@ -138,9 +136,7 @@ def _memory_delivery(
 ) -> dict[str, tuple[str, str, str | None]]:
     if reservation.run_memory_ref is None:
         return {}
-    memory = RunMemorySnapshot.model_validate_json(
-        artifacts.read(reservation.run_memory_ref)
-    )
+    memory = RunMemorySnapshot.model_validate_json(artifacts.read(reservation.run_memory_ref))
     binding = visible_run_memory_binding(memory, reservation.run_memory_ref)
     system_content = projection.messages[0].content or ""
     if canonical_json(binding) not in system_content:
@@ -305,13 +301,11 @@ def derive_run_ab_retrieval_lineage(
                 )
                 if target_path in chunk_paths and (direct_visible or memory_visible):
                     covered.add(target_path)
-        delivered_call_ids = tuple(
-            item.retrieval.record.call_id for item in delivered
-        )
+        delivered_call_ids = tuple(item.retrieval.record.call_id for item in delivered)
         covered_paths = tuple(sorted(covered))
-        evidence_backed = bool(precondition.target_paths) and set(
-            precondition.target_paths
-        ) <= covered
+        evidence_backed = (
+            bool(precondition.target_paths) and set(precondition.target_paths) <= covered
+        )
         writes.append(
             RunABWriteEvidenceLineage(
                 write_call_id=record.call_id,

@@ -416,9 +416,7 @@ def test_run_ab_suite_separates_trace_bound_retrieval_degradation_from_task_succ
         ("retrieval_degraded", 2),
     ]
     tampered = report.model_dump(mode="json")
-    tampered_write = tampered["single_replan"]["reliability"]["retrieval_lineage"][
-        "writes"
-    ][0]
+    tampered_write = tampered["single_replan"]["reliability"]["retrieval_lineage"]["writes"][0]
     tampered_write["covered_target_paths"] = []
     with pytest.raises(ValueError, match="evidence-backed verdict"):
         RunABEvalReport.model_validate(tampered)

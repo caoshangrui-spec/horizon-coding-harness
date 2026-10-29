@@ -832,9 +832,7 @@ def build_run_ab_suite_report(
                 "quality_flag_counts": count_run_ab_quality_flags(quality_flags),
             }
         arm_lineage = tuple(
-            item.retrieval_lineage
-            for item in arm_reliability
-            if item.retrieval_lineage is not None
+            item.retrieval_lineage for item in arm_reliability if item.retrieval_lineage is not None
         )
         lineage_fields = {}
         if arm_lineage:
@@ -846,9 +844,7 @@ def build_run_ab_suite_report(
                 "delivered_retrieval_count": sum(
                     len(item.delivered_retrieval_call_ids) for item in arm_lineage
                 ),
-                "successful_write_count": sum(
-                    item.successful_write_count for item in arm_lineage
-                ),
+                "successful_write_count": sum(item.successful_write_count for item in arm_lineage),
                 "write_context_bound_count": sum(
                     item.write_context_bound_count for item in arm_lineage
                 ),
@@ -992,9 +988,7 @@ def build_run_ab_suite_report(
         delivered_retrieval_count=sum(
             metrics.delivered_retrieval_count for metrics in observed_metrics
         ),
-        successful_write_count=sum(
-            metrics.successful_write_count for metrics in observed_metrics
-        ),
+        successful_write_count=sum(metrics.successful_write_count for metrics in observed_metrics),
         write_context_bound_count=sum(
             metrics.write_context_bound_count for metrics in observed_metrics
         ),
