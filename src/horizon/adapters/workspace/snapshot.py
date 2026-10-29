@@ -108,6 +108,12 @@ class SnapshotManager:
                 path = current_path / name
                 rel = path.relative_to(root).as_posix()
                 reject_link(path)
+                # Linked Git worktrees store `.git` as a regular control file instead
+                # of a directory. Exclude both control-file forms before FileEntry
+                # validation so snapshots remain portable without restoring Git state.
+                if name in {".git", ".horizon"}:
+                    excluded.append(rel)
+                    continue
                 if (
                     allowed_paths is not None
                     and not any(fnmatch.fnmatchcase(rel, pattern) for pattern in allowed_paths)

@@ -183,7 +183,7 @@ class PilotPreflightService:
         git_metadata_excluded = not any(
             entry.path == ".git" or entry.path.startswith(".git/")
             for entry in source_snapshot.files
-        ) and any(path == ".git/" for path in source_snapshot.excluded_paths)
+        ) and any(path in {".git", ".git/"} for path in source_snapshot.excluded_paths)
         full_checkout_verified = True
         ready = all(
             (

@@ -43,6 +43,18 @@ def test_content_addressed_snapshot_and_fresh_restore(workspace, snapshots, tmp_
     assert later.workspace_revision != first.workspace_revision
 
 
+def test_git_worktree_control_file_is_excluded(workspace, snapshots, tmp_path):
+    (workspace / ".git").write_text("gitdir: ../control/worktrees/fixture\n", encoding="utf-8")
+
+    snapshot, manifest = snapshots.capture(workspace)
+
+    assert ".git" in snapshot.excluded_paths
+    assert all(entry.path != ".git" for entry in snapshot.files)
+    restored = tmp_path / "worktree-restored"
+    snapshots.restore(manifest, restored)
+    assert not (restored / ".git").exists()
+
+
 def test_corrupt_artifact_blocks_restore_and_preserves_original(workspace, snapshots, tmp_path):
     snapshot, manifest = snapshots.capture(workspace)
     entry = snapshot.files[0]
