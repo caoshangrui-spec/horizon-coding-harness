@@ -518,6 +518,45 @@ jobs:
               or worker_crash["network_called"]
           )
           if not all_expectations_met:
+              missing_case_lineage = [
+                  case["case_id"]
+                  for case in full_report["cases"]
+                  if case["reliability"] is None
+                  or case["reliability"]["retrieval_lineage_arm_count"]
+                  != case["reliability"]["arm_count"]
+                  or case["reliability"]["delivered_retrieval_count"] == 0
+                  or case["reliability"]["evidence_backed_write_count"] == 0
+              ]
+              annotation = {
+                  "suite_expectations": {
+                      report["suite_id"]: report["all_expectations_met"]
+                      for report in suite_reports
+                  },
+                  "suite_lineage_arms": {
+                      report["suite_id"]: [
+                          report["reliability"]["retrieval_lineage_arm_count"],
+                          report["reliability"]["arm_count"],
+                      ]
+                      for report in suite_reports
+                  },
+                  "full_lineage": {
+                      key: full_reliability[key]
+                      for key in (
+                          "successful_retrieval_count",
+                          "delivered_retrieval_count",
+                          "successful_write_count",
+                          "write_context_bound_count",
+                          "evidence_backed_write_count",
+                      )
+                  },
+                  "missing_full_case_lineage": missing_case_lineage,
+                  "paid_model_called": paid_model_called,
+                  "network_called": network_called,
+              }
+              print(
+                  "::error title=Source-bound evidence gate::"
+                  + json.dumps(annotation, sort_keys=True)
+              )
               diagnostics = {
                   "source_bound_docker_evidence_contract": {
                       "suite_expectations_met": {
