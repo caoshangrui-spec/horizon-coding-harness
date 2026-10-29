@@ -185,6 +185,14 @@ checkout 案例产生 evidence-backed write。缺口是 HTTPie-2、Sanic-3、The
 该 run 保留为负结果；随后代码只扩大有界 memory excerpt 到前两块，没有改 query、排序、manifest
 或验收门。
 
+修复后的公开禁网 Docker run
+[`40862188498`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40862188498)
+通过全部四组 suite、62/62 arm lineage coverage，以及 22/22 个 full-checkout 案例的逐案例
+retrieval-delivery 与 evidence-backed-write 门。统一 artifact ID `12891897965`，234,856,281 bytes，
+digest `sha256:3336208089c946818e9aab1aed6e49fc18166bf0f9cb35f9e91a4efcd328713e`，保留至
+2026-11-28。该成功结果与上面的 18/22 诊断共同保留：前者证明修复后的结构门通过，后者记录缺口
+及修复依据。
+
 `network_called=false` 表示评测中的 Harness/模型路径没有出站调用；GitHub job 在评测前获取公开
 源码和 Docker image 仍需要网络。`paid_model_called=false` 表示全部动作来自冻结 Scripted Model，
 因此这些指标是 Harness 可靠性证据，不是 LLM 能力证据。

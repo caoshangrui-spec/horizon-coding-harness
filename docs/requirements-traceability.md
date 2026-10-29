@@ -111,8 +111,10 @@
 > 实际出现在模型 system binding 中的 active top-two ranked-chunk excerpt，且目标 path 必须带非空
 > snippet 并属于原 EvidencePack；Artifact 仅存在不算消费。首轮公开门保留 18/22 的负结果后，
 > 才把 RunMemory 从 primary-only 修为前两块、总计最多 400 字符，没有修改检索排名或降低门槛。
-> 新报告聚合 delivered retrieval 与 context-bound/evidence-backed write，旧报告仍兼容。该证据仍
-> 不是语义因果或真实模型能力；尚未把检索设为所有生产写工具的强制前置策略，生产脱敏也未完成。
+> 修复后的公开禁网 Docker run `40862188498` 已通过 62/62 arm lineage coverage，并让 22/22 个
+> full-checkout 案例通过逐案例 delivery/evidence-backed-write 门。新报告聚合 delivered retrieval
+> 与 context-bound/evidence-backed write，旧报告仍兼容。该证据仍不是语义因果或真实模型能力；
+> 尚未把检索设为所有生产写工具的强制前置策略，生产脱敏也未完成。
 
 > 2026-10-29 FR-1305 当前增量：完整 checkout v11 原样保留 v10 十九例，并增加预冻结
 > development 来源的 Sanic-3、TheFuck-5 与 Luigi-7；二十二例覆盖九项目、6,062 tracked files。

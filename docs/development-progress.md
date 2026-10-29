@@ -23,7 +23,7 @@
 - 针对性回归 69 项通过；另以 test-only exact-change validator 对 900 文件的 youtube-dl 完整
   checkout 运行一次真实 Harness 烟测，确认 post-replan `run_memory_excerpt` 覆盖
   `youtube_dl/utils.py` 且产生 1 条 evidence-backed write。当前机器 Docker daemon 未启动，因此
-  这不是新的公开 Docker 证据；公开门仍需当前提交的 CI 复跑确认。
+  该本地烟测本身不是公开 Docker 证据。
 - 首次公开 lineage 门在四组执行 suite 全通过后保留了一个真实负结果：full-checkout 的成功/交付
   retrieval 为 88/88，22 条写入有 retrieval 上下文，但 evidence-backed write 仅 18；HTTPie-2、
   Sanic-3、TheFuck-5、Luigi-7 的目标文件均排 rank 2，被当时只保留首块的 RunMemory 丢失。
@@ -32,7 +32,11 @@
 - RunMemory 随后改为最多保留两个 ranked chunk、每块最多 96 字符 snippet、总 excerpt 最多 400
   字符；lineage 解析结构化 excerpt，并要求目标 path 对应非空 snippet 且确实属于原 EvidencePack。
   四个缺口案例的本地完整 checkout 烟测现均产生至少一条 evidence-backed write；整仓回归仍为
-  **633 passed，11 skipped**，最终公开 Docker 复跑待当前提交确认。
+  **633 passed，11 skipped**。修复后的[公开禁网 Docker 复跑 `40862188498`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40862188498)
+  已通过全部四组 suite、62/62 arm lineage coverage，并让 22/22 个 full-checkout 案例通过逐案例
+  retrieval-delivery 与 evidence-backed-write 门；统一 artifact ID `12891897965`，234,856,281
+  bytes，digest `sha256:3336208089c946818e9aab1aed6e49fc18166bf0f9cb35f9e91a4efcd328713e`，
+  保留至 2026-11-28。
 - 边界保持：lineage 只证明内容交付、revision 与 target path 对齐；Scripted Model 的冻结写入不能
   推导“检索导致修改”或真实模型成功率。8 条 sealed holdout 未物化、未揭示、未运行。
 

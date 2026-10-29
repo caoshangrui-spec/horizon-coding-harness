@@ -13,10 +13,11 @@ for public releases; unreleased work must not be presented as a published releas
   stale excerpts. The first public lineage gate retained a real 18/22 negative result: four write
   targets ranked second and were lost by the former primary-only memory projection. The top-two
   projection closes that context-loss gap without changing retrieval ranking or weakening the gate.
-  Arm/case/suite
-  reports aggregate delivered retrievals and context-bound/evidence-backed writes; legacy reports
-  remain readable. The public full-checkout workflow gates this structural provenance separately
-  from protected validation, without claiming semantic causality or real-model success.
+  Arm/case/suite reports aggregate delivered retrievals and context-bound/evidence-backed writes;
+  legacy reports remain readable. Public no-network Docker run `40862188498` subsequently passed
+  lineage coverage for all 62 arms and the per-case delivery/evidence-backed-write gate for all
+  22 full-checkout cases. The workflow gates this structural provenance separately from protected
+  validation, without claiming semantic causality or real-model success.
 - Added a restartable single-host Agent batch runner. A strict 1–100 case manifest now dispatches
   existing production Agent runs in order, atomically checkpoints between cases, derives stable
   invocation and Task identities, publishes a pre-execution Run receipt, skips already terminal

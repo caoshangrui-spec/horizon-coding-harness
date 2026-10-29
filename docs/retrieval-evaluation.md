@@ -82,6 +82,9 @@ retrieve_code ToolCallRecord + EvidencePack
 案例产生 evidence-backed write；HTTPie-2、Sanic-3、TheFuck-5、Luigi-7 的真实写入目标均在各自
 EvidencePack 排 rank 2，primary-only excerpt 把它们丢掉。修复没有改排序、query 或 manifest；
 lineage 还会解析 excerpt，要求目标 path 带非空 snippet 且属于原 EvidencePack，单纯路径名不算消费。
+修复后的[公开禁网 Docker run `40862188498`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40862188498)
+已通过 62/62 arm lineage coverage，并让 22/22 个 full-checkout 案例通过逐案例 retrieval-delivery
+与 evidence-backed-write 门；首轮 18/22 仍作为负结果保留。
 
 对每个成功写入，`evidence_backed=true` 还要求：写入的 source model call 有已保存
 ContextProjection；至少一条成功 retrieval 确实在该投影可见；EvidencePack、写前 CAS revision
