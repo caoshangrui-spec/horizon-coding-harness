@@ -404,7 +404,10 @@ def test_projection_injects_only_active_run_memory_evidence():
     assert active_projection.run_memory_ref == active.sha256
     assert active_projection.run_memory_hash == active.sha256
     assert active_projection.run_memory_entry_count == 1
-    assert "def parse(value)" in (active_projection.messages[0].content or "")
+    active_system = active_projection.messages[0].content or ""
+    assert "def parse(value)" in active_system
+    assert '"source_call_id":"call-memory-1"' in active_system
+    assert '"evidence_ref":"' + "7" * 64 + '"' in active_system
 
     stale = _run_memory(status="stale")
     stale_projection = _projector(max_chars=4_000, preserve_recent_units=1).project(

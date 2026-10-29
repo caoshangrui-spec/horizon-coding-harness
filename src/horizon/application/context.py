@@ -82,6 +82,42 @@ def _unit_fact(unit: _MessageUnit) -> dict:
     }
 
 
+def visible_run_memory_binding(
+    run_memory: RunMemorySnapshot,
+    run_memory_ref: str,
+) -> dict:
+    """Return the exact bounded Run-memory payload exposed to the model.
+
+    The full snapshot remains an artifact.  Only the two most recent entries and active excerpts
+    are visible, so downstream evidence analysis can distinguish an artifact reference from
+    content that actually reached the model request.
+    """
+
+    if run_memory.sha256 != run_memory_ref:
+        raise Conflict("Run memory does not match its content-addressed artifact")
+    recent_entries = [
+        {
+            "source_event_seq": entry.source_event_seq,
+            "source_call_id": entry.source_call_id,
+            "work_item_id": entry.work_item_id,
+            "tool": entry.tool_name,
+            "outcome": entry.outcome,
+            "status": entry.status,
+            "dependency_revision": entry.dependency_revision,
+            "evidence_ref": entry.evidence_ref,
+            "excerpt": (entry.excerpt[:240] if entry.status == "active" else ""),
+        }
+        for entry in run_memory.entries[-2:]
+    ]
+    return {
+        "snapshot_ref": run_memory_ref,
+        "omitted_entry_count": run_memory.omitted_entry_count,
+        "stale_count": run_memory.stale_count,
+        "unresolved_count": run_memory.unresolved_count,
+        "recent_entries": recent_entries,
+    }
+
+
 class ContextProjector:
     """Build a bounded model view while preserving the canonical transcript elsewhere.
 
@@ -142,8 +178,6 @@ class ContextProjector:
             return messages
         if mandatory_facts is not None and mandatory_facts.sha256 != mandatory_facts_ref:
             raise Conflict("Mandatory fact ledger does not match its content-addressed artifact")
-        if run_memory is not None and run_memory.sha256 != run_memory_ref:
-            raise Conflict("Run memory does not match its content-addressed artifact")
         system = messages[0]
         bindings: list[str] = []
         if mandatory_facts is not None:
@@ -165,25 +199,8 @@ class ContextProjector:
                 f"{canonical_json(visible_binding)}"
             )
         if run_memory is not None:
-            recent_entries = []
-            for entry in run_memory.entries[-2:]:
-                recent_entries.append(
-                    {
-                        "source_event_seq": entry.source_event_seq,
-                        "work_item_id": entry.work_item_id,
-                        "tool": entry.tool_name,
-                        "outcome": entry.outcome,
-                        "status": entry.status,
-                        "excerpt": (entry.excerpt[:80] if entry.status == "active" else ""),
-                    }
-                )
-            visible_memory = {
-                "snapshot_ref": run_memory_ref,
-                "omitted_entry_count": run_memory.omitted_entry_count,
-                "stale_count": run_memory.stale_count,
-                "unresolved_count": run_memory.unresolved_count,
-                "recent_entries": recent_entries,
-            }
+            assert run_memory_ref is not None
+            visible_memory = visible_run_memory_binding(run_memory, run_memory_ref)
             bindings.append(
                 "Controller-derived Run memory. Only active excerpts describe the current "
                 "workspace; stale entries are provenance, and unresolved effects are not facts:\n"

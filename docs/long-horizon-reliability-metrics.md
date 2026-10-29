@@ -18,6 +18,7 @@
   -> protected validation
   -> 每条 Trace 脱离 SQLite 重放
   -> 每条 arm 的 acceptance / quality flag / degradation facts
+  -> retrieval delivery / write-context lineage
   -> case reliability
   -> typed suite reliability + GitHub Actions summary
 ```
@@ -25,8 +26,9 @@
 领域合同位于 `src/horizon/domain/run_evaluation.py`，聚合逻辑位于
 `src/horizon/application/run_ab_eval.py`。终态 EvidencePack 与 Run A/B 现在复用同一个
 status-independent facts 计算器，避免 required-check 和 degradation 在两种报告中出现不同口径。
-旧的 arm JSON 可以没有 `reliability`，旧的 case/suite JSON 可以没有新增质量字段；新运行会同时
-保存原始 arm 事实和聚合指标。冻结 suite/manifest 内容与 digest 没有被改写。
+旧的 arm JSON 可以没有 `reliability` 或嵌套 `retrieval_lineage`，旧的 case/suite JSON 可以没有
+新增质量/lineage 字段；新运行会同时保存原始 arm 事实和聚合指标。冻结 suite/manifest 内容与
+digest 没有被改写。
 
 ## 2. 指标定义
 
@@ -46,6 +48,11 @@ status-independent facts 计算器，避免 required-check 和 degradation 在�
 | `fallback_arm_count` | 含至少一条 Trace-bound fallback history 的 arm | 当前生产执行仍为 0；不会从日志文本猜测 fallback |
 | `degradation_arm_count` / `degradation_record_count` | 至少一条 degradation 的 arm / 全部记录数 | 同一 arm 多次真实降级调用会保留多条记录；NoProgress 拒绝回执不伪装成检索降级 |
 | `retrieval_degraded_arm_count` | 带 `retrieval_degraded` 的 arm | 来自成功 `retrieve_code` 回执内的 typed EvidencePack，并与 call ID、Artifact、Task 和 acceptance hash 绑定 |
+| `retrieval_lineage_arm_count` | 带 retrieval lineage 的 arm | 新报告必须覆盖全部 arm；0 只表示旧报告没有该证据，不能解释为“没有使用 RAG” |
+| `successful_retrieval_count` / `delivered_retrieval_count` | 成功 EvidencePack 数 / 至少进入一个后续已保存模型投影的数量 | delivery 必须是 exact tool message，或 replan 后 active RunMemory primary-chunk excerpt；只有 Artifact ref 不算交付 |
+| `successful_write_count` | 成功 `replace_text/apply_patch/create_file` receipt 数 | 只统计已结算成功写入，不包含 proposal、拒绝或 unknown effect |
+| `write_context_bound_count` | source model context 中可见至少一条 retrieval 的成功写入数 | 证明投影绑定，不证明检索导致了写入决策 |
+| `evidence_backed_write_count` | context-bound 且 EvidencePack revision 与写前 CAS revision 一致、全部 target path 被可见 chunk 覆盖的写入数 | 是结构化 provenance 门，不是代码正确性；正确性仍由 protected validation 决定 |
 | `quality_flag_counts` | 每个 flag 覆盖的 arm 数 | 一个 arm 可有多个 flag，因此各项之和不等于 quality-flagged arm 数 |
 | `worker_restart_count` | 两条 arm 的持久化 Worker 切换总数 | 包含 manifest 指定边界；硬崩溃场景还包含故障后的新 epoch |
 | `hard_crash_arm_count` | 注入真实写入 effect-before-receipt 退出的 arm | 恢复成功率只以这些 arm 为分母；没有故障注入的 suite 报 0.0，而不是伪造 100% |

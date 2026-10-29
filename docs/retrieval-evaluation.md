@@ -1,6 +1,6 @@
 # 词法检索离线诊断：协议、指标与当前结果
 
-更新：2026-10-04。该诊断用于回答“当前 Code RAG 在一组冻结查询上能否找到指定源码路径”，
+更新：2026-10-29。该诊断用于回答“当前 Code RAG 在一组冻结查询上能否找到指定源码路径”，
 不能回答“Agent 能否解决真实 Issue”，也不能作为 SWE-bench 或跨项目泛化成绩。
 
 ## 1. 固定输入
@@ -57,6 +57,38 @@ MRR         = Σ RR_i / 案例数
 `empty_count` 与 `degraded_count` 单独统计：empty 是完整范围内无词法命中；degraded 表示 FTS
 不可用或输入因边界被跳过。命中但 degraded 仍计入命中，同时保留降级计数，不能被总分掩盖。
 返回同一路径的多个 chunk 只对 path recall 计一次，但第一个相关 chunk 的真实 rank 用于 MRR。
+
+### 3.1 从召回到写入的 Trace lineage
+
+Hit/MRR 只证明 retriever 返回了什么，不证明这些内容进入了后续模型请求。Run A/B 新增第二层
+结构化证据，沿持久化对象复算：
+
+```text
+retrieve_code ToolCallRecord + EvidencePack
+  -> 后续 ModelCallReservation
+  -> ContextProjection 中的 exact tool message
+     或 replan 后 RunMemory 的 active primary-chunk excerpt
+  -> write WorkspaceWritePrecondition(source model call / revision / target paths)
+  -> RunABWriteEvidenceLineage
+```
+
+重规划会创建新 Agent session，因此旧 retrieval 不再依赖直接 transcript。`RunMemoryProjector`
+现在把成功检索的首个 chunk 压成有界 `path + snippet`，上下文同时公开 controller 记录的
+`source_call_id`、`evidence_ref` 与 `dependency_revision`；只暴露最近两条，且 stale/unresolved
+条目不暴露 excerpt。分析器必须在保存的 system message 中找到这份精确 binding，不能仅因为
+Artifact 存在就声称模型看见过它。
+
+对每个成功写入，`evidence_backed=true` 还要求：写入的 source model call 有已保存
+ContextProjection；至少一条成功 retrieval 确实在该投影可见；EvidencePack、写前 CAS revision
+与工具 receipt revision 一致；所有 target path 都在可见 retrieval chunk 中。case/suite 聚合
+`successful_retrieval_count`、`delivered_retrieval_count`、`successful_write_count`、
+`write_context_bound_count` 和 `evidence_backed_write_count`，CI 要求新报告的 lineage 覆盖全部
+arm，并对 full-checkout 要求所有成功 retrieval 均被后续请求消费、每个案例至少有一个
+evidence-backed write。
+
+这仍是**交付与对齐证据**，不是因果解释：Scripted Model 的候选写入是预先冻结的，lineage
+不能证明模型因检索内容才做出修改，也不能替代真实模型成功率。现有 sealed holdout 不因增加
+该分析器而揭示或运行。
 
 ## 4. 当前冻结样例结果
 

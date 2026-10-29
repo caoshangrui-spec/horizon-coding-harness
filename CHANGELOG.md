@@ -5,6 +5,14 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Added Trace-derived retrieval-consumption lineage to source-bound Run A/B reports. Successful
+  `retrieve_code` receipts are now matched to exact later ContextProjection tool messages or active
+  post-replan RunMemory excerpts, then joined to write compare-and-swap preconditions by source model
+  call, workspace revision, and target path. RunMemory now prioritizes the primary retrieval chunk's
+  path/snippet and exposes content-addressed provenance while hiding stale excerpts. Arm/case/suite
+  reports aggregate delivered retrievals and context-bound/evidence-backed writes; legacy reports
+  remain readable. The public full-checkout workflow gates this structural provenance separately
+  from protected validation, without claiming semantic causality or real-model success.
 - Added a restartable single-host Agent batch runner. A strict 1–100 case manifest now dispatches
   existing production Agent runs in order, atomically checkpoints between cases, derives stable
   invocation and Task identities, publishes a pre-execution Run receipt, skips already terminal

@@ -18,6 +18,7 @@ from horizon.adapters.workspace.snapshot import SnapshotManager
 from horizon.application.agent_loop import AgentLoopConfig, CodingAgentRunner
 from horizon.application.recovery import RecoveryService
 from horizon.application.reliability_summary import derive_run_reliability_facts
+from horizon.application.retrieval_lineage import derive_run_ab_retrieval_lineage
 from horizon.application.services import HarnessService, LeaseToken
 from horizon.application.tool_recovery import ToolRecoveryService
 from horizon.domain.common import canonical_json
@@ -632,6 +633,7 @@ class RunABEvaluator:
             if result is None or hard_crash_evidence is None:
                 raise ValueError("Hard-crash evaluation did not execute its final segment")
 
+        events = store.events(run.run_id)
         trace = store.export_jsonl(run.run_id)
         trace_ref = active_artifacts.put(trace.encode("utf-8"))
         replayed = SQLiteEventStore.replay_jsonl(trace)
@@ -668,6 +670,11 @@ class RunABEvaluator:
             else None
         )
         reliability_facts = derive_run_reliability_facts(result)
+        retrieval_lineage = derive_run_ab_retrieval_lineage(
+            result,
+            events,
+            active_artifacts,
+        )
         arm_reliability = RunABArmReliability(
             required_checks_passed=reliability_facts.required_checks_passed,
             acceptance_evidence_unknown=reliability_facts.unknown_acceptance_evidence,
@@ -678,6 +685,7 @@ class RunABEvaluator:
                 degradation.operation == "retrieval"
                 for degradation in reliability_facts.degradations
             ),
+            retrieval_lineage=retrieval_lineage,
         )
 
         failures: list[str] = []
@@ -823,6 +831,31 @@ def build_run_ab_suite_report(
                 "degradation_record_count": sum(item.degradation_count for item in arm_reliability),
                 "quality_flag_counts": count_run_ab_quality_flags(quality_flags),
             }
+        arm_lineage = tuple(
+            item.retrieval_lineage
+            for item in arm_reliability
+            if item.retrieval_lineage is not None
+        )
+        lineage_fields = {}
+        if arm_lineage:
+            lineage_fields = {
+                "retrieval_lineage_arm_count": len(arm_lineage),
+                "successful_retrieval_count": sum(
+                    len(item.successful_retrieval_call_ids) for item in arm_lineage
+                ),
+                "delivered_retrieval_count": sum(
+                    len(item.delivered_retrieval_call_ids) for item in arm_lineage
+                ),
+                "successful_write_count": sum(
+                    item.successful_write_count for item in arm_lineage
+                ),
+                "write_context_bound_count": sum(
+                    item.write_context_bound_count for item in arm_lineage
+                ),
+                "evidence_backed_write_count": sum(
+                    item.evidence_backed_write_count for item in arm_lineage
+                ),
+            }
         reliability = RunABCaseReliabilityMetrics(
             duration_ms=report.duration_ms,
             terminal_success_count=sum(arm.status == RunStatus.SUCCEEDED for arm in arms),
@@ -852,6 +885,7 @@ def build_run_ab_suite_report(
                 for arm in arms
             ),
             **quality_fields,
+            **lineage_fields,
         )
         cases.append(
             RunABSuiteCaseResult(
@@ -948,6 +982,24 @@ def build_run_ab_suite_report(
         ),
         degradation_record_count=sum(
             metrics.degradation_record_count for metrics in observed_metrics
+        ),
+        retrieval_lineage_arm_count=sum(
+            metrics.retrieval_lineage_arm_count for metrics in observed_metrics
+        ),
+        successful_retrieval_count=sum(
+            metrics.successful_retrieval_count for metrics in observed_metrics
+        ),
+        delivered_retrieval_count=sum(
+            metrics.delivered_retrieval_count for metrics in observed_metrics
+        ),
+        successful_write_count=sum(
+            metrics.successful_write_count for metrics in observed_metrics
+        ),
+        write_context_bound_count=sum(
+            metrics.write_context_bound_count for metrics in observed_metrics
+        ),
+        evidence_backed_write_count=sum(
+            metrics.evidence_backed_write_count for metrics in observed_metrics
         ),
         quality_flag_counts=count_run_ab_quality_flags(
             item.quality_flag

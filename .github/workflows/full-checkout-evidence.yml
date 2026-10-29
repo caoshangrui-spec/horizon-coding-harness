@@ -24,6 +24,9 @@ on:
       - "benchmarks/run_ab/full/**/multi-stage*.yaml"
       - "src/horizon/adapters/sandbox/**"
       - "src/horizon/application/run_ab_eval.py"
+      - "src/horizon/application/retrieval_lineage.py"
+      - "src/horizon/application/context.py"
+      - "src/horizon/application/memory.py"
       - "src/horizon/application/_run_ab_crash_worker.py"
       - "src/horizon/application/docker_created_recovery.py"
       - "src/horizon/application/_docker_created_crash_worker.py"
@@ -436,6 +439,11 @@ jobs:
                   for reliability in suite_reliability
               )
               and all(
+                  reliability["retrieval_lineage_arm_count"]
+                  == reliability["arm_count"]
+                  for reliability in suite_reliability
+              )
+              and all(
                   reliability["clean_terminal_success_count"]
                   + reliability["quality_flagged_terminal_success_count"]
                   == reliability["terminal_success_count"]
@@ -454,6 +462,11 @@ jobs:
               and full_reliability["retrieval_degraded_arm_count"] > 0
               and full_reliability["quality_flagged_terminal_success_count"] > 0
               and full_reliability["required_check_failure_arm_count"] == 0
+              and full_reliability["successful_retrieval_count"] > 0
+              and full_reliability["delivered_retrieval_count"]
+              == full_reliability["successful_retrieval_count"]
+              and full_reliability["evidence_backed_write_count"]
+              >= full_report["case_count"]
               and multi_reliability["required_check_failure_arm_count"] == 0
               and hard_crash_reliability["required_check_failure_arm_count"] == 0
               and created_resume["verified"]
@@ -592,6 +605,13 @@ jobs:
                   f"degraded arms/records `{full_reliability['degradation_arm_count']}/"
                   f"{full_reliability['degradation_record_count']}`; retrieval-degraded arms `"
                   f"{full_reliability['retrieval_degraded_arm_count']}`"
+              ),
+              (
+                  "- Full-checkout retrieval lineage: delivered/successful `"
+                  f"{full_reliability['delivered_retrieval_count']}/"
+                  f"{full_reliability['successful_retrieval_count']}`; context-bound/evidence-"
+                  f"backed writes `{full_reliability['write_context_bound_count']}/"
+                  f"{full_reliability['evidence_backed_write_count']}`"
               ),
               (
                   "- Three-stage recovery suite: "

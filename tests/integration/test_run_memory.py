@@ -4,8 +4,9 @@ import pytest
 
 from horizon.adapters.persistence.artifacts import ArtifactStore
 from horizon.application.memory import RunMemoryProjector
-from horizon.domain.common import digest
+from horizon.domain.common import canonical_json, digest
 from horizon.domain.errors import IntegrityError
+from horizon.domain.retrieval import EvidenceChunk, EvidencePack
 from horizon.domain.tools import ToolCallRecord, ToolCallReservation
 
 REVISION_A = "a" * 64
@@ -107,6 +108,59 @@ def test_run_memory_preserves_observed_success_failure_and_staleness(
     assert stale.stale_count == 2
     assert stale.sha256 != active.sha256
     assert all(entry.confidence == "observed" for entry in stale.entries)
+
+
+def test_run_memory_prioritizes_primary_retrieval_chunk_for_replan_context(
+    tmp_path: Path,
+    running,
+    service,
+):
+    run, token = running
+    artifacts = ArtifactStore(tmp_path / "memory-artifacts")
+    evidence = EvidencePack(
+        query="parser empty value",
+        normalized_terms=("parser", "empty", "value"),
+        workspace_revision=REVISION_A,
+        source_manifest_ref="b" * 64,
+        scope_hash="c" * 64,
+        index_key="d" * 64,
+        backend="sqlite_fts5",
+        status="ok",
+        indexed_file_count=1,
+        skipped_file_count=0,
+        chunks=(
+            EvidenceChunk(
+                rank=1,
+                path="src/parser.py",
+                start_line=1,
+                end_line=2,
+                content_hash="e" * 64,
+                snippet="def parse(value):\n    return value or '[]'",
+            ),
+        ),
+    )
+    run = settle_tool(
+        service,
+        run.run_id,
+        token,
+        artifacts,
+        call_id="retrieve-1",
+        name="retrieve_code",
+        status="success",
+        content=canonical_json(evidence),
+    )
+
+    snapshot = RunMemoryProjector(artifacts).project(
+        run,
+        service.store.events(run.run_id),
+        current_revision=REVISION_A,
+        active_work_item_id=run.plan.items[0].work_item_id,
+    )
+
+    assert len(snapshot.entries) == 1
+    assert '"path":"src/parser.py"' in snapshot.entries[0].excerpt
+    assert "def parse(value)" in snapshot.entries[0].excerpt
+    assert '"query":"parser empty value"' not in snapshot.entries[0].excerpt
 
 
 def test_run_memory_excludes_model_submit_claims_and_bounds_projection(

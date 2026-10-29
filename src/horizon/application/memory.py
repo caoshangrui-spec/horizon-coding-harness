@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from pydantic import ValidationError
+
 from horizon.domain.agent import AgentSessionRecord
-from horizon.domain.common import digest
+from horizon.domain.common import canonical_json, digest
 from horizon.domain.errors import Conflict, IntegrityError
 from horizon.domain.events import Event
 from horizon.domain.memory import RunMemoryEntry, RunMemorySnapshot
 from horizon.domain.plan import Plan
 from horizon.domain.ports import ArtifactStorePort
+from horizon.domain.retrieval import EvidencePack
 from horizon.domain.run import Run
 from horizon.domain.tools import ToolCallRecord
 
@@ -42,6 +45,36 @@ def _statement(record: ToolCallRecord) -> str:
         f"Controller observed tool {record.name} {labels[record.status]}; "
         f"the exact output remains in evidence artifact {record.artifact_ref}."
     )
+
+
+def _bounded_evidence_excerpt(
+    record: ToolCallRecord,
+    raw: bytes,
+    content: str,
+    max_chars: int,
+) -> str:
+    if record.name != "retrieve_code" or record.status != "success":
+        return content[:max_chars]
+    try:
+        evidence = EvidencePack.model_validate_json(raw)
+    except ValidationError as exc:
+        raise IntegrityError("Successful retrieval memory requires a valid EvidencePack") from exc
+    if evidence.chunks:
+        primary = evidence.chunks[0]
+        visible = canonical_json(
+            {
+                "path": primary.path,
+                "snippet": primary.snippet,
+            }
+        )
+    else:
+        visible = canonical_json(
+            {
+                "query": evidence.query,
+                "status": evidence.status,
+            }
+        )
+    return visible[:max_chars]
 
 
 class RunMemoryProjector:
@@ -99,7 +132,12 @@ class RunMemoryProjector:
             evidence_ref=record.artifact_ref,
             evidence_hash=record.output_hash,
             statement=_statement(record),
-            excerpt=content[: self.excerpt_chars],
+            excerpt=_bounded_evidence_excerpt(
+                record,
+                raw,
+                content,
+                self.excerpt_chars,
+            ),
         )
 
     @staticmethod

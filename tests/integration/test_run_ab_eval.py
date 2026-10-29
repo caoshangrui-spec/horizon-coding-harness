@@ -329,6 +329,29 @@ def test_run_ab_suite_separates_trace_bound_retrieval_degradation_from_task_succ
     assert report.single_replan.reliability.quality_flags == ("retrieval_degraded",)
     assert report.single_replan.reliability.degradation_count == 2
     assert report.single_replan.reliability.retrieval_degradation_count == 2
+    baseline_lineage = report.baseline.reliability.retrieval_lineage
+    treatment_lineage = report.single_replan.reliability.retrieval_lineage
+    assert baseline_lineage is not None
+    assert baseline_lineage.successful_retrieval_call_ids
+    assert (
+        baseline_lineage.delivered_retrieval_call_ids
+        == baseline_lineage.successful_retrieval_call_ids
+    )
+    assert baseline_lineage.successful_write_count == 0
+    assert treatment_lineage is not None
+    assert treatment_lineage.successful_retrieval_call_ids
+    assert (
+        treatment_lineage.delivered_retrieval_call_ids
+        == treatment_lineage.successful_retrieval_call_ids
+    )
+    assert treatment_lineage.successful_write_count == 1
+    assert treatment_lineage.write_context_bound_count == 1
+    assert treatment_lineage.evidence_backed_write_count == 1
+    write_lineage = treatment_lineage.writes[0]
+    assert write_lineage.target_paths == ("src/parser.sh",)
+    assert write_lineage.covered_target_paths == ("src/parser.sh",)
+    assert write_lineage.delivery_channels == ("run_memory_excerpt",)
+    assert write_lineage.evidence_backed is True
 
     suite = RunABSuiteManifest.model_validate(
         {
@@ -379,10 +402,26 @@ def test_run_ab_suite_separates_trace_bound_retrieval_degradation_from_task_succ
     assert reliability.degradation_arm_count == 2
     assert reliability.retrieval_degraded_arm_count == 2
     assert reliability.degradation_record_count == 4
+    assert reliability.retrieval_lineage_arm_count == 2
+    assert reliability.successful_retrieval_count == (
+        len(baseline_lineage.successful_retrieval_call_ids)
+        + len(treatment_lineage.successful_retrieval_call_ids)
+    )
+    assert reliability.delivered_retrieval_count == reliability.successful_retrieval_count
+    assert reliability.successful_write_count == 1
+    assert reliability.write_context_bound_count == 1
+    assert reliability.evidence_backed_write_count == 1
     assert [(item.quality_flag, item.arm_count) for item in reliability.quality_flag_counts] == [
         ("acceptance_evidence_unknown", 1),
         ("retrieval_degraded", 2),
     ]
+    tampered = report.model_dump(mode="json")
+    tampered_write = tampered["single_replan"]["reliability"]["retrieval_lineage"][
+        "writes"
+    ][0]
+    tampered_write["covered_target_paths"] = []
+    with pytest.raises(ValueError, match="evidence-backed verdict"):
+        RunABEvalReport.model_validate(tampered)
 
 
 def test_run_ab_cli_uses_existing_image_contract_and_persists_report(tmp_path, monkeypatch):
@@ -911,6 +950,12 @@ def test_run_ab_suite_cli_aggregates_source_bound_cases(tmp_path, monkeypatch):
     assert reliability["degradation_arm_count"] == 0
     assert reliability["retrieval_degraded_arm_count"] == 0
     assert reliability["degradation_record_count"] == 0
+    assert reliability["retrieval_lineage_arm_count"] == 10
+    assert reliability["successful_retrieval_count"] == 0
+    assert reliability["delivered_retrieval_count"] == 0
+    assert reliability["successful_write_count"] == 5
+    assert reliability["write_context_bound_count"] == 0
+    assert reliability["evidence_backed_write_count"] == 0
     assert reliability["quality_flag_counts"] == [
         {"quality_flag": "acceptance_evidence_unknown", "arm_count": 5}
     ]
@@ -941,6 +986,12 @@ def test_run_ab_suite_cli_aggregates_source_bound_cases(tmp_path, monkeypatch):
         "degradation_arm_count",
         "retrieval_degraded_arm_count",
         "degradation_record_count",
+        "retrieval_lineage_arm_count",
+        "successful_retrieval_count",
+        "delivered_retrieval_count",
+        "successful_write_count",
+        "write_context_bound_count",
+        "evidence_backed_write_count",
         "quality_flag_counts",
     }
     for field in quality_fields:
@@ -951,6 +1002,7 @@ def test_run_ab_suite_cli_aggregates_source_bound_cases(tmp_path, monkeypatch):
     parsed_legacy_quality = RunABSuiteReport.model_validate(legacy_quality)
     assert parsed_legacy_quality.reliability is not None
     assert parsed_legacy_quality.reliability.reliability_evidence_arm_count == 0
+    assert parsed_legacy_quality.reliability.retrieval_lineage_arm_count == 0
 
     tampered = json.loads(json.dumps(report))
     tampered["reliability"]["trace_replay_verified_count"] -= 1

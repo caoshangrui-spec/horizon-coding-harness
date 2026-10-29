@@ -185,6 +185,106 @@ def count_run_ab_quality_flags(flags: Iterable[str]) -> tuple[RunABQualityFlagCo
     )
 
 
+class RunABWriteEvidenceLineage(Contract):
+    """Trace-bound retrieval evidence visible to the model call that proposed one write.
+
+    This proves delivery and revision/path alignment.  It does not claim that retrieval caused
+    the model's decision or that the scripted action generalizes to an unscripted model.
+    """
+
+    write_call_id: Identifier
+    write_tool: Literal["replace_text", "apply_patch", "create_file"]
+    source_model_call_id: Identifier
+    context_projection_ref: Sha256
+    run_memory_ref: Sha256 | None = None
+    target_paths: Annotated[tuple[Text, ...], Field(max_length=8)] = ()
+    delivered_retrieval_call_ids: tuple[Identifier, ...] = ()
+    delivery_channels: tuple[Literal["direct_tool_message", "run_memory_excerpt"], ...] = ()
+    covered_target_paths: Annotated[tuple[Text, ...], Field(max_length=8)] = ()
+    same_revision_retrieval_count: NonNegativeInt = 0
+    context_bound: bool
+    evidence_backed: bool
+
+    @model_validator(mode="after")
+    def validate_lineage(self) -> Self:
+        if len(self.target_paths) != len(set(self.target_paths)):
+            raise ValueError("Run A/B write lineage target paths must be unique")
+        if len(self.delivered_retrieval_call_ids) != len(
+            set(self.delivered_retrieval_call_ids)
+        ):
+            raise ValueError("Run A/B delivered retrieval call IDs must be unique")
+        if tuple(self.delivery_channels) != tuple(sorted(set(self.delivery_channels))):
+            raise ValueError("Run A/B retrieval delivery channels must be unique and sorted")
+        if tuple(self.covered_target_paths) != tuple(sorted(set(self.covered_target_paths))):
+            raise ValueError("Run A/B covered target paths must be unique and sorted")
+        if not set(self.covered_target_paths) <= set(self.target_paths):
+            raise ValueError("Run A/B retrieval evidence covers an unbound write target")
+        if self.same_revision_retrieval_count > len(self.delivered_retrieval_call_ids):
+            raise ValueError("Run A/B same-revision retrievals exceed delivered retrievals")
+        if self.context_bound != bool(self.delivered_retrieval_call_ids):
+            raise ValueError("Run A/B context-bound verdict does not match delivered retrievals")
+        if self.context_bound != bool(self.delivery_channels):
+            raise ValueError("Run A/B context-bound verdict does not match delivery channels")
+        if self.covered_target_paths and not self.same_revision_retrieval_count:
+            raise ValueError("Run A/B target coverage requires same-revision retrieval")
+        expected_backing = bool(
+            self.target_paths
+            and self.same_revision_retrieval_count
+            and set(self.target_paths) <= set(self.covered_target_paths)
+        )
+        if self.evidence_backed != expected_backing:
+            raise ValueError(
+                "Run A/B evidence-backed verdict does not match path/revision evidence"
+            )
+        if self.evidence_backed and not self.context_bound:
+            raise ValueError("Run A/B evidence-backed write requires context-bound retrieval")
+        return self
+
+
+class RunABRetrievalLineageSummary(Contract):
+    """Per-arm delivery and write-consumption summary derived from durable artifacts."""
+
+    successful_retrieval_call_ids: tuple[Identifier, ...] = ()
+    delivered_retrieval_call_ids: tuple[Identifier, ...] = ()
+    successful_write_count: NonNegativeInt = 0
+    write_context_bound_count: NonNegativeInt = 0
+    evidence_backed_write_count: NonNegativeInt = 0
+    writes: tuple[RunABWriteEvidenceLineage, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_summary(self) -> Self:
+        if len(self.successful_retrieval_call_ids) != len(
+            set(self.successful_retrieval_call_ids)
+        ):
+            raise ValueError("Run A/B successful retrieval call IDs must be unique")
+        if len(self.delivered_retrieval_call_ids) != len(
+            set(self.delivered_retrieval_call_ids)
+        ):
+            raise ValueError("Run A/B delivered retrieval call IDs must be unique")
+        if not set(self.delivered_retrieval_call_ids) <= set(
+            self.successful_retrieval_call_ids
+        ):
+            raise ValueError("Run A/B delivered retrievals must be successful retrievals")
+        if self.successful_write_count != len(self.writes):
+            raise ValueError("Run A/B successful write count does not match write lineage")
+        if self.write_context_bound_count != sum(item.context_bound for item in self.writes):
+            raise ValueError("Run A/B context-bound write count does not match write lineage")
+        if self.evidence_backed_write_count != sum(
+            item.evidence_backed for item in self.writes
+        ):
+            raise ValueError("Run A/B evidence-backed write count does not match write lineage")
+        write_ids = [item.write_call_id for item in self.writes]
+        if len(write_ids) != len(set(write_ids)):
+            raise ValueError("Run A/B write lineage call IDs must be unique")
+        if any(
+            not set(item.delivered_retrieval_call_ids)
+            <= set(self.successful_retrieval_call_ids)
+            for item in self.writes
+        ):
+            raise ValueError("Run A/B write lineage references an unsuccessful retrieval")
+        return self
+
+
 class RunABArmReliability(Contract):
     """Trace-derived acceptance and degradation facts for one evaluated arm."""
 
@@ -194,6 +294,10 @@ class RunABArmReliability(Contract):
     fallback_count: NonNegativeInt = 0
     degradation_count: NonNegativeInt = 0
     retrieval_degradation_count: NonNegativeInt = 0
+    retrieval_lineage: RunABRetrievalLineageSummary | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
 
     @model_validator(mode="after")
     def validate_facts(self) -> Self:
@@ -311,6 +415,12 @@ class RunABEvalReport(Contract):
         )
         if any(reliability_evidence) and not all(reliability_evidence):
             raise ValueError("Run A/B report requires reliability facts for both arms or neither")
+        retrieval_lineage_evidence = tuple(
+            arm.reliability is not None and arm.reliability.retrieval_lineage is not None
+            for arm in (self.baseline, self.single_replan)
+        )
+        if any(retrieval_lineage_evidence) and not all(retrieval_lineage_evidence):
+            raise ValueError("Run A/B report requires retrieval lineage for both arms or neither")
         crash_evidence = (self.baseline.hard_crash, self.single_replan.hard_crash)
         if self.schema_version == 1 and any(item is not None for item in crash_evidence):
             raise ValueError("Schema version 1 reports cannot contain hard-crash evidence")
@@ -448,6 +558,12 @@ class RunABCaseReliabilityMetrics(Contract):
     degradation_arm_count: NonNegativeInt = 0
     retrieval_degraded_arm_count: NonNegativeInt = 0
     degradation_record_count: NonNegativeInt = 0
+    retrieval_lineage_arm_count: NonNegativeInt = 0
+    successful_retrieval_count: NonNegativeInt = 0
+    delivered_retrieval_count: NonNegativeInt = 0
+    successful_write_count: NonNegativeInt = 0
+    write_context_bound_count: NonNegativeInt = 0
+    evidence_backed_write_count: NonNegativeInt = 0
     quality_flag_counts: tuple[RunABQualityFlagCount, ...] = ()
 
     @model_validator(mode="after")
@@ -483,6 +599,23 @@ class RunABCaseReliabilityMetrics(Contract):
             raise ValueError("Run A/B case quality count exceeds its arm count")
         if self.reliability_evidence_arm_count not in (0, self.arm_count):
             raise ValueError("Run A/B case reliability must cover both arms or be legacy")
+        if self.retrieval_lineage_arm_count not in (0, self.arm_count):
+            raise ValueError("Run A/B case retrieval lineage must cover both arms or be legacy")
+        lineage_counts = (
+            self.successful_retrieval_count,
+            self.delivered_retrieval_count,
+            self.successful_write_count,
+            self.write_context_bound_count,
+            self.evidence_backed_write_count,
+        )
+        if not self.retrieval_lineage_arm_count and any(lineage_counts):
+            raise ValueError("Legacy Run A/B case metrics cannot carry retrieval lineage totals")
+        if self.delivered_retrieval_count > self.successful_retrieval_count:
+            raise ValueError("Run A/B delivered retrievals exceed successful retrievals")
+        if self.write_context_bound_count > self.successful_write_count:
+            raise ValueError("Run A/B context-bound writes exceed successful writes")
+        if self.evidence_backed_write_count > self.write_context_bound_count:
+            raise ValueError("Run A/B evidence-backed writes exceed context-bound writes")
         if not self.reliability_evidence_arm_count:
             if any(quality_counts[1:]) or self.degradation_record_count or self.quality_flag_counts:
                 raise ValueError("Legacy Run A/B case metrics cannot carry quality aggregates")
@@ -586,6 +719,12 @@ class RunABSuiteReliabilityMetrics(Contract):
     degradation_arm_count: NonNegativeInt = 0
     retrieval_degraded_arm_count: NonNegativeInt = 0
     degradation_record_count: NonNegativeInt = 0
+    retrieval_lineage_arm_count: NonNegativeInt = 0
+    successful_retrieval_count: NonNegativeInt = 0
+    delivered_retrieval_count: NonNegativeInt = 0
+    successful_write_count: NonNegativeInt = 0
+    write_context_bound_count: NonNegativeInt = 0
+    evidence_backed_write_count: NonNegativeInt = 0
     quality_flag_counts: tuple[RunABQualityFlagCount, ...] = ()
     excluded_claims: tuple[Text, ...] = RUN_AB_EXCLUDED_CLAIMS
 
@@ -635,6 +774,23 @@ class RunABSuiteReliabilityMetrics(Contract):
             raise ValueError("Run A/B suite quality count exceeds its arm count")
         if self.reliability_evidence_arm_count not in (0, self.arm_count):
             raise ValueError("Run A/B suite reliability must cover all arms or be legacy")
+        if self.retrieval_lineage_arm_count not in (0, self.arm_count):
+            raise ValueError("Run A/B suite retrieval lineage must cover all arms or be legacy")
+        lineage_counts = (
+            self.successful_retrieval_count,
+            self.delivered_retrieval_count,
+            self.successful_write_count,
+            self.write_context_bound_count,
+            self.evidence_backed_write_count,
+        )
+        if not self.retrieval_lineage_arm_count and any(lineage_counts):
+            raise ValueError("Legacy Run A/B suite metrics cannot carry retrieval lineage totals")
+        if self.delivered_retrieval_count > self.successful_retrieval_count:
+            raise ValueError("Run A/B suite delivered retrievals exceed successful retrievals")
+        if self.write_context_bound_count > self.successful_write_count:
+            raise ValueError("Run A/B suite context-bound writes exceed successful writes")
+        if self.evidence_backed_write_count > self.write_context_bound_count:
+            raise ValueError("Run A/B suite evidence-backed writes exceed context-bound writes")
         if not self.reliability_evidence_arm_count:
             if any(quality_counts[1:]) or self.degradation_record_count or self.quality_flag_counts:
                 raise ValueError("Legacy Run A/B suite metrics cannot carry quality aggregates")
@@ -791,6 +947,24 @@ class RunABSuiteReport(Contract):
             ),
             "degradation_record_count": sum(
                 metrics.degradation_record_count for metrics in observed
+            ),
+            "retrieval_lineage_arm_count": sum(
+                metrics.retrieval_lineage_arm_count for metrics in observed
+            ),
+            "successful_retrieval_count": sum(
+                metrics.successful_retrieval_count for metrics in observed
+            ),
+            "delivered_retrieval_count": sum(
+                metrics.delivered_retrieval_count for metrics in observed
+            ),
+            "successful_write_count": sum(
+                metrics.successful_write_count for metrics in observed
+            ),
+            "write_context_bound_count": sum(
+                metrics.write_context_bound_count for metrics in observed
+            ),
+            "evidence_backed_write_count": sum(
+                metrics.evidence_backed_write_count for metrics in observed
             ),
         }
         for field, value in expected_reliability.items():

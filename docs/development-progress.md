@@ -6,6 +6,27 @@
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
 
+## 2026-10-29 RAG 证据消费与写入 lineage
+
+- 没有重复实现已有 Hit@K、Recall、MRR、MAP、nDCG、empty/degraded 与 cold/warm 评测；缺口是
+  retrieval 结果是否真正进入后续模型上下文。新增 `retrieval_lineage.py`，从 EventLog、模型/工具
+  reservation、内容寻址 EvidencePack、ContextProjection、RunMemory 和写前 CAS 合同复算每条
+  `retrieve_code -> model context -> write` 链。
+- replan 后的 session 不再依赖旧 transcript。成功 retrieval 的 RunMemory excerpt 改为优先保留
+  primary chunk 的 path/snippet，并在模型可见 binding 中带 source call、evidence ref 和依赖 revision；
+  stale/unresolved 仍不暴露内容。Artifact 存在但未进入保存投影时不会计为 delivered。
+- Arm、case、suite 报告新增 lineage 与五项聚合计数；旧报告字段缺失仍可解析。公开 Docker workflow
+  已增加全 arm lineage、full-checkout 全 retrieval delivery 和每案例至少一个 evidence-backed write
+  的门。
+- 当前本地整仓离线回归为 **633 passed，11 skipped**，Ruff 全通过；11 项跳过仍因本机 Docker
+  daemon 未启动，不改写为通过。
+- 针对性回归 69 项通过；另以 test-only exact-change validator 对 900 文件的 youtube-dl 完整
+  checkout 运行一次真实 Harness 烟测，确认 post-replan `run_memory_excerpt` 覆盖
+  `youtube_dl/utils.py` 且产生 1 条 evidence-backed write。当前机器 Docker daemon 未启动，因此
+  这不是新的公开 Docker 证据；公开门仍需当前提交的 CI 复跑确认。
+- 边界保持：lineage 只证明内容交付、revision 与 target path 对齐；Scripted Model 的冻结写入不能
+  推导“检索导致修改”或真实模型成功率。8 条 sealed holdout 未物化、未揭示、未运行。
+
 ## 2026-10-29 完整 checkout v11：22 条开发案例
 
 - v11 原样保留 v10 的 19 条案例，并从预冻结 development 集增加 Sanic-3 route host、
