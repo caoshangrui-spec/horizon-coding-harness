@@ -464,3 +464,39 @@ arguments hash 与前三轮公开的 `{"query":"unescapeHTML"}` 完全一致，�
 6 条已匹配观测宣称历史查询没有中文。样本还只覆盖 youtube-dl、tqdm、同一模型与 Provider，
 并且是回溯选择，不是预注册的查询分布实验。本轮没有重跑检索、没有调用模型/网络、没有解封
 holdout，也没有增加端到端修复成功证据。
+
+## 17. HTTPie-4 真实查询负结果与缓存无关排序
+
+第八轮 HTTPie-4 付费 Run 新增了两条此前未在第 16 节审计中的真实查询：
+`Host header rendering request headers` 与 `Host header`。它们可由 Trace 中的 canonical
+arguments hash 精确匹配；当时生产索引都把 `httpie/sessions.py` 排为 rank 1，模型没有拿到目标
+`httpie/models.py`。因此，第 16 节以前基于 Treatment/preimage 查询得到的 rank 1 只适合候选筛选，
+不能外推为 Agent 真实查询召回成绩。
+
+第一次离线修复加入定义名概念覆盖后，上述查询在已有共享缓存中转为目标 rank 1；但干净隔离
+缓存的排名不同。复查确认不是随机性，而是 SQLite FTS5
+`bm25(code_chunks)` 的 corpus statistics 会覆盖虚拟表中的全部 cache key：`WHERE index_key=?`
+限制返回行，却不隔离 BM25 的全局文档频率。因此同一 immutable revision、query 和 path scope
+可能受其他已缓存 revision 影响，这是一条必须保留的负结果。
+
+生产索引算法版本从 7 升到 8。FTS 仍负责 exact-key 候选匹配；排序保留已有精确标识符定义与
+定义候选路径消歧，普通候选则从当前 `index_key` 的 corpus 本地复算 FTS5 兼容 BM25，最后以
+path/start line 稳定破同分。它不再读取同一虚拟表中其他 cache key 的文档统计。lexical scan
+fallback 仍明确标记 degraded，不冒充 BM25。新增回归覆盖：
+
+- 两条真实模型 query 形态下，`HTTPRequest.headers` 目标面对重复 prose 仍保留在 top-2，FTS5
+  与 scan fallback 都通过；
+- 在另一 cache key 写入大量同查询词行后，原 revision 的完整结果保持逐字段相等；
+- 全新 state dir 的 16-case development suite 完整保持历史基线：Hit@1/3/5/8 为
+  `11/15/16/16`，MRR=`0.817708`，Micro path recall@1/3/5/8 为
+  `0.55/0.85/0.90/0.90`，3 degraded、0 empty、0 leakage；HTTPie-4 诚实保持 rank 2。报告 ref
+  `fcc05e51b46eb71f525878e6090ca66ddc498fcc8df7e69ac6b1460c2016b2ec`。
+
+期间五个候选排序均未通过整体质量门，未被隐藏：Hit@1/3/5 与 MRR 依次为
+`10/14/15, 0.771429`、`10/15/15, 0.769345`、`11/13/15, 0.790179`、
+`11/14/15, 0.804688`、`10/13/14, 0.752604`。其中数个候选能把 HTTPie 提到 rank 1，却降低
+其他项目召回；最终没有为一个真实 query 过拟合全局排序。
+
+这些都是零费用离线回归。历史 Run 的两个 EvidencePack 仍保持 `httpie/sessions.py` rank 1，未被
+重写；没有 resume、重试、模型调用或 holdout 解封。新排序证明缓存历史不再改变同一 exact-key
+排名，并不证明 rank 2 一定被模型使用，更不证明真实模型下一次会修复成功。

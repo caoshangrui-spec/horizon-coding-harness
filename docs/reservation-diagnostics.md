@@ -28,31 +28,31 @@ horizon model sizing-report --config config/providers/siliconflow.yaml
 金额字段中的 `settled_price_card_cost` 是本地 PriceCard 对 Provider usage 的复算值，不冒充供应商
 最终账单。未派发的 budget stop 没有 Provider usage，不能虚构“如果派发会花多少钱”。
 
-## 七轮真实模型样本
+## 八轮真实模型样本
 
-2026-10-07 对七个 replayable Trace 的离线结果为：
+2026-10-29 对八个 replayable Trace 的离线结果为：
 
 | 指标 | 结果 |
 |---|---:|
-| Trace / Run | 7 / 7 |
-| 已结算模型调用 | 22 |
-| 派发时预留费用累计 | CNY 1.416348 |
-| 本地 PriceCard 结算累计 | CNY 0.2064492 |
-| 聚合预留/结算比 | 6.860516 |
+| Trace / Run | 8 / 8 |
+| 已结算模型调用 | 24 |
+| 派发时预留费用累计 | CNY 1.486914 |
+| 本地 PriceCard 结算累计 | CNY 0.2173662 |
+| 聚合预留/结算比 | 6.840594 |
 | 单调用预留/结算比中位数 | 6.847547 |
-| input token 上界/Provider input 中位数 | 7.122579 |
+| input token 上界/Provider input 中位数 | 7.153092 |
 | output token 上界/Provider output 中位数 | 4.491228 |
 | 类型化 pre-dispatch BudgetStop | 3 |
-| 可回放候选 estimator 的已结算调用 | 5 |
-| 当前 wire basis 的已结算调用 | 2 |
-| 混合 basis 兼容统计：候选 `request_bytes + 1024` 上界/Provider input 中位数 | 4.201220 |
+| 可回放候选 estimator 的已结算调用 | 7 |
+| 当前 wire basis 的已结算调用 | 4 |
+| 混合 basis 兼容统计：候选 `request_bytes + 1024` 上界/Provider input 中位数 | 4.203175 |
 | 候选公式在可观测样本中的低估次数 | 0 |
 
 这里的“预留费用累计”是各调用在派发瞬间的压力之和；每次结算后多余预留都会释放，不能把
-`CNY 1.416348` 解释成已消费费用。22 次调用都保存了 token 上界和实际 usage，但只有 5 次
-保存 `request_bytes`/estimator 元数据：3 次使用历史 v1 领域请求 JSON byte basis，最新 2 次使用
+`CNY 1.486914` 解释成已消费费用。24 次调用都保存了 token 上界和实际 usage，但只有 7 次
+保存 `request_bytes`/estimator 元数据：3 次使用历史 v1 领域请求 JSON byte basis，最新 4 次使用
 Adapter 实际 canonical wire body。候选公式在混合 basis 样本中的上界/实际 input 比范围为
-`3.905058～4.256826`；这足以继续确认**存在系统性预留放大**，不足以证明新公式是所有请求形态
+`3.905058～4.331437`；这足以继续确认**存在系统性预留放大**，不足以证明新公式是所有请求形态
 的安全上界。三个类型化 BudgetStop 中只有最新一次保存完整 wire 请求元数据；未派发请求没有
 Provider usage，不能用它判断候选公式是否低估。
 
@@ -62,9 +62,9 @@ Provider usage，不能用它判断候选公式是否低估。
 | request byte basis | settled | purpose | candidate / Provider input | Provider input / request byte | observed underestimate |
 |---|---:|---|---|---|---:|
 | 历史领域 JSON v1 | 3 | planning 2 / execution 1 | 3.905058～4.201220；中位 4.137869 | 0.289792～0.310450；中位 0.302185 | 0 |
-| 当前 canonical wire v2 | 2 | planning 1 / execution 1 | 4.203175～4.256826；中位 4.230001 | 0.281451～0.295586；中位 0.288519 | 0 |
+| 当前 canonical wire v2 | 4 | planning 2 / execution 2 | 4.203175～4.331437；中位 4.236018 | 0.277537～0.295586；中位 0.286223 | 0 |
 
-混合口径总计仍为兼容性统计，不能用于 estimator promotion。当前真正相关的 wire v2 只有 2 个
+混合口径总计仍为兼容性统计，不能用于 estimator promotion。当前真正相关的 wire v2 只有 4 个
 真实 settled 调用和 1 个无 Provider usage 的 BudgetStop；没有足够证据降低硬门禁。
 
 ## 六类零费用 wire payload 边界

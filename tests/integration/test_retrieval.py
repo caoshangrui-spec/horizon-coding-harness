@@ -131,6 +131,114 @@ def test_natural_language_terms_find_a_camel_case_identifier(tmp_path):
     assert result.chunks[0].path == "src/http_client.py"
 
 
+@pytest.mark.parametrize("query", ["Host header", "Host header rendering request headers"])
+@pytest.mark.parametrize("force_scan", [False, True])
+def test_definition_candidate_remains_available_despite_repeated_prose(
+    tmp_path,
+    query,
+    force_scan,
+):
+    workspace, snapshots, _, _, retriever = setup_retrieval(tmp_path)
+    if force_scan:
+        retriever.fts5_available = False
+    (workspace / "src/request_model.py").write_text(
+        "class HTTPRequest:\n"
+        "    @property\n"
+        "    def headers(self):\n"
+        "        headers = dict(self.original.headers)\n"
+        "        if 'Host' not in headers:\n"
+        "            headers['Host'] = self.url.netloc\n"
+        "        return headers\n",
+        encoding="utf-8",
+    )
+    (workspace / "src/session_notes.py").write_text(
+        "# host header request notes\n" * 20,
+        encoding="utf-8",
+    )
+    snapshot, manifest = snapshots.capture(workspace)
+
+    result = retriever.retrieve(
+        source_manifest_ref=manifest,
+        workspace_revision=snapshot.workspace_revision,
+        allowed_paths=("src/**",),
+        denied_paths=(".env",),
+        query=query,
+        max_chunks=2,
+    )
+
+    assert "src/request_model.py" in {chunk.path for chunk in result.chunks}
+
+
+def test_fts_ranking_is_independent_of_other_cached_indexes(tmp_path):
+    workspace, snapshots, _, _, retriever = setup_retrieval(tmp_path)
+    if not retriever.fts5_available:
+        pytest.skip("FTS5 is required to exercise the shared-cache ranking boundary")
+    (workspace / "src/a.py").write_text("alpha\n", encoding="utf-8")
+    (workspace / "src/b.py").write_text("gamma\n", encoding="utf-8")
+    original_snapshot, original_manifest = snapshots.capture(workspace)
+
+    def retrieve(manifest, revision):
+        return retriever.retrieve(
+            source_manifest_ref=manifest,
+            workspace_revision=revision,
+            allowed_paths=("src/**",),
+            denied_paths=(".env",),
+            query="alpha gamma",
+            max_chunks=1,
+        )
+
+    before = retrieve(original_manifest, original_snapshot.workspace_revision)
+    assert before.chunks[0].path == "src/a.py"
+
+    (workspace / "src/noise.py").write_text("alpha\n" * 1_200, encoding="utf-8")
+    noisy_snapshot, noisy_manifest = snapshots.capture(workspace)
+    retrieve(noisy_manifest, noisy_snapshot.workspace_revision)
+
+    after = retrieve(original_manifest, original_snapshot.workspace_revision)
+    assert after == before
+
+
+def test_exact_key_bm25_matches_fts5_for_an_isolated_index(tmp_path):
+    workspace, snapshots, _, _, retriever = setup_retrieval(tmp_path)
+    if not retriever.fts5_available:
+        pytest.skip("FTS5 is required to compare BM25 scores")
+    (workspace / "src/a.py").write_text("alpha beta alpha\n", encoding="utf-8")
+    (workspace / "src/b.py").write_text("beta gamma\n", encoding="utf-8")
+    snapshot, manifest = snapshots.capture(workspace)
+    result = retriever.retrieve(
+        source_manifest_ref=manifest,
+        workspace_revision=snapshot.workspace_revision,
+        allowed_paths=("src/**",),
+        denied_paths=(".env",),
+        query="alpha beta",
+        max_chunks=4,
+    )
+
+    with sqlite3.connect(retriever.path) as db:
+        db.row_factory = sqlite3.Row
+        rows = db.execute(
+            "SELECT path,start_line,end_line,content_hash,content,"
+            "bm25(code_chunks) AS score FROM code_chunks "
+            "WHERE code_chunks MATCH ? AND index_key=?",
+            (retrieval_module._fts_query(result.normalized_terms), result.index_key),
+        ).fetchall()
+        local_scores = retrieval_module._local_bm25_scores(
+            db,
+            result.index_key,
+            rows,
+            result.normalized_terms,
+        )
+
+    for row in rows:
+        key = (
+            row["path"],
+            int(row["start_line"]),
+            int(row["end_line"]),
+            row["content_hash"],
+        )
+        assert local_scores[key] == pytest.approx(-row["score"])
+
+
 def test_camel_case_query_finds_a_snake_case_identifier(tmp_path):
     workspace, snapshots, _, _, retriever = setup_retrieval(tmp_path)
     (workspace / "src/status_parser.py").write_text(

@@ -3,8 +3,10 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import json
+import math
 import re
 import sqlite3
+from collections import Counter
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -47,7 +49,7 @@ CHUNK_LINES = 40
 CHUNK_OVERLAP = 5
 MAX_SNIPPET_CHARS = 1_200
 MAX_RANKING_CANDIDATES = 256
-INDEX_ALGORITHM_VERSION = 7
+INDEX_ALGORITHM_VERSION = 8
 TERM_PATTERN = re.compile(r"[^\W]+", re.UNICODE)
 IDENTIFIER_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 DEFINITION_PATTERN = re.compile(
@@ -117,6 +119,64 @@ def _defines_identifier(content: str, identifiers: tuple[str, ...]) -> bool:
         match.group(1).replace("_", "").casefold() in normalized
         for match in DEFINITION_PATTERN.finditer(content)
     )
+
+
+def _fts_tokens(value: str) -> tuple[str, ...]:
+    return tuple(
+        segment.casefold()
+        for token in TERM_PATTERN.findall(value)
+        for segment in token.split("_")
+        if segment
+    )
+
+
+def _local_bm25_scores(
+    db: sqlite3.Connection,
+    index_key: str,
+    rows: list[sqlite3.Row],
+    terms: tuple[str, ...],
+) -> dict[tuple[str, int, int, str], float]:
+    """Compute FTS5-compatible BM25 from one immutable index key only."""
+    corpus_rows = db.execute(
+        "SELECT path,content FROM code_chunks WHERE index_key=?",
+        (index_key,),
+    ).fetchall()
+    document_count = len(corpus_rows)
+    document_lengths: list[int] = []
+    document_frequency = Counter({term: 0 for term in terms})
+    for row in corpus_rows:
+        tokens = _fts_tokens(f"{row['path']}\n{row['content']}")
+        document_lengths.append(len(tokens))
+        observed = set(tokens)
+        for term in terms:
+            document_frequency[term] += int(term in observed)
+    average_length = sum(document_lengths) / max(document_count, 1)
+    inverse_document_frequency = {}
+    for term in terms:
+        frequency = document_frequency[term]
+        inverse_frequency = math.log((document_count - frequency + 0.5) / (frequency + 0.5))
+        inverse_document_frequency[term] = max(inverse_frequency, 1e-6)
+
+    scores: dict[tuple[str, int, int, str], float] = {}
+    for row in rows:
+        tokens = _fts_tokens(f"{row['path']}\n{row['content']}")
+        frequencies = Counter(tokens)
+        length_ratio = max(len(tokens), 1) / max(average_length, 1.0)
+        normalization = 1.2 * (0.25 + 0.75 * length_ratio)
+        score = 0.0
+        for term, inverse_frequency in inverse_document_frequency.items():
+            frequency = frequencies[term]
+            if frequency:
+                score += inverse_frequency * (frequency * 2.2) / (frequency + normalization)
+        scores[
+            (
+                row["path"],
+                int(row["start_line"]),
+                int(row["end_line"]),
+                row["content_hash"],
+            )
+        ] = score
+    return scores
 
 
 def _path_term_overlap(path: str, terms: tuple[str, ...]) -> int:
@@ -373,27 +433,33 @@ class SQLiteCodeRetriever:
             for query_terms in (priority_terms, terms):
                 if not query_terms:
                     continue
-                candidate_limit = MAX_RANKING_CANDIDATES
                 rows = db.execute(
-                    "SELECT path,start_line,end_line,content_hash,content,"
-                    "bm25(code_chunks) AS score FROM code_chunks "
-                    "WHERE code_chunks MATCH ? AND index_key=? "
-                    "ORDER BY score,path,CAST(start_line AS INTEGER) LIMIT ?",
-                    (_fts_query(query_terms), index_key, candidate_limit),
+                    "SELECT path,start_line,end_line,content_hash,content FROM code_chunks "
+                    "WHERE code_chunks MATCH ? AND index_key=?",
+                    (_fts_query(query_terms), index_key),
                 ).fetchall()
-                if priority_terms:
+                if not rows:
+                    continue
+                local_bm25_scores = _local_bm25_scores(db, index_key, rows, terms)
 
-                    def priority_key(row):
-                        defines_identifier = _defines_identifier(row["content"], priority_terms)
-                        return (
-                            -int(defines_identifier),
-                            -(_path_term_overlap(row["path"], terms) if defines_identifier else 0),
-                            row["score"],
-                            row["path"],
-                            int(row["start_line"]),
-                        )
+                def ranking_key(row, scores=local_bm25_scores):
+                    defines_identifier = _defines_identifier(row["content"], priority_terms)
+                    row_key = (
+                        row["path"],
+                        int(row["start_line"]),
+                        int(row["end_line"]),
+                        row["content_hash"],
+                    )
+                    return (
+                        -int(defines_identifier),
+                        -(_path_term_overlap(row["path"], terms) if defines_identifier else 0),
+                        -scores[row_key],
+                        row["path"],
+                        int(row["start_line"]),
+                    )
 
-                    rows.sort(key=priority_key)
+                rows.sort(key=ranking_key)
+                rows = rows[:MAX_RANKING_CANDIDATES]
                 for row in rows:
                     key = (
                         row["path"],

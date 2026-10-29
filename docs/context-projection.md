@@ -92,9 +92,11 @@ estimator ID 重建 v1 投影，新请求才使用 v2，不把两种 byte basis 
 
 每次调用先在投影的 system 消息末尾追加控制器拥有的有界 binding：MandatoryFactLedger 包含
 ledger ref、关键 hash、WorkItem ID、required acceptance IDs、权限模式与 workspace revision；
-Run Memory 包含 snapshot ref、失效/未知/省略计数，以及最近 2 条观察的来源 WorkItem、工具、
-outcome、status 和最多 80 字符 active excerpt。stale excerpt 不注入。完整 canonical transcript
-不被改写。
+Run Memory 包含 snapshot ref、失效/未知/省略计数，以及最多最近 2 条观察的来源 WorkItem、工具、
+outcome、status 和最多 80 字符 active excerpt。stale excerpt 不注入。默认先保留两条；只有完整
+binding 在所有合法 transcript 折叠候选下仍无法满足硬上限时，才依次尝试一条和零条可见观察，
+且必须同时实际折叠至少一个完整消息单元。完整 Memory Artifact、ref/hash/count 与 canonical
+transcript 始终不被改写。
 执行调用在投影前读取当前 Run、Campaign 和单调用三类费用余量，并按同一 `PriceCard` 先为
 `max_output_tokens` 保留完整输出费用，再把剩余金额换算为可负担的 input-token 数：
 
@@ -121,11 +123,13 @@ effective_input_cap = min(configured_input_cap, affordable_input)
 5. 折叠消息记录全部被折叠单元的聚合 digest；最多最近 20 个旧单元另记录工具名、参数 hash、
    内容 hash 和最多 240 字符片段；更早单元只有聚合 digest，不伪造细节；
 6. 每次候选变化都重建完整请求；如果字符数或 token 上界仍超限，按最旧到最新删除摘要中的
-   单元细节，同时记录 retained/omitted fact count；
-   聚合 digest、合同和 Memory binding 不删除；
-7. 若优先保留的近期完整单元仍使请求超限，则从最老的近期完整单元开始，确定性扩大折叠前缀，
+   单元细节，同时记录 retained/omitted fact count；聚合 digest、合同和 Memory snapshot
+   ref/hash/count 不删除；
+7. 完整两条 Memory 观察仍无法放入时，才可在同一次真实 transcript 折叠中依次降为最近一条、
+   零条可见观察；这仍产生 `context_compacted` 质量标记，不能伪装成未压缩请求；
+8. 若优先保留的近期完整单元仍使请求超限，则从最老的近期完整单元开始，确定性扩大折叠前缀，
    只折叠满足上限所需的最少单元；完整 canonical transcript 不变；
-8. incomplete 单元始终不折叠。若不可压缩前缀加 incomplete 单元本身仍超过任一上限，则抛出
+9. incomplete 单元始终不折叠。若不可压缩前缀加 incomplete 单元本身仍超过任一上限，则抛出
    `Conflict`，不向 Provider 发送越界请求。
 
 因此首版是“结构化、可审计、有损裁剪”。它能证明哪些字节被折叠、摘要如何重建，不能证明
@@ -230,7 +234,9 @@ Schema 约束为：字符上限 2,000～1,000,000；保守 input-token 上限
 - 孤立/错配 tool result 拒绝，不可压缩前缀或 incomplete 单元自身超限时拒绝；
 - 模型请求使用投影，而 Agent session 继续保存更长的完整 transcript；
 - 压缩前后 system binding 都保留同一个 MandatoryFactLedger ref/hash；
-- 压缩前后 Run Memory ref/hash/count 保持绑定，active excerpt 可见而 stale excerpt 隐藏；
+- 压缩前后 Run Memory ref/hash/count 保持绑定；完整两条观察无法满足硬上限时，可见条目只在实际
+  transcript 折叠和 `context_compacted` 记录下确定性降为一条或零条，active excerpt 可见而 stale
+  excerpt 隐藏；
 - canonical system/user 任务前缀与当前 Run 重建结果不一致时拒绝；
 - workspace 写入生成新 ledger，Task/Plan/required acceptance 保持绑定；
 - 待恢复 response 遇到工具 Schema 漂移时在调用 Provider 前拒绝；

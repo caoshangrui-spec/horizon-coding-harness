@@ -85,44 +85,48 @@ def _run_memory(
     *,
     status: str = "active",
     excerpt: str = "def parse(value): return value",
+    entry_count: int = 1,
 ) -> RunMemorySnapshot:
     revision = "e" * 64
-    entry = RunMemoryEntry.create(
-        scope_id="run-context",
-        source_run_id="run-context",
-        task_spec_hash="a" * 64,
-        work_item_id="work-item",
-        source_event_id="event-memory-1",
-        source_event_seq=4,
-        source_event_hash="6" * 64,
-        source_call_id="call-memory-1",
-        kind="observation",
-        tool_name="read_file",
-        outcome="success",
-        status=status,
-        dependency_revision=revision,
-        evidence_ref="7" * 64,
-        evidence_hash="7" * 64,
-        statement="Controller observed tool read_file succeeded.",
-        excerpt=excerpt,
+    entries = tuple(
+        RunMemoryEntry.create(
+            scope_id="run-context",
+            source_run_id="run-context",
+            task_spec_hash="a" * 64,
+            work_item_id="work-item",
+            source_event_id=f"event-memory-{index}",
+            source_event_seq=index + 3,
+            source_event_hash=f"{index + 5:x}" * 64,
+            source_call_id=f"call-memory-{index}",
+            kind="observation",
+            tool_name="read_file",
+            outcome="success",
+            status=status,
+            dependency_revision=revision,
+            evidence_ref=f"{index + 6:x}" * 64,
+            evidence_hash=f"{index + 6:x}" * 64,
+            statement="Controller observed tool read_file succeeded.",
+            excerpt=f"{excerpt}-{index}" if entry_count > 1 else excerpt,
+        )
+        for index in range(1, entry_count + 1)
     )
     return RunMemorySnapshot(
         run_id="run-context",
         task_spec_hash="a" * 64,
         plan_version=1,
         work_item_id="work-item",
-        covered_event_seq=4,
+        covered_event_seq=entry_count + 3,
         workspace_revision=revision,
         relevant_event_digest="8" * 64,
         max_entries=12,
         excerpt_chars=400,
-        total_entry_count=1,
-        included_entry_count=1,
+        total_entry_count=entry_count,
+        included_entry_count=entry_count,
         omitted_entry_count=0,
-        active_count=int(status == "active"),
-        stale_count=int(status == "stale"),
+        active_count=entry_count * int(status == "active"),
+        stale_count=entry_count * int(status == "stale"),
         unresolved_count=0,
-        entries=(entry,),
+        entries=entries,
     )
 
 
@@ -433,6 +437,34 @@ def test_visible_run_memory_binding_preserves_the_projector_bounded_excerpt():
     binding = visible_run_memory_binding(memory, memory.sha256)
 
     assert binding["recent_entries"][0]["excerpt"] == excerpt
+
+
+def test_projection_reduces_visible_run_memory_only_with_traceable_compaction():
+    messages = (*_prefix(), *_tool_unit(1, "x" * 2_000))
+    memory = _run_memory(excerpt="m" * 240, entry_count=2)
+    facts = _mandatory_facts()
+
+    projection = _projector(max_chars=2_500, preserve_recent_units=1).project(
+        messages,
+        mandatory_facts=facts,
+        mandatory_facts_ref=facts.sha256,
+        run_memory=memory,
+        run_memory_ref=memory.sha256,
+    )
+
+    system = projection.messages[0].content or ""
+    full_binding = visible_run_memory_binding(memory, memory.sha256)
+    latest_binding = visible_run_memory_binding(
+        memory,
+        memory.sha256,
+        recent_entry_limit=1,
+    )
+    assert projection.compacted is True
+    assert projection.compacted_unit_count == 1
+    assert canonical_json(full_binding) not in system
+    assert canonical_json(latest_binding) in system
+    assert "call-memory-1" not in system
+    assert "call-memory-2" in system
 
 
 def test_compaction_preserves_run_memory_binding():

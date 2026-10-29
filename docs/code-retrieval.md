@@ -1,6 +1,6 @@
 # Revision-aware 词法 Code RAG：实现与证据合同
 
-更新：2026-10-04。当前实现是本地、无模型费用的首个 Code RAG 垂直切片：SQLite FTS5
+更新：2026-10-29。当前实现是本地、无模型费用的首个 Code RAG 垂直切片：SQLite FTS5
 召回 + immutable snapshot 复核 + Typed Tool 输出。它不是向量检索、语义搜索或完整代码图。
 
 ## 1. 为什么现在做这一层
@@ -78,12 +78,17 @@ PascalCase。每个包含多个片段的原始 token 会单独生成标识符候
 `unescapehtml`。所有词项再生成只含转义 phrase 的 FTS 表达式，用户文本不能直接注入 FTS
 操作符。
 
-组合词命中先进入至多 256 个 chunk 的候选集；若片段内有规范化后同名的 `def`、`async def`
-或 `class` 声明，定义片段排在调用/导入片段前。多个片段都定义同一查询符号时，才比较查询
-词与模块路径 token 的交集，再按 SQLite BM25、path、start line 排序。普通自然语言查询没有
-定义命中时不使用路径加权，避免 `tool_recovery.py` 一类文件名偶然压过正文证据；FTS5 与
-lexical-scan fallback 使用同一条消歧规则。索引算法版本为 6，因此不会复用 v5 派生缓存。
-该规则不是 AST、符号表或调用图；BM25 分数也不暴露为跨版本稳定指标。
+FTS5 只负责在精确 `index_key` 中匹配候选；最终至多保留 256 个 chunk。排序先让规范化同名的
+`def`、`async def` 或 `class` 定义优先，只在这些精确标识符定义之间比较模块路径词；普通查询
+随后使用 FTS5 兼容的 BM25，再按 path、start line 稳定破同分。BM25 的文档数、文档频率、平均
+长度和每行词频都从当前 immutable `index_key` 的 corpus 重新计算。普通自然语言查询不单独使用
+路径加权，避免 `tool_recovery.py` 一类文件名偶然压过正文证据。索引算法版本为 8，不会复用旧
+派生缓存。
+
+v7 及更早版本曾用 `bm25(code_chunks)` 排序，但 FTS5 的 corpus statistics 会覆盖同一虚拟表中的
+全部 cache key；即使 `WHERE index_key=?` 限制返回行，相同 revision/query 仍可能随其他缓存历史
+改变排名。v8 因此不再使用 FTS 虚拟表的全库 BM25 分数，而是按同一公式从 exact-key corpus
+本地复算。该规则仍不是 AST、符号表、调用图或语义相关性证明。
 
 ## 5. EvidencePack 合同
 
@@ -105,7 +110,7 @@ EvidencePack 保存：
 | `degraded` | FTS 不可用或有文件因边界被跳过；可有命中，也可无命中 |
 
 若运行时没有 FTS5，Retriever 使用有界 lexical scan；输出强制为 `degraded` 并记录
-`fts5_unavailable`，不会假装与 BM25 等价。
+`fts5_unavailable`；它使用原有有界词频排序，不会假装与 FTS 候选或 BM25 等价。
 
 ## 6. Agent Tool 集成
 
@@ -152,6 +157,9 @@ v6 为 Hit@1=2/2、MRR=1.0、leakage=0。它们都是实现者编写的小样例
   优先同名定义；
 - 两个模块定义同名函数且交叉说明文本误导 BM25 时，模块限定词只在定义候选之间消歧；FTS5
   与 scan fallback 结果一致；
+- 两条 HTTPie 真实模型查询形态下，目标定义即使面对重复 prose 仍保留在 top-2，FTS5 与 scan fallback 都通过；
+- 另一 cache key 写入大量重叠词项后，原 revision/query 的完整排名逐字段不变；
+- 单一 index 中本地复算的每个 BM25 分数与 SQLite FTS5 内置分数逐项近似相等；
 - allowed/denied path scope，不召回未授权测试文件或 `.env`；
 - dirty workspace 产生新 index key；同名目标移动后新 revision 排到新路径，旧 manifest 仍能
   逐对象重放原排序；
@@ -187,10 +195,12 @@ holdout。随后独立冻结的 Luigi/Sanic/Tornado 三案例在 v7 上均为 ra
   解析或调用图；超过 256 个组合词候选时，定义仍可能被截断。中文长串分词能力有限。
 - 四个已知困难 development 案例的冻结扰动中，纯中文描述仅 Hit@8 1/4、path Recall 1/8；
   唯一命中仍依赖查询中的 `HTTP/PUT` 拉丁词项，因此当前没有跨语言语义召回能力。
-- 同名定义消歧依赖查询中显式出现的模块/路径词；缺少限定词时仍按 BM25/path 决定，也不会
+- 同名定义消歧依赖查询中显式出现的模块/路径词；缺少限定词时仍按 exact-key BM25 和稳定 path
+  顺序决定，也不会
   生成完整的“候选符号集合”或证明首项语义正确。
 - 当前索引 path + 文本 chunk，不索引 Git history、互联网、Memory 或 benchmark gold。
-- BM25 rank 依赖 SQLite/分词配置，不作为跨环境科学比较指标。
+- exact-key BM25 已消除其他 cache key 的语料统计漂移，但仍依赖分词、chunk 和规则版本，
+  不作为跨版本科学比较指标。
 - Evidence snippet 进入 Agent transcript/Trace Artifact；生产级敏感信息分类与脱敏仍未完成，
   因此 TaskSpec path scope 必须继续最小化。
 - 第二批独立 holdout 没有复现 rank-1 缺口，当前不引入 symbol-aware/embedding/vector 索引。

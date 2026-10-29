@@ -138,9 +138,18 @@ def _memory_delivery(
     if reservation.run_memory_ref is None:
         return {}
     memory = RunMemorySnapshot.model_validate_json(artifacts.read(reservation.run_memory_ref))
-    binding = visible_run_memory_binding(memory, reservation.run_memory_ref)
     system_content = projection.messages[0].content or ""
-    if canonical_json(binding) not in system_content:
+    visible_entries = None
+    for entry_limit in range(min(2, len(memory.entries)), -1, -1):
+        binding = visible_run_memory_binding(
+            memory,
+            reservation.run_memory_ref,
+            recent_entry_limit=entry_limit,
+        )
+        if canonical_json(binding) in system_content:
+            visible_entries = memory.entries[-entry_limit:] if entry_limit else ()
+            break
+    if visible_entries is None:
         raise IntegrityError("Stored context projection omits its visible Run-memory binding")
     return {
         entry.source_call_id: (
@@ -148,7 +157,7 @@ def _memory_delivery(
             entry.evidence_ref,
             entry.dependency_revision,
         )
-        for entry in memory.entries[-2:]
+        for entry in visible_entries
         if entry.tool_name == "retrieve_code"
         and entry.outcome == "success"
         and entry.status == "active"

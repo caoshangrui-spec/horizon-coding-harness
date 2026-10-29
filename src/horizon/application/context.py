@@ -85,16 +85,21 @@ def _unit_fact(unit: _MessageUnit) -> dict:
 def visible_run_memory_binding(
     run_memory: RunMemorySnapshot,
     run_memory_ref: str,
+    *,
+    recent_entry_limit: int = 2,
 ) -> dict:
     """Return the exact bounded Run-memory payload exposed to the model.
 
-    The full snapshot remains an artifact.  Only the two most recent entries and active excerpts
-    are visible, so downstream evidence analysis can distinguish an artifact reference from
-    content that actually reached the model request.
+    The full snapshot remains an artifact. At most the requested two most recent entries and
+    active excerpts are visible, so downstream evidence analysis can distinguish an artifact
+    reference from content that actually reached the model request.
     """
 
+    if not 0 <= recent_entry_limit <= 2:
+        raise ValueError("Visible Run memory accepts between zero and two recent entries")
     if run_memory.sha256 != run_memory_ref:
         raise Conflict("Run memory does not match its content-addressed artifact")
+    selected_entries = run_memory.entries[-recent_entry_limit:] if recent_entry_limit else ()
     recent_entries = [
         {
             "source_event_seq": entry.source_event_seq,
@@ -107,7 +112,7 @@ def visible_run_memory_binding(
             "evidence_ref": entry.evidence_ref,
             "excerpt": (entry.excerpt if entry.status == "active" else ""),
         }
-        for entry in run_memory.entries[-2:]
+        for entry in selected_entries
     ]
     return {
         "snapshot_ref": run_memory_ref,
@@ -167,6 +172,8 @@ class ContextProjector:
         mandatory_facts_ref: str | None,
         run_memory: RunMemorySnapshot | None,
         run_memory_ref: str | None,
+        *,
+        run_memory_recent_entry_limit: int = 2,
     ) -> tuple[ModelMessage, ...]:
         if (mandatory_facts is None) != (mandatory_facts_ref is None):
             raise ValueError(
@@ -200,7 +207,11 @@ class ContextProjector:
             )
         if run_memory is not None:
             assert run_memory_ref is not None
-            visible_memory = visible_run_memory_binding(run_memory, run_memory_ref)
+            visible_memory = visible_run_memory_binding(
+                run_memory,
+                run_memory_ref,
+                recent_entry_limit=run_memory_recent_entry_limit,
+            )
             bindings.append(
                 "Controller-derived Run memory. Only active excerpts describe the current "
                 "workspace; stale entries are provenance, and unresolved effects are not facts:\n"
@@ -224,35 +235,7 @@ class ContextProjector:
         if len(messages) < 2 or messages[0].role != "system" or messages[1].role != "user":
             raise Conflict("Canonical Agent transcript must start with system and user messages")
         source_digest = digest([item.model_dump(mode="json") for item in messages])
-        visible_messages = self._bind_mandatory_facts(
-            messages,
-            mandatory_facts,
-            mandatory_facts_ref,
-            run_memory,
-            run_memory_ref,
-        )
         units = _units(messages[2:])
-        projected_chars, token_estimate = self._measure(visible_messages)
-        if self._fits(projected_chars, token_estimate):
-            return ContextProjection(
-                max_chars=self.max_chars,
-                preserve_recent_units=self.preserve_recent_units,
-                source_message_count=len(messages),
-                projected_message_count=len(messages),
-                projected_chars=projected_chars,
-                input_token_budget=self._token_budget(token_estimate),
-                compacted_unit_count=0,
-                source_digest=source_digest,
-                mandatory_facts_ref=mandatory_facts_ref,
-                mandatory_facts_hash=(mandatory_facts.sha256 if mandatory_facts else None),
-                run_memory_ref=run_memory_ref,
-                run_memory_hash=(run_memory.sha256 if run_memory else None),
-                run_memory_entry_count=(run_memory.included_entry_count if run_memory else 0),
-                compacted=False,
-                messages=visible_messages,
-            )
-
-        prefix = visible_messages[:2]
         first_incomplete = next(
             (index for index, unit in enumerate(units) if not unit.complete),
             len(units),
@@ -263,6 +246,7 @@ class ContextProjector:
         )
 
         def assemble(
+            prefix: tuple[ModelMessage, ...],
             old_units: tuple[_MessageUnit, ...],
             kept_units: tuple[_MessageUnit, ...],
             compacted_digest: str,
@@ -291,37 +275,73 @@ class ContextProjector:
                 *(message for unit in kept_units for message in unit.messages),
             )
 
-        for compactable_end in range(max(1, preferred_end), first_incomplete + 1):
-            old_units = units[:compactable_end]
-            kept_units = units[compactable_end:]
-            facts = [_unit_fact(unit) for unit in old_units[-20:]]
-            compacted_digest = digest(
-                [[item.model_dump(mode="json") for item in unit.messages] for unit in old_units]
+        visible_memory_limits = (2,)
+        if run_memory is not None:
+            visible_memory_limits = tuple(range(min(2, len(run_memory.entries)), -1, -1))
+
+        for memory_limit_index, memory_limit in enumerate(visible_memory_limits):
+            visible_messages = self._bind_mandatory_facts(
+                messages,
+                mandatory_facts,
+                mandatory_facts_ref,
+                run_memory,
+                run_memory_ref,
+                run_memory_recent_entry_limit=memory_limit,
             )
-            projected = assemble(old_units, kept_units, compacted_digest, facts)
-            projected_chars, token_estimate = self._measure(projected)
-            while facts and not self._fits(projected_chars, token_estimate):
-                facts = facts[1:]
-                projected = assemble(old_units, kept_units, compacted_digest, facts)
-                projected_chars, token_estimate = self._measure(projected)
-            if self._fits(projected_chars, token_estimate):
+            projected_chars, token_estimate = self._measure(visible_messages)
+            if memory_limit_index == 0 and self._fits(projected_chars, token_estimate):
                 return ContextProjection(
                     max_chars=self.max_chars,
                     preserve_recent_units=self.preserve_recent_units,
                     source_message_count=len(messages),
-                    projected_message_count=len(projected),
+                    projected_message_count=len(messages),
                     projected_chars=projected_chars,
                     input_token_budget=self._token_budget(token_estimate),
-                    compacted_unit_count=len(old_units),
+                    compacted_unit_count=0,
                     source_digest=source_digest,
                     mandatory_facts_ref=mandatory_facts_ref,
                     mandatory_facts_hash=(mandatory_facts.sha256 if mandatory_facts else None),
                     run_memory_ref=run_memory_ref,
                     run_memory_hash=(run_memory.sha256 if run_memory else None),
                     run_memory_entry_count=(run_memory.included_entry_count if run_memory else 0),
-                    compacted=True,
-                    messages=projected,
+                    compacted=False,
+                    messages=visible_messages,
                 )
+
+            prefix = visible_messages[:2]
+            for compactable_end in range(max(1, preferred_end), first_incomplete + 1):
+                old_units = units[:compactable_end]
+                kept_units = units[compactable_end:]
+                facts = [_unit_fact(unit) for unit in old_units[-20:]]
+                compacted_digest = digest(
+                    [[item.model_dump(mode="json") for item in unit.messages] for unit in old_units]
+                )
+                projected = assemble(prefix, old_units, kept_units, compacted_digest, facts)
+                projected_chars, token_estimate = self._measure(projected)
+                while facts and not self._fits(projected_chars, token_estimate):
+                    facts = facts[1:]
+                    projected = assemble(prefix, old_units, kept_units, compacted_digest, facts)
+                    projected_chars, token_estimate = self._measure(projected)
+                if self._fits(projected_chars, token_estimate):
+                    return ContextProjection(
+                        max_chars=self.max_chars,
+                        preserve_recent_units=self.preserve_recent_units,
+                        source_message_count=len(messages),
+                        projected_message_count=len(projected),
+                        projected_chars=projected_chars,
+                        input_token_budget=self._token_budget(token_estimate),
+                        compacted_unit_count=len(old_units),
+                        source_digest=source_digest,
+                        mandatory_facts_ref=mandatory_facts_ref,
+                        mandatory_facts_hash=(mandatory_facts.sha256 if mandatory_facts else None),
+                        run_memory_ref=run_memory_ref,
+                        run_memory_hash=(run_memory.sha256 if run_memory else None),
+                        run_memory_entry_count=(
+                            run_memory.included_entry_count if run_memory else 0
+                        ),
+                        compacted=True,
+                        messages=projected,
+                    )
         raise Conflict(
             "Protected prefix or incomplete Agent turn exceeds the context projection "
             "character/token budget"

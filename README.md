@@ -17,7 +17,7 @@ Horizon 是一个面向长程软件工程任务的**可恢复执行控制层**�
 > Luigi 与 FastAPI 三个独立的三 WorkItem／两次 Worker 重启场景；它们分别通过本地可信执行和
 > 公开禁网 Docker 5/5、3/3。该版本还加入父控制器硬退出后的持久 PID 启动闸门与精确停止确认，
 > 并让来源绑定 suite 直接输出耗时、恢复成功率、恢复重派、重复副作用、Trace 完整性与最终悬空
-> effect 指标。七次真实模型 Pilot 均为负结果，因此目前**不宣称真实 Issue 成功率或官方
+> effect 指标。八次真实模型 Pilot 均为负结果，因此目前**不宣称真实 Issue 成功率或官方
 > benchmark 成绩**。完整范围与证据边界见 [v0.3.0 release notes](docs/release-v0.3.0.md)。
 
 ## 为什么值得看
@@ -115,7 +115,7 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | main 的[标准 CI](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/ci.yml)运行离线回归和两条演示；主作品集演示删除数据库后独立复核，并把完整目录发布为保留 14 天的 `horizon-portfolio-evidence`，同时发布 `horizon-process-timeout-evidence`；[禁网 Docker Evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/full-checkout-evidence.yml)独立运行 | CI 不读取 API Key、不运行付费模型；workflow artifact 通常需要登录 GitHub 下载，不是永久发布资产 |
-| 离线回归 | `635 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `643 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | [通用终态 EvidencePack](docs/terminal-evidence-pack.md) | `SUCCEEDED`、`FAILED`、`CANCELLED` 均可导出并离线复核 Trace、最终投影和 schema v2 可靠性摘要；区分 unknown 验收、已知 check 失败与 unknown/open effect，真实检索降级与工具回执原子绑定，确定性上下文折叠以 `context_compacted` 单独标记，兼容验证 schema v1 | model fallback、语义摘要和 model degradation 尚无 Trace history；自洽哈希不是来源签名，也不证明外部 Provider 或副作用已结清 |
 | [终态 Run 顺序汇总](docs/terminal-suite-evaluation.md) | 有序聚合已有终态 Run；递归验证每个子 EvidencePack，分列结果、验收未知/失败、clean/quality-flagged success、检索降级与 unknown/open effect | 不执行任务，不是 batch scheduler，也没有并发性能声明 |
 | [可恢复的顺序 Agent 任务批次](docs/sequential-agent-batch.md) | `agent batch` 按 1～100 条 TaskSpec manifest 顺序执行；任务间原子保存 checkpoint，确定性 invocation/Run receipt 支持重启识别，终态失败原样记录后继续，非终态/不确定 case 阻塞后项；全部闭合后复用 terminal-suite | 单机并发度 1；不自动越过人工/悬空 effect/旧 Worker 边界，不是 20～30 个真实模型任务成绩或吞吐声明 |
@@ -134,8 +134,8 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | [三阶段恢复 A/B v4](docs/multi-stage-full-checkout-pilot.md) | youtube-dl 872 files + Luigi 382 files + FastAPI 629 files；三例均含 3 个依赖 WorkItem、2 次持久化 Worker 重启、final epoch 3 和一次只改未完成项的 replan；本地可信与[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40082814779)均为 3/3 | 作者选择的三个案例与 Scripted Model；边界重启不等于任意指令处崩溃，不是模型能力或官方成绩 |
 | [源码绑定写入硬崩溃 A/B](docs/source-bound-hard-crash-recovery.md) | Luigi 382 files；两条 arm 都在首个生产写入 effect 后、receipt 前真实退出，先标 unknown，再由新 epoch 精确 `accept_replace`，随后跨两个 WorkItem 边界到 epoch 4；本地可信与[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/37569667246)均为 1/1 | 固定第 2 次调用、单个作者选择任务与 Scripted Model；不是任意崩溃、自动恢复策略或官方成绩 |
 | [长程任务可靠性指标](docs/long-horizon-reliability-metrics.md) | 每个来源绑定 suite 的 typed report 直接聚合观测耗时/P95、Worker 重启、硬崩溃恢复率、恢复重派、重复副作用、Trace replay、source isolation 和最终 open effects；arm 级 facts 分列 unknown/failed acceptance、clean/quality-flagged success、fallback 与 degradation，并新增 retrieval 实际进入保存模型投影、post-replan RunMemory 以及 same-revision/target-path 对齐写入的 lineage；[公开禁网 Docker 复跑](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40862188498)已对 31 个场景、62 条 arm 门控全部可靠性事实，并让 22/22 个 full-checkout 案例通过逐案例 retrieval-delivery 与 evidence-backed-write 门 | 成功、质量标记与检索交付是不同维度；lineage 证明结构化 provenance，不证明检索导致修改；场景含重复上游 bug，不能宣传为 31 个独立任务或 LLM 成功率 |
-| 真实模型 Pilot | 七轮均可重放、费用可核对、source 未变；HTTPie-4 下一候选已通过公开零费用 Docker preflight | 七轮均未编辑或验证成功，仍是负结果；HTTPie preflight 不是第八轮付费运行或成功证据 |
-| 预算预留诊断 | 7 Trace、22 个已结算调用；聚合预留/结算比 6.860516；候选公式的 5 个可回放样本按旧领域 JSON / 当前 wire basis 分开报告，当前口径只有 2 个 | 新 BudgetStop 保存请求尺寸；样本不足，不自动降低费用安全门槛 |
+| 真实模型 Pilot | 八轮均可重放、费用可核对且 source 未变；第八轮 HTTPie-4 完成 planning、execution 与两次真实检索后，由 5,000 字符上下文硬门限阻断 | 八轮均未编辑或验证成功，仍是负结果；离线修复不改写历史 Run，也不是成功证据 |
+| 预算预留诊断 | 8 Trace、24 个已结算调用；聚合预留/结算比 6.840594；候选公式的 7 个可回放样本按旧领域 JSON / 当前 wire basis 分开报告，当前口径有 4 个 | 样本仍不足，不自动降低费用安全门槛；HTTPie 的停止原因是上下文合同而非 BudgetStop |
 | 出站请求尺寸 | 6 类离线边界请求均复用 Adapter 的精确 wire encoder；167～9,061 bytes，含真实四工具 Schema 的检索轮次 | 无 Provider usage，不证明候选公式安全或模型效果 |
 | 模型响应提交窗 | 普通落盘/receipt 失败立即双账 `unknown`；真实子进程在模型返回后、Artifact 前硬退出，重启后 Trace 可重放且不重派 | 无 Provider 查询接口时不能恢复丢失响应，仍需人工对账 |
 
@@ -274,9 +274,10 @@ observation，不能改写完成项或扩大合同。详细合同见
 合同权限，也不消耗模型调用。详细合同见
 [执行停滞后的可恢复人工指导](docs/operator-guidance.md)。
 WorkItem 还可授权 `retrieve_code`，从当前 immutable manifest 的允许路径建立 revision-bound
-FTS5/BM25 索引，返回带 path/range/hash 的 EvidencePack；自然语言与 camelCase/snake_case
+FTS5 候选索引与缓存无关的 exact-key BM25 排序，返回带 path/range/hash 的 EvidencePack；自然语言与 camelCase/snake_case
 标识符可互相生成有界词项，查询中的复合标识符与整句组合候选会分开保留；最多检查 256 个
-候选以优先同名定义，并只在确实命中同名定义时用模块路径词消歧。无 FTS 或跳过文件时显式标
+候选以优先同名定义，并只在确实命中同名定义时用模块路径词消歧；普通查询的 BM25 文档频率、
+文档长度和词频只从当前 immutable `index_key` 计算，不读取其他 cache key 的全局语料统计。无 FTS 或跳过文件时显式标
 degraded；未提供模块语境时不会假装已经解决同名符号歧义。
 无法证明是否执行过的模型/工具调用仍保守标为 `unknown`；当前可显式处理单个只读调用，或
 在工作区精确等于预期前态/后态时接纳、回滚一个 `replace_text`、`apply_patch` 或
@@ -539,21 +540,27 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **635 passed，11 skipped**；11 项跳过项需要本机 Docker daemon。v11 新增的
+当前离线全量回归为 **643 passed，11 skipped**；11 项跳过项需要本机 Docker daemon。v11 新增的
 Sanic-3、TheFuck-5 与 Luigi-7 已由本地完整 Harness 确认 buggy 失败、Baseline 等待、Treatment 恢复；
 二十二案例又由[公开 workflow](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40804131201)
 的生产 Docker adapter 统一通过 22/22。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实
 Issue 效果。新增真实模型 Pilot 单元测试覆盖私有答案拒绝、初始失败证据、内容寻址报告和
 启动时任务/源码/镜像/Provider/Harness 源码漂移拒绝；真实 checkout 的离线 Docker preflight
-已通过，tqdm 候选还把首次规划保守预留纳入 `ready` 门。七轮真实模型负结果均已导出并可重放，分别驱动 Plan/搜索反馈、有界行读取/
+已通过，tqdm 候选还把首次规划保守预留纳入 `ready` 门。八轮真实模型负结果均已导出并可重放，分别驱动 Plan/搜索反馈、有界行读取/
 近期完整单元应急压缩/异常租约释放、“不猜路径、优先 revision-bound 证据、默认 rank 1”，
 范围参数成对约束/规划输入收窄，以及完整 inventory 下的不存在路径准入。第五轮只完成规划，
 第一条执行请求在派发前因 Run 余额短缺 `CNY 0.000096` 被硬门禁终止。第六轮完成规划、一次
 execution 与一次 rank-1 检索，但下一请求需 `CNY 0.05832`，被 Campaign
 门禁在派发前终止。第七轮的 Planner 已直接定位正确文件，execution 再次取得 rank-1 检索，
 但消费回执的下一请求需 `CNY 0.045012`，Campaign 只余 `CNY 0.0387906`，仍在派发前停止。
-本系列累计付费 `CNY 0.2064492`；没有自动重试或 fallback，也没有代码编辑或 protected validation。
+第八轮 HTTPie-4 又完成 planning、execution 和两次只读检索；两个真实 query 当时都把
+`httpie/sessions.py` 排为 rank 1，随后两条 Run Memory 观察把 protected prefix 推到 5,029 chars，
+超过 5,000-char 硬上限。Run 未写入、未验证，也未自动 resume。该负结果驱动了可审计的 Memory
+可见条目收窄和缓存无关的 exact-key BM25；干净离线 HTTPie 回归仍诚实保留目标 rank 2，且
+16-case development suite 完整恢复既有 Hit@1/3/5/8=`11/15/16/16`、MRR=`0.817708`，不改写历史
+EvidencePack。本系列累计付费 `CNY 0.2173662`；没有自动重试或 fallback，也没有代码编辑或
+protected validation。
 未来确定性费用拒绝不再留下无 Lease 的 `RUNNING`：控制器会持久化类型化 `BudgetStop`、进入
 `FAILED` 并在 CLI/status 中报告所需与可用金额。新停止还会相邻保存未派发请求的 call/request
 标识、purpose、估算器、请求字节、input cap/ceiling 和 output ceiling，便于零费用回放；unknown

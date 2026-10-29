@@ -1,9 +1,10 @@
-# 真实模型 Pilot：离线预检、七轮负结果与付费边界
+# 真实模型 Pilot：离线预检、八轮负结果与付费边界
 
-更新：2026-10-07。本 Pilot 的目标不是立即追求 benchmark 分数，而是在**完整真实仓库、
-模型自主计划、模型自主检索和编辑**的条件下观察 Harness 的真实失败分布。已执行七个
+更新：2026-10-29。本 Pilot 的目标不是立即追求 benchmark 分数，而是在**完整真实仓库、
+模型自主计划、模型自主检索和编辑**的条件下观察 Harness 的真实失败分布。已执行八个
 付费 Agent Run：分别暴露计划结构/检索反馈、无界读取/上下文投影、Plan 路径假设/请求预留
-过大、单边范围读取/单 Run 预留、路径存在与语义定位的区别，以及 Campaign 预留压力。七轮均没有修改代码或进入验收；结果可重放且
+过大、单边范围读取/单 Run 预留、路径存在与语义定位的区别、Campaign 预留压力，以及真实查询
+失焦/Run Memory 使 protected prefix 越过字符硬门限。八轮均没有修改代码或进入验收；结果可重放且
 费用可对账，但不是 Issue 成功证据，也不足以推出模型或 Harness 的总体能力结论。
 
 ## 1. 为什么复用现有主循环
@@ -609,7 +610,7 @@ fallback、人工补丁或 candidate promotion。正确 Plan 与 rank-1 检索�
 - 失败分类，而不是人工补丁替模型完成任务。
 
 一次通过只能称为“真实模型 Pilot 个案”，不能称为 BugsInPy 分数、泛化能力或长程任务
-成功率。七轮均是失败个案。任何下一次付费 continuation 都需要
+成功率。当前八轮均是失败个案。任何下一次付费 continuation 都需要
 新的零费用 preflight、与剩余额度一致的新 Run cap，以及新的明确授权；仍不增加向量库、多
 Agent、Project Memory、自动 fallback 或第二次 replan。
 
@@ -620,8 +621,9 @@ Treatment 的检索词，以真实 SQLite FTS5 检索前 8 个 chunk，再由控
 出现在返回证据中。该筛选使用了已知修复的 preimage，只用于**选择后续 Pilot**，不能作为盲测、
 泛化率或模型成功证据。
 
-满足“目标文件进入前二、全部旧文本可见”的候选中，HTTPie-4 最小：59 files、单文件单处修改、
-目标 `httpie/models.py` rank 1。与 tqdm-1 不同，这个 rank-1 chunk 已包含精确旧文本和周围的
+满足“目标文件进入前二、全部旧文本可见”的候选中，HTTPie-4 最小：59 files、单文件单处修改。
+控制器 Treatment 查询把目标 `httpie/models.py` 排为 rank 1；这条已知 preimage 查询的排名不
+代表模型会生成同形查询。与 tqdm-1 不同，该 Treatment chunk 已包含精确旧文本和周围的
 request-rendering 逻辑，因此任务级工具可以收窄为 `retrieve_code` 与 `replace_text`；`submit` 仍由
 控制器提供，最终 required acceptance 仍在提交后自动执行。
 
@@ -649,4 +651,58 @@ reservation 与输入上限门；步骤同时断言 `ready=true`、`credential_l
 继续通过 11 项 Docker 合同、22-case 完整 checkout、三阶段和硬崩溃 suite；统一 artifact ID
 `12903093969`，235,946,910 bytes，digest
 `sha256:8a1f6ebc25c4da043cc3ab13182366ae8c22a9de0b82655d6f22a260a3aadb52`，保留至
-2026-11-28。这证明候选静态启动合同已 ready，但仍不是第八次付费运行、代码修改或真实模型成功。
+2026-11-28。这证明候选静态启动合同当时已 ready，但不是代码修改或真实模型成功。
+
+## 17. HTTPie-4 第八轮：真实查询失焦后触发上下文硬门限
+
+用户随后明确授权一次独立 Run：只允许公开 HTTPie-4 任务，模型
+`deepseek-ai/DeepSeek-V4-Flash`，单 Run 上限 `CNY 0.053`，系列累计上限提高到
+`CNY 0.26`，不重试、不 fallback。Run
+`run_b36410ebc7e34aa5b0a29167b472a43d` 没有完成修复：
+
+- planning 为 1,315 input / 226 output tokens、`CNY 0.005979`；execution 为 1,406 input /
+  80 output tokens、`CNY 0.004938`，本 Run 共 `CNY 0.010917`。Provider trace ID 分别为
+  `ti_im7rngvrje1n1kqa47`、`ti_kkj1y72v00s9tju7rz`；
+- Planner 正确把候选范围指向 `httpie/models.py` 或 `httpie/client.py`，但 execution 同一轮发出
+  `Host header rendering request headers` 与 `Host header` 两次检索。两次均成功返回
+  EvidencePack，却都把 `httpie/sessions.py` 排为 rank 1；这直接纠正了第 16 节把已知
+  Treatment 查询排名外推给模型查询的错误；
+- 两次只读回执保存后，下一轮投影在 Provider 派发前抛出
+  `Protected prefix or incomplete Agent turn exceeds the context projection character/token budget`。
+  精确复算为：源 transcript 7,485 chars，完整可见请求 9,871 chars；两条 Run Memory 观察使
+  protected prefix 达到 5,029 chars，已经超过 5,000-char 硬上限；即使折叠一个完整工具单元，
+  两条观察版本仍为 5,443 chars；
+- 共 2 次模型调用、2 次成功只读工具、2 steps；写入、checkpoint、protected validation、repair、
+  replan 与 passed WorkItem 均为 0。source 与 staging 的 `httpie/models.py` SHA-256 均保持
+  `DC1C1BE120C36DEC382B341ED12CAEF84A63DE3719CF9A40AE01EDCFB6C65348`，source Git 仍在 buggy commit
+  `8c892edd4fe700a7ca5cc733dcb4817831d253e2` 且 clean；
+- 进程以 `Conflict` 返回后 Lease 和 worker 已清除，reserved/unknown 为 0。Run 保持
+  `RUNNING`，因为这条异常尚未被伪装成任务终态；它是可恢复状态证据，不等于成功，也没有在
+  本次授权下自动 resume 或 cancel。
+
+Trace 位于
+`.horizon/real-model-pilot-httpie-v1/run_b36410ebc7e34aa5b0a29167b472a43d.trace.jsonl`，共 27 个
+事件，SHA-256 为
+`da9823ed991b655336c86e904bcde387bc865e630088d3a8095cb2f490b6a4ae`；离线 replay 投影 hash 为
+`37838f264aad472e14720cbbae0c6eec30f59ba3c23e7451da52af90eb651a3f`，与 live state 一致。
+
+负结果驱动了两项零费用修复。Context projector 仍优先保留完整两条 Run Memory；只有完整 binding
+在所有合法 transcript 折叠候选下都放不进硬上限时，才允许在实际折叠至少一个完整单元的同时
+降为最近一条、再到零条可见观察。完整 Memory Artifact、ref/hash/count 与 canonical transcript
+不变，reservation 仍产生 `context_compacted` 质量记录。用历史 session、实际工具 Schema 和当时
+剩余预算离线重建后为 4,795 chars、12,700 input-token ceiling，低于 5,000 chars 与 12,875
+effective input cap；折叠 1 个完整单元，最新 1 条 Memory 观察仍可见。该数字是离线反事实，
+不是 continuation 或成功证据。
+
+检索侧同时发现 SQLite FTS5 `bm25(code_chunks)` 的语料统计跨同一数据库内全部 cache key，导致
+相同 revision/query 的排名可能随其他缓存历史漂移。索引算法升为 v8：只接受精确 index key 的
+候选，并从该 exact-key corpus 本地复算 FTS5 兼容 BM25；既有精确标识符定义与模块路径消歧保持
+不变。五组更激进的定义覆盖/词频排序虽然一度把 HTTPie 提到 rank 1，却把 16-case development
+MRR 最低降到 `0.752604`，均作为负结果放弃。最终干净 suite 保留 `httpie/models.py` rank 2，
+同时完整恢复既有 Hit@1/3/5/8=`11/15/16/16`、MRR=`0.817708`，并通过“污染其他 cache key 后
+原查询排名逐字段不变”回归。没有用这些修复重写历史两个 EvidencePack，也没有再次调用 Provider。
+
+八轮合计为 8 Trace、24 次已结算模型调用；派发预留累计 `CNY 1.486914`，本地 PriceCard 结算
+累计 `CNY 0.2173662`，聚合比 `6.840594`。新 Campaign 尚余 `CNY 0.042083`，系列距用户
+`CNY 0.26` 上限尚余 `CNY 0.0426338`。本次一次性授权已经消费；任何 resume、retry 或新任务都
+需要新的明确付费授权。
