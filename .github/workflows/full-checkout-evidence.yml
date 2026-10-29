@@ -14,6 +14,7 @@ on:
       - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v7.yaml"
       - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v8.yaml"
       - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v9.yaml"
+      - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v10.yaml"
       - "benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v1.yaml"
       - "benchmarks/run_ab/bugsinpy-multi-stage-pilot-v*.yaml"
       - "benchmarks/run_ab/bugsinpy-reduced-v2.yaml"
@@ -187,6 +188,16 @@ jobs:
             2ca8821d006f6693f920a4b183a3a7c985a5c8ad \
             benchmarks/run_ab/full/tornado-2-redirect-put-without-body/fixture \
             300
+          prepare_history_fixture \
+            https://github.com/httpie/cli.git \
+            001bda19450ad85c91345eea3cfa3991e1d492ba \
+            benchmarks/run_ab/full/httpie-1-unique-download-filename/fixture \
+            73
+          prepare_history_fixture \
+            https://github.com/tornadoweb/tornado.git \
+            a8420fc681c5423d072978f00eab4d0645057d16 \
+            benchmarks/run_ab/full/tornado-4-static-range-bounds/fixture \
+            298
 
       - name: Pull the validation image
         run: docker pull python:3.12-alpine
@@ -239,16 +250,16 @@ jobs:
             --state-dir "$state_dir" \
             | tee "$state_dir/cli-result.json"
 
-      - name: Run the seventeen-case full-checkout suite in network-disabled containers
+      - name: Run the nineteen-case full-checkout suite in network-disabled containers
         shell: bash
         run: |
           set -euo pipefail
-          state_dir=.horizon/full-checkout-docker-v9
+          state_dir=.horizon/full-checkout-docker-v10
           mkdir -p "$state_dir"
           docker image inspect python:3.12-alpine --format '{{.Id}}'
           set +e
           uv run --locked horizon eval run-ab-suite \
-            benchmarks/run_ab/bugsinpy-full-checkout-pilot-v9.yaml \
+            benchmarks/run_ab/bugsinpy-full-checkout-pilot-v10.yaml \
             --image python:3.12-alpine \
             --state-dir "$state_dir" \
             2>&1 | tee "$state_dir/cli-result.json"
@@ -256,7 +267,7 @@ jobs:
           set -e
           if (( suite_status != 0 )); then
             detail="$(tail -c 2000 "$state_dir/cli-result.json" | tr '\n\r' '  ' | sed 's/%/%25/g')"
-            echo "::error title=Full-checkout v9 failed::$detail"
+            echo "::error title=Full-checkout v10 failed::$detail"
             exit "$suite_status"
           fi
 
@@ -297,7 +308,7 @@ jobs:
             .horizon/docker-worker-crash-evidence
             .horizon/docker-worker-crash-cli.json
             .horizon/reduced-docker-v2
-            .horizon/full-checkout-docker-v9
+            .horizon/full-checkout-docker-v10
             .horizon/multi-stage-docker-v4
             .horizon/multi-stage-hard-crash-docker-v1
           if-no-files-found: warn
@@ -348,7 +359,7 @@ jobs:
               Path(".horizon/reduced-docker-v2/cli-result.json").read_text(encoding="utf-8")
           )
           full = json.loads(
-              Path(".horizon/full-checkout-docker-v9/cli-result.json").read_text(
+              Path(".horizon/full-checkout-docker-v10/cli-result.json").read_text(
                   encoding="utf-8"
               )
           )
@@ -414,16 +425,16 @@ jobs:
                   == reliability["terminal_success_count"]
                   for reliability in suite_reliability
               )
-              and full_report["case_count"] == 17
-              and full_report["passed_case_count"] == 17
-              and full_report["initial_failure_confirmed_count"] == 17
-              and full_report["treatment_recovered_count"] == 17
+              and full_report["case_count"] == 19
+              and full_report["passed_case_count"] == 19
+              and full_report["initial_failure_confirmed_count"] == 19
+              and full_report["treatment_recovered_count"] == 19
               and reduced_reliability["unknown_acceptance_arm_count"] == 5
               and reduced_reliability["clean_terminal_success_count"] == 5
               and reduced_reliability["quality_flagged_terminal_success_count"] == 0
               and reduced_reliability["retrieval_degraded_arm_count"] == 0
               and reduced_reliability["required_check_failure_arm_count"] == 0
-              and full_reliability["unknown_acceptance_arm_count"] == 17
+              and full_reliability["unknown_acceptance_arm_count"] == 19
               and full_reliability["retrieval_degraded_arm_count"] > 0
               and full_reliability["quality_flagged_terminal_success_count"] > 0
               and full_reliability["required_check_failure_arm_count"] == 0

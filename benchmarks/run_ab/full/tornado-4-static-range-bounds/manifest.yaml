@@ -1,0 +1,109 @@
+schema_version: 1
+benchmark_id: tornado-4-static-range-bounds-full
+fixture_path: fixture
+
+task:
+  task_id: tornado-static-range-bounds-full
+  title: Normalize and reject invalid static byte ranges
+  objective: Clamp suffix ranges that begin before the file and reject explicit ranges whose end precedes their start
+  repository:
+    source: local
+    path: /fixture
+    base_commit: a8420fc681c5423d072978f00eab4d0645057d16
+  constraints:
+    allowed_paths: ["**"]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+  acceptance:
+    - id: tornado-static-range-bounds-full
+      command: >-
+        python -B -c "import ast; from pathlib import Path; tree=ast.parse(Path('tornado/web.py').read_text(encoding='utf-8')); klass=next(item for item in tree.body if isinstance(item,ast.ClassDef) and item.name=='StaticFileHandler'); method=next(item for item in klass.body if isinstance(item,ast.AsyncFunctionDef) and item.name=='get'); branch=next(item for item in method.body if isinstance(item,ast.If) and isinstance(item.test,ast.Name) and item.test.id=='request_range'); checks=[item for item in branch.body if isinstance(item,ast.If)]; negative=next(item for item in checks if 'start < 0' in ast.unparse(item.test)); invalid=next(item for item in checks if 'end == 0' in ast.unparse(item.test)); predicate=compile(ast.Expression(invalid.test),'tornado/web.py','eval'); normalizer=compile(ast.Module(body=[negative],type_ignores=[]),'tornado/web.py','exec'); normalize=lambda start,end,size:(lambda ns:(exec(normalizer,{},ns),(ns['start'],ns['end']))[1])({'start':start,'end':end,'size':size}); evaluate=lambda start,end,size:(lambda bounds:'invalid' if eval(predicate,{}, {'start':bounds[0],'end':bounds[1],'size':size}) else bounds)(normalize(start,end,size)); assert evaluate(10,4,26)=='invalid'; assert evaluate(-1000000,None,26)==(0,None); assert evaluate(-4,None,26)==(22,None); assert evaluate(26,None,26)=='invalid'; assert evaluate(1,4,26)==(1,4)"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 16
+    max_model_calls: 12
+    max_tool_calls: 16
+    max_wall_time_seconds: 600
+    max_cost_usd: "1.00"
+    max_input_tokens: 100000
+    max_output_tokens: 5000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+
+initial_plan:
+  version: 1
+  items:
+    - work_item_id: locate-static-range-bounds-full
+      title: Locate static-file range validation
+      objective: Retrieve revision-bound evidence before changing byte-range normalization
+      dependencies: []
+      expected_artifacts: [Code EvidencePack, tornado-static-range-bounds-full receipt]
+      acceptance_ids: [tornado-static-range-bounds-full]
+      allowed_tools: [retrieve_code]
+
+expected_initial_failed_checks: [tornado-static-range-bounds-full]
+
+arms:
+  - arm_id: no-replan
+    role: baseline
+    description: Continue the stalled source retrieval until deterministic guidance is required.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items: []
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 4
+    expected_tool_calls: 4
+    expected_steps: 4
+    actions:
+      - &retrieve_target
+        tool: retrieve_code
+        arguments:
+          query: StaticFileHandler negative byte range unsatisfiable end before start
+          max_chunks: 8
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+
+  - arm_id: single-replan
+    role: single_replan
+    description: Replace the stalled investigation with bounded range validation and suffix clamping.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items: [repair-static-range-bounds-full]
+    expected_model_calls: 7
+    expected_tool_calls: 8
+    expected_steps: 8
+    actions:
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+      - tool: revise_plan
+        arguments:
+          reason: Repeated retrieval produced no new evidence; reject reversed explicit ranges and clamp oversized suffix ranges.
+          items:
+            - work_item_id: repair-static-range-bounds-full
+              title: Validate static-file byte-range bounds
+              objective: Reject end-before-start ranges and clamp suffix starts to the beginning of the file
+              dependencies: []
+              expected_artifacts: [tornado/web.py, tornado-static-range-bounds-full receipt]
+              acceptance_ids: [tornado-static-range-bounds-full]
+              allowed_tools: [retrieve_code, replace_text, run_check]
+      - tool: replace_text
+        arguments:
+          path: tornado/web.py
+          old: "            if (start is not None and start >= size) or end == 0:"
+          new: "            if (start is not None and (start >= size or (start >= 0 and end is not None and start >= end))) or end == 0:"
+      - tool: replace_text
+        arguments:
+          path: tornado/web.py
+          old: "                start += size"
+          new: "                start = max(start + size, 0)"
+      - tool: submit
+        arguments:
+          summary: Rejected reversed static-file ranges, clamped oversized suffix ranges, and ran the protected regression check.

@@ -43,6 +43,7 @@ FULL_SUITE_V6_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pi
 FULL_SUITE_V7_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v7.yaml"
 FULL_SUITE_V8_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v8.yaml"
 FULL_SUITE_V9_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v9.yaml"
+FULL_SUITE_V10_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v10.yaml"
 LUIGI_FULL_MANIFEST_PATH = (
     ROOT / "benchmarks" / "run_ab" / "full" / "luigi-1-metrics-handler" / "manifest.yaml"
 )
@@ -99,6 +100,12 @@ TORNADO_REDIRECT_FULL_MANIFEST_PATH = (
     / "full"
     / "tornado-2-redirect-put-without-body"
     / "manifest.yaml"
+)
+HTTPIE_FILENAME_FULL_MANIFEST_PATH = (
+    ROOT / "benchmarks" / "run_ab" / "full" / "httpie-1-unique-download-filename" / "manifest.yaml"
+)
+TORNADO_RANGE_FULL_MANIFEST_PATH = (
+    ROOT / "benchmarks" / "run_ab" / "full" / "tornado-4-static-range-bounds" / "manifest.yaml"
 )
 BLIND_RETRIEVAL_SELECTION_PATH = (
     ROOT / "benchmarks" / "retrieval" / "external-blind-v1" / "selection.yaml"
@@ -1692,6 +1699,116 @@ def test_full_checkout_v9_repairs_are_bounded_and_line_ending_independent():
     assert "request('PUT'),{'Transfer-Encoding':'chunked'}) is True" in (
         manifests[1].task.acceptance[0].command
     )
+
+
+def test_full_checkout_v10_preserves_v9_and_binds_two_development_cases():
+    v9 = RunABSuiteManifest.model_validate(
+        yaml.safe_load(FULL_SUITE_V9_PATH.read_text(encoding="utf-8"))
+    )
+    suite = RunABSuiteManifest.model_validate(
+        yaml.safe_load(FULL_SUITE_V10_PATH.read_text(encoding="utf-8"))
+    )
+
+    assert suite.sha256 == "328007b101620c79ff79faba16da7b7ed7398c29f5543c3015303c05a3d9168f"
+    assert suite.cases[:17] == v9.cases
+    assert [case.case_id for case in suite.cases[17:]] == [
+        "httpie-1-unique-download-filename-full",
+        "tornado-4-static-range-bounds-full",
+    ]
+    assert len(suite.cases) == 19
+    assert len({case.source.project.casefold() for case in suite.cases}) == 9
+
+    expected = {
+        "httpie-1-unique-download-filename-full": (
+            HTTPIE_FILENAME_FULL_MANIFEST_PATH,
+            "9ff927b8258371035e2562cecbb2bf8ae08172275be78dd9ce755d7a3214af15",
+            (10, 11),
+        ),
+        "tornado-4-static-range-bounds-full": (
+            TORNADO_RANGE_FULL_MANIFEST_PATH,
+            "6ae2ae3c45fe0daa3f658d65bf7f27a6dce04601fe4add70fafee44b0ddd04cf",
+            (7, 8),
+        ),
+    }
+    for case in suite.cases[17:]:
+        manifest_path, manifest_digest, usage = expected[case.case_id]
+        manifest = RunABEvalManifest.model_validate(
+            yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+        )
+        case.check_manifest(manifest)
+        assert manifest.sha256 == manifest_digest
+        assert manifest.expected_initial_failed_checks == (manifest.task.acceptance[0].id,)
+        assert manifest.arms[1].expected_model_calls == usage[0]
+        assert manifest.arms[1].expected_tool_calls == usage[1]
+        assert manifest.arms[1].expected_steps == usage[1]
+
+
+def test_full_checkout_v10_additions_match_prefrozen_development_sources():
+    suite = RunABSuiteManifest.model_validate(
+        yaml.safe_load(FULL_SUITE_V10_PATH.read_text(encoding="utf-8"))
+    )
+    selection = yaml.safe_load(DEVELOPMENT_RETRIEVAL_SELECTION_PATH.read_text(encoding="utf-8"))
+    selected_by_id = {case["case_id"]: case for case in selection["cases"]}
+    source_ids = [
+        "httpie-1-unique-download-filename",
+        "tornado-4-static-range-bounds",
+    ]
+
+    for case, source_id in zip(suite.cases[17:], source_ids, strict=True):
+        selected = selected_by_id[source_id]
+        assert selected["partition"] == "development"
+        assert case.source.project == selected["project"]
+        assert case.source.bug_id == selected["bug_id"]
+        assert case.source.repository_url == selected["repository_url"]
+        assert case.source.buggy_commit == selected["buggy_commit"]
+        assert case.source.fixed_commit == selected["fixed_commit"]
+
+
+def test_full_checkout_v10_repairs_are_bounded_and_line_ending_independent():
+    manifests = [
+        RunABEvalManifest.model_validate(
+            yaml.safe_load(HTTPIE_FILENAME_FULL_MANIFEST_PATH.read_text(encoding="utf-8"))
+        ),
+        RunABEvalManifest.model_validate(
+            yaml.safe_load(TORNADO_RANGE_FULL_MANIFEST_PATH.read_text(encoding="utf-8"))
+        ),
+    ]
+    expected_paths = ["httpie/downloads.py", "tornado/web.py"]
+    fixture_lines = [
+        [
+            "import sys",
+            "def get_unique_filename(filename, exists=os.path.exists):",
+            "        suffix = '-' + str(attempt) if attempt > 0 else ''",
+            "        if not exists(filename + suffix):",
+            "            return filename + suffix",
+        ],
+        [
+            "            if (start is not None and start >= size) or end == 0:",
+            "                start += size",
+        ],
+    ]
+
+    for manifest, expected_path, lines in zip(
+        manifests, expected_paths, fixture_lines, strict=True
+    ):
+        edits = [action for action in manifest.arms[1].actions if action.tool == "replace_text"]
+        assert edits
+        assert {edit.arguments["path"] for edit in edits} == {expected_path}
+        assert all("\n" not in edit.arguments["old"] for edit in edits)
+        for newline in ("\n", "\r\n"):
+            source = newline.join(lines)
+            for edit in edits:
+                assert source.count(edit.arguments["old"]) == 1
+                source = source.replace(edit.arguments["old"], edit.arguments["new"])
+            assert all(edit.arguments["new"] in source for edit in edits)
+
+    httpie = manifests[0]
+    httpie_edits = [action for action in httpie.arms[1].actions if action.tool == "replace_text"]
+    assert "def trim_filename_if_needed" in httpie_edits[1].arguments["new"]
+    assert httpie_edits[2].arguments["new"].startswith("        suffix")
+    assert "'A'*4+'.txt-1'" in httpie.task.acceptance[0].command
+    assert "evaluate(10,4,26)=='invalid'" in manifests[1].task.acceptance[0].command
+    assert "evaluate(-1000000,None,26)==(0,None)" in manifests[1].task.acceptance[0].command
 
 
 def test_luigi_full_checkout_repair_is_line_ending_independent():

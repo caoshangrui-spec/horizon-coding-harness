@@ -1,0 +1,156 @@
+schema_version: 1
+benchmark_id: httpie-1-unique-download-filename-full
+fixture_path: fixture
+
+task:
+  task_id: httpie-unique-download-filename-full
+  title: Trim oversized download filenames before uniqueness suffixes
+  objective: Keep generated download filenames within the filesystem component limit while preserving extensions and collision suffixes
+  repository:
+    source: local
+    path: /fixture
+    base_commit: 001bda19450ad85c91345eea3cfa3991e1d492ba
+  constraints:
+    allowed_paths: ["**"]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+  acceptance:
+    - id: httpie-unique-download-filename-full
+      command: >-
+        python -B -c "import ast,os; from pathlib import Path; tree=ast.parse(Path('httpie/downloads.py').read_text(encoding='utf-8')); funcs={item.name:item for item in tree.body if isinstance(item,ast.FunctionDef)}; selected=[funcs[name] for name in ('trim_filename','trim_filename_if_needed','get_unique_filename')]; ns={'os':os}; exec(compile(ast.Module(body=selected,type_ignores=[]),'httpie/downloads.py','exec'),ns); ns['get_filename_max_length']=lambda directory:10; assert ns['trim_filename']('A'*20+'.txt',10)=='A'*6+'.txt'; assert ns['get_unique_filename']('A'*20+'.txt',lambda filename:filename!='A'*4+'.txt-1')=='A'*4+'.txt-1'; assert ns['get_unique_filename']('foo.bar',lambda filename:filename!='foo.bar-1')=='foo.bar-1'"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 20
+    max_model_calls: 14
+    max_tool_calls: 20
+    max_wall_time_seconds: 600
+    max_cost_usd: "1.00"
+    max_input_tokens: 100000
+    max_output_tokens: 5000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+
+initial_plan:
+  version: 1
+  items:
+    - work_item_id: locate-download-filename-full
+      title: Locate download filename collision handling
+      objective: Retrieve revision-bound evidence before changing filename generation
+      dependencies: []
+      expected_artifacts: [Code EvidencePack, httpie-unique-download-filename-full receipt]
+      acceptance_ids: [httpie-unique-download-filename-full]
+      allowed_tools: [retrieve_code]
+
+expected_initial_failed_checks: [httpie-unique-download-filename-full]
+
+arms:
+  - arm_id: no-replan
+    role: baseline
+    description: Continue the stalled source retrieval until deterministic guidance is required.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items: []
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 4
+    expected_tool_calls: 4
+    expected_steps: 4
+    actions:
+      - &retrieve_target
+        tool: retrieve_code
+        arguments:
+          query: get_unique_filename trim long download filename filesystem limit
+          max_chunks: 8
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+
+  - arm_id: single-replan
+    role: single_replan
+    description: Replace the stalled investigation with bounded filename trimming and suffix handling.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items: [repair-download-filename-full]
+    expected_model_calls: 10
+    expected_tool_calls: 11
+    expected_steps: 11
+    actions:
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+      - tool: revise_plan
+        arguments:
+          reason: Repeated retrieval produced no new evidence; bound the base name before appending each collision suffix.
+          items:
+            - work_item_id: repair-download-filename-full
+              title: Trim filenames before uniqueness suffixes
+              objective: Preserve extensions while reserving room for collision suffixes under the filesystem component limit
+              dependencies: []
+              expected_artifacts: [httpie/downloads.py, httpie-unique-download-filename-full receipt]
+              acceptance_ids: [httpie-unique-download-filename-full]
+              allowed_tools: [retrieve_code, replace_text, run_check]
+      - tool: replace_text
+        arguments:
+          path: httpie/downloads.py
+          old: import sys
+          new: |-
+            import sys
+            import errno
+      - tool: replace_text
+        arguments:
+          path: httpie/downloads.py
+          old: 'def get_unique_filename(filename, exists=os.path.exists):'
+          new: |-
+            def trim_filename(filename, max_len):
+                if len(filename) > max_len:
+                    trim_by = len(filename) - max_len
+                    name, ext = os.path.splitext(filename)
+                    if trim_by >= len(name):
+                        filename = filename[:-trim_by]
+                    else:
+                        filename = name[:-trim_by] + ext
+                return filename
+
+
+            def get_filename_max_length(directory):
+                try:
+                    max_len = os.pathconf(directory, 'PC_NAME_MAX')
+                except OSError as e:
+                    if e.errno == errno.EINVAL:
+                        max_len = 255
+                    else:
+                        raise
+                return max_len
+
+
+            def trim_filename_if_needed(filename, directory='.', extra=0):
+                max_len = get_filename_max_length(directory) - extra
+                if len(filename) > max_len:
+                    filename = trim_filename(filename, max_len)
+                return filename
+
+
+            def get_unique_filename(filename, exists=os.path.exists):
+      - tool: replace_text
+        arguments:
+          path: httpie/downloads.py
+          old: "        suffix = '-' + str(attempt) if attempt > 0 else ''"
+          new: "        suffix = '-' + str(attempt) if attempt > 0 else ''\n        try_filename = trim_filename_if_needed(filename, extra=len(suffix))\n        try_filename += suffix"
+      - tool: replace_text
+        arguments:
+          path: httpie/downloads.py
+          old: "        if not exists(filename + suffix):"
+          new: "        if not exists(try_filename):"
+      - tool: replace_text
+        arguments:
+          path: httpie/downloads.py
+          old: "            return filename + suffix"
+          new: "            return try_filename"
+      - tool: submit
+        arguments:
+          summary: Trimmed oversized download filenames while preserving extensions and collision suffixes, then ran the protected regression check.
