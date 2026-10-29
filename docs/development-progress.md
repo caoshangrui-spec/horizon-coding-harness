@@ -18,8 +18,13 @@
   `CNY 0.2594492`，明确超过旧 `CNY 0.25` 授权；配置与测试因此要求新的明确累计上限，不能复用
   任何旧 preflight 或付费确认。
 - 本地整仓离线回归为 **635 passed，11 skipped**，`ruff check src tests` 与
-  `ruff format --check src tests` 均通过。11 项跳过因本机 Docker daemon 未启动；新的公开 workflow
-  步骤负责在精确 buggy commit 上补做禁网 Docker preflight，实际通过前不标记 ready。
+  `ruff format --check src tests` 均通过。11 项本地跳过因 Docker daemon 未启动；随后[公开 workflow
+  `40888108497`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40888108497)
+  在精确 buggy commit 上通过 HTTPie 禁网 Docker preflight，并继续通过 11 项 Docker 合同、22-case
+  完整 checkout、三阶段和硬崩溃 suite。统一 artifact ID `12903093969`，235,946,910 bytes，digest
+  `sha256:8a1f6ebc25c4da043cc3ab13182366ae8c22a9de0b82655d6f22a260a3aadb52`，保留至
+  2026-11-28；同提交的[标准 CI `40888108483`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40888108483)
+  也通过。
 
 ## 2026-10-29 RAG 证据消费与写入 lineage
 

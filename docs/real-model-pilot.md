@@ -641,7 +641,12 @@ request-rendering 逻辑，因此任务级工具可以收窄为 `retrieve_code` 
 `CNY 0.26` 累计上限。这里仅冻结可审计配置；只有禁网 Docker preflight 通过，并且用户另行明确
 授权“该任务可发送的上下文、单次 Run cap 与新的累计上限”后，才能启动一次付费运行。
 
-专用 CI 步骤会在精确 buggy commit 上运行初始保护性验收、source 再快照、solution-isolation、
-首次规划 reservation 与输入上限门，并断言 `credential_loaded=false`、`paid_model_called=false`、
-`network_called=false`。在公开 CI 实际通过之前，本节状态只能写作“候选已配置、Docker preflight
-待验证”，不能写作 ready，更不能写作真实模型成功。
+公开禁网 Docker workflow
+[`40888108497`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40888108497)
+已在精确 buggy commit 上通过初始保护性验收、source 再快照、solution-isolation、首次规划
+reservation 与输入上限门；步骤同时断言 `ready=true`、`credential_loaded=false`、
+`paid_model_called=false`、`network_called=false` 和 `requires_paid_confirmation=true`。同一 run 随后
+继续通过 11 项 Docker 合同、22-case 完整 checkout、三阶段和硬崩溃 suite；统一 artifact ID
+`12903093969`，235,946,910 bytes，digest
+`sha256:8a1f6ebc25c4da043cc3ab13182366ae8c22a9de0b82655d6f22a260a3aadb52`，保留至
+2026-11-28。这证明候选静态启动合同已 ready，但仍不是第八次付费运行、代码修改或真实模型成功。
