@@ -370,6 +370,8 @@ uv run --locked --cache-dir .uv-cache horizon eval retrieval-suite `
 
 # baseline-v0.3.0.yaml 及五组 result-v1.yaml 中的旧 report_ref 均保留；
 # index-v8 基线/兼容 ref 是追加证据，不追溯覆盖已发布的 v7 内容哈希。
+# 生成新 ref 前必须先执行上面的 materialize 命令并核对 source manifest receipt；
+# 不可复用来源不明或旧批次的本地 sources 目录，即使返回路径碰巧相同。
 
 # 冻结控制器策略 Trace；不加载模型、不联网、不打开或执行 fixture 仓库。
 uv run --locked --cache-dir .uv-cache horizon eval reliability `

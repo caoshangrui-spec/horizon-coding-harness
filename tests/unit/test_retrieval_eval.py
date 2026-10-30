@@ -432,10 +432,18 @@ def test_checked_in_index_v8_refs_preserve_frozen_retrieval_semantics():
     index_v8 = yaml.safe_load(
         (benchmark_root / "baseline-index-v8.yaml").read_text(encoding="utf-8")
     )
+    source_manifest = RetrievalSourceManifest.model_validate(
+        yaml.safe_load((benchmark_root / "source-materialization.yaml").read_text(encoding="utf-8"))
+    )
+    evaluation_suite = RetrievalEvalSuiteManifest.model_validate(
+        yaml.safe_load((benchmark_root / "development-suite.yaml").read_text(encoding="utf-8"))
+    )
 
     assert index_v8["supersedes"] == "baseline-v0.3.0.yaml"
     assert index_v8["retrieval_code_commit"] == ("c48eccdd6a112ec579110b941de1e8b35e5ab870")
     assert index_v8["selection_commit"] == released["selection_commit"]
+    assert index_v8["execution"]["source_manifest_digest"] == source_manifest.sha256
+    assert index_v8["execution"]["evaluation_suite_digest"] == evaluation_suite.sha256
     stable_aggregate_fields = (
         "case_count",
         "expected_path_count",
@@ -479,6 +487,7 @@ def test_checked_in_index_v8_refs_preserve_frozen_retrieval_semantics():
         assert compatibility["retrieval_code_commit"] == index_v8["retrieval_code_commit"]
         assert compatibility["semantic_projection"] == "unchanged"
         assert compatibility["historical_report_refs_preserved"] is True
+        assert result["execution"]["source_manifest_digest"] == source_manifest.sha256
         assert len(result["groups"]) == expected_group_count
         for group in result["groups"]:
             assert len(group["report_ref"]) == 64

@@ -152,7 +152,7 @@ by_variant:
 groups:
   - base_case_id: cookiecutter-1-non-ascii-context
     report_ref: 2d40d246f31c4010668daaff994268b1ccaabcffb2f08ef697992da56a6382c2
-    index_v8_report_ref: 91c8bcaba94b1b1a8ca6e65f1c84d750d05033bc3a143eb71fdb5064ef3babb5
+    index_v8_report_ref: 087ee32c5e6b045a342fc585ce6952b6a12cac6622036dffacaa6a2417d309a8
     hit_count: 4
     case_count: 4
     micro_path_recall_at_8: 1
@@ -191,7 +191,7 @@ groups:
 
   - base_case_id: luigi-7-status-wont-override
     report_ref: e144adbb88cfa9c4227f6c92da4befe3340305c77d278d7e396bce815b1c20fc
-    index_v8_report_ref: 2b92ba386fb46e834ea2d2d36805d077b62d8ba1bad7a3007cf852fdea4eac05
+    index_v8_report_ref: 59a4b6ba31e5c0ce70cfd2c66f0f84842c7e034b18e945a8bfe324627e7f9f34
     hit_count: 4
     case_count: 4
     micro_path_recall_at_8: 1
@@ -230,7 +230,7 @@ groups:
 
   - base_case_id: pysnooper-2-custom-repr
     report_ref: 55e867682f4aeeff8d0851724d9786d965c62c706597ccd4abf6bc6889a8216a
-    index_v8_report_ref: b8c1d53a73bfc407374785c89cb560c851269110da231fb1ce556da7fd17ab01
+    index_v8_report_ref: 69e05bdb43da0c8df661c106ed68fbe6cb926db78c43d5f9b65bc3b5db949cd7
     hit_count: 4
     case_count: 4
     micro_path_recall_at_8: 0.8
@@ -269,7 +269,7 @@ groups:
 
   - base_case_id: tornado-2-redirect-put-without-body
     report_ref: 6c0dbae3e5b1e9c56fe0d4faeed12aef5e74766b1a61c08b9855fa3414f59a9d
-    index_v8_report_ref: 7bcf3007582865ca6e06f96b125997f18086b6a129e1081b8a2857dc99b23d69
+    index_v8_report_ref: d25d5f79cb4c5f18e2f383d05e28711f5938e12dbe8c009fc0337b4ba6cebe90
     hit_count: 4
     case_count: 4
     micro_path_recall_at_8: 1

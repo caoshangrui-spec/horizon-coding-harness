@@ -65,13 +65,15 @@
   回归。五组激进定义覆盖/词频候选虽然可把 HTTPie 提到 rank 1，却把 16-case MRR 最低降到
   `0.752604`，均被放弃。最终新 state dir 完整恢复历史基线：Hit@1/3/5/8=`11/15/16/16`、
   MRR=`0.817708`、3 degraded、0 empty、0 leakage；HTTPie-4 保持诚实的 rank 2。报告 ref
-  `fcc05e51b46eb71f525878e6090ca66ddc498fcc8df7e69ac6b1460c2016b2ec`。
+  `affd34bce3b15a2c808be82598da42f2df27e0b3200e771ee4fbb75e8c11cab9`。
 - 后续公开 CI 暴露出 workflow 仍用 v7 子报告 ref 验证 v8，实现语义未漂移却会在第一个 case
   失败。现保留 `baseline-v0.3.0.yaml` 和五组历史 `report_ref`，另增 index-v8 基线及 28 个兼容
-  ref；离线逐字段确认所有 query、返回路径、rank、状态、召回、MRR 与既有负结果不变。workflow
-  改为核对 v8 ref，不通过覆盖冻结证据或放宽 ranking/metric 断言来“修绿”。
-- 针对性 context/retrieval 回归 42 项通过；本批未再次调用模型、网络或产生费用。整仓与静态检查
-  的最终结果见本文底部当前状态。
+  ref。首次本地 ref 复算又被公开 CI 否决：旧本地 `sources` 的首例为 69,262 bytes，而冻结
+  materialization 是 67,213 bytes。重新按 manifest 物化后，16 组文件数、字节数和 tree digest
+  与 CI receipt 全同，并逐字段确认 28 组 query、返回路径、rank、状态、召回、MRR 与既有负结果
+  不变。workflow 改为核对这些 source-bound v8 ref，不通过覆盖冻结证据或放宽断言来“修绿”。
+- 针对性 context/retrieval 回归 42 项通过；本批未调用模型、未产生模型费用，网络仅用于冻结源
+  物化、Git 推送与公开 CI 状态/证据读取。整仓与静态检查的最终结果见本文底部当前状态。
 
 ## 2026-10-29 HTTPie-4 真实模型候选与零费用预检合同
 

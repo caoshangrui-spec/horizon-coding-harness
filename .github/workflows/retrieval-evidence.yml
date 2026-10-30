@@ -71,12 +71,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          evidence=.horizon/retrieval-v3-evidence
+          set +e
           uv run --locked horizon eval retrieval-suite \
             benchmarks/retrieval/external-development-v3/development-suite.yaml \
             --sources-root .horizon/retrieval-v3/sources \
             --state-dir .horizon/retrieval-v3/eval-state \
             --baseline benchmarks/retrieval/external-development-v3/baseline-index-v8.yaml \
-            | tee .horizon/retrieval-v3-evidence/retrieval-suite.json
+            2>&1 | tee "$evidence/retrieval-suite.json"
+          retrieval_status=${PIPESTATUS[0]}
+          set -e
+          if (( retrieval_status != 0 )); then
+            detail="$(tail -c 3000 "$evidence/retrieval-suite.json" | tr '\n\r' '  ' | sed 's/%/%25/g')"
+            echo "::error title=Frozen retrieval baseline failed::$detail"
+            exit "$retrieval_status"
+          fi
 
       - name: Run frozen query-robustness slice
         shell: bash

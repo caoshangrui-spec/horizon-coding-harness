@@ -506,4 +506,7 @@ v8 的 16-case 精确内容寻址基线保存在
 它不覆盖 `baseline-v0.3.0.yaml`：旧 v7 排名、指标和子报告 ref 原样保留；新文件记录相同语义
 排名在 cache-isolated BM25 下的新 ref。五组查询实验也保留原 `report_ref`，只追加
 `index_v8_report_ref`。2026-10-30 离线逐字段复跑确认 28 个 group 的 query、返回路径、rank、
-状态、召回和 MRR 均未改变；这只是实现兼容性复核，不是新增样本或新的质量提升结论。
+状态、召回和 MRR 均未改变。ref 来自重新执行 `source-materialization.yaml` 后的 16 个源树，
+其 receipt 与公开 CI 的文件数、字节数、tree digest、source manifest digest
+`74a87b4dbf6c54f8f9fd003473dcc0a7995f5b7be9953e080a1f5d672ec16431` 全部一致；来源不明的旧
+本地源即使返回路径相同也不能生成基线 ref。这只是实现兼容性复核，不是新增样本或新的质量提升结论。
