@@ -20,6 +20,9 @@ Horizon 是一个面向长程软件工程任务的**可恢复执行控制层**�
 > effect 指标。八次真实模型 Pilot 均为负结果，因此目前**不宣称真实 Issue 成功率或官方
 > benchmark 成绩**。完整范围与证据边界见 [v0.3.0 release notes](docs/release-v0.3.0.md)。
 
+> **求职入口：** [简历项目描述、架构图、STAR 故事与面试问答](docs/internship-portfolio-kit.md) ·
+> [3 分钟现场演示](docs/interview-demo.md) · [一键 EvidencePack](docs/portfolio-demo.md)
+
 ## 为什么值得看
 
 - **可恢复执行**：追加式事件、幂等命令、Worker Lease/epoch、内容寻址 checkpoint、本地顺序
