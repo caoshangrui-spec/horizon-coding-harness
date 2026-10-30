@@ -153,3 +153,43 @@ ArtifactStore；不会物化或执行第三方仓库，也不会在线重验历�
 历史八轮的单次与累计费用授权已经用于对应 Run，不能自动继承到这 5 条任务。后续最短路径是先
 只为 1 条 easy 任务生成 model-visible Pilot manifest 和 Provider 配置，零费用预检通过后再请求
 一次明确预算授权；成功或失败都先冻结证据，再决定是否扩到其余 4 条。
+
+## 8. 第一条候选：TheFuck-2
+
+第一条 easy 任务现已完成付费前准备，但**尚未授权或启动模型**：
+
+- Pilot：[`real-model-smoke-pilot-v1.yaml`](../benchmarks/run_ab/full/thefuck-2-executable-path-separator/real-model-smoke-pilot-v1.yaml)；
+- Provider：[`siliconflow-thefuck2-smoke-v1.yaml`](../config/providers/siliconflow-thefuck2-smoke-v1.yaml)；
+- 模型：`deepseek-ai/DeepSeek-V4-Flash`；
+- 工具：`read_file/retrieve_code/replace_text/run_check`；
+- 路径：`thefuck/**`，不把精确目标文件写进 allowlist；
+- Provider `max_attempts=1`、`fallback_enabled=false`；
+- 提议的单 Run / 独立 Campaign 硬上限均为 `CNY 0.060`。这是配置上限提案，不是付费授权。
+
+本地用已有 `python:3.12-alpine` 镜像执行：
+
+```powershell
+uv run --locked --cache-dir .uv-cache horizon eval pilot-preflight `
+  benchmarks/run_ab/full/thefuck-2-executable-path-separator/real-model-smoke-pilot-v1.yaml `
+  --image python:3.12-alpine `
+  --config config/providers/siliconflow-thefuck2-smoke-v1.yaml `
+  --state-dir .horizon/real-model-smoke-thefuck2-v1
+```
+
+预检结果为 `ready=true`：
+
+- 干净 HEAD 精确等于 buggy commit `40ab4eb...`，380-file source capture 后保持 unchanged；
+- Docker 中 protected check 如预期失败，实际错误把 Windows-style PATH 错拆为
+  `['C', '/foo;C', '/bar;C', '/baz']`；
+- solution isolation 通过，fixed commit、fix URL 和精确修复 literal 不在 prepared TaskSpec；
+- 初次规划请求为 5,715 bytes，保守 input ceiling 12,454，预留 `CNY 0.041970`，低于提议上限；
+- `credential_loaded=false`、`paid_model_called=false`、`network_called=false`；仓库代码只在本地禁网
+  Docker 中用于初始失败验证；
+- Pilot manifest digest 为
+  `565416d2335e7a1342b9fcc85138234959bb58aeb0254df4decb6f8d0059ce1c`，prepared TaskSpec ref 为
+  `e17a0969acc70b548ee7a090803e1c8721525e55b864ef6f976a8818d1470f95`，preflight report ref 为
+  `c41e0196e94ad006b035bc90b5f062cca27ceeea3b1cae16b489e6cf3e30858b`。
+
+`ready=true` 只表示来源、初始失败、隔离、上下文输入和提议预算在本地门禁中一致。下一步仍需要用户
+明确同意：允许发送该公开任务上下文、只执行这一个模型、单次最多 `CNY 0.060`、独立 Campaign
+累计最多 `CNY 0.060`、不重试、不 fallback。未得到这句话前，不能执行输出中的 launch command。

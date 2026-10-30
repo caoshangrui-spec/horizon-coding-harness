@@ -92,8 +92,8 @@ flowchart LR
 | effect-before-receipt 可保守对账 | Luigi `replace_text/accept_replace` 与 FastAPI `create_file/accept_create` 共 2/2；恢复模型重派 0、重复副作用 0、最终 open effect 0 | 两个固定、作者选择的故障窗口，不承诺 exactly-once |
 | 词法 Code RAG 有冻结定位基线 | 7 项目 24 案例中公开 16 个 development：Hit@1 `11/16`、Hit@5 `16/16`、MRR `0.817708`；8 个 holdout 保持密封 | 有 3 个 degraded；中文困难改写仅 `1/8`，没有 symbol/vector RAG 或端到端收益结论 |
 | 真实 Provider 路径和费用门禁实际运行过 | 8 个 SiliconFlow Pilot、24 个已结算调用，累计 `CNY 0.2173662`；费用、Trace 与 source isolation 可核对 | 8 个 Run 均未完成代码编辑和 protected validation，属于负结果 |
-| 下一轮真实模型评测输入已冻结 | 5 个不同项目的低复杂度 development smoke；身份、最小工具、资源上限、成功指标与失败分类均可零费用预检 | 作者在已知 Scripted Model 修复后选题；Provider、模型和预算未授权，尚无新真实模型结果 |
-| 当前离线回归稳定 | `658 passed, 11 skipped`；标准 CI、外部检索证据和来源绑定 Docker workflow 均通过 | 11 个本地 skip 需要现成 Docker 镜像，不能说成本机全通过 |
+| 下一轮真实模型评测输入已冻结 | 5 个不同项目的低复杂度 development smoke；首条 TheFuck-2 已用真实 Docker 复现初始失败并通过 solution-isolation/预算输入门，`ready=true` | 作者在已知 Scripted Model 修复后选题；`CNY 0.060` 只是候选上限，尚未读取 Key、付费或形成新模型结果 |
+| 当前离线回归稳定 | `660 passed, 11 skipped`；标准 CI、外部检索证据和来源绑定 Docker workflow 均通过 | 11 个本地 skip 需要现成 Docker 镜像，不能说成本机全通过 |
 
 最新公开复核入口：
 
@@ -124,7 +124,7 @@ Python 3.12/3.13 · Pydantic · Typer · SQLite/FTS5 · Docker · Pytest · GitH
 - 构建确定性 Context Projection、run-scope Memory 与 revision-bound SQLite FTS5 Code RAG；
   必保上下文超限时在模型派发前持久暂停，并以新 Lease epoch 和消息不变的新 session 续跑。
 - 建立禁网 Docker A/B 与 EvidencePack 评测：22 个完整 checkout 案例、3 个多阶段恢复案例和
-  2 个硬崩溃案例公开通过；658 项离线回归通过，同时保留 8 次真实模型未完成修复的负结果。
+  2 个硬崩溃案例公开通过；660 项离线回归通过，同时保留 8 次真实模型未完成修复的负结果。
 
 ### 不建议写进简历的说法
 
@@ -150,7 +150,7 @@ Python 3.12/3.13 · Pydantic · Typer · SQLite/FTS5 · Docker · Pytest · GitH
   FTS5 code retrieval, typed tool authorization, protected Docker validation, and offline EvidencePack
   verification.
 - Evaluated the harness on 22 full-checkout scripted cases, three multi-stage recovery cases, and two
-  hard-crash cases in network-disabled Docker workflows; maintained 658 passing offline tests while
+  hard-crash cases in network-disabled Docker workflows; maintained 660 passing offline tests while
   explicitly preserving eight unsuccessful real-model pilot runs as negative evidence.
 
 ## 8. STAR 项目故事
@@ -175,7 +175,7 @@ Lease epoch 做提交围栏，用内容寻址 Artifact 保存大对象；把模�
 ### Result
 
 本地一键演示能够在写入生效、receipt 前强制退出并安全恢复；公开 workflow 通过 22/22 完整
-checkout、3/3 多阶段和 2/2 hard-crash 合同，离线回归为 658 passed。真实模型八轮没有完成修复，
+checkout、3/3 多阶段和 2/2 hard-crash 合同，离线回归为 660 passed。真实模型八轮没有完成修复，
 但失败被完整保留并驱动了上下文容量、检索缓存隔离和预算诊断改进。
 
 ### Reflection

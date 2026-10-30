@@ -22,9 +22,19 @@
   `paid_launch_ready=false`、模型/网络/仓库执行均为 0、外部费用 CNY 0。suite digest
   `2c8ca4da9b88ab047944cdbce98537c8ab017f4a5a6236da1067c53759453554`，report ref
   `bc297aaaf85e8bd600198f333f6af23b03396f55dcbd5ee893cbd7c9133bc6e7`。
-- 新增 5 项 unit/CLI 回归均通过，整仓离线回归为 **658 passed，11 skipped**。下一步付费前仍必须
+- 新增 7 项 suite/Pilot unit/CLI 回归均通过，整仓离线回归为 **660 passed，11 skipped**。下一步付费前仍必须
   逐任务绑定 exact Provider/model，并由用户另行授权单 Run 与累计 Campaign CNY 上限；本批没有
   读取 API Key、联网或调用真实模型。
+- 随后为首条 easy 任务 TheFuck-2 建立 model-visible Pilot 与独立 SiliconFlow policy：包级
+  `thefuck/**` 权限、4 个最小工具、14-call/2-repair 上限、`max_attempts=1`、无 fallback，提议单 Run
+  与新 Campaign 上限均为 `CNY 0.060`。本地禁网 Docker preflight 实际观察到 PATH 被错误拆成
+  `['C', '/foo;C', '/bar;C', '/baz']`，source unchanged、solution isolation 与首次规划输入/费用门均
+  通过，`ready=true`；planning reserve `CNY 0.041970`，report ref
+  `c41e0196e94ad006b035bc90b5f062cca27ceeea3b1cae16b489e6cf3e30858b`。这是零费用候选，不是授权或
+  成功 Run；`credential_loaded/paid_model_called/network_called` 均为 false。
+- 第一次扩大回归出现一次既有 Windows 50ms `process-timeout` 临时目录 `PermissionError`，结果为
+  659 passed / 1 failed / 11 skipped；该用例立即单独复跑通过，第二次完整回归为
+  **660 passed，11 skipped**，未为本批修改超时实现或隐藏首次负结果。
 
 ## 2026-10-30 人类可读作品集入口
 
@@ -1598,8 +1608,8 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 八轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 658 passed；全量入口对应
-658 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
+当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 660 passed；全量入口对应
+660 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
 `run_model_cost_limit` 进入 `FAILED`。没有工具、编辑、checkpoint 或验证，Trace 14 事件可重放，

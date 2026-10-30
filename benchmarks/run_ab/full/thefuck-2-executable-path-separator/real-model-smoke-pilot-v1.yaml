@@ -1,0 +1,74 @@
+schema_version: 1
+pilot_id: thefuck-2-executable-path-separator-smoke-v1
+source_path: fixture
+
+source:
+  benchmark: BugsInPy
+  project: thefuck
+  bug_id: "2"
+  repository_url: https://github.com/nvbn/thefuck
+  buggy_commit: 40ab4eb62db57627bff10cf029d29c94704086a2
+  fixed_commit: 78ef9eec88f43d5727986be2237f6e0e250cbbbc
+  fix_url: https://github.com/nvbn/thefuck/commit/78ef9eec88f43d5727986be2237f6e0e250cbbbc
+  upstream_test: tests/test_utils.py::test_get_all_executables_pathsep
+  license_spdx: MIT
+  license_url: https://github.com/nvbn/thefuck/blob/40ab4eb62db57627bff10cf029d29c94704086a2/LICENSE.md
+  reduction: full_checkout
+  reduction_note: >-
+    The model receives the clean 380-file upstream checkout at the exact buggy commit.
+    The fixed commit and evaluator-only repair action remain controller-only evidence.
+
+task:
+  schema_version: "1.0"
+  spec_version: 1
+  task_id: thefuck-path-separator-smoke-v1
+  title: Respect the platform PATH separator
+  objective: >-
+    Make executable discovery split PATH entries with the active platform separator so both
+    colon-separated and semicolon-separated environments are handled without changing filtering.
+  repository:
+    source: local
+    path: /pilot-source
+    base_commit: 40ab4eb62db57627bff10cf029d29c94704086a2
+  constraints:
+    allowed_paths: [thefuck/**]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    allowed_tools: [read_file, retrieve_code, replace_text, run_check]
+    network: deny
+    requirements:
+      - Do not change tests, dependencies, public APIs, or executable filtering behavior.
+      - Use revision-bound repository evidence before editing the production file.
+      - Keep the repair local to the permitted production package.
+  acceptance:
+    - id: thefuck-path-separator-smoke
+      command: >-
+        python -B -c "import ast; from pathlib import Path; from types import SimpleNamespace; tree=ast.parse(Path('thefuck/utils.py').read_text(encoding='utf-8')); fn=next(item for item in tree.body if isinstance(item,ast.FunctionDef) and item.name=='get_all_executables'); fn.decorator_list=[]; fn.body=[item for item in fn.body if not isinstance(item,ast.ImportFrom)]; seen=[]; FakePath=type('FakePath',(),{'__init__':lambda self,value:seen.append(value),'iterdir':lambda self:[]}); namespace={'os':SimpleNamespace(environ={'PATH':'C:/foo;C:/bar;C:/baz'},pathsep=';'),'six':SimpleNamespace(PY2=False),'Path':FakePath,'get_alias':lambda:'fuck','shell':SimpleNamespace(get_aliases=lambda:[])}; exec(compile(ast.Module(body=[fn],type_ignores=[]),'thefuck/utils.py','exec'),namespace); assert namespace['get_all_executables']()==[]; assert seen==['C:/foo','C:/bar','C:/baz'],seen"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 24
+    max_model_calls: 14
+    max_tool_calls: 24
+    max_wall_time_seconds: 900
+    # Legacy TaskSpec field; paid execution is governed by the CNY policy below.
+    max_cost_usd: "0.060"
+    max_input_tokens: 120000
+    max_output_tokens: 4096
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: siliconflow-deepseek-v4-flash-thefuck2-smoke-006-v1
+  memory_scope: thefuck-2-executable-path-separator-smoke-v1
+
+provider_policy_id: siliconflow-deepseek-v4-flash-thefuck2-smoke-006-v1
+currency: CNY
+# Proposal-only ceiling. This checked-in value does not authorize a paid request.
+max_paid_cost: "0.060"
+expected_initial_failed_checks: [thefuck-path-separator-smoke]
+auto_plan: true
+
+solution_isolation:
+  acceptance_visibility: visible
+  forbidden_task_literals:
+    - "for path in os.environ.get('PATH', '').split(os.pathsep)"
