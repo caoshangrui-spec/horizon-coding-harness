@@ -88,6 +88,15 @@ THEFUCK_PATHSEP_FULL_MANIFEST_PATH = (
     / "thefuck-2-executable-path-separator"
     / "manifest.yaml"
 )
+THEFUCK_TRACE_REUSE_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "thefuck2-retrieval-reuse-v1.yaml"
+THEFUCK_TRACE_REUSE_MANIFEST_PATH = (
+    ROOT
+    / "benchmarks"
+    / "run_ab"
+    / "full"
+    / "thefuck-2-executable-path-separator"
+    / "retrieval-reuse-v1.yaml"
+)
 LUIGI_BEAM_FULL_MANIFEST_PATH = (
     ROOT / "benchmarks" / "run_ab" / "full" / "luigi-2-beam-target-path" / "manifest.yaml"
 )
@@ -1603,6 +1612,45 @@ def test_full_checkout_v8_preserves_v7_and_binds_three_development_cases():
         assert manifest.expected_initial_failed_checks == (manifest.task.acceptance[0].id,)
         assert manifest.arms[1].expected_model_calls == 6
         assert manifest.arms[1].expected_tool_calls == 7
+
+
+def test_thefuck_trace_reuse_suite_freezes_observed_queries_and_bounded_recovery():
+    suite = RunABSuiteManifest.model_validate(
+        yaml.safe_load(THEFUCK_TRACE_REUSE_SUITE_PATH.read_text(encoding="utf-8"))
+    )
+    manifest = RunABEvalManifest.model_validate(
+        yaml.safe_load(THEFUCK_TRACE_REUSE_MANIFEST_PATH.read_text(encoding="utf-8"))
+    )
+
+    assert suite.suite_id == "thefuck2-retrieval-reuse-v1"
+    assert len(suite.cases) == 1
+    suite.cases[0].check_manifest(manifest)
+    assert manifest.task.constraints.allowed_paths == ("thefuck/**",)
+    assert manifest.task.constraints.network == "deny"
+    assert manifest.expected_initial_failed_checks == ("thefuck-path-separator-trace-reuse",)
+
+    baseline, treatment = manifest.arms
+    assert [action.arguments.get("query") for action in baseline.actions[:2]] == [
+        "split PATH entries executable discovery os.pathsep",
+        "PATH split executable find",
+    ]
+    assert [action.tool for action in treatment.actions] == [
+        "retrieve_code",
+        "retrieve_code",
+        "read_file",
+        "revise_plan",
+        "replace_text",
+        "submit",
+    ]
+    assert treatment.actions[2].arguments == {
+        "path": "thefuck/utils.py",
+        "start_line": 16,
+        "end_line": 155,
+    }
+    assert treatment.expected_status == RunStatus.SUCCEEDED
+    assert treatment.expected_execution_replans == 1
+    assert baseline.expected_status == RunStatus.WAITING_FOR_USER
+    assert baseline.expected_human_request_pattern == "identical_action"
 
 
 def test_full_checkout_v8_additions_match_prefrozen_development_sources():

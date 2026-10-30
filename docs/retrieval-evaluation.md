@@ -535,3 +535,17 @@ Agent transcript 和 typed EvidencePack 重建，控制器结果仍进入 Trace/
 目标 path rank 仍为 `1 / 6`，且离线评估 report 中没有模型和网络调用。策略单测另覆盖 revision 隔离、显式扩大候选、
 新增 symbol/领域词旁路；Agent 集成测试覆盖一次安全切片后的恢复。这仍不是检索质量提升或真实修复
 成功，只是减少已观察到的无效重复并把下一步引回已有 path 证据。
+
+同一策略现增加一个与冻结 22-case suite 分离的 exact-checkout development scenario。禁网 Docker
+回归中，Baseline 重复查询后为 `WAITING_FOR_USER`；Treatment 的工具序列为
+`retrieve_code(success) -> retrieve_code(error) -> read_file(success) -> revise_plan ->
+replace_text -> submit -> run_check`，并从 `WAITING_FOR_USER` 恢复为 `SUCCEEDED`。第一次
+EvidencePack 为 1,833 chars，复用策略反馈为 320 chars；策略把下一步约束为
+`thefuck/utils.py:16-155`，随后唯一写入同时满足 context-bound 和 evidence-backed。保护检查、
+Trace replay 和 source workspace unchanged 全部通过，模型与网络调用均为 0。
+
+这项结果验证的是“真实查询形态进入控制器后，Harness 能否沿已有 path 证据闭环”，不是新的 RAG
+召回分数：第二条查询的目标 path 仍保持 rank 6，排序没有被 gold patch 过拟合；Treatment 动作由
+离线脚本固定，也不能外推为 DeepSeek-V4-Flash 会自主完成同样恢复。公开 source-bound Docker
+工作流会重新运行该场景并上传策略回执、Trace、请求尺寸和写入 lineage，且将
+`external_model_called=false`、`network_called_by_evaluator=false` 作为硬门。

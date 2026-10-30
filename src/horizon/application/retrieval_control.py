@@ -59,15 +59,11 @@ class RetrievalReuseHint:
             "end_line": self.suggested_end_line,
         }
         return (
-            "A settled retrieve_code at this workspace revision already shares "
-            f"{self.shared_term_count} query terms "
-            f"(shorter-query containment={self.containment:.3f}), and the new query adds no "
-            "concrete symbol, path, or domain term. Reuse the prior rank-1 evidence at "
-            f"{self.path}:{self.start_line}-{self.end_line}. If that chunk shows an "
-            "already-correct implementation rather than the defect, inspect its bounded "
-            f"neighboring range with read_file {canonical_json(read)}; otherwise add a "
-            "genuinely new symbol "
-            "or path term, or explicitly increase max_chunks."
+            "Near-duplicate retrieve_code was not dispatched. Next call read_file "
+            f"{canonical_json(read)}. Reuse settled rank-1 {self.path}:{self.start_line}-"
+            f"{self.end_line}; search again only with a new symbol/path/domain term or larger "
+            f"max_chunks (shared_terms={self.shared_term_count}, "
+            f"shorter_query_containment={self.containment:.3f})."
         )
 
 

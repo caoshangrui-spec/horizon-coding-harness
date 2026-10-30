@@ -65,7 +65,7 @@ def test_observed_thefuck_query_is_reused_with_a_neighboring_path_hint():
     assert hint.containment == 0.75
     assert hint.path == "thefuck/utils.py"
     assert (hint.suggested_start_line, hint.suggested_end_line) == (16, 155)
-    assert "already-correct implementation" in hint.detail
+    assert hint.detail.startswith("Near-duplicate retrieve_code was not dispatched")
     assert "read_file" in hint.detail
 
 

@@ -99,6 +99,45 @@ class ScriptedModel:
         )
 
 
+class FirstTurnMultiToolModel:
+    def __init__(self, first_calls, followup_actions):
+        self.first_calls = tuple(first_calls)
+        self.followup_actions = list(followup_actions)
+        self.requests = []
+        self.trace_ids = []
+
+    def generate(self, request, trace_id):
+        self.requests.append(request)
+        self.trace_ids.append(trace_id)
+        index = len(self.requests)
+        if index == 1:
+            calls = tuple(
+                ToolCall(
+                    id=f"provider-call-1-{call_index}",
+                    function=FunctionCall(name=name, arguments=arguments),
+                )
+                for call_index, (name, arguments) in enumerate(self.first_calls, start=1)
+            )
+            usage = ModelUsage(input_tokens=1_690, output_tokens=102)
+        else:
+            name, arguments = self.followup_actions.pop(0)
+            calls = (
+                ToolCall(
+                    id=f"provider-call-{index}",
+                    function=FunctionCall(name=name, arguments=arguments),
+                ),
+            )
+            usage = ModelUsage(input_tokens=100 + index, output_tokens=20)
+        return ModelResponse(
+            response_id=f"response-{index}",
+            model=request.model,
+            message=ModelMessage(role="assistant", tool_calls=calls),
+            finish_reason="tool_calls",
+            usage=usage,
+            provider_trace_id=f"trace-{index}",
+        )
+
+
 class ParserCheck:
     def execute(self, workspace, check):
         content = (workspace / "src/parser.py").read_text(encoding="utf-8")
@@ -1438,7 +1477,7 @@ def test_near_duplicate_retrieval_reuses_rank_one_path_before_dispatch(
     assert denial.startswith("RetrievalQueryPolicy:")
     assert "src/parser.py" in denial
     assert "read_file" in denial
-    assert "add a genuinely new symbol or path term" in denial
+    assert "new symbol/path/domain term" in denial
     settled = [
         event
         for event in store.events(run_id)
@@ -1446,6 +1485,115 @@ def test_near_duplicate_retrieval_reuses_rank_one_path_before_dispatch(
         and event.payload["record"]["call_id"] == retrievals[-1].call_id
     ]
     assert len(settled) == 1
+
+
+def test_retrieval_reuse_preserves_the_observed_campaign_stop_without_redispatch(
+    tmp_path,
+    task_dict,
+):
+    first_calls = [
+        ("retrieve_code", {"query": "budget context parse value"}),
+        ("retrieve_code", {"query": "parse value budget find"}),
+    ]
+    followup_actions = [
+        ("read_file", {"path": "src/parser.py", "start_line": 2, "end_line": 3}),
+        (
+            "replace_text",
+            {
+                "path": "src/parser.py",
+                "old": "return [value]",
+                "new": "return [] if value == '' else [value]",
+            },
+        ),
+        ("submit", {"summary": "Completed after compacting reused retrieval history."}),
+    ]
+    plan = Plan(
+        items=(
+            WorkItem(
+                work_item_id="budgeted-retrieval-reuse",
+                title="Reuse bounded retrieval evidence",
+                objective="Inspect, edit, and validate with a narrow tool surface",
+                expected_artifacts=("src/parser.py",),
+                acceptance_ids=("unit",),
+                allowed_tools=("read_file", "retrieve_code", "replace_text"),
+            ),
+        )
+    )
+    runner, store, run_id, token, workspace, model = setup_loop(
+        tmp_path,
+        task_dict,
+        followup_actions,
+        plan=plan,
+    )
+    model = FirstTurnMultiToolModel(first_calls, followup_actions)
+    runner.model = model
+    (workspace / "src/parser.py").write_text(
+        "# " + "budget context parse value " * 1_600 + "\ndef parse(value):\n    return [value]\n",
+        encoding="utf-8",
+    )
+    runner.campaign = runner.campaign.model_copy(
+        update={"max_cost": Decimal("0.060"), "max_cost_per_call": Decimal("0.060")}
+    )
+    runner.config = AgentLoopConfig(
+        max_model_iterations=8,
+        max_output_tokens=256,
+        max_context_chars=100_000,
+        preserve_recent_context_units=2,
+    )
+    runner.campaign_ledger.initialize(
+        runner.campaign,
+        provider_id=runner.provider_id,
+        model_id=runner.model_id,
+    )
+    runner.campaign_ledger.reserve(
+        runner.campaign,
+        "observed-planning-call",
+        "observed-planning-request",
+        Decimal("0.007275"),
+    )
+    runner.campaign_ledger.settle(
+        runner.campaign.campaign_id,
+        "observed-planning-call",
+        Decimal("0.007275"),
+        "observed-planning-trace",
+    )
+
+    result = runner.run(run_id, token)
+
+    assert result.status == RunStatus.FAILED
+    assert result.failure_reason == BudgetStopReason.CAMPAIGN_COST_LIMIT.value
+    assert result.budget_stop is not None
+    assert result.budget_stop.available_cost == Decimal("0.046737")
+    assert result.budget_stop.required_cost > result.budget_stop.available_cost
+    retrievals = [record for record in result.tool_calls if record.name == "retrieve_code"]
+    assert [record.status for record in retrievals] == ["success", "error"]
+    assert runner.session_store.read(retrievals[-1].artifact_ref).startswith(
+        b"RetrievalQueryPolicy:"
+    )
+    reservations = [
+        ModelCallReservation.model_validate(event.payload["reservation"])
+        for event in store.events(run_id)
+        if event.event_type == "MODEL_CALL_RESERVED"
+    ]
+    assert len(reservations) == len(model.requests) == 1
+    assert reservations[0].compacted_unit_count == 0
+    assert all(reservation.reserved_cost <= Decimal("0.060") for reservation in reservations)
+    assert result.agent_session is not None
+    session = AgentSession.model_validate_json(
+        runner.session_store.read(result.agent_session.artifact_ref)
+    )
+    assert any(
+        message.role == "tool" and "RetrievalQueryPolicy:" in (message.content or "")
+        for message in session.messages
+    )
+    campaign = runner.campaign_ledger.summary(runner.campaign.campaign_id)
+    assert campaign.settled_cost == Decimal("0.013263")
+    assert campaign.remaining_cost == Decimal("0.046737")
+    assert campaign.reserved_cost == 0
+    assert campaign.unknown_cost == 0
+    assert result.reservations == {}
+    assert result.model_request_budget is not None
+    assert result.model_request_budget.request_payload is not None
 
 
 def test_no_progress_guard_waits_on_exact_alternating_two_action_cycle(

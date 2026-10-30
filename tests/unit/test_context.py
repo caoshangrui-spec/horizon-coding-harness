@@ -314,6 +314,43 @@ def test_projection_compacts_a_pilot_sized_recent_tool_result():
     )
 
 
+def test_compaction_keeps_latest_controller_feedback_from_a_multi_tool_turn():
+    retrieval_call = ToolCall(
+        id="retrieval-1",
+        function=FunctionCall(
+            name="retrieve_code",
+            arguments={"query": "split PATH entries executable discovery os.pathsep"},
+        ),
+    )
+    repeated_call = ToolCall(
+        id="retrieval-2",
+        function=FunctionCall(
+            name="retrieve_code",
+            arguments={"query": "PATH split executable find"},
+        ),
+    )
+    policy = (
+        'RetrievalQueryPolicy: Next call read_file {"end_line":155,'
+        '"path":"thefuck/utils.py","start_line":16}.'
+    )
+    messages = (
+        *_prefix(),
+        ModelMessage(role="assistant", tool_calls=(retrieval_call, repeated_call)),
+        ModelMessage(role="tool", content="x" * 5_000, tool_call_id=retrieval_call.id),
+        ModelMessage(role="tool", content=policy, tool_call_id=repeated_call.id),
+    )
+
+    projection = _projector(max_chars=2_500, preserve_recent_units=1).project(messages)
+
+    assert projection.compacted is True
+    assert projection.compacted_unit_count == 1
+    summary = projection.messages[2].content or ""
+    assert "RetrievalQueryPolicy: Next call read_file" in summary
+    assert "thefuck/utils.py" in summary
+    assert '"controller_feedback":true' in summary
+    assert "x" * 241 not in summary
+
+
 def test_projection_rejects_when_incomplete_turn_alone_exceeds_budget():
     incomplete = ModelMessage(
         role="assistant",

@@ -1,0 +1,117 @@
+schema_version: 1
+benchmark_id: thefuck-2-retrieval-reuse-trace-v1
+fixture_path: fixture
+
+# Post-run development regression built from the two verbatim retrieval queries emitted by
+# paid Run run_9cfbde76d85a4bfcbf1f3463fbacf8ed. This is not a holdout or real-model result.
+task:
+  task_id: thefuck-retrieval-reuse-trace-v1
+  title: Recover from a synonym-only PATH retrieval repeat
+  objective: Make executable discovery split PATH entries with the active platform separator
+  repository:
+    source: local
+    path: /fixture
+    base_commit: 40ab4eb62db57627bff10cf029d29c94704086a2
+  constraints:
+    allowed_paths: [thefuck/**]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    allowed_tools: [read_file, retrieve_code, replace_text, run_check]
+    network: deny
+    requirements:
+      - Preserve executable filtering behavior and change only the permitted production package.
+  acceptance:
+    - id: thefuck-path-separator-trace-reuse
+      command: >-
+        python -B -c "import ast; from pathlib import Path; from types import SimpleNamespace; tree=ast.parse(Path('thefuck/utils.py').read_text(encoding='utf-8')); fn=next(item for item in tree.body if isinstance(item,ast.FunctionDef) and item.name=='get_all_executables'); fn.decorator_list=[]; fn.body=[item for item in fn.body if not isinstance(item,ast.ImportFrom)]; seen=[]; FakePath=type('FakePath',(),{'__init__':lambda self,value:seen.append(value),'iterdir':lambda self:[]}); namespace={'os':SimpleNamespace(environ={'PATH':'C:/foo;C:/bar;C:/baz'},pathsep=';'),'six':SimpleNamespace(PY2=False),'Path':FakePath,'get_alias':lambda:'fuck','shell':SimpleNamespace(get_aliases=lambda:[])}; exec(compile(ast.Module(body=[fn],type_ignores=[]),'thefuck/utils.py','exec'),namespace); assert namespace['get_all_executables']()==[]; assert seen==['C:/foo','C:/bar','C:/baz'],seen"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 20
+    max_model_calls: 12
+    max_tool_calls: 20
+    max_wall_time_seconds: 600
+    max_cost_usd: "1.00"
+    max_input_tokens: 100000
+    max_output_tokens: 5000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+  memory_scope: thefuck-retrieval-reuse-trace-v1
+
+initial_plan:
+  version: 1
+  items:
+    - work_item_id: inspect-observed-path-retrievals
+      title: Inspect the observed PATH retrieval evidence
+      objective: Reuse the first EvidencePack and inspect its bounded neighboring source
+      dependencies: []
+      expected_artifacts: [Code EvidencePack, bounded thefuck/utils.py source excerpt]
+      acceptance_ids: [thefuck-path-separator-trace-reuse]
+      allowed_tools: [retrieve_code, read_file]
+
+expected_initial_failed_checks: [thefuck-path-separator-trace-reuse]
+
+arms:
+  - arm_id: repeated-retrieval
+    role: baseline
+    description: Keep repeating the second observed query until durable no-progress guidance is required.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items: []
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 5
+    expected_tool_calls: 5
+    expected_steps: 5
+    actions:
+      - &observed_query_one
+        tool: retrieve_code
+        arguments:
+          query: split PATH entries executable discovery os.pathsep
+      - &observed_query_two
+        tool: retrieve_code
+        arguments:
+          query: PATH split executable find
+      - *observed_query_two
+      - *observed_query_two
+      - *observed_query_two
+
+  - arm_id: reuse-neighbor-and-repair
+    role: single_replan
+    description: Follow the reuse hint into bounded neighboring source, replan once, edit, and validate.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items: [repair-path-separator-after-reuse]
+    expected_model_calls: 6
+    expected_tool_calls: 7
+    expected_steps: 7
+    actions:
+      - *observed_query_one
+      - *observed_query_two
+      - tool: read_file
+        arguments:
+          path: thefuck/utils.py
+          start_line: 16
+          end_line: 155
+      - tool: revise_plan
+        arguments:
+          reason: The bounded neighboring source exposes get_all_executables and its hard-coded PATH separator.
+          items:
+            - work_item_id: repair-path-separator-after-reuse
+              title: Use the active platform PATH separator
+              objective: Replace the hard-coded PATH separator without changing executable filtering
+              dependencies: []
+              expected_artifacts: [thefuck/utils.py, thefuck-path-separator-trace-reuse receipt]
+              acceptance_ids: [thefuck-path-separator-trace-reuse]
+              allowed_tools: [read_file, retrieve_code, replace_text, run_check]
+      - tool: replace_text
+        arguments:
+          path: thefuck/utils.py
+          old: "            for path in os.environ.get('PATH', '').split(':')"
+          new: "            for path in os.environ.get('PATH', '').split(os.pathsep)"
+      - tool: submit
+        arguments:
+          summary: Reused the prior retrieval path, inspected bounded neighboring source, and validated os.pathsep.

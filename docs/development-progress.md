@@ -1671,8 +1671,8 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 九轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 662 passed；全量入口对应
-662 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
+当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 670 passed；全量入口对应
+670 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
 `run_model_cost_limit` 进入 `FAILED`。没有工具、编辑、checkpoint 或验证，Trace 14 事件可重放，
@@ -1728,3 +1728,37 @@ Project Memory 等
 它不是自动追加实验授权，本轮 Pilot 的用户累计授权上限仍单独按 CNY 0.25 计算。密钥只在
 本地 `.env` 或环境变量中读取，不写入 Git、TaskSpec、
 SQLite 账本或文档。
+
+## 2026-10-30 TheFuck-2 真实查询的零费用闭环回归
+
+第九轮真实模型 Run 的两条原始查询已进入独立的 post-run development scenario，没有覆盖冻结的
+22-case suite，也没有把离线结果包装成真实模型成功。场景固定公开 TheFuck-2 buggy commit
+`40ab4eb62db57627bff10cf029d29c94704086a2`、`thefuck/**` 写权限和禁网 Docker：Baseline 重复第二条
+查询后按 durable no-progress 合同进入 `WAITING_FOR_USER`；Treatment 复用第一次 EvidencePack，
+收到 320-char `RetrievalQueryPolicy`，按建议读取 `thefuck/utils.py:16-155`，一次 replan 后把
+`split(':')` 改为 `split(os.pathsep)`，最终进入 `SUCCEEDED`。保护检查、Trace replay、source
+workspace unchanged 均为 true；工具序列固定为两次检索、bounded read、replan、精确写入、submit
+和 required check，唯一写入同时满足 context-bound 与 evidence-backed。当前本机 case report ref
+为 `90f1dd4004a73d7fac6ef589305107a72efee67f887a50f06fbe462018c23657`，Trace ref 为
+`a03b9a80e4c1a5d8aff1cfa1056c34af2c093790284fc0e59768ec0a2799354b`；这些 ref 来自本机重跑，公开
+CI 会重新生成并上传自己的内容寻址证据。该场景使用离线 scripted model，外部模型费用和评估器
+网络调用均为 0，不能解释为真实模型已修复该任务或独立 holdout 提升。
+
+同批预算回归精确保留原 Run 的 planning `CNY 0.007275` 与首个 execution response
+`CNY 0.005988`。该 response 在同一轮返回两次检索；第一条真实执行，第二条由近重复策略在工具
+派发前拒绝。Campaign 已结算仍为 `CNY 0.013263`、remaining 仍为 `CNY 0.046737`，下一模型请求
+继续在 Provider 派发前以 `campaign_cost_limit` 停止，模型调用数保持 1，reserved/unknown 均为
+0。策略没有通过缩短反馈或压缩上下文绕过已经观察到的费用上限。
+
+压测还暴露出一个真实控制缺口：激进 compaction 原先可能把 `RetrievalQueryPolicy` 连同大
+EvidencePack 一起丢弃，使下一轮看不到“改读 bounded neighbor”的恢复方向。投影器现在把
+`RetrievalQueryPolicy`、`NoProgressPolicy` 和 `ExecutionReplanPolicy` 标为 controller feedback，
+优先丢弃普通历史并至少保留最新一条；如果连该有界反馈也放不进硬上限，就 fail closed，不派发
+一个缺少控制事实的请求。单测覆盖同一 assistant response 内两个 tool call、5,000-char 首个回执
+和第二个策略回执的折叠边界。
+
+本机 Docker 第一次以提升权限执行时，fixture 因所有者不同触发 Git dubious ownership，场景尚未
+进入 Harness；没有修改用户的全局 Git 配置。复跑只给当前进程注入该精确 fixture 的
+`safe.directory`，随后场景通过。这个 setup 失败不计作 Agent 任务失败，也不从记录中删除。
+本批完整离线回归为 **670 passed，11 skipped**；相关四模块为 154 passed，`src/tests` Ruff、格式
+检查和 `git diff --check` 均通过。

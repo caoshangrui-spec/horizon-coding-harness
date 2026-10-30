@@ -1,0 +1,21 @@
+schema_version: 1
+suite_id: thefuck2-retrieval-reuse-v1
+
+# One post-run development scenario. It stays separate from the frozen 22-case full-checkout
+# suite so it cannot be presented as an independent benchmark-quality improvement.
+cases:
+  - case_id: thefuck-2-retrieval-reuse-trace-v1
+    manifest_path: full/thefuck-2-executable-path-separator/retrieval-reuse-v1.yaml
+    source:
+      benchmark: BugsInPy
+      project: thefuck
+      bug_id: "2"
+      repository_url: https://github.com/nvbn/thefuck
+      buggy_commit: 40ab4eb62db57627bff10cf029d29c94704086a2
+      fixed_commit: 78ef9eec88f43d5727986be2237f6e0e250cbbbc
+      fix_url: https://github.com/nvbn/thefuck/commit/78ef9eec88f43d5727986be2237f6e0e250cbbbc
+      upstream_test: tests/test_utils.py::test_get_all_executables_pathsep
+      license_spdx: MIT
+      license_url: https://github.com/nvbn/thefuck/blob/40ab4eb62db57627bff10cf029d29c94704086a2/LICENSE.md
+      reduction: full_checkout
+      reduction_note: Uses the clean 380-file buggy checkout and the two observed model queries; the scripted treatment follows the controller's bounded neighboring read before editing and protected validation.

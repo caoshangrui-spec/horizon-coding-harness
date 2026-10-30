@@ -20,6 +20,12 @@ from horizon.domain.model import (
 )
 from horizon.domain.run import Run
 
+CONTROLLER_FEEDBACK_PREFIXES = (
+    "RetrievalQueryPolicy:",
+    "NoProgressPolicy:",
+    "ExecutionReplanPolicy:",
+)
+
 
 @dataclass(frozen=True)
 class _MessageUnit:
@@ -57,6 +63,7 @@ def _units(messages: tuple[ModelMessage, ...]) -> tuple[_MessageUnit, ...]:
 
 def _unit_fact(unit: _MessageUnit) -> dict:
     facts: list[dict] = []
+    controller_feedback = False
     for message in unit.messages:
         if message.role == "assistant" and message.tool_calls:
             facts.append(
@@ -73,6 +80,9 @@ def _unit_fact(unit: _MessageUnit) -> dict:
             )
         else:
             content = message.content or ""
+            controller_feedback = controller_feedback or any(
+                content.startswith(prefix) for prefix in CONTROLLER_FEEDBACK_PREFIXES
+            )
             facts.append(
                 {
                     "role": message.role,
@@ -83,8 +93,25 @@ def _unit_fact(unit: _MessageUnit) -> dict:
             )
     return {
         "unit_hash": digest([item.model_dump(mode="json") for item in unit.messages]),
+        "controller_feedback": controller_feedback,
         "facts": facts,
     }
+
+
+def _drop_oldest_compaction_fact(facts: list[dict]) -> list[dict]:
+    """Drop expendable history before the latest controller feedback.
+
+    A compacted model request that omits the controller's recovery direction can cause the
+    model to repeat the action that triggered compaction. Keep one latest policy fact or fail
+    closed when the request cannot fit even that bounded excerpt.
+    """
+
+    for index, fact in enumerate(facts):
+        if not fact.get("controller_feedback", False):
+            return [*facts[:index], *facts[index + 1 :]]
+    if len(facts) > 1:
+        return facts[1:]
+    return facts
 
 
 def visible_run_memory_binding(
@@ -339,7 +366,10 @@ class ContextProjector:
                     len(old_units),
                 )
                 while facts and not self._fits(projected_chars, token_estimate):
-                    facts = facts[1:]
+                    reduced_facts = _drop_oldest_compaction_fact(facts)
+                    if reduced_facts == facts:
+                        break
+                    facts = reduced_facts
                     projected = assemble(prefix, old_units, kept_units, compacted_digest, facts)
                     projected_chars, token_estimate = self._measure(projected)
                     last_attempt = (

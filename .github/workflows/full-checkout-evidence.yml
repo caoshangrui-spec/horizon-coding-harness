@@ -20,14 +20,18 @@ on:
       - "benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v2.yaml"
       - "benchmarks/run_ab/bugsinpy-multi-stage-pilot-v*.yaml"
       - "benchmarks/run_ab/bugsinpy-reduced-v2.yaml"
+      - "benchmarks/run_ab/thefuck2-retrieval-reuse-v1.yaml"
       - "benchmarks/run_ab/external/**/manifest.yaml"
       - "benchmarks/run_ab/full/**/manifest.yaml"
       - "benchmarks/run_ab/full/**/multi-stage*.yaml"
+      - "benchmarks/run_ab/full/**/retrieval-reuse*.yaml"
       - "benchmarks/run_ab/full/httpie-4-host-header-overwrite/real-model-pilot.yaml"
       - "config/providers/siliconflow-httpie-pilot.yaml"
       - "src/horizon/adapters/sandbox/**"
+      - "src/horizon/application/agent_loop.py"
       - "src/horizon/application/run_ab_eval.py"
       - "src/horizon/application/pilot.py"
+      - "src/horizon/application/retrieval_control.py"
       - "src/horizon/application/retrieval_lineage.py"
       - "src/horizon/application/context.py"
       - "src/horizon/application/memory.py"
@@ -325,6 +329,135 @@ jobs:
             exit "$suite_status"
           fi
 
+      - name: Run the observed TheFuck-2 retrieval-reuse scenario
+        shell: bash
+        run: |
+          set -euo pipefail
+          state_dir=.horizon/thefuck2-retrieval-reuse-v1
+          mkdir -p "$state_dir"
+          uv run --locked horizon eval run-ab-suite \
+            benchmarks/run_ab/thefuck2-retrieval-reuse-v1.yaml \
+            --image python:3.12-alpine \
+            --state-dir "$state_dir" \
+            | tee "$state_dir/cli-result.json"
+          uv run --locked python - <<'PY'
+          import json
+          from pathlib import Path
+
+          state = Path(".horizon/thefuck2-retrieval-reuse-v1")
+          artifacts = state / "artifacts"
+
+          def artifact(ref: str) -> Path:
+              return artifacts / ref[:2] / ref
+
+          result = json.loads((state / "cli-result.json").read_text(encoding="utf-8"))
+          suite = result["report"]
+          if (
+              not suite["all_expectations_met"]
+              or suite["paid_model_called"]
+              or suite["network_called"]
+              or suite["case_count"] != 1
+              or suite["treatment_recovered_count"] != 1
+          ):
+              raise SystemExit("TheFuck-2 retrieval-reuse suite boundary failed")
+          case = suite["cases"][0]
+          case_report = json.loads(artifact(case["report_ref"]).read_text(encoding="utf-8"))
+          baseline = case_report["baseline"]
+          treatment = case_report["single_replan"]
+          if (
+              baseline["status"] != "WAITING_FOR_USER"
+              or treatment["status"] != "SUCCEEDED"
+              or not treatment["final_validation_passed"]
+              or not treatment["trace_replay_verified"]
+              or not treatment["source_workspace_unchanged"]
+          ):
+              raise SystemExit("TheFuck-2 treatment did not close the expected loop")
+
+          events = [
+              json.loads(line)
+              for line in artifact(treatment["trace_ref"]).read_text(
+                  encoding="utf-8"
+              ).splitlines()
+          ]
+          settled = [
+              event["payload"]["record"]
+              for event in events
+              if event["event_type"] == "TOOL_CALL_SETTLED"
+          ]
+          observed = [(record["name"], record["status"]) for record in settled]
+          expected = [
+              ("retrieve_code", "success"),
+              ("retrieve_code", "error"),
+              ("read_file", "success"),
+              ("revise_plan", "success"),
+              ("replace_text", "success"),
+              ("submit", "success"),
+              ("run_check", "success"),
+          ]
+          if observed != expected:
+              raise SystemExit(f"Unexpected retrieval-reuse tool sequence: {observed}")
+          retrieval = artifact(settled[0]["artifact_ref"]).read_text(encoding="utf-8")
+          policy = artifact(settled[1]["artifact_ref"]).read_text(encoding="utf-8")
+          neighbor = artifact(settled[2]["artifact_ref"]).read_text(encoding="utf-8")
+          if (
+              not policy.startswith("RetrievalQueryPolicy:")
+              or '"path":"thefuck/utils.py"' not in policy
+              or '"start_line":16' not in policy
+              or '"end_line":155' not in policy
+              or "def get_all_executables" not in neighbor
+              or len(policy) >= len(retrieval)
+          ):
+              raise SystemExit("TheFuck-2 reuse hint lost its bounded source evidence")
+          reservations = [
+              event["payload"]["reservation"]
+              for event in events
+              if event["event_type"] == "MODEL_CALL_RESERVED"
+          ]
+          if len(reservations) != 6:
+              raise SystemExit("TheFuck-2 treatment model-call count drifted")
+          lineage = treatment["reliability"]["retrieval_lineage"]
+          if (
+              lineage["successful_write_count"] != 1
+              or lineage["write_context_bound_count"] != 1
+              or lineage["evidence_backed_write_count"] != 1
+          ):
+              raise SystemExit("TheFuck-2 write lost retrieval evidence lineage")
+          evidence = {
+              "schema_version": 1,
+              "claim_scope": "post_run_scripted_development_regression",
+              "external_model_called": False,
+              "external_model_cost_cny": "0",
+              "network_called_by_evaluator": False,
+              "repository_code_executed_in_network_disabled_container": True,
+              "baseline_status": baseline["status"],
+              "treatment_status": treatment["status"],
+              "policy_feedback_chars": len(policy),
+              "retrieval_evidence_chars": len(retrieval),
+              "post_policy_request_payload_bytes": reservations[2]["request_payload"][
+                  "payload_bytes"
+              ],
+              "post_policy_compacted_unit_count": reservations[2].get(
+                  "compacted_unit_count", 0
+              ),
+              "trace_ref": treatment["trace_ref"],
+              "policy_artifact_ref": settled[1]["artifact_ref"],
+              "required_check_passed": treatment["final_validation_passed"],
+              "trace_replay_verified": treatment["trace_replay_verified"],
+              "source_workspace_unchanged": treatment["source_workspace_unchanged"],
+              "write_context_bound": True,
+              "evidence_backed_write": True,
+              "excluded_claims": [
+                  "real_model_task_success",
+                  "independent_holdout_improvement",
+                  "retrieval_ranking_improvement",
+              ],
+          }
+          (state / "trace-reuse-evidence.json").write_text(
+              json.dumps(evidence, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+              encoding="utf-8",
+          )
+          PY
+
       - name: Run the three-case three-stage recovery suite in network-disabled containers
         shell: bash
         run: |
@@ -363,6 +496,7 @@ jobs:
             .horizon/docker-worker-crash-cli.json
             .horizon/reduced-docker-v2
             .horizon/full-checkout-docker-v11
+            .horizon/thefuck2-retrieval-reuse-v1
             .horizon/multi-stage-docker-v4
             .horizon/multi-stage-hard-crash-docker-v2
             .horizon/real-model-pilot-httpie-v1
@@ -417,6 +551,11 @@ jobs:
               Path(".horizon/full-checkout-docker-v11/cli-result.json").read_text(
                   encoding="utf-8"
               )
+          )
+          retrieval_reuse = json.loads(
+              Path(
+                  ".horizon/thefuck2-retrieval-reuse-v1/trace-reuse-evidence.json"
+              ).read_text(encoding="utf-8")
           )
           multi = json.loads(
               Path(".horizon/multi-stage-docker-v4/cli-result.json").read_text(
@@ -564,6 +703,13 @@ jobs:
               and full_reliability["evidence_backed_write_count"]
               >= full_report["case_count"]
               and full_case_lineage_covered
+              and retrieval_reuse["baseline_status"] == "WAITING_FOR_USER"
+              and retrieval_reuse["treatment_status"] == "SUCCEEDED"
+              and retrieval_reuse["required_check_passed"]
+              and retrieval_reuse["trace_replay_verified"]
+              and retrieval_reuse["source_workspace_unchanged"]
+              and retrieval_reuse["write_context_bound"]
+              and retrieval_reuse["evidence_backed_write"]
               and multi_reliability["required_check_failure_arm_count"] == 0
               and hard_crash_reliability["required_check_failure_arm_count"] == 0
               and created_resume["verified"]
@@ -600,11 +746,13 @@ jobs:
               any(report["paid_model_called"] for report in suite_reports)
               or created_resume["paid_model_called"]
               or worker_crash["paid_model_called"]
+              or retrieval_reuse["external_model_called"]
           )
           network_called = (
               any(report["network_called"] for report in suite_reports)
               or created_resume["network_called"]
               or worker_crash["network_called"]
+              or retrieval_reuse["network_called_by_evaluator"]
           )
           if not all_expectations_met:
               missing_case_lineage = [
@@ -742,6 +890,16 @@ jobs:
                   "- Full-checkout suite: "
                   f"`{full_report['passed_case_count']}/{full_report['case_count']}`; "
                   f"report `{full['report_ref']}`"
+              ),
+              (
+                  "- TheFuck-2 observed-query reuse: "
+                  f"`{retrieval_reuse['baseline_status']} -> "
+                  f"{retrieval_reuse['treatment_status']}`; policy/evidence chars `"
+                  f"{retrieval_reuse['policy_feedback_chars']}/"
+                  f"{retrieval_reuse['retrieval_evidence_chars']}`; post-policy request `"
+                  f"{retrieval_reuse['post_policy_request_payload_bytes']}` bytes; "
+                  f"compacted units `"
+                  f"{retrieval_reuse['post_policy_compacted_unit_count']}`"
               ),
               (
                   "- Dependency-reduced success quality: clean/flagged `"

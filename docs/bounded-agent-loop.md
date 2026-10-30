@@ -466,3 +466,22 @@ best-effort 删除；receipt 前崩溃因此留下可恢复结果。pre-create �
 
 每一步继续区分：代码存在、确定性测试、真实运行、独立复核和 benchmark 效果，不能互相
 替代。
+
+## 11. 压缩时保留控制器恢复方向
+
+模型可以在同一 response 中返回多个 tool call。若前一个 `retrieve_code` 产生较大的
+EvidencePack、后一个近重复检索产生短 `RetrievalQueryPolicy`，两条回执属于同一个完整 turn；压缩
+不能为了容纳旧证据而把后一个恢复方向静默删除。投影器因此对以下有界控制反馈做显式标记：
+
+- `RetrievalQueryPolicy:`；
+- `NoProgressPolicy:`；
+- `ExecutionReplanPolicy:`。
+
+确定性 compaction 先删除普通历史，再删除旧控制反馈，至少保留最新一条。如果只剩最新控制反馈
+仍超过字符或 token 硬上限，投影失败并停止派发，不生成一个缺少关键控制事实的模型请求。该规则
+不扩大预算：TheFuck-2 原 Campaign 在 `CNY 0.013263` 已结算、`CNY 0.046737` remaining 时，下一
+请求仍以 `campaign_cost_limit` 在 Provider 前停止；不会因复用检索或压缩而获得额外调用额度。
+
+真实 checkout 的零费用 scripted 回归进一步固定了预期路径：首次检索成功、近重复检索被拒绝、
+按策略读取 `thefuck/utils.py:16-155`、replan、精确编辑、protected check。它证明 Harness 能消费
+该控制反馈形成可重放闭环，不证明同一外部模型在新 Run 中一定采取这些动作。

@@ -745,3 +745,18 @@ execution 的 per-call/Run/Campaign 三项费用门均为 false，最终 `ready=
 
 九轮合计为 9 Trace、26 次已结算模型调用；派发预留累计 `CNY 1.573446`，本地 PriceCard 结算
 累计 `CNY 0.2306292`，聚合比 `6.822406`。这仍是预算安全与失败诊断证据，不是修复成功率。
+
+## 19. 第九轮后的零费用复现边界
+
+第九轮历史 Trace、费用和失败终态保持不变，没有 resume、retry 或新的 SiliconFlow 调用。新增的
+预算回归把当时一次 execution response 的 1,690 input / 102 output token 和两次 tool call 放回
+生产 Agent Loop：第一条检索正常结算，第二条近重复检索由 revision-bound 策略在 RAG 派发前拒绝。
+planning `CNY 0.007275` 加 execution `CNY 0.005988` 后，Campaign settled 仍为
+`CNY 0.013263`、remaining 为 `CNY 0.046737`；下一请求仍因累计费用不足而在 Provider 前停止，
+没有第二次模型 dispatch，reserved/unknown 均为 0。这证明新策略没有绕过历史预算负结果。
+
+另一个独立的 post-run scripted scenario 在精确 TheFuck-2 buggy checkout 和禁网 Docker 中消费
+同样两条查询。Baseline 为 `WAITING_FOR_USER`；Treatment 按策略读取 bounded neighbor、replan、
+编辑并通过 required check，终态为 `SUCCEEDED`，Trace replay 与 source unchanged 都通过。它的
+外部模型调用、外部模型费用和评估器网络调用均为 0；它只证明 Harness 的控制闭环可执行，不是
+真实模型 continuation，不增加真实模型任务成功数，也不是独立 holdout 结果。
