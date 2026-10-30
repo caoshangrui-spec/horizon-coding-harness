@@ -28,6 +28,11 @@
 这是一个确定性的 Harness 演示，不是模型能力评测。它复用生产主循环、预算账本、工具网关、
 Run Memory、上下文会话和事件存储，但模型动作由冻结脚本提供。
 
+本演示不会故意触发上下文容量暂停，因此 EvidencePack 不声明它验证了
+`context_capacity_required`。当前安装包可通过 `horizon doctor` 暴露
+`recoverable_context_capacity_stop` 及其 profile；该能力的实际证据来自独立真实子进程回归和
+[上下文投影合同](context-projection.md)，不能与本演示的写入崩溃 Trace 混为同一证据。
+
 ## 2. 运行
 
 ```powershell

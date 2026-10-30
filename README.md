@@ -26,7 +26,8 @@ Horizon 是一个面向长程软件工程任务的**可恢复执行控制层**�
   Supervisor 安全接力、父控制器硬退出后的 PID 绑定恢复，以及模型、工具和 promotion 提交窗口
   的保守恢复。
 - **上下文与知识**：字符、保守 input-token 与剩余费用余量共同约束的确定性投影、不可丢失的
-  Mandatory Facts、有来源的 Run Memory，以及绑定 workspace revision 的 SQLite FTS5 Code RAG。
+  Mandatory Facts、有来源的 Run Memory，以及绑定 workspace revision 的 SQLite FTS5 Code RAG；
+  最小安全投影仍超限时在模型派发前持久等待，充分扩容后从原 transcript 安全续跑。
 - **验证与治理**：有界工具权限、禁网 Docker 验收、Campaign/Run 双层费用门禁、持久化 HITL、
   单次证据驱动 replan 和可离线重放的 JSONL Trace。
 - **保守意图入口**：`horizon intake route` 将控制请求、任务类型和执行模式结构化；显式控制命令
@@ -120,6 +121,7 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | [终态 Run 顺序汇总](docs/terminal-suite-evaluation.md) | 有序聚合已有终态 Run；递归验证每个子 EvidencePack，分列结果、验收未知/失败、clean/quality-flagged success、检索降级与 unknown/open effect | 不执行任务，不是 batch scheduler，也没有并发性能声明 |
 | [可恢复的顺序 Agent 任务批次](docs/sequential-agent-batch.md) | `agent batch` 按 1～100 条 TaskSpec manifest 顺序执行；任务间原子保存 checkpoint，确定性 invocation/Run receipt 支持重启识别，终态失败原样记录后继续，非终态/不确定 case 阻塞后项；全部闭合后复用 terminal-suite | 单机并发度 1；不自动越过人工/悬空 effect/旧 Worker 边界，不是 20～30 个真实模型任务成绩或吞吐声明 |
 | [本地顺序 Supervisor](docs/local-sequential-supervisor.md)、[正式子进程模式](docs/local-process-supervisor.md)与[父控制器硬退出恢复](docs/parent-controller-crash-recovery.md) | `--supervise` 支持安全轮次接力；`agent run/resume --worker-process` 让每个 slice 由真实直接子进程持有 Lease，并在放行前持久化 PID launch 与启动授权。父 CLI 正常同步回收后再换 epoch；父进程被硬 kill 时，重启后的新 Lease 必须等待 TTL 并精确确认旧 PID 已停止。`Ctrl+C` 与显式 slice timeout 仍先写取消栅栏再停止/reap，pending intent 显式阻塞且零重派 | 只管理一个本地直接子进程；父崩溃恢复依赖操作者核实精确 PID，不自动探活/kill；不覆盖 OS 掉电/内核恢复、PID reuse 自动判定、任意后代进程、跨主机、队列或任意 effect exactly-once |
+| [可恢复上下文容量暂停](docs/context-projection.md) | 必保前缀或 incomplete turn 在最小合法投影下仍超限时，Provider 派发前生成 typed stop、进入等待并释放 Lease；真实子进程退出后父进程仍按 PID reap。充分扩容的本机决定与消息不变的新 session 边界原子发布，再由新 PID 完成 protected validation；停止请求零模型派发、零 Campaign attempt | 这是独立 Scripted Model/进程故障回归，不属于主作品集 EvidencePack 的写入崩溃 Trace；不证明语义压缩质量、任意 Provider context window 或跨主机恢复 |
 | [直接子 Worker 超时取消 EvidencePack](docs/process-timeout-cancellation-demo.md) | 一条零费用命令启动真实直接子进程；ready handshake 绑定 launch ID/PID/Lease/epoch/event hash，离线验证持久启动授权、取消围栏、同步 reap 与终态顺序；标准 CI 同步发布限时 artifact | 只证明一个本地直接子进程的父侧 timeout 与同步 reap；不是父/OS 自动恢复、进程树/跨主机控制、任意 effect 恢复或 exactly-once |
 | [Docker `created` 执行子进程退出 EvidencePack](docs/docker-created-recovery-evidence.md) | Docker effect-executor 在 `create` 后、`start` 前以 34 退出；存活控制器观察 `created`、精确删除并持久化 `discard_check` receipt，Trace 可离线重放 | 未覆盖 Lease-owning Agent Worker 自身崩溃；也不是任意崩溃、外部副作用不存在或 exactly-once 证明 |
 | [Docker `created` 续跑到终态](docs/docker-created-resume-to-terminal.md) | 在上述安全边界后由新 Worker epoch 继续；旧 call 不重派，新 call 使用同一 immutable image ID 执行 protected validation 并最终 `SUCCEEDED`；本地与[公开 Linux workflow](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/39803245157)均通过 | 使用合成 marker 与 Scripted Model；不是 Agent Worker 崩溃自动接管、真实模型能力或官方任务成绩 |
@@ -178,6 +180,16 @@ uv run --locked --cache-dir .uv-cache horizon demo process-timeout
 
 输出根包可在临时数据库删除后用 `horizon demo verify-process-timeout <evidence-pack.json>`
 递归复核；详见[直接子 Worker 超时取消演示](docs/process-timeout-cancellation-demo.md)。
+
+要查看当前安装版本公开的容量恢复能力声明，而不启动 Run 或读取 API Key：
+
+```powershell
+uv run --locked --cache-dir .uv-cache horizon doctor |
+  ConvertFrom-Json |
+  Select-Object recoverable_context_capacity_stop, recoverable_context_capacity_stop_profile
+```
+
+该输出是安装包能力清单；真实进程证据来自测试和 Trace 合同，不把静态声明冒充 EvidencePack。
 
 要单独展示“Docker 已创建但尚未开始执行时崩溃”的保守恢复链，可运行：
 

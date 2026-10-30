@@ -14,7 +14,9 @@ for public releases; unreleased work must not be presented as a published releas
   A real local-process regression now forces a child to stop at that boundary with a nonzero exit,
   replays the pre-reap prefix, proves the decision/session batch rolls back atomically under an
   injected controller failure, and then completes through three fresh child processes without
-  redispatching or charging the stopped request.
+  redispatching or charging the stopped request. `horizon doctor` now exposes this exact bounded
+  profile for installed-package and interview inspection, while the portfolio documentation keeps
+  it explicitly separate from the main Demo's write-crash EvidencePack.
 - Added Trace-derived retrieval-consumption lineage to source-bound Run A/B reports. Successful
   `retrieve_code` receipts are now matched to exact later ContextProjection tool messages or active
   post-replan RunMemory excerpts, then joined to write compare-and-swap preconditions by source model

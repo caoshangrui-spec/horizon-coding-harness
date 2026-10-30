@@ -3943,6 +3943,10 @@ def doctor():
                 "budget_aware_context_compaction_profile": (
                     "run_campaign_per_call_headroom_effective_input_cap"
                 ),
+                "recoverable_context_capacity_stop": True,
+                "recoverable_context_capacity_stop_profile": (
+                    "pre_dispatch_typed_wait_atomic_reanchor_local_process_reap"
+                ),
                 "semantic_compaction": False,
                 "memory_enabled": True,
                 "memory_profile": "evidence_backed_run_projection",

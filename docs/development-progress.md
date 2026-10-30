@@ -29,9 +29,14 @@
   另在 decision/session 原子批次完成写入后、SQLite commit 前注入 controller 故障，三条事件全部
   回滚；再次充分扩容后由三个新 PID 完成修复与保护验收。容量停止前模型/Campaign attempt 为零，
   全程仅一个请求、一个决策，续跑三次 model call ID 唯一且 Trace 最终等价重放。
+- `horizon doctor` 新增 `recoverable_context_capacity_stop` 与精确 profile，安装后的 wheel 可直接
+  展示这项有界能力。README、三分钟面试稿和 Portfolio 文档明确区分：真实子进程回归提供容量
+  恢复证据；主作品集 EvidencePack 仍只证明其实际执行的写入 effect-before-receipt 窗口，不把
+  静态能力清单伪装成包内 Trace 证据。
 - 整仓离线回归为 **647 passed，11 skipped**；11 项仍是需要显式本机 Docker 镜像的合同测试。
-  Ruff 静态检查、格式检查和 `git diff --check` 通过。本批未联网、未调用付费模型，也未修改第八次
-  HTTPie 真实 Run；它仍是历史 `RUNNING` 负结果，不会被新 schema 追溯改写为已恢复。
+  Ruff 静态检查、格式检查和 `git diff --check` 通过；sdist/wheel 离线构建成功，并已在独立虚拟
+  环境安装后实测 `horizon doctor` 的版本、容量恢复布尔值和 profile。本批未联网、未调用付费模型，
+  也未修改第八次 HTTPie 真实 Run；它仍是历史 `RUNNING` 负结果，不会被新 schema 追溯改写为已恢复。
 
 ## 2026-10-29 HTTPie-4 第八轮负结果与离线修复
 

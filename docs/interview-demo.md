@@ -120,6 +120,19 @@ uv run --locked --cache-dir .uv-cache horizon demo verify-portfolio `
 同一个 workflow 还会发布更窄的 `horizon-process-timeout-evidence`，专门证明直接子进程 timeout
 取消栅栏和同步 reap；它不是主作品集故事的替代品。
 
+若被追问上下文窗口耗尽，可用安装后的能力清单快速定位对应合同：
+
+```powershell
+uv run --locked --cache-dir .uv-cache horizon doctor |
+  ConvertFrom-Json |
+  Select-Object recoverable_context_capacity_stop, recoverable_context_capacity_stop_profile
+```
+
+这里的 `true` 是 CLI 对当前实现范围的声明，不是主作品集 EvidencePack 的新增证据。独立真实
+子进程回归已经验证：最小安全投影仍超限时零 Provider 派发进入等待，父进程按 PID reap；恢复
+decision/session 事务故障会完整回滚，充分扩容后由新 PID 续跑到保护验收。面试时要把两条证据
+分开讲，不说主 Demo 同时执行了上下文超限。
+
 GitHub Actions artifact 通常需要登录 GitHub 后下载；它是 CI 发布的限时证据，不是匿名永久发布
 资产。包内哈希提供自洽性与防意外修改能力，不是签名、可信时间戳或第三方来源认证。
 
@@ -145,7 +158,9 @@ PID 证明父进程实际等待和回收的是哪个直接子进程；Lease ID/e
 - Trace 是执行中真正发生过的事件，不是给模型看的知识库。
 
 压缩只折叠已闭合的旧模型—工具单元；TaskSpec、权限、预算、required checks、未完成 tool call
-和内容摘要 digest 不能静默丢弃。必保内容仍超限时停止派发，不通过删约束换取继续运行。
+和内容摘要 digest 不能静默丢弃。必保内容仍超限时会记录 typed HumanRequest、进入等待并释放
+Lease，不通过删约束换取继续运行；只有本机配置同时达到持久化字符/token 最低值，才以消息完全
+不变的新 session 边界继续。`--worker-process` 下父进程仍须先同步 reap 原 PID。
 
 ### 4. 这里怎样做“意图识别”？
 

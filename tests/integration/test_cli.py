@@ -472,6 +472,10 @@ def test_doctor_checks_fts_without_model():
     assert data["budget_aware_context_compaction_profile"] == (
         "run_campaign_per_call_headroom_effective_input_cap"
     )
+    assert data["recoverable_context_capacity_stop"] is True
+    assert data["recoverable_context_capacity_stop_profile"] == (
+        "pre_dispatch_typed_wait_atomic_reanchor_local_process_reap"
+    )
     assert data["semantic_compaction"] is False
     assert data["memory_enabled"] is True
     assert data["memory_profile"] == "evidence_backed_run_projection"
