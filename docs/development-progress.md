@@ -30,11 +30,43 @@
   与新 Campaign 上限均为 `CNY 0.060`。本地禁网 Docker preflight 实际观察到 PATH 被错误拆成
   `['C', '/foo;C', '/bar;C', '/baz']`，source unchanged、solution isolation 与首次规划输入/费用门均
   通过，`ready=true`；planning reserve `CNY 0.041970`，report ref
-  `c41e0196e94ad006b035bc90b5f062cca27ceeea3b1cae16b489e6cf3e30858b`。这是零费用候选，不是授权或
-  成功 Run；`credential_loaded/paid_model_called/network_called` 均为 false。
+  `c41e0196e94ad006b035bc90b5f062cca27ceeea3b1cae16b489e6cf3e30858b`。这是付费前时点的零费用
+  证据，`credential_loaded/paid_model_called/network_called` 均为 false；后续唯一 Run 与新门禁
+  见下一节，不能用后来结果改写这份历史报告。
 - 第一次扩大回归出现一次既有 Windows 50ms `process-timeout` 临时目录 `PermissionError`，结果为
   659 passed / 1 failed / 11 skipped；该用例立即单独复跑通过，第二次完整回归为
   **660 passed，11 skipped**，未为本批修改超时实现或隐藏首次负结果。
+
+## 2026-10-30 TheFuck-2 第九轮预算门限负结果
+
+- 用户明确授权唯一一次公开 TheFuck-2 Run：向 SiliconFlow 发送允许范围内上下文，模型固定
+  `deepseek-ai/DeepSeek-V4-Flash`，单 Run 与独立 Campaign 均最多 `CNY 0.060`，不重试、无
+  fallback。Run `run_9cfbde76d85a4bfcbf1f3463fbacf8ed` 在第三次模型派发前以
+  `campaign_call_cost_limit` 终止为 `FAILED`；没有创建第二个 Run。
+- planning/execution 两次调用分别结算 `CNY 0.007275 / 0.005988`，总计 `CNY 0.013263`；
+  Campaign remaining 为 `CNY 0.046737`，reserved/unknown 为 0。模型同轮发出两个相近
+  `retrieve_code`：第一次命中 `thefuck/utils.py` 中已经正确使用 `os.pathsep` 的 `which()`，
+  第二次误中 `thefuck/system/unix.py`，没有定位到目标 `get_all_executables()`。
+- 保存两个只读回执后的下一 wire request 为 10,251 bytes，保守 input ceiling 21,526，需预留
+  `CNY 0.069186`，同时超过 `CNY 0.060` 单调用上限和 Campaign 剩余额度，因此 Provider 未收到
+  第三次请求。没有编辑、checkpoint、validation 或 passed item，source/staging revision 未变。
+- 29-event Trace SHA-256 为
+  `cf4400e744c51a3c61d0bb11f57eae3f5e9c4aff74adaf2ab3c1926e2b5b44d5`，offline replay projection
+  hash 为 `6945892ed2f334addbf695ddeb97e25555cdbe30b5ebc1c5a65225b547aa6e6a`。schema v2
+  EvidencePack 已独立命令复核，unknown/open effect 为 false；required acceptance 因未执行而保持
+  unknown，没有把预算安全停止冒充修复成功。
+- 负结果驱动一个窄门禁：Pilot preflight 现在除 planning 外，还离线构造使用任务真实工具 Schema、
+  一个完整工具轮和最多 8 KiB 有界回执的 execution sizing case。TheFuck-2 当前配置下该 case 为
+  8,000 context chars、7,453 tool-result chars、10,293 wire bytes、21,610 input ceiling，需预留
+  `CNY 0.069438`；因此 `CNY 0.060` policy 会在付费前得到 `ready=false`。生产 estimator、费用上限、
+  历史 Trace 和 Campaign 账本均未放宽或改写。
+- 新门禁定向回归 16 项通过；整仓离线回归为 **662 passed，11 skipped**，Ruff、格式检查与
+  `git diff --check` 通过。11 项 skip 仍是需要显式本机 Docker 镜像的既有合同。
+- 修改后又用精确 buggy checkout 和本机已有 `python:3.12-alpine` 执行真实禁网 Docker preflight：
+  初始失败、source unchanged、solution isolation、planning 输入/费用门仍通过；bounded execution
+  的 per-call/Run/Campaign 三项费用门为 false，最终 `ready=false`，CLI 以非零码阻止 launch。
+  `credential_loaded/paid_model_called/network_called` 均为 false；新 report ref 为
+  `8f389d990604629bcfc89b9d5fd3616e41fe3d45f0e127c0ef51cf412512f4f2`。
 
 ## 2026-10-30 人类可读作品集入口
 
@@ -45,7 +77,7 @@
   零网络和独立命令路径。真实命令现场生成了一份 77-event、2 次 Worker 交接、child exit 86、
   final epoch 3 的 `SUCCEEDED` EvidencePack；再次调用独立 verifier 通过。
 - 同步刷新 3 分钟讲解：明确来源绑定 hard-crash v2 在 Luigi `replace_text/accept_replace` 与
-  FastAPI `create_file/accept_create` 上公开 2/2，同时保留八轮真实模型均未完成修复的负结果边界。
+  FastAPI `create_file/accept_create` 上公开 2/2，同时保留九轮真实模型均未完成修复的负结果边界。
   本批没有新框架、新故障类型、联网或付费模型调用；整仓离线回归为 **653 passed，11 skipped**。
 
 ## 2026-10-30 第二个来源绑定写入硬崩溃案例
@@ -580,15 +612,15 @@
 | 确定性 ContextProjection + MandatoryFactLedger | [context.py](../src/horizon/application/context.py)、[context.py](../src/horizon/domain/context.py)、[实现与恢复合同](context-projection.md) | 完整 transcript 留存；候选投影同时满足字符上限与覆盖工具 Schema 的完整请求保守 token 上界，执行期再按 Run/Campaign/单调用最小 CNY 余量收窄 effective cap，近期完整单元在任一硬上限需要时只折叠最少数量，incomplete 单元绝不折叠；新 Projection/Reservation 使用 Adapter 实际 OpenAI-compatible body 字节，绑定版本化 estimator、payload hash/字段分量、上界与 effective cap，并按 estimator ID 恢复 v1。实际折叠还以 `ContextCompactionRecord` 同 model reservation 入 Trace，终态及 suite 以 `context_compacted` 区分 clean/quality-flagged success；Task/Plan/权限/验收/预算/策略/工具 Schema/workspace 另做内容寻址绑定；不是精确 tokenizer、语义压缩或 Project Memory |
 | 证据驱动的 Run Memory | [memory.py](../src/horizon/application/memory.py)、[memory.py](../src/horizon/domain/memory.py) | 从工具事件和内容寻址输出派生；保留失败/unknown，按 workspace revision 失效并绑定模型请求恢复边界；仅 run scope，不是 Project Memory |
 | 精确模式无进展保护 | [agent_loop.py](../src/horizon/application/agent_loop.py) | 同一 revision 下，相同精确动作第 3 次、period-2 第 5 步、period-3/4 第 3p-1 步软阻断；继续模式分别在第 4/6/3p 步进入可恢复人工等待；最小周期校验防止短周期重复冒充长周期；不是语义或任意周期检测 |
-| Revision-aware 词法 Code RAG | [retrieval.py](../src/horizon/domain/retrieval.py)、[sqlite_fts.py](../src/horizon/adapters/retrieval/sqlite_fts.py)、[retrieval_eval.py](../src/horizon/application/retrieval_eval.py)、[retrieval_sources.py](../src/horizon/application/retrieval_sources.py) | SQLite FTS5 exact-key 候选、缓存无关的 exact-key BM25、有界 EvidencePack、权限/revision/hash 回查与显式 scan fallback；内部/命名变体/同名符号与两批外部小样本均保留成功和负结果。7 项目 24 案例冻结集中的 16 个 development 在 v8 新 state dir 完整保持 Hit@1=11/16、Hit@3=15/16、Hit@5=16/16、Recall@5=18/20、MRR=0.817708，3 个 degraded，另 8 个 holdout 仍密封；五组会降低整体指标的定义覆盖候选均保留为负结果。development 源码可从固定公开 URL/commit/package 一键重建并核对文件数、字节数、内容树 digest，冻结排名可排除机器耗时后逐项验真。已知困难子集的 16 个冻结查询扰动显示英文改写 Recall@8=8/8、中文描述仅 1/8。前七轮真实模型 Trace 的 10 次 `retrieve_code` 中，6 次可由 canonical 参数哈希匹配到 3 种公开英文 query，保守候选 6/6 原样旁路，另外 4 次原文和语言保持 `UNKNOWN`；第八轮新增两条可哈希匹配的 HTTPie 查询，当时均误排 `sessions.py` rank 1，驱动缓存隔离修复但未付费复跑。无 AST/向量/symbol 图、真实查询分布或模型修复收益结论 |
+| Revision-aware 词法 Code RAG | [retrieval.py](../src/horizon/domain/retrieval.py)、[sqlite_fts.py](../src/horizon/adapters/retrieval/sqlite_fts.py)、[retrieval_eval.py](../src/horizon/application/retrieval_eval.py)、[retrieval_sources.py](../src/horizon/application/retrieval_sources.py) | SQLite FTS5 exact-key 候选、缓存无关的 exact-key BM25、有界 EvidencePack、权限/revision/hash 回查与显式 scan fallback；内部/命名变体/同名符号与两批外部小样本均保留成功和负结果。7 项目 24 案例冻结集中的 16 个 development 在 v8 新 state dir 完整保持 Hit@1=11/16、Hit@3=15/16、Hit@5=16/16、Recall@5=18/20、MRR=0.817708，3 个 degraded，另 8 个 holdout 仍密封；五组会降低整体指标的定义覆盖候选均保留为负结果。development 源码可从固定公开 URL/commit/package 一键重建并核对文件数、字节数、内容树 digest，冻结排名可排除机器耗时后逐项验真。已知困难子集的 16 个冻结查询扰动显示英文改写 Recall@8=8/8、中文描述仅 1/8。前七轮真实模型 Trace 的 10 次 `retrieve_code` 中，6 次可由 canonical 参数哈希匹配到 3 种公开英文 query，保守候选 6/6 原样旁路，另外 4 次原文和语言保持 `UNKNOWN`；第八轮两条 HTTPie 查询均误排 `sessions.py` rank 1；第九轮两条 TheFuck 查询分别命中同文件错误函数与错误模块，仍未形成写入。无 AST/向量/symbol 图、真实查询分布或模型修复收益结论 |
 | 冻结控制器策略评测 | [reliability.py](../src/horizon/domain/reliability.py)、[reliability_eval.py](../src/horizon/application/reliability_eval.py) | 14 案例/62 判断覆盖精确 period-1/2/3/4 NoProgress 与单次 replan 接受/拒绝；生产路径共享判定函数、报告内容寻址、零外部调用；不是模型或真实 Issue 效果评测 |
 | 有界恢复矩阵 v3 | [recovery_evaluation.py](../src/horizon/domain/recovery_evaluation.py)、[recovery_eval.py](../src/horizon/application/recovery_eval.py)、[horizon-recovery-matrix-v3.yaml](../benchmarks/recovery/horizon-recovery-matrix-v3.yaml)、[recovery-matrix-evaluation.md](recovery-matrix-evaluation.md) | 保留 v1/v2 digest；新增 promotion effect→receipt 前真实硬退出，与既有写入/模型响应硬退出及 18 个三工具状态/决策组合合计 21/21。自动恢复 11/11、安全阻塞 10/10、incorrect resume/redispatch/重复副作用均 0；三条 Trace replay。仍非完整设计故障矩阵、主机故障或 exactly-once 验收 |
 | 完整 Run A/B 与来源绑定 Suite | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[scripted.py](../src/horizon/adapters/model/scripted.py) | 同一 Task/Plan/workspace 的 baseline 与单次 replan arm；先真实确认初始失败，再检查 EventLog/预算/Gateway/Trace；1 个内部、v2 的 5 个 BugsInPy 依赖裁剪案例，以及覆盖 9 个项目的 22 个完整 checkout 案例。依赖裁剪 v2 与完整 checkout v11 已由公开禁网 Docker 分别通过 5/5 与 22/22。完整案例还验证干净 Git HEAD 与 Code RAG，仍是脚本模型 |
 | 完整 checkout 多阶段/重启 A/B | [bugsinpy-multi-stage-pilot-v4.yaml](../benchmarks/run_ab/bugsinpy-multi-stage-pilot-v4.yaml) | youtube-dl 872 files、Luigi 382 files 与 FastAPI 629 files 上各有三个依赖 WorkItem；六条 arm 均跨两个持久边界到 epoch 3，合计 12 次重启，并覆盖跨 revision RAG、active/stale Run Memory、完成项保留 replan、最终三项 required checks 与 Trace replay。本地可信与公开禁网 Docker 均为 3/3，doctor 的 case/Docker 计数均为 3。v1 的 CRLF、60 秒 Lease 以及本轮 Tornado 歧义替换负结果继续保留 |
 | 源码绑定的写入硬崩溃 A/B | [bugsinpy-multi-stage-hard-crash-v2.yaml](../benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v2.yaml)、[设计与证据](source-bound-hard-crash-recovery.md) | v2 原样保留 Luigi 382-file `replace_text/accept_replace`，新增 FastAPI 629-file `create_file/accept_create`；4 条 arm 均由真实子进程在 effect 后、receipt 前退出，先 unknown、围栏旧 lease，再精确接纳且不重派模型，最终到 epoch 4。本地与公开禁网 Docker 均为 2/2、Trace replay/source unchanged 4/4、unknown/open 0；doctor 的 case/Docker 计数为 2 |
 | 公开仓库长程可靠性指标 | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[指标合同](long-horizon-reliability-metrics.md) | 新生成的每个 case 记录单调时钟观测耗时；suite typed aggregate 直接给出 scenario/arm、P95、Worker 重启、硬崩溃恢复率、恢复重派、重复副作用、Trace replay、source isolation 与最终 open effect。旧报告仍可读取，冻结 manifest digest 不变；公开 Docker workflow 将多阶段与硬崩溃关键指标设为失败门槛并写入 Job Summary。当前 suite 共 32 个 manifest 场景、64 条 arm，现均有公开统一验证。场景含重复 bug，完整 checkout 也是作者选择的 development 样本，仍无 20～30 个独立盲测/holdout 真实任务或真实模型成功率证据 |
-| 真实模型 Pilot | [pilot.py](../src/horizon/domain/pilot.py)、[pilot.py](../src/horizon/application/pilot.py)、[real-model-pilot.md](real-model-pilot.md) | 离线预检绑定完整干净 checkout、初始失败、source snapshot、Docker image、Provider policy、Harness 源码指纹、费用 cap 和首次规划保守预留。八个付费 Run 均无编辑/验证、Trace 可重放且 source 未变；第八轮 HTTPie-4 的两次真实查询都把 `sessions.py` 排为 rank 1，随后 5,000-char context 门限阻断。当前实际累计为 `CNY 0.2173662`，没有自动复跑或真实 Issue 成功 |
-| 模型预留压力诊断 | [reservation_analysis.py](../src/horizon/application/reservation_analysis.py)、[reservation-diagnostics.md](reservation-diagnostics.md) | `trace reservation-report` 在 replay/hash-chain 校验后关联 reservation、settlement 和 BudgetStop 请求尺寸；八轮 24 次调用的聚合预留/结算比为 6.840594。候选 `request_bytes + 1024` 可回放 7 次，并按旧领域 JSON / 当前 wire basis 分层；当前口径 4 次、0 次观测低估、中位比 4.236018。生产 estimator、费用门禁和付费预算均未改变 |
+| 真实模型 Pilot | [pilot.py](../src/horizon/domain/pilot.py)、[pilot.py](../src/horizon/application/pilot.py)、[real-model-pilot.md](real-model-pilot.md) | 离线预检绑定完整干净 checkout、初始失败、source snapshot、Docker image、Provider policy、Harness 源码指纹、费用 cap、首次规划预留和一个有界 execution sizing case。九个付费 Run 均无编辑/验证、Trace 可重放且 source 未变；第九轮 TheFuck-2 在 2 次检索后因下一请求 `CNY 0.069186` 超过 `CNY 0.060` 单调用上限而终止。全部历史 Pilot 实际累计为 `CNY 0.2306292`，没有自动复跑或真实 Issue 成功 |
+| 模型预留压力诊断 | [reservation_analysis.py](../src/horizon/application/reservation_analysis.py)、[reservation-diagnostics.md](reservation-diagnostics.md) | `trace reservation-report` 在 replay/hash-chain 校验后关联 reservation、settlement 和 BudgetStop 请求尺寸；九轮 26 次调用的聚合预留/结算比为 6.822406。候选 `request_bytes + 1024` 可回放 9 次，0 次观测低估；其中 6 次为当前 exact wire basis。生产 estimator、费用门禁和付费预算均未改变 |
 | 安全轮次续跑 | [agent.py](../src/horizon/domain/agent.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 消息 Artifact + event/revision 绑定；新 Worker 续跑；PLANNING/READY 也可恢复，任意崩溃窗口对账未完成 |
 | 悬空调用恢复与对账 | [recovery.py](../src/horizon/application/recovery.py)、[model_recovery.py](../src/horizon/application/model_recovery.py)、[tool_recovery.py](../src/horizon/application/tool_recovery.py) | Campaign-only 预留释放；response Artifact 跨 Worker 续跑；模型派发前持久化 client Trace ID，返回后普通落盘失败立即隔离，Artifact 前硬退出重启后保守 `unknown`；只读重试；精确 `replace_text` / `apply_patch` / 单文件 `create_file` accept/rollback；Docker `run_check` 自然退出且 request/workspace/隔离配置/完整小日志精确匹配时可恢复 success/error；created attempt 可在状态二次核验后删除并重取 revision，stopped/running 仍走原窄路径，missing 仍需人工确认；部分/漂移写入、transitional、信号/超时/OOM 验证仍阻塞 |
 | Docker `created` 窗口一键 EvidencePack | [docker_created_recovery.py](../src/horizon/application/docker_created_recovery.py)、[_docker_created_crash_worker.py](../src/horizon/application/_docker_created_crash_worker.py)、[领域合同](../src/horizon/domain/docker_created_recovery.py)、[文档](docker-created-recovery-evidence.md) | Docker effect-executor 子进程在生产 `docker create` 完成、`docker start` 调用前真实 `os._exit(34)`；Lease-owning 控制器存活，先保守标 unknown，再调用生产 `agent resolve-tool` 核验 `created`、删除精确 attempt、复核 revision、持久化 `cancelled / discard_check` receipt。7 文件包可无 Docker/数据库离线重放并拒绝重哈希语义篡改；未证明 Agent Worker 自身崩溃，不是任意崩溃或 exactly-once |
@@ -1599,17 +1631,18 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
    `max_cost_usd` 尚未做版本化多币种迁移；取消/截止后的迟到 receipt 已能在本地 recovery
    gate 下结算或保守分类，但没有 Provider 主动 receipt 查询、后台定时协调和生产级全链路
    脱敏。当前 Trace 包含 TaskSpec；不应在其中嵌入凭据。
-6. **真实效果与验收**：八个真实模型 Pilot Run 分别因迭代上限、两次上下文硬门限、三次 Campaign
-   费用硬门限和两次单 Run 费用硬门限停止；它们证明了费用/Trace/source isolation 路径，也分别暴露
+6. **真实效果与验收**：九个真实模型 Pilot Run 分别因迭代上限、两次上下文硬门限、三次 Campaign
+   累计费用硬门限、两次单 Run 费用硬门限和一次 Campaign 单调用费用硬门限停止；它们证明了
+   费用/Trace/source isolation 路径，也分别暴露
    并修复了 Plan/搜索反馈、大文件读取/上下文/租约、Plan 假设路径/请求膨胀，以及范围参数协议
    缺口和完整 inventory 路径准入，但仍没有完成目标修复或 protected validation。定位层已有 24 个
    预冻结外部案例（16 development 已跑、8 holdout 密封），但仍缺固定 20～30 个可执行端到端真实
    任务、Agent 查询生成与修复成功率对照、长程/记忆消融和关键安全独立复核。单个负样本不能替代这些证据。
 
-八轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
+九轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 660 passed；全量入口对应
-660 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
+当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 662 passed；全量入口对应
+662 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
 `run_model_cost_limit` 进入 `FAILED`。没有工具、编辑、checkpoint 或验证，Trace 14 事件可重放，
@@ -1624,8 +1657,13 @@ source 未变。第六轮 Run `run_7fab106a71174c77bb0a82a8a054d3ed` 使用该 v
 `run_b36410ebc7e34aa5b0a29167b472a43d` 结算 2 次模型调用与 2 次只读检索，费用
 `CNY 0.010917`；两个真实 query 都把 `httpie/sessions.py` 排为 rank 1，下一投影因 5,029-char
 protected prefix 超过 5,000-char 硬上限而在派发前停止。Trace 27 事件可重放，无编辑或验证；
-离线 Memory/检索修复不改写该历史结果。当前系列累计实际费用为 `CNY 0.2173662`，第八轮授权
-已消费。剩余 Campaign 或用户总额度
+离线 Memory/检索修复不改写该历史结果。第九轮 Run
+`run_9cfbde76d85a4bfcbf1f3463fbacf8ed` 结算 2 次模型调用与 2 次只读检索，费用
+`CNY 0.013263`；第一次检索命中 `thefuck/utils.py` 的错误函数，第二次命中错误模块。下一请求需
+`CNY 0.069186`，超过 `CNY 0.060` 单调用上限并在派发前终止；29-event Trace 与 schema v2
+EvidencePack 均可离线复核，无编辑或验证。原八轮系列累计仍为 `CNY 0.2173662`，加上第九轮独立
+Campaign 后全部历史 Pilot 实际累计为 `CNY 0.2306292`；对应一次性授权均已消费。剩余 Campaign
+或用户总额度
 都不能自动扩权，任何新付费 Run 仍须取得明确授权。当前优先继续零费用可靠性验证，现有证据不支持立即引入 symbol/vector
 索引、模型摘要或自动 replan。Run Memory 已形成最小垂直切片，
 精确 NoProgress/replan 的冻结策略 Trace 已建立 14 案例基线；内部 A/B、五个来源绑定的依赖裁剪

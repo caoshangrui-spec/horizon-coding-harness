@@ -91,9 +91,9 @@ flowchart LR
 | 多阶段任务能跨 Worker 继续 | youtube-dl、Luigi、FastAPI 各 3 个依赖 WorkItem、2 次持久重启，公开复跑 3/3 | 安全边界重启，不是任意指令点或跨主机容灾 |
 | effect-before-receipt 可保守对账 | Luigi `replace_text/accept_replace` 与 FastAPI `create_file/accept_create` 共 2/2；恢复模型重派 0、重复副作用 0、最终 open effect 0 | 两个固定、作者选择的故障窗口，不承诺 exactly-once |
 | 词法 Code RAG 有冻结定位基线 | 7 项目 24 案例中公开 16 个 development：Hit@1 `11/16`、Hit@5 `16/16`、MRR `0.817708`；8 个 holdout 保持密封 | 有 3 个 degraded；中文困难改写仅 `1/8`，没有 symbol/vector RAG 或端到端收益结论 |
-| 真实 Provider 路径和费用门禁实际运行过 | 8 个 SiliconFlow Pilot、24 个已结算调用，累计 `CNY 0.2173662`；费用、Trace 与 source isolation 可核对 | 8 个 Run 均未完成代码编辑和 protected validation，属于负结果 |
-| 下一轮真实模型评测输入已冻结 | 5 个不同项目的低复杂度 development smoke；首条 TheFuck-2 已用真实 Docker 复现初始失败并通过 solution-isolation/预算输入门，`ready=true` | 作者在已知 Scripted Model 修复后选题；`CNY 0.060` 只是候选上限，尚未读取 Key、付费或形成新模型结果 |
-| 当前离线回归稳定 | `660 passed, 11 skipped`；标准 CI、外部检索证据和来源绑定 Docker workflow 均通过 | 11 个本地 skip 需要现成 Docker 镜像，不能说成本机全通过 |
+| 真实 Provider 路径和费用门禁实际运行过 | 9 个 SiliconFlow Pilot、26 个已结算调用，累计 `CNY 0.2306292`；费用、Trace 与 source isolation 可核对 | 9 个 Run 均未完成代码编辑和 protected validation，属于负结果 |
+| 下一轮真实模型评测输入已冻结 | 5 个不同项目的低复杂度 development smoke；首条 TheFuck-2 已运行一次，结算 `CNY 0.013263` 后由单调用预算门限停止；新 execution sizing preflight 会拒绝原 `CNY 0.060` 配置 | 作者在已知 Scripted Model 修复后选题；其余 4 条尚未运行，也没有新的付费授权 |
+| 当前离线回归稳定 | `662 passed, 11 skipped`；标准 CI、外部检索证据和来源绑定 Docker workflow 均通过 | 11 个本地 skip 需要现成 Docker 镜像，不能说成本机全通过 |
 
 最新公开复核入口：
 
@@ -124,14 +124,14 @@ Python 3.12/3.13 · Pydantic · Typer · SQLite/FTS5 · Docker · Pytest · GitH
 - 构建确定性 Context Projection、run-scope Memory 与 revision-bound SQLite FTS5 Code RAG；
   必保上下文超限时在模型派发前持久暂停，并以新 Lease epoch 和消息不变的新 session 续跑。
 - 建立禁网 Docker A/B 与 EvidencePack 评测：22 个完整 checkout 案例、3 个多阶段恢复案例和
-  2 个硬崩溃案例公开通过；660 项离线回归通过，同时保留 8 次真实模型未完成修复的负结果。
+  2 个硬崩溃案例公开通过；离线回归持续通过，同时保留 9 次真实模型未完成修复的负结果。
 
 ### 不建议写进简历的说法
 
 - “通过 SWE-bench”或“真实 Issue 修复成功率达到某个比例”。
 - “保证 exactly-once”或“支持分布式容灾”。
 - “实现了自动模型 fallback、向量 RAG、通用多 Agent 协作”。
-- “八轮真实模型实验成功”。八轮证明的是 Provider、预算、Trace 和失败诊断链，不是修复能力。
+- “九轮真实模型实验成功”。九轮证明的是 Provider、预算、Trace 和失败诊断链，不是修复能力。
 
 ## 7. English resume version
 
@@ -175,7 +175,7 @@ Lease epoch 做提交围栏，用内容寻址 Artifact 保存大对象；把模�
 ### Result
 
 本地一键演示能够在写入生效、receipt 前强制退出并安全恢复；公开 workflow 通过 22/22 完整
-checkout、3/3 多阶段和 2/2 hard-crash 合同，离线回归为 660 passed。真实模型八轮没有完成修复，
+checkout、3/3 多阶段和 2/2 hard-crash 合同，离线回归为 662 passed。真实模型九轮没有完成修复，
 但失败被完整保留并驱动了上下文容量、检索缓存隔离和预算诊断改进。
 
 ### Reflection
@@ -266,7 +266,7 @@ MRR 0.817708，但中文困难改写只命中 1/8，且八次真实模型 Pilot 
 它固定决策序列，让实验只改变 Harness 机制，可以重复注入同一个崩溃窗口并验证状态机不变量。
 它适合证明恢复、预算和权限合同，不适合证明模型会理解或修复未知 Issue。
 
-### 13. 八轮真实模型为什么都失败，项目还有价值吗？
+### 13. 九轮真实模型为什么都失败，项目还有价值吗？
 
 这说明真实修复能力尚未达到验收，而不是 Harness 证据无效。负结果分别暴露了规划反馈、大文件
 读取、范围参数、错误路径、费用预留和上下文容量问题，并且 Trace 能定位停止原因。面试时应把
@@ -279,9 +279,10 @@ MRR 0.817708，但中文困难改写只命中 1/8，且八次真实模型 Pilot 
 
 ### 15. 如果继续生产化，优先做什么？
 
-先按[五任务 Smoke 合同](real-model-smoke-evaluation.md)在明确的新预算下跑 1 条 easy 任务，确认
-规划—检索—编辑—验证闭环，再扩到 5 条和冻结的 20～30 个独立任务，建立成功率、成本和失败分类
-基线；之后再补 Provider receipt 查询、进程树/OS 故障恢复和跨主机 Lease。只有词法检索成为主要
+先用新增 execution sizing gate 把工具回执、上下文上限和单调用费用合同调到可持续，再在明确的新
+授权下只跑 1 条 easy 任务，确认规划—检索—编辑—验证闭环；随后才扩到 5 条和冻结的 20～30 个
+独立任务，建立成功率、成本和失败分类基线。之后再补 Provider receipt 查询、进程树/OS 故障恢复
+和跨主机 Lease。只有词法检索成为主要
 瓶颈时，才引入 symbol/vector 索引；UI 和自由多 Agent 不应先于这些证据缺口。
 
 ## 11. 现场演示清单
@@ -301,7 +302,7 @@ MRR 0.817708，但中文困难改写只命中 1/8，且八次真实模型 Pilot 
 | 面试官问法 | 可以回答 | 不应回答 |
 |---|---|---|
 | “你做的是 Agent 吗？” | 做的是 Coding Agent 的 Harness/control plane，包含真实 Agent loop、模型和工具 adapter | “训练了一个 Coding LLM” |
-| “能自动修复真实 Issue 吗？” | Scripted Model 的来源绑定合同可执行；真实模型路径跑过但八轮未成功 | “已经有真实修复成功率” |
+| “能自动修复真实 Issue 吗？” | Scripted Model 的来源绑定合同可执行；真实模型路径跑过但九轮未成功 | “已经有真实修复成功率” |
 | “崩溃后一定不会重复吗？” | 已覆盖窗口使用 intent/receipt、Lease、CAS 和对账，两个来源绑定案例零重复 | “任意外部副作用 exactly-once” |
 | “RAG 做得好吗？” | 有 24-case 冻结定位集、公开 development 指标和中文负结果 | “RAG 已显著提高端到端修复率” |
 | “支持分布式吗？” | 边界和接口可替换，目前验证的是本地直接子进程 | “支持跨主机高可用” |
@@ -310,7 +311,7 @@ MRR 0.817708，但中文困难改写只命中 1/8，且八次真实模型 Pilot 
 ## 13. 针对不同岗位的强调顺序
 
 - **Agent / LLM Infra 实习：** Context、Memory、RAG、Tool Calling、预算、Provider 边界，再讲
-  Trace 驱动的八轮负结果诊断。
+  Trace 驱动的九轮负结果诊断。
 - **后端工程实习：** 事件投影、幂等、Lease fencing、事务边界、副作用对账、故障注入和 CI。
 - **平台 / DevOps 实习：** 子进程生命周期、禁网 Docker 验收、EvidencePack、可重放审计和
   来源绑定 workflow。

@@ -12,13 +12,14 @@ from horizon.adapters.persistence.artifacts import ArtifactStore
 from horizon.adapters.vcs.git import verify_clean_git_checkout
 from horizon.adapters.workspace.snapshot import SnapshotManager
 from horizon.application.model_probe import conservative_input_estimate
+from horizon.application.model_sizing import build_agent_execution_sizing_boundary
 from horizon.application.planning import build_plan_request, build_planning_context
 from horizon.domain.common import canonical_json, digest
 from horizon.domain.errors import Conflict, IntegrityError, PolicyDenied
 from horizon.domain.model import CampaignSummary
 from horizon.domain.pilot import RealModelPilotManifest, RealModelPilotPreflightReport
 from horizon.domain.ports import AcceptanceExecutorPort
-from horizon.domain.task import TaskSpec
+from horizon.domain.task import TaskSpec, model_tools_for_mode
 
 
 @dataclass(frozen=True)
@@ -175,6 +176,28 @@ class PilotPreflightService:
         planning_fits_campaign = planning_reserved_cost <= campaign.remaining_cost
         planning_fits_input = planning_input_ceiling <= provider.request.max_input_tokens
 
+        execution_tool_names = prepared_task.constraints.allowed_tools or model_tools_for_mode(
+            prepared_task.execution_mode
+        )
+        execution_boundary = build_agent_execution_sizing_boundary(
+            provider.model.id,
+            allowed_tool_names=execution_tool_names,
+            max_context_chars=provider.request.max_context_chars,
+            max_output_tokens=provider.request.max_output_tokens,
+            enable_thinking=provider.request.enable_thinking,
+        )
+        execution_input_estimate = conservative_input_estimate(execution_boundary.request)
+        execution_reserved_cost = provider.pricing.reserve_cost(
+            execution_input_estimate.token_ceiling,
+            provider.request.max_output_tokens,
+        )
+        execution_fits_per_call = execution_reserved_cost <= provider.campaign.max_cost_per_call
+        execution_fits_run = execution_reserved_cost <= provider.run_budget.max_cost
+        execution_fits_campaign = execution_reserved_cost <= campaign.remaining_cost
+        execution_fits_input = (
+            execution_input_estimate.token_ceiling <= provider.request.max_input_tokens
+        )
+
         observed_failures = tuple(
             sorted(result.check_id for result in initial_validation if not result.passed)
         )
@@ -196,6 +219,10 @@ class PilotPreflightService:
                 planning_fits_run,
                 planning_fits_campaign,
                 planning_fits_input,
+                execution_fits_per_call,
+                execution_fits_run,
+                execution_fits_campaign,
+                execution_fits_input,
             )
         )
         report = RealModelPilotPreflightReport(
@@ -227,6 +254,16 @@ class PilotPreflightService:
             initial_planning_input_estimate=planning_input_estimate,
             max_input_tokens=provider.request.max_input_tokens,
             initial_planning_fits_input_budget=planning_fits_input,
+            bounded_execution_context_chars=execution_boundary.context_chars,
+            bounded_execution_tool_result_chars=execution_boundary.tool_result_chars,
+            bounded_execution_input_estimate=execution_input_estimate,
+            bounded_execution_output_ceiling=provider.request.max_output_tokens,
+            bounded_execution_reserved_cost=execution_reserved_cost,
+            bounded_execution_per_call_cost_cap=provider.campaign.max_cost_per_call,
+            bounded_execution_fits_per_call_cap=execution_fits_per_call,
+            bounded_execution_fits_run_cap=execution_fits_run,
+            bounded_execution_fits_campaign=execution_fits_campaign,
+            bounded_execution_fits_input_budget=execution_fits_input,
             max_model_calls=prepared_task.budgets.max_model_calls,
             initial_validation=initial_validation,
             expected_initial_failed_checks=expected_failures,
@@ -296,6 +333,24 @@ def verify_pilot_launch_binding(
         raise PolicyDenied("Pilot preflight cannot fund its initial planning dispatch")
     if not report.initial_planning_fits_input_budget:
         raise PolicyDenied("Pilot preflight exceeds its planning input-token budget")
+    if (
+        report.bounded_execution_input_estimate is None
+        or report.bounded_execution_reserved_cost is None
+        or report.bounded_execution_fits_per_call_cap is None
+        or report.bounded_execution_fits_run_cap is None
+        or report.bounded_execution_fits_campaign is None
+        or report.bounded_execution_fits_input_budget is None
+    ):
+        raise PolicyDenied("Pilot preflight predates the bounded execution sizing gate")
+    if not all(
+        (
+            report.bounded_execution_fits_per_call_cap,
+            report.bounded_execution_fits_run_cap,
+            report.bounded_execution_fits_campaign,
+            report.bounded_execution_fits_input_budget,
+        )
+    ):
+        raise PolicyDenied("Pilot preflight cannot fund its bounded execution sizing case")
     current_harness_source_digest = current_harness_source_digest or compute_harness_source_digest()
     if current_harness_source_digest != report.harness_source_digest:
         raise Conflict("Harness source changed after pilot preflight")

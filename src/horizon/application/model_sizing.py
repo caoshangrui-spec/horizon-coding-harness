@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
 from horizon.application.model_probe import conservative_input_sizing, legacy_input_estimate
+from horizon.domain.common import canonical_json
 from horizon.domain.model import (
     FunctionCall,
     ModelMessage,
@@ -12,6 +14,111 @@ from horizon.domain.model import (
     ToolDefinition,
 )
 from horizon.tools.gateway import tool_definitions
+
+MAX_BOUNDED_TOOL_RESULT_CHARS = 8 * 1024
+
+
+@dataclass(frozen=True)
+class AgentExecutionSizingBoundary:
+    """One exact, offline request at the configured Agent context boundary."""
+
+    request: ModelRequest
+    context_chars: int
+    tool_result_chars: int
+
+
+def build_agent_execution_sizing_boundary(
+    model: str,
+    *,
+    allowed_tool_names: tuple[str, ...],
+    max_context_chars: int,
+    max_output_tokens: int,
+    enable_thinking: bool,
+) -> AgentExecutionSizingBoundary:
+    """Build a deterministic post-tool Agent request without network or model access.
+
+    The boundary uses the task's real tool schemas plus ``submit`` and fills one completed tool
+    turn with at most 8 KiB of bounded output.  Its canonical message projection never exceeds
+    ``max_context_chars``.  This is deliberately a sizing gate, not a prediction of model
+    quality or of the exact first execution turn.
+    """
+
+    known = {definition.name: definition for definition in tool_definitions()}
+    requested = set(allowed_tool_names) | {"submit"}
+    unknown = requested - set(known)
+    if unknown:
+        raise ValueError(f"Unknown Agent tools in sizing boundary: {sorted(unknown)}")
+    tools = tuple(definition for definition in known.values() if definition.name in requested)
+    if not tools:
+        raise ValueError("Agent execution sizing requires at least one tool")
+    observed_tool = known.get("retrieve_code") if "retrieve_code" in requested else tools[0]
+    boundary_arguments = {
+        "search_repo": {"query": "sizing boundary"},
+        "read_file": {"path": "src/example.py"},
+        "retrieve_code": {"query": "sizing boundary"},
+        "replace_text": {"path": "src/example.py", "old": "a", "new": "b"},
+        "apply_patch": {"edits": [{"path": "src/example.py", "old": "a", "new": "b"}]},
+        "create_file": {"path": "src/new_file.py", "content": ""},
+        "run_check": {"check_id": "acceptance"},
+        "submit": {"summary": "sizing boundary"},
+    }
+    tool_call = ToolCall(
+        id="call-agent-sizing-boundary",
+        function=FunctionCall(
+            name=observed_tool.name,
+            arguments=boundary_arguments[observed_tool.name],
+        ),
+    )
+
+    def messages(result_chars: int) -> tuple[ModelMessage, ...]:
+        return (
+            ModelMessage(
+                role="system",
+                content="Use revision-bound repository evidence before editing.",
+            ),
+            ModelMessage(
+                role="user",
+                content="Complete the bounded coding task and preserve the acceptance contract.",
+            ),
+            ModelMessage(role="assistant", tool_calls=(tool_call,)),
+            ModelMessage(
+                role="tool",
+                tool_call_id=tool_call.id,
+                content="x" * result_chars,
+            ),
+        )
+
+    def projected_chars(result_chars: int) -> int:
+        return len(
+            canonical_json([message.model_dump(mode="json") for message in messages(result_chars)])
+        )
+
+    minimum = projected_chars(0)
+    if minimum > max_context_chars:
+        raise ValueError("Configured context limit cannot hold one completed Agent tool turn")
+    low = 0
+    high = MAX_BOUNDED_TOOL_RESULT_CHARS
+    while low < high:
+        candidate = (low + high + 1) // 2
+        if projected_chars(candidate) <= max_context_chars:
+            low = candidate
+        else:
+            high = candidate - 1
+    boundary_messages = messages(low)
+    request = ModelRequest(
+        model=model,
+        messages=boundary_messages,
+        tools=tools,
+        tool_choice="auto",
+        max_output_tokens=max_output_tokens,
+        temperature=Decimal("0"),
+        enable_thinking=enable_thinking,
+    )
+    return AgentExecutionSizingBoundary(
+        request=request,
+        context_chars=projected_chars(low),
+        tool_result_chars=low,
+    )
 
 
 def _boundary_requests(

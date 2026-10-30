@@ -3,7 +3,10 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from horizon.application.model_sizing import analyze_model_request_sizing
+from horizon.application.model_sizing import (
+    analyze_model_request_sizing,
+    build_agent_execution_sizing_boundary,
+)
 from horizon.interfaces.cli.app import app
 
 CONFIG = Path(__file__).resolve().parents[2] / "config/providers/siliconflow.yaml"
@@ -75,3 +78,29 @@ def test_model_sizing_report_cli_is_offline_and_structured():
     }
     assert report["network_called"] is False
     assert report["paid_model_called"] is False
+
+
+def test_agent_execution_sizing_boundary_uses_real_tools_and_context_cap():
+    boundary = build_agent_execution_sizing_boundary(
+        MODEL,
+        allowed_tool_names=("read_file", "retrieve_code", "replace_text", "run_check"),
+        max_context_chars=8_000,
+        max_output_tokens=512,
+        enable_thinking=False,
+    )
+
+    assert boundary.context_chars == 8_000
+    assert 7_000 < boundary.tool_result_chars < 8_192
+    assert [tool.name for tool in boundary.request.tools] == [
+        "read_file",
+        "retrieve_code",
+        "replace_text",
+        "run_check",
+        "submit",
+    ]
+    payload = boundary.request.openai_compatible_payload_evidence()
+    assert payload.field_value_bytes["messages"] > boundary.tool_result_chars
+    assert payload.field_value_bytes["tools"] > 2_000
+    assert payload.payload_bytes == sum(payload.field_value_bytes.values()) + (
+        payload.json_structure_bytes
+    )

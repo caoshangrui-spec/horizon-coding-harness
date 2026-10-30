@@ -150,13 +150,13 @@ ArtifactStore；不会物化或执行第三方仓库，也不会在线重验历�
 2. 绑定 exact model ID，并为该任务重新执行零费用 pilot preflight；
 3. 由用户重新明确授权**单 Run 上限和包含失败在内的累计 Campaign CNY 上限**。
 
-历史八轮的单次与累计费用授权已经用于对应 Run，不能自动继承到这 5 条任务。后续最短路径是先
-只为 1 条 easy 任务生成 model-visible Pilot manifest 和 Provider 配置，零费用预检通过后再请求
-一次明确预算授权；成功或失败都先冻结证据，再决定是否扩到其余 4 条。
+前八轮的单次与累计费用授权没有自动继承到这 5 条任务；随后 TheFuck-2 取得的一次性授权也已由
+第九轮唯一 Run 消费。任何后续任务仍需新的零费用预检和明确预算授权；成功或失败都先冻结证据，
+再决定是否扩到其余 4 条。
 
 ## 8. 第一条候选：TheFuck-2
 
-第一条 easy 任务现已完成付费前准备，但**尚未授权或启动模型**：
+第一条 easy 任务已在 2026-10-30 按一次性明确授权执行并冻结为**预算门限负结果**：
 
 - Pilot：[`real-model-smoke-pilot-v1.yaml`](../benchmarks/run_ab/full/thefuck-2-executable-path-separator/real-model-smoke-pilot-v1.yaml)；
 - Provider：[`siliconflow-thefuck2-smoke-v1.yaml`](../config/providers/siliconflow-thefuck2-smoke-v1.yaml)；
@@ -164,7 +164,7 @@ ArtifactStore；不会物化或执行第三方仓库，也不会在线重验历�
 - 工具：`read_file/retrieve_code/replace_text/run_check`；
 - 路径：`thefuck/**`，不把精确目标文件写进 allowlist；
 - Provider `max_attempts=1`、`fallback_enabled=false`；
-- 提议的单 Run / 独立 Campaign 硬上限均为 `CNY 0.060`。这是配置上限提案，不是付费授权。
+- 单 Run / 独立 Campaign 硬上限均为 `CNY 0.060`。
 
 本地用已有 `python:3.12-alpine` 镜像执行：
 
@@ -176,7 +176,7 @@ uv run --locked --cache-dir .uv-cache horizon eval pilot-preflight `
   --state-dir .horizon/real-model-smoke-thefuck2-v1
 ```
 
-预检结果为 `ready=true`：
+当时 Harness 的历史预检结果为 `ready=true`：
 
 - 干净 HEAD 精确等于 buggy commit `40ab4eb...`，380-file source capture 后保持 unchanged；
 - Docker 中 protected check 如预期失败，实际错误把 Windows-style PATH 错拆为
@@ -190,6 +190,42 @@ uv run --locked --cache-dir .uv-cache horizon eval pilot-preflight `
   `e17a0969acc70b548ee7a090803e1c8721525e55b864ef6f976a8818d1470f95`，preflight report ref 为
   `c41e0196e94ad006b035bc90b5f062cca27ceeea3b1cae16b489e6cf3e30858b`。
 
-`ready=true` 只表示来源、初始失败、隔离、上下文输入和提议预算在本地门禁中一致。下一步仍需要用户
-明确同意：允许发送该公开任务上下文、只执行这一个模型、单次最多 `CNY 0.060`、独立 Campaign
-累计最多 `CNY 0.060`、不重试、不 fallback。未得到这句话前，不能执行输出中的 launch command。
+该历史 `ready=true` 只检查了首次规划请求，没有证明执行轮在工具回执进入上下文后仍可由相同
+费用合同支持。一次性授权后的唯一 Run 为
+`run_9cfbde76d85a4bfcbf1f3463fbacf8ed`，终态 `FAILED`，原因
+`campaign_call_cost_limit`：
+
+- 规划调用使用 1,702 input / 241 output tokens，结算 `CNY 0.007275`；生成一个端到端 WorkItem，
+  Plan 结构有效；
+- 第一轮执行使用 1,690 input / 102 output tokens，结算 `CNY 0.005988`；模型在同一响应中发出
+  两个相近的 `retrieve_code`。第一次已命中 `thefuck/utils.py`，但片段是同文件中本来就正确使用
+  `os.pathsep` 的 `which()`；第二次误中 `thefuck/system/unix.py`，均未定位到目标
+  `get_all_executables()`；
+- 合计 2 次模型调用、2 次只读工具调用，实际结算 `CNY 0.013263`。Campaign remaining 为
+  `CNY 0.046737`，reserved/unknown 均为 0；没有重试、fallback 或第二个 Run；
+- 下一执行请求为 10,251 wire bytes，生产保守 input ceiling 为 21,526，需预留
+  `CNY 0.069186`。它既高于单调用硬上限 `CNY 0.060`，也高于 Campaign 剩余额度，因此在
+  Provider 派发前停止，未产生第三次费用；
+- workspace revision 始终为
+  `ff858630d710386dc5b28ffe28166c079850db7fc1ab0a73047b2412540cd282`；无编辑、checkpoint、
+  validation 或 passed item，源 checkout 未变；
+- Trace 位于
+  `.horizon/real-model-smoke-thefuck2-v1/run_9cfbde76d85a4bfcbf1f3463fbacf8ed.trace.jsonl`，
+  SHA-256 为 `cf4400e744c51a3c61d0bb11f57eae3f5e9c4aff74adaf2ab3c1926e2b5b44d5`，离线
+  projection hash 为 `6945892ed2f334addbf695ddeb97e25555cdbe30b5ebc1c5a65225b547aa6e6a`；
+  schema v2 EvidencePack 已离线复核，unknown/open effect 均为 false，验收证据因未运行而明确为
+  unknown，不能声称任务修复成功。
+
+该负结果驱动了一个窄的零费用修复：新 Pilot preflight 除首次 planning 外，还构造一个使用任务
+真实工具 Schema、包含一个完整工具轮和最多 8 KiB 有界回执的 execution sizing case；该投影必须
+落在配置的 context cap 内，并同时满足 input、单调用、Run 和 Campaign 四个门限。对当前 TheFuck-2
+配置，离线 case 为 8,000 context chars、7,453 tool-result chars、10,293 wire bytes、21,610
+input ceiling，需预留 `CNY 0.069438`，所以 `CNY 0.060` 合同会在付费前得到
+`ready=false`。这没有降低生产保守估算、修改历史 Trace 或放宽预算；Harness 源码指纹变化也使旧
+preflight 不能再次启动付费 Run。
+
+同一修改随后在精确 TheFuck-2 buggy checkout 和本机已有 `python:3.12-alpine` 上完成真实禁网 Docker
+preflight：初始失败、source unchanged、solution isolation 与 planning 门继续通过；bounded execution
+的 per-call/Run/Campaign 三项费用门为 false，最终 `ready=false`，CLI 以非零码阻止 launch。
+`credential_loaded/paid_model_called/network_called` 均为 false；新 report ref 为
+`8f389d990604629bcfc89b9d5fd3616e41fe3d45f0e127c0ef51cf412512f4f2`。

@@ -60,7 +60,8 @@ Trace、复算最终 Run 投影，并重新验证检索 Artifact → 模型写�
 任意崩溃、操作系统重启或跨主机 exactly-once。公开评测另外在 youtube-dl、Luigi、FastAPI 三个
 完整 checkout 上通过三阶段、两次 Worker 重启的 3/3 Scripted Model 合同；来源绑定 hard-crash
 v2 又在 Luigi `replace_text` 和 FastAPI `create_file` 两个案例上实现 2/2、零重派和零重复副作用。
-真实模型八轮 Pilot 仍都是负结果，所以我把 Harness 可靠性证据与模型修复能力明确分开。”
+真实模型九轮 Pilot 仍都是负结果；最新 TheFuck-2 还证明预算门能在第三次派发前安全停止，所以我把
+Harness 可靠性证据与模型修复能力明确分开。”
 
 ## 现场演示命令
 
@@ -215,7 +216,7 @@ exactly-once，也不证明任意崩溃窗口都已覆盖。
 - 不说“通过了 SWE-bench”；当前外部案例是来源绑定、作者选择且使用 Scripted Model 的评测。
 - 不说“保证 exactly-once”；当前保证的是可审计 intent/receipt、保守 unknown 和有限窗口恢复。
 - 不说“支持分布式容灾”；当前进程证据覆盖本地直接子 Worker。
-- 不把八轮真实模型 Pilot 的可重放失败说成修复成功；它们是保留的负结果。
+- 不把九轮真实模型 Pilot 的可重放失败说成修复成功；它们是保留的负结果。
 - 不把 Docker 限制参数说成安全沙箱认证。
 
 更细的实现合同见[一键作品集演示](portfolio-demo.md)、

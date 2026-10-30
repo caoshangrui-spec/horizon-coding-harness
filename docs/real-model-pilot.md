@@ -1,10 +1,11 @@
-# 真实模型 Pilot：离线预检、八轮负结果与付费边界
+# 真实模型 Pilot：离线预检、九轮负结果与付费边界
 
-更新：2026-10-29。本 Pilot 的目标不是立即追求 benchmark 分数，而是在**完整真实仓库、
-模型自主计划、模型自主检索和编辑**的条件下观察 Harness 的真实失败分布。已执行八个
+更新：2026-10-30。本 Pilot 的目标不是立即追求 benchmark 分数，而是在**完整真实仓库、
+模型自主计划、模型自主检索和编辑**的条件下观察 Harness 的真实失败分布。已执行九个
 付费 Agent Run：分别暴露计划结构/检索反馈、无界读取/上下文投影、Plan 路径假设/请求预留
 过大、单边范围读取/单 Run 预留、路径存在与语义定位的区别、Campaign 预留压力，以及真实查询
-失焦/Run Memory 使 protected prefix 越过字符硬门限。八轮均没有修改代码或进入验收；结果可重放且
+失焦/Run Memory 使 protected prefix 越过字符硬门限，以及工具回执进入上下文后的单调用预留压力。
+九轮均没有修改代码或进入验收；结果可重放且
 费用可对账，但不是 Issue 成功证据，也不足以推出模型或 Harness 的总体能力结论。
 
 ## 1. 为什么复用现有主循环
@@ -13,7 +14,8 @@
 Docker 验收、Run/Campaign 双预算、恢复和 Trace。Pilot 不复制这些机制，只增加两个窄边界：
 
 1. `horizon eval pilot-preflight` 在调用模型前固定真实来源、证明初始失败、检查 solution isolation，
-   并生成内容寻址 TaskSpec 与预检报告；
+   同时测量首次 planning 与一个有界 post-tool execution sizing case，并生成内容寻址 TaskSpec 与
+   预检报告；
 2. `horizon agent run --pilot-preflight ...` 在付费调用前重新比对任务、源码快照、Git HEAD、
    Docker image digest、Provider policy、Harness Python 源码指纹、模型调用上限和费用上限。
 
@@ -610,7 +612,7 @@ fallback、人工补丁或 candidate promotion。正确 Plan 与 rank-1 检索�
 - 失败分类，而不是人工补丁替模型完成任务。
 
 一次通过只能称为“真实模型 Pilot 个案”，不能称为 BugsInPy 分数、泛化能力或长程任务
-成功率。当前八轮均是失败个案。任何下一次付费 continuation 都需要
+成功率。当前九轮均是失败个案。任何下一次付费 continuation 都需要
 新的零费用 preflight、与剩余额度一致的新 Run cap，以及新的明确授权；仍不增加向量库、多
 Agent、Project Memory、自动 fallback 或第二次 replan。
 
@@ -702,7 +704,44 @@ MRR 最低降到 `0.752604`，均作为负结果放弃。最终干净 suite 保�
 同时完整恢复既有 Hit@1/3/5/8=`11/15/16/16`、MRR=`0.817708`，并通过“污染其他 cache key 后
 原查询排名逐字段不变”回归。没有用这些修复重写历史两个 EvidencePack，也没有再次调用 Provider。
 
-八轮合计为 8 Trace、24 次已结算模型调用；派发预留累计 `CNY 1.486914`，本地 PriceCard 结算
+截至第八轮合计为 8 Trace、24 次已结算模型调用；派发预留累计 `CNY 1.486914`，本地 PriceCard 结算
 累计 `CNY 0.2173662`，聚合比 `6.840594`。新 Campaign 尚余 `CNY 0.042083`，系列距用户
 `CNY 0.26` 上限尚余 `CNY 0.0426338`。本次一次性授权已经消费；任何 resume、retry 或新任务都
 需要新的明确付费授权。
+
+## 18. TheFuck-2 第九轮：工具回执后的单调用费用门限
+
+五任务 Smoke 合同冻结后，用户明确授权唯一一次 TheFuck-2 Run：允许发送公开任务的模型上下文、
+`thefuck/**` 内代码片段、候选修改和工具回执至 SiliconFlow；模型固定
+`deepseek-ai/DeepSeek-V4-Flash`，单 Run 与独立 Campaign 均最多 `CNY 0.060`，不重试、无
+fallback。Run `run_9cfbde76d85a4bfcbf1f3463fbacf8ed` 终态为 `FAILED`：
+
+- planning 为 1,702 input / 241 output、`CNY 0.007275`；execution 为 1,690 input / 102 output、
+  `CNY 0.005988`，合计 `CNY 0.013263`；
+- execution 同一响应发出两个相近检索。`split PATH entries executable discovery os.pathsep` 命中
+  `thefuck/utils.py`，但片段是本来就正确使用 `os.pathsep` 的 `which()`；`PATH split executable
+  find` 命中 `thefuck/system/unix.py`。两条都没有给出目标 `get_all_executables()`；
+- 保存两个只读回执后，下一 wire request 为 10,251 bytes，保守 input ceiling 21,526，512 output
+  ceiling，对应 `CNY 0.069186`。它超过 Campaign 单调用硬上限 `CNY 0.060`；当时 Campaign
+  remaining 也只有 `CNY 0.046737`，所以第三次 Provider 请求未派发；
+- 没有编辑、checkpoint、validation、repair、replan 或 passed item；source/staging revision 均保持
+  `ff858630d710386dc5b28ffe28166c079850db7fc1ab0a73047b2412540cd282`，reserved/unknown 为 0；
+- 29-event Trace SHA-256 为
+  `cf4400e744c51a3c61d0bb11f57eae3f5e9c4aff74adaf2ab3c1926e2b5b44d5`，offline projection hash 为
+  `6945892ed2f334addbf695ddeb97e25555cdbe30b5ebc1c5a65225b547aa6e6a`。schema v2 EvidencePack
+  已由独立命令验证，unknown/open effect 为 false；acceptance 因未运行而明确为 unknown。
+
+该结果没有触发自动复跑。零费用修复只收紧启动门：Pilot preflight 现在用任务真实工具 Schema、
+一个完整工具轮和最多 8 KiB 有界回执构造 execution sizing case，并要求其同时满足 input、单调用、
+Run 与 Campaign 四个门限。TheFuck-2 当前配置的 case 为 8,000 context chars、7,453 tool-result
+chars、10,293 wire bytes、21,610 input ceiling，需预留 `CNY 0.069438`，所以相同 `CNY 0.060`
+policy 会在付费前得到 `ready=false`。生产 estimator 和历史证据不变。
+
+修改后的生产 CLI 又在精确 buggy checkout 与本机已有 `python:3.12-alpine` 上执行一次禁网、零费用
+preflight。初始失败、source unchanged、solution isolation 和 planning 门均继续通过；bounded
+execution 的 per-call/Run/Campaign 三项费用门均为 false，最终 `ready=false`，命令用非零退出码
+阻止 launch。`credential_loaded/paid_model_called/network_called` 均为 false；内容寻址 report ref
+为 `8f389d990604629bcfc89b9d5fd3616e41fe3d45f0e127c0ef51cf412512f4f2`。
+
+九轮合计为 9 Trace、26 次已结算模型调用；派发预留累计 `CNY 1.573446`，本地 PriceCard 结算
+累计 `CNY 0.2306292`，聚合比 `6.822406`。这仍是预算安全与失败诊断证据，不是修复成功率。

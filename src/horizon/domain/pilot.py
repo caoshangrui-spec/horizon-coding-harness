@@ -8,7 +8,14 @@ from pydantic import Field, model_validator
 from horizon.domain.common import Contract, canonical_json, digest
 from horizon.domain.model import Currency, InputTokenEstimate, PositiveMoney
 from horizon.domain.run_evaluation import ExternalTaskSource
-from horizon.domain.task import Identifier, PositiveInt, TaskSpec, Text, relative_pattern
+from horizon.domain.task import (
+    Identifier,
+    NonNegativeInt,
+    PositiveInt,
+    TaskSpec,
+    Text,
+    relative_pattern,
+)
 from horizon.domain.tools import AcceptanceResult, Digest
 
 PrivateLiteral = Annotated[str, Field(min_length=4, max_length=500)]
@@ -121,6 +128,18 @@ class RealModelPilotPreflightReport(Contract):
     initial_planning_input_estimate: InputTokenEstimate | None = None
     max_input_tokens: PositiveInt | None = None
     initial_planning_fits_input_budget: bool | None = None
+    # Optional only for historical preflights. New reports size one completed Agent tool turn
+    # with the task's real tool schemas and up to 8 KiB of bounded output before paid launch.
+    bounded_execution_context_chars: PositiveInt | None = None
+    bounded_execution_tool_result_chars: NonNegativeInt | None = None
+    bounded_execution_input_estimate: InputTokenEstimate | None = None
+    bounded_execution_output_ceiling: PositiveInt | None = None
+    bounded_execution_reserved_cost: PositiveMoney | None = None
+    bounded_execution_per_call_cost_cap: PositiveMoney | None = None
+    bounded_execution_fits_per_call_cap: bool | None = None
+    bounded_execution_fits_run_cap: bool | None = None
+    bounded_execution_fits_campaign: bool | None = None
+    bounded_execution_fits_input_budget: bool | None = None
     max_model_calls: int
     initial_validation: tuple[AcceptanceResult, ...]
     expected_initial_failed_checks: tuple[Identifier, ...]
@@ -189,6 +208,49 @@ class RealModelPilotPreflightReport(Contract):
                 raise ValueError("Initial planning input-budget verdict is inconsistent")
             planning_ready = planning_ready and fits_input
 
+        execution_fields = (
+            self.bounded_execution_context_chars,
+            self.bounded_execution_tool_result_chars,
+            self.bounded_execution_input_estimate,
+            self.bounded_execution_output_ceiling,
+            self.bounded_execution_reserved_cost,
+            self.bounded_execution_per_call_cost_cap,
+            self.bounded_execution_fits_per_call_cap,
+            self.bounded_execution_fits_run_cap,
+            self.bounded_execution_fits_campaign,
+            self.bounded_execution_fits_input_budget,
+        )
+        if any(value is not None for value in execution_fields) and any(
+            value is None for value in execution_fields
+        ):
+            raise ValueError("Bounded execution sizing evidence must be complete")
+        execution_ready = True
+        if self.bounded_execution_input_estimate is not None:
+            assert self.bounded_execution_reserved_cost is not None
+            assert self.bounded_execution_per_call_cost_cap is not None
+            assert self.bounded_execution_fits_per_call_cap is not None
+            assert self.bounded_execution_fits_run_cap is not None
+            assert self.bounded_execution_fits_campaign is not None
+            assert self.bounded_execution_fits_input_budget is not None
+            assert self.max_input_tokens is not None
+            fits_per_call = (
+                self.bounded_execution_reserved_cost <= self.bounded_execution_per_call_cost_cap
+            )
+            fits_run = self.bounded_execution_reserved_cost <= self.run_cost_cap
+            fits_campaign = self.bounded_execution_reserved_cost <= self.campaign_remaining_cost
+            fits_input = (
+                self.bounded_execution_input_estimate.token_ceiling <= self.max_input_tokens
+            )
+            if self.bounded_execution_fits_per_call_cap != fits_per_call:
+                raise ValueError("Bounded execution per-call verdict is inconsistent")
+            if self.bounded_execution_fits_run_cap != fits_run:
+                raise ValueError("Bounded execution Run-cap verdict is inconsistent")
+            if self.bounded_execution_fits_campaign != fits_campaign:
+                raise ValueError("Bounded execution Campaign verdict is inconsistent")
+            if self.bounded_execution_fits_input_budget != fits_input:
+                raise ValueError("Bounded execution input-budget verdict is inconsistent")
+            execution_ready = fits_per_call and fits_run and fits_campaign and fits_input
+
         expected_ready = all(
             (
                 self.source_unchanged,
@@ -198,6 +260,7 @@ class RealModelPilotPreflightReport(Contract):
                 self.solution_isolation_passed,
                 self.campaign_remaining_cost >= self.run_cost_cap,
                 planning_ready,
+                execution_ready,
             )
         )
         if self.ready != expected_ready:

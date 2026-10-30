@@ -385,6 +385,15 @@ def test_preflight_persists_bound_task_and_launch_receipt(tmp_path):
     assert result.report.initial_planning_reserved_cost is not None
     assert result.report.initial_planning_fits_run_cap is True
     assert result.report.initial_planning_fits_campaign is True
+    assert result.report.bounded_execution_context_chars is not None
+    assert result.report.bounded_execution_tool_result_chars == 8 * 1024
+    assert result.report.bounded_execution_input_estimate is not None
+    assert result.report.bounded_execution_reserved_cost is not None
+    assert result.report.bounded_execution_per_call_cost_cap == Decimal("1.00")
+    assert result.report.bounded_execution_fits_per_call_cap is True
+    assert result.report.bounded_execution_fits_run_cap is True
+    assert result.report.bounded_execution_fits_campaign is True
+    assert result.report.bounded_execution_fits_input_budget is True
     prepared = TaskSpec.model_validate(
         yaml.safe_load(result.prepared_task_path.read_text(encoding="utf-8"))
     )
@@ -418,6 +427,31 @@ def test_preflight_persists_bound_task_and_launch_receipt(tmp_path):
     assert constrained.report.ready is False
     assert constrained.report.initial_planning_fits_input_budget is False
     assert constrained.report.initial_planning_input_ceiling > 2_000
+
+    narrow_provider = provider.model_copy(
+        update={
+            "campaign": provider.campaign.model_copy(update={"max_cost_per_call": Decimal("0.08")}),
+            "run_budget": provider.run_budget.model_copy(update={"max_cost": Decimal("0.08")}),
+        }
+    )
+    narrow_manifest_data = manifest.model_dump(mode="json")
+    narrow_manifest_data["max_paid_cost"] = "0.08"
+    narrow_manifest = RealModelPilotManifest.model_validate(narrow_manifest_data)
+    narrow = PilotPreflightService(
+        FailingAcceptance(),
+        validation_backend_ref=image_id,
+    ).evaluate(
+        narrow_manifest,
+        source=source,
+        state_dir=tmp_path / "execution-sizing-state",
+        provider=narrow_provider,
+        campaign=campaign,
+    )
+    assert narrow.report.initial_planning_fits_run_cap is True
+    assert narrow.report.bounded_execution_reserved_cost > Decimal("0.08")
+    assert narrow.report.bounded_execution_fits_per_call_cap is False
+    assert narrow.report.bounded_execution_fits_run_cap is False
+    assert narrow.report.ready is False
 
     changed = prepared.model_copy(update={"title": "Changed after preflight"})
     with pytest.raises(Conflict, match="TaskSpec changed"):
@@ -459,6 +493,29 @@ def test_preflight_persists_bound_task_and_launch_receipt(tmp_path):
     with pytest.raises(PolicyDenied, match="planning input-token gate"):
         verify_pilot_launch_binding(
             legacy_input_budget,
+            task=prepared,
+            provider=provider,
+            source_git_head=head,
+            source_snapshot_revision=loaded.source_snapshot_revision,
+            validation_backend_ref=image_id,
+        )
+    legacy_execution_sizing = loaded.model_copy(
+        update={
+            "bounded_execution_context_chars": None,
+            "bounded_execution_tool_result_chars": None,
+            "bounded_execution_input_estimate": None,
+            "bounded_execution_output_ceiling": None,
+            "bounded_execution_reserved_cost": None,
+            "bounded_execution_per_call_cost_cap": None,
+            "bounded_execution_fits_per_call_cap": None,
+            "bounded_execution_fits_run_cap": None,
+            "bounded_execution_fits_campaign": None,
+            "bounded_execution_fits_input_budget": None,
+        }
+    )
+    with pytest.raises(PolicyDenied, match="bounded execution sizing gate"):
+        verify_pilot_launch_binding(
+            legacy_execution_sizing,
             task=prepared,
             provider=provider,
             source_git_head=head,

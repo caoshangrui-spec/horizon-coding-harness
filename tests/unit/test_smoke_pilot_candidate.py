@@ -4,6 +4,8 @@ from pathlib import Path
 import yaml
 
 from horizon.adapters.model.config import load_provider_config
+from horizon.application.model_probe import conservative_input_estimate
+from horizon.application.model_sizing import build_agent_execution_sizing_boundary
 from horizon.domain.common import canonical_json, digest
 from horizon.domain.pilot import RealModelPilotManifest
 from horizon.domain.smoke_evaluation import RealModelSmokeSuite
@@ -65,3 +67,29 @@ def test_thefuck_smoke_provider_is_single_attempt_unapproved_and_solution_isolat
         literal.casefold() not in visible
         for literal in pilot.solution_isolation.forbidden_task_literals
     )
+
+
+def test_thefuck_smoke_budget_cannot_fund_the_bounded_execution_sizing_case():
+    pilot = _load_model(PILOT_PATH, RealModelPilotManifest)
+    provider = load_provider_config(PROVIDER_PATH)
+    assert pilot.task.constraints.allowed_tools is not None
+
+    boundary = build_agent_execution_sizing_boundary(
+        provider.model.id,
+        allowed_tool_names=pilot.task.constraints.allowed_tools,
+        max_context_chars=provider.request.max_context_chars,
+        max_output_tokens=provider.request.max_output_tokens,
+        enable_thinking=provider.request.enable_thinking,
+    )
+    estimate = conservative_input_estimate(boundary.request)
+    reservation = provider.pricing.reserve_cost(
+        estimate.token_ceiling,
+        provider.request.max_output_tokens,
+    )
+
+    assert boundary.context_chars == 8_000
+    assert estimate.request_bytes == 10_293
+    assert estimate.token_ceiling == 21_610
+    assert reservation == Decimal("0.069438")
+    assert reservation > provider.campaign.max_cost_per_call
+    assert reservation > provider.run_budget.max_cost
