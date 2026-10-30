@@ -101,7 +101,7 @@ jobs:
             "$wheel"
           .horizon/wheel-smoke/bin/python -c 'from importlib.metadata import version; from pathlib import Path; import tomllib; import horizon; expected = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]; assert horizon.__version__ == version("horizon-coding-harness") == expected; print(expected)'
           .horizon/wheel-smoke/bin/horizon doctor > .horizon/wheel-smoke-doctor.json
-          .horizon/wheel-smoke/bin/python -c 'import json; from importlib.metadata import version; from pathlib import Path; payload = json.loads(Path(".horizon/wheel-smoke-doctor.json").read_text(encoding="utf-8")); assert payload["horizon"] == version("horizon-coding-harness"); print(json.dumps({"installed_wheel": payload["horizon"], "doctor": "passed"}))'
+          .horizon/wheel-smoke/bin/python -c 'import json; from importlib.metadata import version; from pathlib import Path; payload = json.loads(Path(".horizon/wheel-smoke-doctor.json").read_text(encoding="utf-8")); expected_profile = "pre_dispatch_typed_wait_atomic_reanchor_local_process_reap"; assert payload["horizon"] == version("horizon-coding-harness"); assert payload["recoverable_context_capacity_stop"] is True; assert payload["recoverable_context_capacity_stop_profile"] == expected_profile; print(json.dumps({"installed_wheel": payload["horizon"], "doctor": "passed", "recoverable_context_capacity_stop": True, "profile": expected_profile}))'
 
       - name: Upload built distributions and wheel smoke receipt
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
