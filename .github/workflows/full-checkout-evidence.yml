@@ -233,20 +233,25 @@ jobs:
       - name: Pull the validation image
         run: docker pull python:3.12-alpine
 
-      - name: Preflight the zero-spend HTTPie real-model candidate
+      - name: Verify the legacy HTTPie candidate is blocked by the cumulative budget gate
         shell: bash
         run: |
           set -euo pipefail
           state_dir=.horizon/real-model-pilot-httpie-v1
           mkdir -p "$state_dir"
+          set +e
           uv run --locked horizon eval pilot-preflight \
             benchmarks/run_ab/full/httpie-4-host-header-overwrite/real-model-pilot.yaml \
             --image python:3.12-alpine \
             --config config/providers/siliconflow-httpie-pilot.yaml \
             --state-dir "$state_dir" \
             | tee "$state_dir/cli-result.json"
+          preflight_exit=${PIPESTATUS[0]}
+          set -e
+          test "$preflight_exit" -eq 3
           uv run --locked python - <<'PY'
           import json
+          from decimal import Decimal
           from pathlib import Path
 
           result = json.loads(
@@ -255,11 +260,18 @@ jobs:
               )
           )
           report = result["report"]
-          assert report["ready"] is True
+          assert report["ready"] is False
           assert report["credential_loaded"] is False
           assert report["paid_model_called"] is False
           assert report["network_called"] is False
           assert report["initial_failure_matches"] is True
+          assert report["initial_planning_fits_run_cap"] is True
+          assert report["bounded_execution_fits_run_cap"] is True
+          assert report["planning_execution_fits_run_cap"] is False
+          assert report["planning_execution_fits_campaign"] is False
+          assert Decimal(report["planning_execution_reserved_cost"]) > Decimal(
+              report["run_cost_cap"]
+          )
           assert result["requires_paid_confirmation"] is True
           PY
 

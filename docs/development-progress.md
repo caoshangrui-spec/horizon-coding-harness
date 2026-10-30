@@ -1785,3 +1785,9 @@ workflow 已加入四条同路径复跑和精简 JSON artifact 门禁；本地�
 本批完整离线回归为 **672 passed，11 skipped**；15 项 Pilot/candidate 定向回归、全仓 Ruff、格式
 检查、新增 YAML 解析和 `git diff --check` 均通过。4 条 candidate preflight 另在本机已有
 `python:3.12-alpine` 中真实执行；这不消除 11 项全量入口的显式 Docker skip，也不预判公开 CI。
+
+首次公开复跑保留了一个预期外失败：workflow 中旧 HTTPie-4 步骤仍断言 `ready=true`。本机按同一
+精确 checkout 复现后，planning/execution 分别为 `CNY 0.033642/0.044340`，各自低于旧
+`CNY 0.053` cap，但累计 `CNY 0.077982`，新门正确返回 `ready=false` 和 CLI exit 3。修复的是
+workflow 断言：现在必须观察到累计 Run/Campaign 门为 false，同时凭据、模型和网络调用仍为 0；
+没有抬高旧 cap，也没有把公开失败从记录中删除。

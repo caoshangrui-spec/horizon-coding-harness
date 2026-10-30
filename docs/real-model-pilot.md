@@ -778,3 +778,8 @@ CLI report 与选择证据上传，而不是上传四份重复的完整源码快
 
 本节不增加真实模型 Run 数，也不授权 `CNY 0.120` 消费。下一次若启动 Luigi-2，仍须用户明确给出
 该 Run 和累计 Campaign 的费用上限；默认继续保持单次尝试、无 retry、无 fallback。
+
+同一累计门也重新评估了第 16 节的历史 HTTPie-4 policy：planning `CNY 0.033642` 和 bounded
+execution `CNY 0.044340` 各自低于 `CNY 0.053`，但合计 `CNY 0.077982`，因此新 preflight 必须
+`ready=false`。第 16 节在旧源码上的 `ready=true` 仍是历史事实，但已不能用于 launch。公开 Docker
+workflow 把这个非零退出固定为预期负回归，防止以后再次把“单次都可付”误写成“首个序列可付”。
