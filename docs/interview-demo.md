@@ -120,7 +120,18 @@ uv run --locked --cache-dir .uv-cache horizon demo verify-portfolio `
 同一个 workflow 还会发布更窄的 `horizon-process-timeout-evidence`，专门证明直接子进程 timeout
 取消栅栏和同步 reap；它不是主作品集故事的替代品。
 
-若被追问上下文窗口耗尽，可用安装后的能力清单快速定位对应合同：
+若被追问上下文窗口耗尽，可直接生成并脱库复核独立包：
+
+```powershell
+$result = uv run --locked --cache-dir .uv-cache horizon demo context-capacity-recovery |
+  ConvertFrom-Json
+uv run --locked --cache-dir .uv-cache horizon demo verify-context-capacity-recovery `
+  "$($result.evidence_pack)"
+```
+
+标准 CI 同时发布 `horizon-context-capacity-evidence`。该包证明 2,000 字符门限先于模型派发持久
+等待、下一 Lease epoch 与消息不变的新 session 恢复、最终 required check 通过；真实子进程回归
+另证明 PID reap 与 decision/session 事务回滚。也可用安装后的能力清单快速定位实现 profile：
 
 ```powershell
 uv run --locked --cache-dir .uv-cache horizon doctor |
@@ -128,10 +139,9 @@ uv run --locked --cache-dir .uv-cache horizon doctor |
   Select-Object recoverable_context_capacity_stop, recoverable_context_capacity_stop_profile
 ```
 
-这里的 `true` 是 CLI 对当前实现范围的声明，不是主作品集 EvidencePack 的新增证据。独立真实
-子进程回归已经验证：最小安全投影仍超限时零 Provider 派发进入等待，父进程按 PID reap；恢复
-decision/session 事务故障会完整回滚，充分扩容后由新 PID 续跑到保护验收。面试时要把两条证据
-分开讲，不说主 Demo 同时执行了上下文超限。
+这里的 `true` 仍只是 CLI 对当前实现范围的声明。面试时要把主写入崩溃包、上下文容量包和真实
+子进程故障回归分开讲，不说主 Demo 同时执行了上下文超限，也不把 Scripted Model 成功外推为
+真实模型任务成功率。
 
 GitHub Actions artifact 通常需要登录 GitHub 后下载；它是 CI 发布的限时证据，不是匿名永久发布
 资产。包内哈希提供自洽性与防意外修改能力，不是签名、可信时间戳或第三方来源认证。

@@ -293,6 +293,20 @@ Schema 约束为：字符上限 2,000～1,000,000；保守 input-token 上限
   effective cap 恢复，原响应不重派、不重复计费；显式只读重试产生后续事件时仍按原历史边界
   重建 Memory。
 
+其中 protected-prefix 正向恢复现在还有一个独立可交付入口：
+
+```powershell
+$result = uv run --locked --cache-dir .uv-cache horizon demo context-capacity-recovery |
+  ConvertFrom-Json
+uv run --locked --cache-dir .uv-cache horizon demo verify-context-capacity-recovery `
+  "$($result.evidence_pack)"
+```
+
+根包递归验证通用终态 EvidencePack，并额外绑定 `ContextCapacityStop`、阻断 AgentSession、消息
+不变的续跑 AgentSession、请求/决定/Lease epoch 顺序和“首个 model reservation 晚于 session
+resume”门禁。成功输出不保留 SQLite 或 workspace，因此验真不会误用 live controller 状态。完整
+文件合同与严格边界见[上下文容量暂停与续跑 EvidencePack](context-capacity-recovery-demo.md)。
+
 这些测试使用 Scripted Fake Model，不联网、不产生模型费用。全量数字以
 [开发进度与验证记录](development-progress.md)的最新一次完整回归为准；Docker skip 不算通过。
 

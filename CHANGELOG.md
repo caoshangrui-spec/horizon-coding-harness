@@ -15,8 +15,12 @@ for public releases; unreleased work must not be presented as a published releas
   replays the pre-reap prefix, proves the decision/session batch rolls back atomically under an
   injected controller failure, and then completes through three fresh child processes without
   redispatching or charging the stopped request. `horizon doctor` now exposes this exact bounded
-  profile for installed-package and interview inspection, while the portfolio documentation keeps
-  it explicitly separate from the main Demo's write-crash EvidencePack.
+  profile for installed-package and interview inspection. A new zero-cost
+  `horizon demo context-capacity-recovery` command reopens the persistent adapters, resumes under
+  the next Lease epoch, reaches protected success, and exports a recursively verified pack binding
+  the typed stop, blocked/resumed sessions, full Trace, and generic terminal EvidencePack. The
+  portfolio documentation keeps this evidence explicitly separate from the main Demo's write-crash
+  Trace.
 - Restored the external retrieval evidence gate after index algorithm v8 intentionally changed
   content-addressed report references. The published v7 baseline and all historical report refs
   remain intact; a separate v8 baseline and additive v8 refs bind the cache-isolated implementation.

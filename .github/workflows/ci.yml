@@ -78,6 +78,22 @@ jobs:
           compression-level: 9
           retention-days: 14
 
+      - name: Run context-capacity recovery demo and verify EvidencePack
+        run: |
+          uv run --locked horizon demo context-capacity-recovery --output .horizon/ci-context-capacity
+          uv run --locked horizon demo verify-context-capacity-recovery .horizon/ci-context-capacity/evidence-pack.json
+
+      - name: Upload context-capacity recovery EvidencePack
+        id: context-capacity-upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: horizon-context-capacity-evidence
+          path: .horizon/ci-context-capacity
+          if-no-files-found: error
+          include-hidden-files: true
+          compression-level: 9
+          retention-days: 14
+
       - name: Build wheel and source distribution
         run: uv build
 

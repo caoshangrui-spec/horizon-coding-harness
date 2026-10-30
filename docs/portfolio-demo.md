@@ -30,8 +30,9 @@ Run Memory、上下文会话和事件存储，但模型动作由冻结脚本提�
 
 本演示不会故意触发上下文容量暂停，因此 EvidencePack 不声明它验证了
 `context_capacity_required`。当前安装包可通过 `horizon doctor` 暴露
-`recoverable_context_capacity_stop` 及其 profile；该能力的实际证据来自独立真实子进程回归和
-[上下文投影合同](context-projection.md)，不能与本演示的写入崩溃 Trace 混为同一证据。
+`recoverable_context_capacity_stop` 及其 profile；`horizon demo context-capacity-recovery` 另有
+[独立 EvidencePack](context-capacity-recovery-demo.md)，真实子进程回归再补充 PID reap 与事务回滚
+证据。它们不能与本演示的写入崩溃 Trace 混为同一证据。
 
 ## 2. 运行
 

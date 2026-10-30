@@ -36,6 +36,10 @@ from horizon.application.agent_batch import (
     write_agent_run_launch_receipt,
 )
 from horizon.application.agent_loop import AgentLoopConfig, CodingAgentRunner
+from horizon.application.context_capacity_demo import (
+    ContextCapacityDemoRunner,
+    verify_context_capacity_evidence_pack,
+)
 from horizon.application.docker_created_recovery import (
     DockerCreatedRecoveryRunner,
     DockerCreatedResumeRunner,
@@ -1403,6 +1407,81 @@ def process_timeout_demo(
                 "trace": str(result.trace_path),
                 "summary": str(result.summary_path),
                 "boundaries": evidence.boundaries,
+            }
+        )
+    )
+
+
+@demos.command("context-capacity-recovery")
+@guarded
+def context_capacity_recovery_demo(
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            help="New evidence directory; defaults to a unique path below .horizon/demos.",
+        ),
+    ] = None,
+):
+    """Pause an oversized context before dispatch, resume it, and export offline evidence."""
+
+    destination = output or (Path(".horizon") / "demos" / f"context-capacity-{uuid4().hex[:12]}")
+    result = ContextCapacityDemoRunner().run(destination)
+    evidence = result.evidence_pack.evidence
+    typer.echo(
+        canonical_json(
+            {
+                "verified": True,
+                "run_id": evidence.run_id,
+                "status": evidence.terminal_status,
+                "stop_reason": evidence.stop_reason,
+                "configured_context_chars": evidence.configured_context_chars,
+                "required_context_chars": evidence.required_context_chars,
+                "configured_input_tokens": evidence.configured_input_tokens,
+                "required_input_tokens": evidence.required_input_tokens,
+                "blocked_lease_epoch": evidence.blocked_lease_epoch,
+                "recovery_lease_epoch": evidence.recovery_lease_epoch,
+                "provider_dispatch_before_resume": evidence.provider_dispatch_before_resume,
+                "transcript_preserved": evidence.transcript_preserved,
+                "required_validation_passed": evidence.required_validation_passed,
+                "trace_replay_verified": evidence.trace_replay_verified,
+                "paid_model_called": evidence.paid_model_called,
+                "network_called": evidence.network_called,
+                "docker_called": evidence.docker_called,
+                "repository_code_executed": evidence.repository_code_executed,
+                "external_cost_cny": evidence.external_cost_cny,
+                "claim_scope": evidence.claim_scope,
+                "output_dir": str(result.output_dir),
+                "evidence_pack": str(result.evidence_pack_path),
+                "terminal_pack": str(result.terminal_evidence_pack_path),
+                "trace": str(result.trace_path),
+                "summary": str(result.summary_path),
+                "boundaries": evidence.boundaries,
+            }
+        )
+    )
+
+
+@demos.command("verify-context-capacity-recovery")
+@guarded
+def verify_context_capacity_recovery_demo(path: Path):
+    """Verify context-capacity recovery without its database, workspace, or live adapters."""
+
+    pack = verify_context_capacity_evidence_pack(path)
+    evidence = pack.evidence
+    typer.echo(
+        canonical_json(
+            {
+                "verified": True,
+                "run_id": evidence.run_id,
+                "status": evidence.terminal_status,
+                "stop_reason": evidence.stop_reason,
+                "transcript_preserved": evidence.transcript_preserved,
+                "provider_dispatch_before_resume": evidence.provider_dispatch_before_resume,
+                "event_count": evidence.event_count,
+                "trace_replay_verified": evidence.trace_replay_verified,
+                "verification_mode": evidence.verification_mode,
+                "claim_scope": evidence.claim_scope,
             }
         )
     )

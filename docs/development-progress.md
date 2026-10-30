@@ -30,10 +30,13 @@
   回滚；再次充分扩容后由三个新 PID 完成修复与保护验收。容量停止前模型/Campaign attempt 为零，
   全程仅一个请求、一个决策，续跑三次 model call ID 唯一且 Trace 最终等价重放。
 - `horizon doctor` 新增 `recoverable_context_capacity_stop` 与精确 profile，安装后的 wheel 可直接
-  展示这项有界能力。README、三分钟面试稿和 Portfolio 文档明确区分：真实子进程回归提供容量
-  恢复证据；主作品集 EvidencePack 仍只证明其实际执行的写入 effect-before-receipt 窗口，不把
-  静态能力清单伪装成包内 Trace 证据。
-- 整仓离线回归为 **647 passed，11 skipped**；11 项仍是需要显式本机 Docker 镜像的合同测试。
+  展示这项有界能力。新增 `horizon demo context-capacity-recovery`：固定在 2,000 字符门限下先于
+  model/tool reservation 持久等待，重开所有持久 adapter 后用下一 Lease epoch、充分上限和消息
+  不变的 AgentSession 续跑到 `SUCCEEDED`。根 EvidencePack 递归绑定 typed stop、阻断/续跑
+  session、完整 Trace 和通用终态包；运行数据库与 workspace 删除后仍可独立复核，外部费用为零。
+  主作品集 EvidencePack 仍只证明其实际执行的写入 effect-before-receipt 窗口，不把两条独立
+  Trace 或 doctor 静态声明拼成一个更大的结论。
+- 整仓离线回归为 **651 passed，11 skipped**；11 项仍是需要显式本机 Docker 镜像的合同测试。
   Ruff 静态检查、格式检查和 `git diff --check` 通过；sdist/wheel 离线构建成功，并已在独立虚拟
   环境安装后实测 `horizon doctor` 的版本、容量恢复布尔值和 profile。本批未联网、未调用付费模型，
   也未修改第八次 HTTPie 真实 Run；它仍是历史 `RUNNING` 负结果，不会被新 schema 追溯改写为已恢复。
@@ -1541,8 +1544,8 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 八轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 643 passed；全量入口对应
-643 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
+当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 651 passed；全量入口对应
+651 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
 `run_model_cost_limit` 进入 `FAILED`。没有工具、编辑、checkpoint 或验证，Trace 14 事件可重放，
