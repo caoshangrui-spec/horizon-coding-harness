@@ -100,6 +100,7 @@ from horizon.application.run_ab_eval import (
     store_run_ab_suite_report,
 )
 from horizon.application.services import HarnessService, LeaseToken
+from horizon.application.smoke_evaluation import RealModelSmokePreflight
 from horizon.application.supervision import (
     SequentialAgentSupervisor,
     SequentialSupervisorConfig,
@@ -147,6 +148,7 @@ from horizon.domain.recovery_evaluation import RecoveryMatrixManifest
 from horizon.domain.reliability import ReliabilityEvalManifest
 from horizon.domain.run import projection_hash
 from horizon.domain.run_evaluation import RunABEvalManifest, RunABSuiteManifest
+from horizon.domain.smoke_evaluation import RealModelSmokeSuite
 from horizon.domain.states import RunStatus
 from horizon.domain.task import TaskSpec
 from horizon.domain.task_registry import IndependentTaskRegistry
@@ -669,6 +671,31 @@ def evaluate_task_registry_preflight(
         registry,
         registry_path=registry_path,
     )
+    artifacts = ArtifactStore(state_dir.resolve() / "artifacts")
+    report_ref = artifacts.put(canonical_json(report).encode("utf-8"))
+    typer.echo(
+        canonical_json(
+            {
+                "report": report.model_dump(mode="json"),
+                "report_ref": report_ref,
+            }
+        )
+    )
+
+
+@evaluations.command("smoke-preflight")
+@guarded
+def evaluate_smoke_preflight(
+    path: Path,
+    state_dir: Annotated[
+        Path,
+        typer.Option(help="Content-addressed five-task smoke preflight reports."),
+    ] = Path(".horizon/smoke-preflight"),
+):
+    """Validate the frozen real-model smoke contract without launching a model."""
+    suite_path = path.resolve(strict=True)
+    suite = RealModelSmokeSuite.model_validate(read_yaml(suite_path))
+    report = RealModelSmokePreflight().evaluate(suite, suite_path=suite_path)
     artifacts = ArtifactStore(state_dir.resolve() / "artifacts")
     report_ref = artifacts.put(canonical_json(report).encode("utf-8"))
     typer.echo(

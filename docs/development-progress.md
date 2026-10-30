@@ -6,6 +6,26 @@
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
 
+## 2026-10-30 五任务真实模型 Smoke 合同
+
+- 新增 `bugsinpy-real-model-smoke-v1`，从冻结 24-task 注册表中选定 HTTPie-1、Luigi-2、Sanic-2、
+  TheFuck-2、Tornado-2 五个不同项目的 development 任务。五条均已有 exact-commit source recipe、
+  full-checkout manifest 和公开历史初始失败引用；已付费运行过的 HTTPie-4 被显式排除。
+- 选择是作者在已知 Scripted Model 修复后做的低复杂度 smoke，不是盲测或泛化样本。模型合同不含
+  patch/gold path，evaluator-only scripted manifest 不得进入未来模型上下文；每条只开放项目包路径及
+  `read_file/retrieve_code/replace_text/run_check`。
+- 冻结每条 24 steps、14 model calls、24 tool calls、900 秒、2 次 repair、1 次 execution replan；
+  Provider retry/fallback 关闭。成功必须同时有本次初始失败、有效 workspace 修改、required checks、
+  source unchanged、Trace replay 和零 open effect，并分列定位、编辑、验证、费用、调用数和停止原因。
+- 新增 typed `RealModelSmokeSuite`、结构预检服务和 `horizon eval smoke-preflight`。预检拒绝 registry
+  digest 漂移、holdout 替换、历史付费任务混入及未授权费用字段；实际报告 5/5 项目与证据通过，
+  `paid_launch_ready=false`、模型/网络/仓库执行均为 0、外部费用 CNY 0。suite digest
+  `2c8ca4da9b88ab047944cdbce98537c8ab017f4a5a6236da1067c53759453554`，report ref
+  `bc297aaaf85e8bd600198f333f6af23b03396f55dcbd5ee893cbd7c9133bc6e7`。
+- 新增 5 项 unit/CLI 回归均通过，整仓离线回归为 **658 passed，11 skipped**。下一步付费前仍必须
+  逐任务绑定 exact Provider/model，并由用户另行授权单 Run 与累计 Campaign CNY 上限；本批没有
+  读取 API Key、联网或调用真实模型。
+
 ## 2026-10-30 人类可读作品集入口
 
 - 现有 `horizon demo run` 新增可选 `--human`，直接原样打印 EvidencePack 哈希绑定的
@@ -1578,8 +1598,8 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 八轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 653 passed；全量入口对应
-653 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
+当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 658 passed；全量入口对应
+658 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
 `run_model_cost_limit` 进入 `FAILED`。没有工具、编辑、checkpoint 或验证，Trace 14 事件可重放，

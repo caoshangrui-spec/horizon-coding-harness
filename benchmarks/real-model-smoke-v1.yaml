@@ -1,0 +1,91 @@
+schema_version: 1
+suite_id: bugsinpy-real-model-smoke-v1
+frozen_at: '2026-10-30'
+registry_path: independent-tasks-v1.yaml
+registry_digest: 8779c1effc8dee794322c7530e171b78ab5df89995086fcf7d5c1e69a1b1acbe
+selection_scope: known_easy_development_smoke
+patch_content_included: false
+gold_paths_included: false
+evaluator_manifests_model_visible: false
+
+selection_policy:
+  required_partition: development
+  required_source_readiness: frozen_materialization_recipe
+  required_execution_readiness: full_checkout_manifest
+  require_public_historical_initial_failure: true
+  required_unique_projects: 5
+  author_selected_after_scripted_repairs_known: true
+  excluded_task_ids:
+    - httpie-4-host-header-overwrite
+
+execution_policy:
+  paid_execution_authorized: false
+  provider_policy_bound: false
+  model_id_bound: false
+  cost_cap_bound: false
+  fallback_enabled: false
+  implicit_provider_retry_enabled: false
+  max_steps: 24
+  max_model_calls: 14
+  max_tool_calls: 24
+  max_wall_time_seconds: 900
+  max_repair_cycles: 2
+  max_execution_replans: 1
+
+success_criteria:
+  - initial_failure_observed
+  - workspace_changed
+  - required_checks_passed
+  - source_unchanged
+  - trace_replay_verified
+  - no_open_effects
+
+required_metrics:
+  - task_success
+  - correct_location_reached
+  - valid_edit_produced
+  - protected_validation_passed
+  - actual_cost_cny
+  - model_calls
+  - stop_category
+
+failure_taxonomy:
+  - model_planning
+  - retrieval
+  - tool_protocol
+  - context_capacity
+  - budget_gate
+  - validation_failure
+  - harness_recovery
+  - unknown_effect
+
+tasks:
+  - task_id: httpie-1-unique-download-filename
+    difficulty_band: medium
+    allowed_path_patterns: [httpie/**]
+    allowed_tools: [read_file, retrieve_code, replace_text, run_check]
+    selection_reason: Author-selected development smoke task with a bounded full-checkout validation contract; included to exercise a multi-edit repair without claiming blind evaluation.
+
+  - task_id: luigi-2-beam-target-path
+    difficulty_band: easy
+    allowed_path_patterns: [luigi/**]
+    allowed_tools: [read_file, retrieve_code, replace_text, run_check]
+    selection_reason: Author-selected development smoke task with a localized full-checkout validation contract from a project not otherwise represented in this suite.
+
+  - task_id: sanic-2-asyncio-start-serving
+    difficulty_band: easy
+    allowed_path_patterns: [sanic/**]
+    allowed_tools: [read_file, retrieve_code, replace_text, run_check]
+    selection_reason: Author-selected development smoke task with a localized full-checkout validation contract from a project not otherwise represented in this suite.
+
+  - task_id: thefuck-2-executable-path-separator
+    difficulty_band: easy
+    allowed_path_patterns: [thefuck/**]
+    allowed_tools: [read_file, retrieve_code, replace_text, run_check]
+    selection_reason: Author-selected development smoke task with a localized cross-platform validation contract from a project not otherwise represented in this suite.
+
+  - task_id: tornado-2-redirect-put-without-body
+    difficulty_band: easy
+    allowed_path_patterns: [tornado/**]
+    allowed_tools: [read_file, retrieve_code, replace_text, run_check]
+    selection_reason: Author-selected development smoke task with a localized protocol validation contract from a project not otherwise represented in this suite.
