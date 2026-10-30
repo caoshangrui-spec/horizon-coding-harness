@@ -140,6 +140,11 @@ class RealModelPilotPreflightReport(Contract):
     bounded_execution_fits_run_cap: bool | None = None
     bounded_execution_fits_campaign: bool | None = None
     bounded_execution_fits_input_budget: bool | None = None
+    # Optional only for reports created before the cumulative first-sequence gate. A paid
+    # auto-plan Run must be able to reserve both planning and one bounded execution call.
+    planning_execution_reserved_cost: PositiveMoney | None = None
+    planning_execution_fits_run_cap: bool | None = None
+    planning_execution_fits_campaign: bool | None = None
     max_model_calls: int
     initial_validation: tuple[AcceptanceResult, ...]
     expected_initial_failed_checks: tuple[Identifier, ...]
@@ -251,6 +256,37 @@ class RealModelPilotPreflightReport(Contract):
                 raise ValueError("Bounded execution input-budget verdict is inconsistent")
             execution_ready = fits_per_call and fits_run and fits_campaign and fits_input
 
+        sequence_fields = (
+            self.planning_execution_reserved_cost,
+            self.planning_execution_fits_run_cap,
+            self.planning_execution_fits_campaign,
+        )
+        if any(value is not None for value in sequence_fields) and any(
+            value is None for value in sequence_fields
+        ):
+            raise ValueError("Cumulative planning-execution evidence must be complete")
+        sequence_ready = True
+        if self.planning_execution_reserved_cost is not None:
+            if (
+                self.initial_planning_reserved_cost is None
+                or self.bounded_execution_reserved_cost is None
+            ):
+                raise ValueError(
+                    "Cumulative planning-execution evidence requires both call estimates"
+                )
+            expected_cost = (
+                self.initial_planning_reserved_cost + self.bounded_execution_reserved_cost
+            )
+            if self.planning_execution_reserved_cost != expected_cost:
+                raise ValueError("Cumulative planning-execution cost is inconsistent")
+            fits_run = expected_cost <= self.run_cost_cap
+            fits_campaign = expected_cost <= self.campaign_remaining_cost
+            if self.planning_execution_fits_run_cap != fits_run:
+                raise ValueError("Cumulative planning-execution Run verdict is inconsistent")
+            if self.planning_execution_fits_campaign != fits_campaign:
+                raise ValueError("Cumulative planning-execution Campaign verdict is inconsistent")
+            sequence_ready = fits_run and fits_campaign
+
         expected_ready = all(
             (
                 self.source_unchanged,
@@ -261,6 +297,7 @@ class RealModelPilotPreflightReport(Contract):
                 self.campaign_remaining_cost >= self.run_cost_cap,
                 planning_ready,
                 execution_ready,
+                sequence_ready,
             )
         )
         if self.ready != expected_ready:

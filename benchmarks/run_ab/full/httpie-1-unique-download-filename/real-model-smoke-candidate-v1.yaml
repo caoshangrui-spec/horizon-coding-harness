@@ -1,0 +1,73 @@
+schema_version: 1
+pilot_id: httpie-1-unique-download-filename-smoke-candidate-v1
+source_path: fixture
+
+source:
+  benchmark: BugsInPy
+  project: httpie
+  bug_id: "1"
+  repository_url: https://github.com/httpie/cli
+  buggy_commit: 001bda19450ad85c91345eea3cfa3991e1d492ba
+  fixed_commit: 5300b0b490b8db48fac30b5e32164be93dc574b7
+  fix_url: https://github.com/httpie/cli/commit/5300b0b490b8db48fac30b5e32164be93dc574b7
+  upstream_test: tests/test_downloads.py::TestDownloadUtils::test_unique_filename
+  license_spdx: BSD-3-Clause
+  license_url: https://github.com/httpie/cli/blob/001bda19450ad85c91345eea3cfa3991e1d492ba/LICENSE
+  reduction: full_checkout
+  reduction_note: >-
+    The model receives the clean 73-file upstream checkout at the exact buggy commit.
+    Fixed-commit metadata and evaluator-only repair actions remain controller-only evidence.
+
+task:
+  schema_version: "1.0"
+  spec_version: 1
+  task_id: httpie-unique-download-filename-smoke-candidate-v1
+  title: Keep generated download filenames within component limits
+  objective: >-
+    Keep generated download filenames within the filesystem component limit while preserving
+    extensions and collision suffixes.
+  repository:
+    source: local
+    path: /pilot-source
+    base_commit: 001bda19450ad85c91345eea3cfa3991e1d492ba
+  constraints:
+    allowed_paths: [httpie/**]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    allowed_tools: [read_file, retrieve_code, replace_text, run_check]
+    network: deny
+    requirements:
+      - Do not change tests, dependencies, command-line behavior, or unrelated download logic.
+      - Use revision-bound repository evidence before editing the production package.
+      - Preserve extensions and collision detection while enforcing the component limit.
+  acceptance:
+    - id: httpie-unique-download-filename-smoke-candidate
+      command: >-
+        python -B -c "import ast,os; from pathlib import Path; tree=ast.parse(Path('httpie/downloads.py').read_text(encoding='utf-8')); funcs={item.name:item for item in tree.body if isinstance(item,ast.FunctionDef)}; selected=[funcs[name] for name in ('trim_filename','trim_filename_if_needed','get_unique_filename')]; ns={'os':os}; exec(compile(ast.Module(body=selected,type_ignores=[]),'httpie/downloads.py','exec'),ns); ns['get_filename_max_length']=lambda directory:10; assert ns['trim_filename']('A'*20+'.txt',10)=='A'*6+'.txt'; assert ns['get_unique_filename']('A'*20+'.txt',lambda filename:filename!='A'*4+'.txt-1')=='A'*4+'.txt-1'; assert ns['get_unique_filename']('foo.bar',lambda filename:filename!='foo.bar-1')=='foo.bar-1'"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 24
+    max_model_calls: 14
+    max_tool_calls: 24
+    max_wall_time_seconds: 900
+    max_cost_usd: "0.120"
+    max_input_tokens: 120000
+    max_output_tokens: 4096
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: siliconflow-deepseek-v4-flash-smoke-candidate-012-v1
+  memory_scope: httpie-1-unique-download-filename-smoke-candidate-v1
+
+provider_policy_id: siliconflow-deepseek-v4-flash-smoke-candidate-012-v1
+currency: CNY
+# Comparison ceiling only; it does not authorize a Provider request.
+max_paid_cost: "0.120"
+expected_initial_failed_checks: [httpie-unique-download-filename-smoke-candidate]
+auto_plan: true
+
+solution_isolation:
+  acceptance_visibility: visible
+  forbidden_task_literals:
+    - "try_filename = trim_filename_if_needed(filename, extra=len(suffix))"

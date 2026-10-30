@@ -197,6 +197,13 @@ class PilotPreflightService:
         execution_fits_input = (
             execution_input_estimate.token_ceiling <= provider.request.max_input_tokens
         )
+        planning_execution_reserved_cost = planning_reserved_cost + execution_reserved_cost
+        planning_execution_fits_run = (
+            planning_execution_reserved_cost <= provider.run_budget.max_cost
+        )
+        planning_execution_fits_campaign = (
+            planning_execution_reserved_cost <= campaign.remaining_cost
+        )
 
         observed_failures = tuple(
             sorted(result.check_id for result in initial_validation if not result.passed)
@@ -223,6 +230,8 @@ class PilotPreflightService:
                 execution_fits_run,
                 execution_fits_campaign,
                 execution_fits_input,
+                planning_execution_fits_run,
+                planning_execution_fits_campaign,
             )
         )
         report = RealModelPilotPreflightReport(
@@ -264,6 +273,9 @@ class PilotPreflightService:
             bounded_execution_fits_run_cap=execution_fits_run,
             bounded_execution_fits_campaign=execution_fits_campaign,
             bounded_execution_fits_input_budget=execution_fits_input,
+            planning_execution_reserved_cost=planning_execution_reserved_cost,
+            planning_execution_fits_run_cap=planning_execution_fits_run,
+            planning_execution_fits_campaign=planning_execution_fits_campaign,
             max_model_calls=prepared_task.budgets.max_model_calls,
             initial_validation=initial_validation,
             expected_initial_failed_checks=expected_failures,
@@ -351,6 +363,14 @@ def verify_pilot_launch_binding(
         )
     ):
         raise PolicyDenied("Pilot preflight cannot fund its bounded execution sizing case")
+    if (
+        report.planning_execution_reserved_cost is None
+        or report.planning_execution_fits_run_cap is None
+        or report.planning_execution_fits_campaign is None
+    ):
+        raise PolicyDenied("Pilot preflight predates the cumulative planning-execution budget gate")
+    if not (report.planning_execution_fits_run_cap and report.planning_execution_fits_campaign):
+        raise PolicyDenied("Pilot preflight cannot fund its cumulative planning-execution sequence")
     current_harness_source_digest = current_harness_source_digest or compute_harness_source_digest()
     if current_harness_source_digest != report.harness_source_digest:
         raise Conflict("Harness source changed after pilot preflight")

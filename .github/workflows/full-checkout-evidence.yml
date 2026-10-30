@@ -26,7 +26,10 @@ on:
       - "benchmarks/run_ab/full/**/multi-stage*.yaml"
       - "benchmarks/run_ab/full/**/retrieval-reuse*.yaml"
       - "benchmarks/run_ab/full/httpie-4-host-header-overwrite/real-model-pilot.yaml"
+      - "benchmarks/run_ab/full/**/real-model-smoke-candidate-v1.yaml"
+      - "benchmarks/real-model-smoke-candidate-selection-v1.yaml"
       - "config/providers/siliconflow-httpie-pilot.yaml"
+      - "config/providers/siliconflow-smoke-candidate-preflight-v1.yaml"
       - "src/horizon/adapters/sandbox/**"
       - "src/horizon/application/agent_loop.py"
       - "src/horizon/application/run_ab_eval.py"
@@ -258,6 +261,117 @@ jobs:
           assert report["network_called"] is False
           assert report["initial_failure_matches"] is True
           assert result["requires_paid_confirmation"] is True
+          PY
+
+      - name: Compare the remaining zero-spend smoke candidates
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=.horizon/smoke-candidate-preflight-v1
+          tasks=(
+            httpie-1-unique-download-filename
+            luigi-2-beam-target-path
+            sanic-2-asyncio-start-serving
+            tornado-2-redirect-put-without-body
+          )
+          for task in "${tasks[@]}"; do
+            state_dir="$root/$task"
+            mkdir -p "$state_dir"
+            uv run --locked horizon eval pilot-preflight \
+              "benchmarks/run_ab/full/$task/real-model-smoke-candidate-v1.yaml" \
+              --image python:3.12-alpine \
+              --config config/providers/siliconflow-smoke-candidate-preflight-v1.yaml \
+              --state-dir "$state_dir" \
+              | tee "$state_dir/cli-result.json"
+          done
+          uv run --locked python - <<'PY'
+          import json
+          from decimal import Decimal
+          from pathlib import Path
+
+          import yaml
+
+          root = Path(".horizon/smoke-candidate-preflight-v1")
+          selection = yaml.safe_load(
+              Path("benchmarks/real-model-smoke-candidate-selection-v1.yaml").read_text(
+                  encoding="utf-8"
+              )
+          )
+          expected = {
+              "httpie-1-unique-download-filename",
+              "luigi-2-beam-target-path",
+              "sanic-2-asyncio-start-serving",
+              "tornado-2-redirect-put-without-body",
+          }
+          selected = selection["selected_task_id"]
+          if (
+              selected != "luigi-2-beam-target-path"
+              or selection["paid_execution_authorized"]
+              or selection["external_model_called"]
+              or selection["network_called_by_evaluator"]
+              or {row["task_id"] for row in selection["candidates"]} != expected
+          ):
+              raise SystemExit("Frozen smoke-candidate selection contract drifted")
+
+          reports = {}
+          for task in sorted(expected):
+              result = json.loads(
+                  (root / task / "cli-result.json").read_text(encoding="utf-8")
+              )
+              report = result["report"]
+              cumulative = Decimal(report["planning_execution_reserved_cost"])
+              planning = Decimal(report["initial_planning_reserved_cost"])
+              execution = Decimal(report["bounded_execution_reserved_cost"])
+              if (
+                  not report["ready"]
+                  or not report["full_checkout_verified"]
+                  or not report["initial_failure_matches"]
+                  or not report["source_unchanged"]
+                  or not report["solution_isolation_passed"]
+                  or not report["planning_execution_fits_run_cap"]
+                  or not report["planning_execution_fits_campaign"]
+                  or report["credential_loaded"]
+                  or report["paid_model_called"]
+                  or report["network_called"]
+                  or cumulative != planning + execution
+                  or cumulative > Decimal(report["run_cost_cap"])
+                  or cumulative > Decimal(report["campaign_remaining_cost"])
+                  or not result["requires_paid_confirmation"]
+              ):
+                  raise SystemExit(f"Zero-spend candidate preflight failed: {task}")
+              reports[task] = {
+                  "report_ref": result["report_ref"],
+                  "planning_reserved_cost_cny": report["initial_planning_reserved_cost"],
+                  "bounded_execution_reserved_cost_cny": report[
+                      "bounded_execution_reserved_cost"
+                  ],
+                  "planning_execution_reserved_cost_cny": report[
+                      "planning_execution_reserved_cost"
+                  ],
+                  "ready": report["ready"],
+              }
+
+          evidence = {
+              "schema_version": 1,
+              "claim_scope": selection["claim_scope"],
+              "candidate_count": len(reports),
+              "selected_task_id": selected,
+              "all_exact_checkout_preflights_ready": True,
+              "cumulative_budget_gate_passed": True,
+              "paid_execution_authorized": False,
+              "paid_model_called": False,
+              "network_called_by_evaluator": False,
+              "candidates": reports,
+              "excluded_claims": [
+                  "real_model_task_success",
+                  "independent_holdout_performance",
+                  "task_generalization",
+              ],
+          }
+          (root / "selection-evidence.json").write_text(
+              json.dumps(evidence, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+              encoding="utf-8",
+          )
           PY
 
       - name: Run the Docker sandbox contracts
@@ -500,6 +614,8 @@ jobs:
             .horizon/multi-stage-docker-v4
             .horizon/multi-stage-hard-crash-docker-v2
             .horizon/real-model-pilot-httpie-v1
+            .horizon/smoke-candidate-preflight-v1/*/cli-result.json
+            .horizon/smoke-candidate-preflight-v1/selection-evidence.json
           if-no-files-found: warn
           retention-days: 30
 
@@ -565,6 +681,11 @@ jobs:
           hard_crash = json.loads(
               Path(
                   ".horizon/multi-stage-hard-crash-docker-v2/cli-result.json"
+              ).read_text(encoding="utf-8")
+          )
+          smoke_candidates = json.loads(
+              Path(
+                  ".horizon/smoke-candidate-preflight-v1/selection-evidence.json"
               ).read_text(encoding="utf-8")
           )
           created_resume = json.loads(
@@ -741,18 +862,25 @@ jobs:
               and hard_crash_reliability["duplicate_side_effect_count"] == 0
               and hard_crash_reliability["trace_replay_rate"] == 1.0
               and hard_crash_reliability["final_open_effect_count"] == 0
+              and smoke_candidates["candidate_count"] == 4
+              and smoke_candidates["selected_task_id"] == "luigi-2-beam-target-path"
+              and smoke_candidates["all_exact_checkout_preflights_ready"]
+              and smoke_candidates["cumulative_budget_gate_passed"]
+              and not smoke_candidates["paid_execution_authorized"]
           )
           paid_model_called = (
               any(report["paid_model_called"] for report in suite_reports)
               or created_resume["paid_model_called"]
               or worker_crash["paid_model_called"]
               or retrieval_reuse["external_model_called"]
+              or smoke_candidates["paid_model_called"]
           )
           network_called = (
               any(report["network_called"] for report in suite_reports)
               or created_resume["network_called"]
               or worker_crash["network_called"]
               or retrieval_reuse["network_called_by_evaluator"]
+              or smoke_candidates["network_called_by_evaluator"]
           )
           if not all_expectations_met:
               missing_case_lineage = [
@@ -788,6 +916,7 @@ jobs:
                   },
                   "missing_full_case_lineage": missing_case_lineage,
                   "hard_crash_case_contracts_met": hard_crash_case_contracts_met,
+                  "smoke_candidate_selection": smoke_candidates,
                   "paid_model_called": paid_model_called,
                   "network_called": network_called,
               }
@@ -830,6 +959,7 @@ jobs:
                       "created_resume_verified": created_resume["verified"],
                       "worker_crash_verified": worker_crash["verified"],
                       "hard_crash_case_contracts_met": hard_crash_case_contracts_met,
+                      "smoke_candidate_selection": smoke_candidates,
                   }
               }
               rendered_diagnostics = json.dumps(diagnostics, sort_keys=True)
@@ -900,6 +1030,14 @@ jobs:
                   f"{retrieval_reuse['post_policy_request_payload_bytes']}` bytes; "
                   f"compacted units `"
                   f"{retrieval_reuse['post_policy_compacted_unit_count']}`"
+              ),
+              (
+                  "- Remaining real-model smoke candidates: exact preflight `"
+                  f"{smoke_candidates['candidate_count']}/"
+                  f"{smoke_candidates['candidate_count']}`; cumulative budget gate `"
+                  f"{smoke_candidates['cumulative_budget_gate_passed']}`; selected `"
+                  f"{smoke_candidates['selected_task_id']}`; paid authorization `"
+                  f"{smoke_candidates['paid_execution_authorized']}`"
               ),
               (
                   "- Dependency-reduced success quality: clean/flagged `"

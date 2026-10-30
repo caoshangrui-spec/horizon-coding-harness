@@ -1,0 +1,95 @@
+schema_version: 1
+selection_id: bugsinpy-real-model-smoke-next-candidate-v1
+evaluated_at: "2026-10-30"
+suite_id: bugsinpy-real-model-smoke-v1
+claim_scope: post_freeze_zero_cost_development_candidate_comparison
+provider_policy_id: siliconflow-deepseek-v4-flash-smoke-candidate-012-v1
+model_id: deepseek-ai/DeepSeek-V4-Flash
+proposal_run_cap_cny: "0.120"
+paid_execution_authorized: false
+external_model_called: false
+network_called_by_evaluator: false
+
+selection_order:
+  - exact_checkout_preflight_ready
+  - easy_difficulty_band
+  - one_exact_replace_call
+  - one_replaced_occurrence_and_one_expression_repair
+  - frozen_development_target_path_rank_1
+  - lower_planning_and_bounded_execution_reservation
+
+selected_task_id: luigi-2-beam-target-path
+selected_manifest_path: run_ab/full/luigi-2-beam-target-path/real-model-smoke-candidate-v1.yaml
+selection_reason: >-
+  Luigi-2 is the only ready easy candidate whose frozen repair profile is one exact replacement
+  of one expression at one occurrence while the target production path is already rank 1. Its
+  retrieval baseline is degraded by unrelated skipped files, so that limitation remains explicit.
+
+candidates:
+  - task_id: httpie-1-unique-download-filename
+    difficulty_band: medium
+    pilot_manifest_path: run_ab/full/httpie-1-unique-download-filename/real-model-smoke-candidate-v1.yaml
+    exact_checkout_preflight_ready: true
+    initial_failure_observed: true
+    source_unchanged: true
+    local_planning_reserved_cost_cny: "0.036018"
+    local_planning_execution_reserved_cost_cny: "0.105456"
+    frozen_target_path_rank: 1
+    frozen_retrieval_status: ok
+    scripted_replace_calls: 5
+    scripted_replaced_occurrences: 5
+    repair_shape: multi_edit_helper_and_call_sites
+    disposition: not_selected_multi_edit
+
+  - task_id: luigi-2-beam-target-path
+    difficulty_band: easy
+    pilot_manifest_path: run_ab/full/luigi-2-beam-target-path/real-model-smoke-candidate-v1.yaml
+    exact_checkout_preflight_ready: true
+    initial_failure_observed: true
+    source_unchanged: true
+    local_planning_reserved_cost_cny: "0.040680"
+    local_planning_execution_reserved_cost_cny: "0.110118"
+    frozen_target_path_rank: 1
+    frozen_retrieval_status: degraded
+    frozen_degradation_reasons: [non_utf8_file_skipped, oversized_line_skipped]
+    scripted_replace_calls: 1
+    scripted_replaced_occurrences: 1
+    repair_shape: one_expression
+    disposition: selected
+
+  - task_id: sanic-2-asyncio-start-serving
+    difficulty_band: easy
+    pilot_manifest_path: run_ab/full/sanic-2-asyncio-start-serving/real-model-smoke-candidate-v1.yaml
+    exact_checkout_preflight_ready: true
+    initial_failure_observed: true
+    source_unchanged: true
+    local_planning_reserved_cost_cny: "0.035046"
+    local_planning_execution_reserved_cost_cny: "0.104484"
+    frozen_target_path_rank: 1
+    frozen_retrieval_status: ok
+    scripted_replace_calls: 1
+    scripted_replaced_occurrences: 1
+    repair_shape: insert_two_proxy_methods
+    disposition: alternate_larger_edit
+
+  - task_id: tornado-2-redirect-put-without-body
+    difficulty_band: easy
+    pilot_manifest_path: run_ab/full/tornado-2-redirect-put-without-body/real-model-smoke-candidate-v1.yaml
+    exact_checkout_preflight_ready: true
+    initial_failure_observed: true
+    source_unchanged: true
+    local_planning_reserved_cost_cny: "0.040320"
+    local_planning_execution_reserved_cost_cny: "0.109758"
+    frozen_target_path_rank: 3
+    frozen_retrieval_status: ok
+    scripted_replace_calls: 1
+    scripted_replaced_occurrences: 2
+    repair_shape: duplicated_boolean_predicate
+    disposition: not_selected_rank_3_and_two_occurrences
+
+limitations:
+  - All four tasks are author-selected development cases with known Scripted Model repairs.
+  - Local planning costs contain the local absolute source path and may differ slightly on Linux.
+  - Frozen retrieval ranks use evaluator-authored development queries, not future model queries.
+  - Proposal capacity is not an actual-cost forecast and does not authorize a paid Run.
+  - Selection does not establish real-model success, holdout performance, or task generalization.

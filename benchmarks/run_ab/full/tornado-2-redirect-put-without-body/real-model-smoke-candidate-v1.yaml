@@ -1,0 +1,72 @@
+schema_version: 1
+pilot_id: tornado-2-redirect-put-without-body-smoke-candidate-v1
+source_path: fixture
+
+source:
+  benchmark: BugsInPy
+  project: tornado
+  bug_id: "2"
+  repository_url: https://github.com/tornadoweb/tornado
+  buggy_commit: 2ca8821d006f6693f920a4b183a3a7c985a5c8ad
+  fixed_commit: 4f486a4aec746e9d66441600ee3b0743228b061c
+  fix_url: https://github.com/tornadoweb/tornado/commit/4f486a4aec746e9d66441600ee3b0743228b061c
+  upstream_test: tornado.test.httpclient_test.HTTPClientCommonTestCase.test_redirect_put_without_body
+  license_spdx: Apache-2.0
+  license_url: https://github.com/tornadoweb/tornado/blob/2ca8821d006f6693f920a4b183a3a7c985a5c8ad/LICENSE
+  reduction: full_checkout
+  reduction_note: >-
+    The model receives the clean 300-file upstream checkout at the exact buggy commit.
+    Fixed-commit metadata and evaluator-only repair actions remain controller-only evidence.
+
+task:
+  schema_version: "1.0"
+  spec_version: 1
+  task_id: tornado-redirect-put-without-body-smoke-candidate-v1
+  title: Preserve chunked PUT redirects without a body
+  objective: >-
+    Keep client chunking enabled when a redirected PUT already carries Transfer-Encoding chunked.
+  repository:
+    source: local
+    path: /pilot-source
+    base_commit: 2ca8821d006f6693f920a4b183a3a7c985a5c8ad
+  constraints:
+    allowed_paths: [tornado/**]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    allowed_tools: [read_file, retrieve_code, replace_text, run_check]
+    network: deny
+    requirements:
+      - Do not change tests, dependencies, public APIs, or server-side framing behavior.
+      - Use revision-bound repository evidence before editing the production package.
+      - Preserve fixed-length, non-chunked, and bodyless method behavior.
+  acceptance:
+    - id: tornado-redirect-put-without-body-smoke-candidate
+      command: >-
+        python -B -c "import ast; from pathlib import Path; from types import SimpleNamespace; tree=ast.parse(Path('tornado/http1connection.py').read_text(encoding='utf-8')); klass=next(item for item in tree.body if isinstance(item,ast.ClassDef) and item.name=='HTTP1Connection'); method=next(item for item in klass.body if isinstance(item,ast.FunctionDef) and item.name=='write_headers'); branch=next(item for item in method.body if isinstance(item,ast.If) and isinstance(item.test,ast.Attribute) and item.test.attr=='is_client'); pick=lambda body:next(item for item in body if isinstance(item,ast.Assign) and any(isinstance(target,ast.Attribute) and target.attr=='_chunking_output' for target in item.targets)); expressions=[compile(ast.Expression(pick(body).value),'tornado/http1connection.py','eval') for body in (branch.body,branch.orelse)]; evaluate=lambda expression,self_obj,start_line,headers:eval(expression,{}, {'self':self_obj,'start_line':start_line,'headers':headers}); client=SimpleNamespace(is_client=True); request=lambda method:SimpleNamespace(method=method); assert evaluate(expressions[0],client,request('PUT'),{'Transfer-Encoding':'chunked'}) is True; assert evaluate(expressions[0],client,request('PUT'),{'Transfer-Encoding':'gzip'}) is False; assert evaluate(expressions[0],client,request('PUT'),{'Content-Length':'0'}) is False; assert evaluate(expressions[0],client,request('GET'),{}) is False; server=SimpleNamespace(is_client=False,_request_start_line=SimpleNamespace(version='HTTP/1.1')); assert evaluate(expressions[1],server,SimpleNamespace(code=200),{'Transfer-Encoding':'chunked'}) is False"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 24
+    max_model_calls: 14
+    max_tool_calls: 24
+    max_wall_time_seconds: 900
+    max_cost_usd: "0.120"
+    max_input_tokens: 120000
+    max_output_tokens: 4096
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: siliconflow-deepseek-v4-flash-smoke-candidate-012-v1
+  memory_scope: tornado-2-redirect-put-without-body-smoke-candidate-v1
+
+provider_policy_id: siliconflow-deepseek-v4-flash-smoke-candidate-012-v1
+currency: CNY
+# Comparison ceiling only; it does not authorize a Provider request.
+max_paid_cost: "0.120"
+expected_initial_failed_checks: [tornado-redirect-put-without-body-smoke-candidate]
+auto_plan: true
+
+solution_isolation:
+  acceptance_visibility: visible
+  forbidden_task_literals:
+    - 'and ("Transfer-Encoding" not in headers or (self.is_client and headers["Transfer-Encoding"] == "chunked"))'

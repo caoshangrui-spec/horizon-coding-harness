@@ -1,0 +1,71 @@
+schema_version: 1
+pilot_id: luigi-2-beam-target-path-smoke-candidate-v1
+source_path: fixture
+
+source:
+  benchmark: BugsInPy
+  project: luigi
+  bug_id: "2"
+  repository_url: https://github.com/spotify/luigi
+  buggy_commit: baa54c9f4f809692d62d4c3e4497161717c76550
+  fixed_commit: 24e85945ae39e5975491527e00c3f0f64b42ea6e
+  fix_url: https://github.com/spotify/luigi/commit/24e85945ae39e5975491527e00c3f0f64b42ea6e
+  upstream_test: test/contrib/beam_dataflow_test.py::BeamDataflowTest::test_get_target_path
+  license_spdx: Apache-2.0
+  license_url: https://github.com/spotify/luigi/blob/baa54c9f4f809692d62d4c3e4497161717c76550/LICENSE
+  reduction: full_checkout
+  reduction_note: >-
+    The model receives the clean 382-file upstream checkout at the exact buggy commit.
+    Fixed-commit metadata and evaluator-only repair actions remain controller-only evidence.
+
+task:
+  schema_version: "1.0"
+  spec_version: 1
+  task_id: luigi-beam-target-path-smoke-candidate-v1
+  title: Format a Beam BigQuery target path
+  objective: Read project, dataset, and table identifiers from the BigQuery target table object.
+  repository:
+    source: local
+    path: /pilot-source
+    base_commit: baa54c9f4f809692d62d4c3e4497161717c76550
+  constraints:
+    allowed_paths: [luigi/**]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    allowed_tools: [read_file, retrieve_code, replace_text, run_check]
+    network: deny
+    requirements:
+      - Do not change tests, dependencies, public APIs, or unrelated target types.
+      - Use revision-bound repository evidence before editing the production package.
+      - Preserve existing LocalTarget and GCSTarget behavior.
+  acceptance:
+    - id: luigi-beam-target-path-smoke-candidate
+      command: >-
+        python -B -c "import ast; from pathlib import Path; from types import SimpleNamespace; tree=ast.parse(Path('luigi/contrib/beam_dataflow.py').read_text(encoding='utf-8')); klass=next(item for item in tree.body if isinstance(item,ast.ClassDef) and item.name=='BeamDataflowJobTask'); fn=next(item for item in klass.body if isinstance(item,ast.FunctionDef) and item.name=='get_target_path'); fn.decorator_list=[]; Target=type('Target',(),{}); LocalTarget=type('LocalTarget',(Target,),{}); GCSTarget=type('GCSTarget',(Target,),{}); BigQueryTarget=type('BigQueryTarget',(Target,),{}); namespace={'luigi':SimpleNamespace(Target=Target,LocalTarget=LocalTarget),'gcs':SimpleNamespace(GCSTarget=GCSTarget),'bigquery':SimpleNamespace(BigQueryTarget=BigQueryTarget)}; exec(compile(ast.Module(body=[fn],type_ignores=[]),'luigi/contrib/beam_dataflow.py','exec'),namespace); target=BigQueryTarget(); target.table=SimpleNamespace(project_id='p',dataset_id='d',table_id='t'); assert namespace['get_target_path'](target)=='p:d.t'"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 24
+    max_model_calls: 14
+    max_tool_calls: 24
+    max_wall_time_seconds: 900
+    max_cost_usd: "0.120"
+    max_input_tokens: 120000
+    max_output_tokens: 4096
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: siliconflow-deepseek-v4-flash-smoke-candidate-012-v1
+  memory_scope: luigi-2-beam-target-path-smoke-candidate-v1
+
+provider_policy_id: siliconflow-deepseek-v4-flash-smoke-candidate-012-v1
+currency: CNY
+# Comparison ceiling only; it does not authorize a Provider request.
+max_paid_cost: "0.120"
+expected_initial_failed_checks: [luigi-beam-target-path-smoke-candidate]
+auto_plan: true
+
+solution_isolation:
+  acceptance_visibility: visible
+  forbidden_task_literals:
+    - 'return "{}:{}.{}".format(target.table.project_id, target.table.dataset_id, target.table.table_id)'

@@ -92,8 +92,8 @@ flowchart LR
 | effect-before-receipt 可保守对账 | Luigi `replace_text/accept_replace` 与 FastAPI `create_file/accept_create` 共 2/2；恢复模型重派 0、重复副作用 0、最终 open effect 0 | 两个固定、作者选择的故障窗口，不承诺 exactly-once |
 | 词法 Code RAG 有冻结定位基线 | 7 项目 24 案例中公开 16 个 development：Hit@1 `11/16`、Hit@5 `16/16`、MRR `0.817708`；8 个 holdout 保持密封 | 有 3 个 degraded；中文困难改写仅 `1/8`，没有 symbol/vector RAG 或端到端收益结论 |
 | 真实 Provider 路径和费用门禁实际运行过 | 9 个 SiliconFlow Pilot、26 个已结算调用，累计 `CNY 0.2306292`；费用、Trace 与 source isolation 可核对 | 9 个 Run 均未完成代码编辑和 protected validation，属于负结果 |
-| 下一轮真实模型评测输入已冻结 | 5 个不同项目的低复杂度 development smoke；首条 TheFuck-2 已运行一次，结算 `CNY 0.013263` 后由单调用预算门限停止；新 execution sizing preflight 会拒绝原 `CNY 0.060` 配置 | 作者在已知 Scripted Model 修复后选题；其余 4 条尚未运行，也没有新的付费授权 |
-| 当前离线回归稳定 | `662 passed, 11 skipped`；标准 CI、外部检索证据和来源绑定 Docker workflow 均通过 | 11 个本地 skip 需要现成 Docker 镜像，不能说成本机全通过 |
+| 下一轮真实模型评测输入已冻结 | 5 个不同项目的低复杂度 development smoke；首条 TheFuck-2 已运行一次，结算 `CNY 0.013263` 后由预算门限停止；剩余 4 条 exact-checkout 零费用预检均通过 planning+execution 累计门，下一候选为 Luigi-2 | 作者在已知 Scripted Model 修复后选题；Luigi-2 尚未付费运行，也没有新的付费授权；`CNY 0.120` 只是 proposal-only sizing cap |
+| 当前离线回归稳定 | `672 passed, 11 skipped`；标准 CI、外部检索证据和来源绑定 Docker workflow 都是提交级门禁；本批本机另跑 4 条禁网 Docker preflight | 11 个全量入口 skip 需要显式 Docker 镜像；本机结果与公开 runner 结果必须分别报告，不能互相代替 |
 
 最新公开复核入口：
 
@@ -150,8 +150,8 @@ Python 3.12/3.13 · Pydantic · Typer · SQLite/FTS5 · Docker · Pytest · GitH
   FTS5 code retrieval, typed tool authorization, protected Docker validation, and offline EvidencePack
   verification.
 - Evaluated the harness on 22 full-checkout scripted cases, three multi-stage recovery cases, and two
-  hard-crash cases in network-disabled Docker workflows; maintained 660 passing offline tests while
-  explicitly preserving eight unsuccessful real-model pilot runs as negative evidence.
+  hard-crash cases in network-disabled Docker workflows; maintained 672 passing offline tests while
+  explicitly preserving nine unsuccessful real-model pilot runs as negative evidence.
 
 ## 8. STAR 项目故事
 
@@ -175,7 +175,7 @@ Lease epoch 做提交围栏，用内容寻址 Artifact 保存大对象；把模�
 ### Result
 
 本地一键演示能够在写入生效、receipt 前强制退出并安全恢复；公开 workflow 通过 22/22 完整
-checkout、3/3 多阶段和 2/2 hard-crash 合同，离线回归为 662 passed。真实模型九轮没有完成修复，
+checkout、3/3 多阶段和 2/2 hard-crash 合同，离线回归为 672 passed。真实模型九轮没有完成修复，
 但失败被完整保留并驱动了上下文容量、检索缓存隔离和预算诊断改进。
 
 ### Reflection

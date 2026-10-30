@@ -229,3 +229,43 @@ preflight：初始失败、source unchanged、solution isolation 与 planning �
 的 per-call/Run/Campaign 三项费用门为 false，最终 `ready=false`，CLI 以非零码阻止 launch。
 `credential_loaded/paid_model_called/network_called` 均为 false；新 report ref 为
 `8f389d990604629bcfc89b9d5fd3616e41fe3d45f0e127c0ef51cf412512f4f2`。
+
+## 9. 剩余四条的精确预检与下一候选
+
+TheFuck-2 的负结果还暴露出第二个预算边界：planning 和 bounded execution 可能分别低于 Run/
+Campaign cap，但两次 reservation 的**合计**仍超过同一 cap。Pilot preflight 现在额外记录并门控：
+
+- `planning_execution_reserved_cost`；
+- `planning_execution_fits_run_cap`；
+- `planning_execution_fits_campaign`。
+
+三项缺失的历史 report 仍可读取，但不能再启动付费 Run。新 report 只有在 planning、bounded
+execution 及二者累计序列都可预留时才会 `ready=true`。
+
+剩余四条共用
+[`siliconflow-smoke-candidate-preflight-v1.yaml`](../config/providers/siliconflow-smoke-candidate-preflight-v1.yaml)
+做**零费用可比预检**：同一模型、8,000-char context、512 output tokens、单次尝试、无 fallback，
+proposal-only Run/Campaign cap 为 `CNY 0.120`。这个数只给离线 sizing 留足空间，不是费用预测，
+更不是付费授权。精确 buggy checkout 与本机既有 `python:3.12-alpine` 的结果为：
+
+| 任务 | planning 预留 | planning + execution | RAG 目标排名 | Scripted 修复形状 | 结果 |
+|---|---:|---:|---:|---|---|
+| HTTPie-1 | CNY 0.036018 | CNY 0.105456 | 1 | 5 次替换、5 处 | ready |
+| Luigi-2 | CNY 0.040680 | CNY 0.110118 | 1 | 1 次替换、1 处表达式 | ready |
+| Sanic-2 | CNY 0.035046 | CNY 0.104484 | 1 | 1 次替换、插入两个代理方法 | ready |
+| Tornado-2 | CNY 0.040320 | CNY 0.109758 | 3 | 1 次替换、2 处谓词 | ready |
+
+四条都实际观察到 protected initial failure，`source_unchanged=true`、solution isolation 通过，累计
+Run/Campaign 门通过；`credential_loaded/paid_model_called/network_called` 全为 false。planning
+数字含本机绝对路径，Linux CI 可以略有不同，因此公开门禁检查公式与 cap，不硬编码本机数值。
+
+冻结选择文件为
+[`real-model-smoke-candidate-selection-v1.yaml`](../benchmarks/real-model-smoke-candidate-selection-v1.yaml)，
+下一候选是 `luigi-2-beam-target-path`。选择顺序先看 ready 和 easy，再看是否为单次精确替换、单处
+表达式及冻结 RAG rank 1，最后才比较 reservation。Sanic-2 虽更便宜，但修改面更大；Tornado-2
+目标 rank 3 且要改两处；HTTPie-1 是多编辑任务。Luigi-2 的检索状态为 degraded，原因是
+`non_utf8_file_skipped` 与 `oversized_line_skipped`，即使目标路径仍为 rank 1 也不删除该限制。
+
+这只是作者选择的 development 候选排序，不是 holdout、真实模型成功或泛化证据。当前
+`paid_execution_authorized=false`；任何 Luigi-2 付费 Run 仍需基于当时可接受的单 Run 与累计上限
+取得新的明确授权。

@@ -101,7 +101,9 @@ manifest/预检直接拒绝。该检查证明的是已声明私有信息没有�
 预检不会授权费用。正式入口仍必须显式提供 `--confirm-paid`；配置、任务、Harness 源码、目标源码
 或镜像变化后，preflight report 失效。没有 Harness source digest 的历史报告可继续读取和审计，
 但不能再次启动付费 Run。启动时还会重新读取 Campaign 剩余额度，余额不足以覆盖相应 Run cap
-时在调用模型前阻断。
+时在调用模型前阻断。新 preflight 还要求首次 planning 与一个 bounded post-tool execution sizing
+case 的 reservation **合计**同时落在 Run cap 和 Campaign remaining 内；缺少累计字段的旧报告，
+以及“两次各自可付但合计不可付”的报告，均在付费 launch 前拒绝。
 
 ## 5. 已执行的零费用预检
 
@@ -760,3 +762,19 @@ planning `CNY 0.007275` 加 execution `CNY 0.005988` 后，Campaign settled 仍�
 编辑并通过 required check，终态为 `SUCCEEDED`，Trace replay 与 source unchanged 都通过。它的
 外部模型调用、外部模型费用和评估器网络调用均为 0；它只证明 Harness 的控制闭环可执行，不是
 真实模型 continuation，不增加真实模型任务成功数，也不是独立 holdout 结果。
+
+## 20. 剩余 Smoke 候选的累计预算预检
+
+为避免继续逐条试错，剩余 HTTPie-1、Luigi-2、Sanic-2、Tornado-2 使用同一 proposal-only
+`CNY 0.120` policy，在四个精确 buggy checkout 上完成禁网 Docker preflight。四条的初始失败、
+source unchanged、solution isolation、planning、bounded execution 和 planning+execution 累计门均
+通过；没有读取凭据、调用模型或访问网络。公开 Docker workflow 也会重跑同一四条，并把精简
+CLI report 与选择证据上传，而不是上传四份重复的完整源码快照。
+
+冻结排序选择 `luigi-2-beam-target-path`：它是唯一同时满足 easy、冻结目标路径 rank 1、一次精确
+替换和单处表达式修改的 ready 候选。其本地 planning/execution 累计 reservation 为
+`CNY 0.110118`；这只是最坏情况 sizing，不是实际费用预测。Luigi checkout 的检索仍标记
+`non_utf8_file_skipped` 与 `oversized_line_skipped` degraded，不能因目标 rank 1 而抹去。
+
+本节不增加真实模型 Run 数，也不授权 `CNY 0.120` 消费。下一次若启动 Luigi-2，仍须用户明确给出
+该 Run 和累计 Campaign 的费用上限；默认继续保持单次尝试、无 retry、无 fallback。

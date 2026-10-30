@@ -394,6 +394,11 @@ def test_preflight_persists_bound_task_and_launch_receipt(tmp_path):
     assert result.report.bounded_execution_fits_run_cap is True
     assert result.report.bounded_execution_fits_campaign is True
     assert result.report.bounded_execution_fits_input_budget is True
+    assert result.report.planning_execution_reserved_cost == (
+        result.report.initial_planning_reserved_cost + result.report.bounded_execution_reserved_cost
+    )
+    assert result.report.planning_execution_fits_run_cap is True
+    assert result.report.planning_execution_fits_campaign is True
     prepared = TaskSpec.model_validate(
         yaml.safe_load(result.prepared_task_path.read_text(encoding="utf-8"))
     )
@@ -452,6 +457,38 @@ def test_preflight_persists_bound_task_and_launch_receipt(tmp_path):
     assert narrow.report.bounded_execution_fits_per_call_cap is False
     assert narrow.report.bounded_execution_fits_run_cap is False
     assert narrow.report.ready is False
+
+    assert result.report.initial_planning_reserved_cost is not None
+    assert result.report.bounded_execution_reserved_cost is not None
+    sequence_cap = max(
+        result.report.initial_planning_reserved_cost,
+        result.report.bounded_execution_reserved_cost,
+    ) + Decimal("0.001")
+    assert sequence_cap < result.report.planning_execution_reserved_cost
+    sequence_provider = provider.model_copy(
+        update={
+            "campaign": provider.campaign.model_copy(update={"max_cost_per_call": sequence_cap}),
+            "run_budget": provider.run_budget.model_copy(update={"max_cost": sequence_cap}),
+        }
+    )
+    sequence_manifest_data = manifest.model_dump(mode="json")
+    sequence_manifest_data["max_paid_cost"] = str(sequence_cap)
+    sequence_manifest = RealModelPilotManifest.model_validate(sequence_manifest_data)
+    sequence_limited = PilotPreflightService(
+        FailingAcceptance(),
+        validation_backend_ref=image_id,
+    ).evaluate(
+        sequence_manifest,
+        source=source,
+        state_dir=tmp_path / "cumulative-sequence-state",
+        provider=sequence_provider,
+        campaign=campaign,
+    )
+    assert sequence_limited.report.initial_planning_fits_run_cap is True
+    assert sequence_limited.report.bounded_execution_fits_per_call_cap is True
+    assert sequence_limited.report.bounded_execution_fits_run_cap is True
+    assert sequence_limited.report.planning_execution_fits_run_cap is False
+    assert sequence_limited.report.ready is False
 
     changed = prepared.model_copy(update={"title": "Changed after preflight"})
     with pytest.raises(Conflict, match="TaskSpec changed"):
@@ -516,6 +553,22 @@ def test_preflight_persists_bound_task_and_launch_receipt(tmp_path):
     with pytest.raises(PolicyDenied, match="bounded execution sizing gate"):
         verify_pilot_launch_binding(
             legacy_execution_sizing,
+            task=prepared,
+            provider=provider,
+            source_git_head=head,
+            source_snapshot_revision=loaded.source_snapshot_revision,
+            validation_backend_ref=image_id,
+        )
+    legacy_cumulative_sequence = loaded.model_copy(
+        update={
+            "planning_execution_reserved_cost": None,
+            "planning_execution_fits_run_cap": None,
+            "planning_execution_fits_campaign": None,
+        }
+    )
+    with pytest.raises(PolicyDenied, match="cumulative planning-execution budget gate"):
+        verify_pilot_launch_binding(
+            legacy_cumulative_sequence,
             task=prepared,
             provider=provider,
             source_git_head=head,
