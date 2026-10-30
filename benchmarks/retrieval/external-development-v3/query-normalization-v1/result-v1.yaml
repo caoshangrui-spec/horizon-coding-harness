@@ -3,6 +3,12 @@ suite_id: external-development-query-normalization-v1
 selection_commit: 109b268b1515a2f1e6b2f5ee5dfd37b7daaaeb89
 evaluated_at: "2026-10-24"
 
+index_v8_compatibility:
+  retrieval_code_commit: c48eccdd6a112ec579110b941de1e8b35e5ab870
+  evaluated_at: "2026-10-30"
+  semantic_projection: unchanged
+  historical_report_refs_preserved: true
+
 execution:
   partition: development
   holdout_status: sealed
@@ -146,6 +152,7 @@ by_variant:
 groups:
   - base_case_id: cookiecutter-1-non-ascii-context
     report_ref: 2d40d246f31c4010668daaff994268b1ccaabcffb2f08ef697992da56a6382c2
+    index_v8_report_ref: 91c8bcaba94b1b1a8ca6e65f1c84d750d05033bc3a143eb71fdb5064ef3babb5
     hit_count: 4
     case_count: 4
     micro_path_recall_at_8: 1
@@ -184,6 +191,7 @@ groups:
 
   - base_case_id: luigi-7-status-wont-override
     report_ref: e144adbb88cfa9c4227f6c92da4befe3340305c77d278d7e396bce815b1c20fc
+    index_v8_report_ref: 2b92ba386fb46e834ea2d2d36805d077b62d8ba1bad7a3007cf852fdea4eac05
     hit_count: 4
     case_count: 4
     micro_path_recall_at_8: 1
@@ -222,6 +230,7 @@ groups:
 
   - base_case_id: pysnooper-2-custom-repr
     report_ref: 55e867682f4aeeff8d0851724d9786d965c62c706597ccd4abf6bc6889a8216a
+    index_v8_report_ref: b8c1d53a73bfc407374785c89cb560c851269110da231fb1ce556da7fd17ab01
     hit_count: 4
     case_count: 4
     micro_path_recall_at_8: 0.8
@@ -260,6 +269,7 @@ groups:
 
   - base_case_id: tornado-2-redirect-put-without-body
     report_ref: 6c0dbae3e5b1e9c56fe0d4faeed12aef5e74766b1a61c08b9855fa3414f59a9d
+    index_v8_report_ref: 7bcf3007582865ca6e06f96b125997f18086b6a129e1081b8a2857dc99b23d69
     hit_count: 4
     case_count: 4
     micro_path_recall_at_8: 1

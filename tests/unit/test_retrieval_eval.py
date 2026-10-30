@@ -425,6 +425,67 @@ def test_checked_in_external_v3_suite_preserves_selection_and_sealed_holdout():
     assert baseline["metrics_at_k"][2]["micro_path_recall"] == 0.9
 
 
+def test_checked_in_index_v8_refs_preserve_frozen_retrieval_semantics():
+    root = Path(__file__).resolve().parents[2]
+    benchmark_root = root / "benchmarks/retrieval/external-development-v3"
+    released = yaml.safe_load((benchmark_root / "baseline-v0.3.0.yaml").read_text(encoding="utf-8"))
+    index_v8 = yaml.safe_load(
+        (benchmark_root / "baseline-index-v8.yaml").read_text(encoding="utf-8")
+    )
+
+    assert index_v8["supersedes"] == "baseline-v0.3.0.yaml"
+    assert index_v8["retrieval_code_commit"] == ("c48eccdd6a112ec579110b941de1e8b35e5ab870")
+    assert index_v8["selection_commit"] == released["selection_commit"]
+    stable_aggregate_fields = (
+        "case_count",
+        "expected_path_count",
+        "mean_reciprocal_rank",
+        "leakage_count",
+        "empty_count",
+        "degraded_count",
+    )
+    assert {field: index_v8["aggregate"][field] for field in stable_aggregate_fields} == {
+        field: released["aggregate"][field] for field in stable_aggregate_fields
+    }
+    assert index_v8["metrics_at_k"] == released["metrics_at_k"]
+
+    stable_case_fields = (
+        "case_id",
+        "expected_paths",
+        "returned_paths",
+        "first_relevant_rank",
+        "relevant_path_count",
+        "path_recall_at_8",
+        "retrieval_status",
+        "degradation_reasons",
+    )
+    for released_case, index_v8_case in zip(released["cases"], index_v8["cases"], strict=True):
+        assert {field: index_v8_case[field] for field in stable_case_fields} == {
+            field: released_case[field] for field in stable_case_fields
+        }
+        assert index_v8_case["report_ref"] != released_case["report_ref"]
+
+    result_paths = (
+        "query-robustness-v1/result-v1.yaml",
+        "query-normalization-v1/result-v1.yaml",
+        "query-normalization-gate-v1/result-v1.yaml",
+        "query-normalization-gate-broad-v1/result-v1.yaml",
+        "query-normalization-cjk-conservative-v1/result-v1.yaml",
+    )
+    expected_group_counts = (4, 4, 4, 12, 4)
+    for result_path, expected_group_count in zip(result_paths, expected_group_counts, strict=True):
+        result = yaml.safe_load((benchmark_root / result_path).read_text(encoding="utf-8"))
+        compatibility = result["index_v8_compatibility"]
+        assert compatibility["retrieval_code_commit"] == index_v8["retrieval_code_commit"]
+        assert compatibility["semantic_projection"] == "unchanged"
+        assert compatibility["historical_report_refs_preserved"] is True
+        assert len(result["groups"]) == expected_group_count
+        for group in result["groups"]:
+            assert len(group["report_ref"]) == 64
+            assert len(group["index_v8_report_ref"]) == 64
+            assert group["index_v8_report_ref"] != group["report_ref"]
+
+
 def test_checked_in_query_robustness_selection_has_four_frozen_variants_per_case():
     root = Path(__file__).resolve().parents[2]
     benchmark_root = root / "benchmarks/retrieval/external-development-v3"

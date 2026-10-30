@@ -500,3 +500,10 @@ fallback 仍明确标记 degraded，不冒充 BM25。新增回归覆盖：
 这些都是零费用离线回归。历史 Run 的两个 EvidencePack 仍保持 `httpie/sessions.py` rank 1，未被
 重写；没有 resume、重试、模型调用或 holdout 解封。新排序证明缓存历史不再改变同一 exact-key
 排名，并不证明 rank 2 一定被模型使用，更不证明真实模型下一次会修复成功。
+
+v8 的 16-case 精确内容寻址基线保存在
+[`baseline-index-v8.yaml`](../benchmarks/retrieval/external-development-v3/baseline-index-v8.yaml)。
+它不覆盖 `baseline-v0.3.0.yaml`：旧 v7 排名、指标和子报告 ref 原样保留；新文件记录相同语义
+排名在 cache-isolated BM25 下的新 ref。五组查询实验也保留原 `report_ref`，只追加
+`index_v8_report_ref`。2026-10-30 离线逐字段复跑确认 28 个 group 的 query、返回路径、rank、
+状态、召回和 MRR 均未改变；这只是实现兼容性复核，不是新增样本或新的质量提升结论。

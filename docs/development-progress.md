@@ -66,6 +66,10 @@
   `0.752604`，均被放弃。最终新 state dir 完整恢复历史基线：Hit@1/3/5/8=`11/15/16/16`、
   MRR=`0.817708`、3 degraded、0 empty、0 leakage；HTTPie-4 保持诚实的 rank 2。报告 ref
   `fcc05e51b46eb71f525878e6090ca66ddc498fcc8df7e69ac6b1460c2016b2ec`。
+- 后续公开 CI 暴露出 workflow 仍用 v7 子报告 ref 验证 v8，实现语义未漂移却会在第一个 case
+  失败。现保留 `baseline-v0.3.0.yaml` 和五组历史 `report_ref`，另增 index-v8 基线及 28 个兼容
+  ref；离线逐字段确认所有 query、返回路径、rank、状态、召回、MRR 与既有负结果不变。workflow
+  改为核对 v8 ref，不通过覆盖冻结证据或放宽 ranking/metric 断言来“修绿”。
 - 针对性 context/retrieval 回归 42 项通过；本批未再次调用模型、网络或产生费用。整仓与静态检查
   的最终结果见本文底部当前状态。
 

@@ -75,7 +75,7 @@ jobs:
             benchmarks/retrieval/external-development-v3/development-suite.yaml \
             --sources-root .horizon/retrieval-v3/sources \
             --state-dir .horizon/retrieval-v3/eval-state \
-            --baseline benchmarks/retrieval/external-development-v3/baseline-v0.3.0.yaml \
+            --baseline benchmarks/retrieval/external-development-v3/baseline-index-v8.yaml \
             | tee .horizon/retrieval-v3-evidence/retrieval-suite.json
 
       - name: Run frozen query-robustness slice
@@ -285,7 +285,7 @@ jobs:
                   )
               )
               query_report = payload["report"]
-              if payload["report_ref"] != group["report_ref"]:
+              if payload["report_ref"] != group["index_v8_report_ref"]:
                   raise SystemExit(
                       f"Query robustness report drifted for {group['base_case_id']}"
                   )
@@ -311,7 +311,7 @@ jobs:
                   )
               )
               treatment_report = payload["report"]
-              if payload["report_ref"] != group["report_ref"]:
+              if payload["report_ref"] != group["index_v8_report_ref"]:
                   raise SystemExit(
                       f"Query normalization report drifted for {group['base_case_id']}"
                   )
@@ -334,7 +334,7 @@ jobs:
                   (gate_root / f"{group['base_case_id']}.json").read_text(encoding="utf-8")
               )
               gate_report = payload["report"]
-              if payload["report_ref"] != group["report_ref"]:
+              if payload["report_ref"] != group["index_v8_report_ref"]:
                   raise SystemExit(
                       f"Selective query-normalization report drifted for {group['base_case_id']}"
                   )
@@ -364,7 +364,7 @@ jobs:
                   (broad_root / f"{group['base_case_id']}.json").read_text(encoding="utf-8")
               )
               broad_report = payload["report"]
-              if payload["report_ref"] != group["report_ref"]:
+              if payload["report_ref"] != group["index_v8_report_ref"]:
                   raise SystemExit(
                       f"Broader selective-gate report drifted for {group['base_case_id']}"
                   )
@@ -399,7 +399,7 @@ jobs:
                   )
               )
               conservative_report = payload["report"]
-              if payload["report_ref"] != group["report_ref"]:
+              if payload["report_ref"] != group["index_v8_report_ref"]:
                   raise SystemExit(
                       f"Conservative CJK report drifted for {group['base_case_id']}"
                   )

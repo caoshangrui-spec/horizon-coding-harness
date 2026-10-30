@@ -360,13 +360,16 @@ uv run --locked --cache-dir .uv-cache horizon eval materialize-retrieval-suite `
   --sources-root .horizon/retrieval-v3/sources `
   --cache-dir .horizon/retrieval-v3/git-cache
 
-# 对物化结果运行 16 个 development 定位案例，并逐项核对冻结排名/指标；
+# 对物化结果运行 16 个 development 定位案例，并逐项核对 index-v8 排名/指标；
 # state-dir 必须是新目录，以保证首次/缓存复用耗时口径不混淆。
 uv run --locked --cache-dir .uv-cache horizon eval retrieval-suite `
   benchmarks/retrieval/external-development-v3/development-suite.yaml `
   --sources-root .horizon/retrieval-v3/sources `
   --state-dir .horizon/retrieval-v3/development-<run-id> `
-  --baseline benchmarks/retrieval/external-development-v3/baseline-v0.3.0.yaml
+  --baseline benchmarks/retrieval/external-development-v3/baseline-index-v8.yaml
+
+# baseline-v0.3.0.yaml 及五组 result-v1.yaml 中的旧 report_ref 均保留；
+# index-v8 基线/兼容 ref 是追加证据，不追溯覆盖已发布的 v7 内容哈希。
 
 # 冻结控制器策略 Trace；不加载模型、不联网、不打开或执行 fixture 仓库。
 uv run --locked --cache-dir .uv-cache horizon eval reliability `

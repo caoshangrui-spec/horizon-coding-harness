@@ -3,6 +3,12 @@ suite_id: external-development-query-normalization-gate-broad-v1
 selection_commit: 7bb44b6bce647d1d6b080b4c6a6e2705fa85aa79
 evaluated_at: "2026-10-24"
 
+index_v8_compatibility:
+  retrieval_code_commit: c48eccdd6a112ec579110b941de1e8b35e5ab870
+  evaluated_at: "2026-10-30"
+  semantic_projection: unchanged
+  historical_report_refs_preserved: true
+
 execution:
   partition: development
   holdout_status: sealed
@@ -101,6 +107,7 @@ by_variant:
 groups:
   - base_case_id: cookiecutter-3-read-user-choice
     report_ref: 437102d7a8ff59042c01a7601e77ae25a87d52985899569d3435938d59a4a9cc
+    index_v8_report_ref: 9f669aa4d4bf3553506600179063df17b5efef7744ce1308c8165c85ee965b7a
     physical_degraded_count: 0
     variants:
       raw_identifier: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
@@ -109,6 +116,7 @@ groups:
       chinese_description: {baseline_rank: null, selective_rank: null, baseline_status: empty, selective_status: ok}
   - base_case_id: httpie-1-unique-download-filename
     report_ref: ba3f59edfa72cc57539b485b25baabdd77ed3278816a0d4b39752d7a2613e4dc
+    index_v8_report_ref: b18fd8f37193273a131587e06924889817374ac51298ce65cebee1ccf46d4862
     physical_degraded_count: 0
     variants:
       raw_identifier: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
@@ -117,6 +125,7 @@ groups:
       chinese_description: {baseline_rank: null, selective_rank: null, baseline_status: empty, selective_status: empty}
   - base_case_id: httpie-4-host-header-overwrite
     report_ref: 67af65e3c8fb01f860cc47e66441601aef21367660c2aad98fbb4682f18ae75e
+    index_v8_report_ref: e00ebc61e6359d2443159183cee54a2008fad397512ed3448df04481eee5af9d
     physical_degraded_count: 0
     variants:
       raw_identifier: {baseline_rank: 3, selective_rank: 2, baseline_status: ok, selective_status: ok}
@@ -125,6 +134,7 @@ groups:
       chinese_description: {baseline_rank: null, selective_rank: null, baseline_status: empty, selective_status: ok}
   - base_case_id: httpie-5-escape-long-separator
     report_ref: cc8c2dcd5a5aeb035d040beeec1abb7c5f6970637ec73fed211f386636e037de
+    index_v8_report_ref: 26e240286303c45089d0cdb250cbe2ccf254ffbeba136807176e176c674f375d
     physical_degraded_count: 0
     variants:
       raw_identifier: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
@@ -133,6 +143,7 @@ groups:
       chinese_description: {baseline_rank: null, selective_rank: null, baseline_status: empty, selective_status: empty}
   - base_case_id: luigi-2-beam-target-path
     report_ref: 2d933d08f9f98cee9a3101d8222c022e69885df2fc6d879e6ad6b47af000a6b2
+    index_v8_report_ref: f92a25aface8aa0e353c110826650caf996b3e9392fe2956a4b24fba1d2e2fc7
     physical_degraded_count: 6
     variants:
       raw_identifier: {baseline_rank: 1, selective_rank: 1, baseline_status: degraded, selective_status: degraded}
@@ -141,6 +152,7 @@ groups:
       chinese_description: {baseline_rank: 1, selective_rank: 1, baseline_status: degraded, selective_status: degraded}
   - base_case_id: luigi-3-serialize-tuple-parameter
     report_ref: 8e807f409228fbe0c021579b58fb65c42d0d49911a8ebbffdc24c95bfa92f39b
+    index_v8_report_ref: 9767dab98c472dd55a100ece265573481b28a6058b2f6c8219085bc91a3306e3
     physical_degraded_count: 6
     variants:
       raw_identifier: {baseline_rank: 1, selective_rank: 1, baseline_status: degraded, selective_status: degraded}
@@ -149,6 +161,7 @@ groups:
       chinese_description: {baseline_rank: null, selective_rank: null, baseline_status: degraded, selective_status: degraded}
   - base_case_id: sanic-2-asyncio-start-serving
     report_ref: 0c14ec4e4ff27090ee1a4cbe4dfade20a85a236cb1ef374e348ada5ddfd291b3
+    index_v8_report_ref: fcb2d8b0af0e8d0789a3a6a5644a42fb21f51413b47f3f4e9752edcd1f6c6e82
     physical_degraded_count: 0
     variants:
       raw_identifier: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
@@ -157,6 +170,7 @@ groups:
       chinese_description: {baseline_rank: 3, selective_rank: 3, baseline_status: ok, selective_status: ok}
   - base_case_id: sanic-3-routes-with-host
     report_ref: 0bd636dbc2b9af13849c24ce87594a198d25c43680059928627f7dc796f9e444
+    index_v8_report_ref: 8c17983b8bf397a0aa8be4b1dcebe1de10be332de0923edff15fc7a65a31f1cc
     physical_degraded_count: 0
     variants:
       raw_identifier: {baseline_rank: 3, selective_rank: 2, baseline_status: ok, selective_status: ok}
@@ -165,6 +179,7 @@ groups:
       chinese_description: {baseline_rank: null, selective_rank: null, baseline_status: empty, selective_status: empty}
   - base_case_id: sanic-5-root-logger-config
     report_ref: 6beacfee1d2c5ec021a994da1514c2e5d7e1b31134ceb88ee0494bb8b20be892
+    index_v8_report_ref: 4fcbbcc871f8baa55533d462d8f5eaef0cd6d2592043dc382cd6227264643f80
     physical_degraded_count: 0
     variants:
       raw_identifier: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
@@ -173,6 +188,7 @@ groups:
       chinese_description: {baseline_rank: null, selective_rank: null, baseline_status: empty, selective_status: empty}
   - base_case_id: thefuck-2-executable-path-separator
     report_ref: 8f8600a7983262254db7e9117602b6c65e2106b6f42039f18c068e3d2395fb47
+    index_v8_report_ref: 0fc674e1779485384fe692b49c640083502853998acb448bbbd4ab120d79195a
     physical_degraded_count: 0
     variants:
       raw_identifier: {baseline_rank: 3, selective_rank: 3, baseline_status: ok, selective_status: ok}
@@ -181,6 +197,7 @@ groups:
       chinese_description: {baseline_rank: null, selective_rank: null, baseline_status: empty, selective_status: ok}
   - base_case_id: thefuck-5-git-push-bitbucket
     report_ref: e5bef2dee471590c183fa378ffc7a333952cc8eff8e9ab500a3278d7e4a4fb72
+    index_v8_report_ref: 30757bb32bc8d42d8a6403641859dcb514bf7df2da76638097128c5c50240bce
     physical_degraded_count: 0
     variants:
       raw_identifier: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
@@ -189,6 +206,7 @@ groups:
       chinese_description: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}
   - base_case_id: tornado-4-static-range-bounds
     report_ref: d57b03aa50f96dbb8494c7097effd8c539bb17b4915e6c4824caef029af26fa5
+    index_v8_report_ref: 469bb7594e7eda5fc4bdc9c5b716960d0a5053fd03564eaa1a16c1b9c95dbb2a
     physical_degraded_count: 0
     variants:
       raw_identifier: {baseline_rank: 1, selective_rank: 1, baseline_status: ok, selective_status: ok}

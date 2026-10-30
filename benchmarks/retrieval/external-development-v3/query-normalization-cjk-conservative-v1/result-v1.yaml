@@ -3,6 +3,12 @@ suite_id: external-development-query-normalization-cjk-conservative-v1
 selection_commit: e7eeca9501d60411cd1b68eeab4cd67d60bf8303
 evaluated_at: "2026-10-24"
 
+index_v8_compatibility:
+  retrieval_code_commit: c48eccdd6a112ec579110b941de1e8b35e5ab870
+  evaluated_at: "2026-10-30"
+  semantic_projection: unchanged
+  historical_report_refs_preserved: true
+
 execution:
   partition: development
   holdout_status: sealed
@@ -89,6 +95,7 @@ combined_projection:
 groups:
   - base_case_id: cookiecutter-1-non-ascii-context
     report_ref: 858ef76bf88eb417266cb12464fd817e32b1fd48bb6764f14e241d7abc2ac32f
+    index_v8_report_ref: 3b3685827f6391dcbf123efbee026b90d8dada93fb3d88947a7ddaa7f58a787f
     baseline_rank: null
     replacement_rank: 2
     additive_rank: 2
@@ -101,6 +108,7 @@ groups:
     returned_paths: [cookiecutter/extensions.py, cookiecutter/generate.py, cookiecutter/vcs.py, cookiecutter/prompt.py, cookiecutter/main.py, cookiecutter/hooks.py, cookiecutter/cli.py, cookiecutter/exceptions.py]
   - base_case_id: luigi-7-status-wont-override
     report_ref: 27028c60b75c8cda80e36d58118a655a7ca4e1794eb3a191d1a88bb890843614
+    index_v8_report_ref: 6867bab3909d6e9e4f27c3681eb9ec497ce7150b40b42d4ac1a4ef4e1add9560
     baseline_rank: null
     replacement_rank: 1
     additive_rank: 1
@@ -113,6 +121,7 @@ groups:
     returned_paths: [luigi/scheduler.py, luigi/interface.py, luigi/contrib/esindex.py, luigi/task.py, luigi/tools/luigi_grep.py, luigi/contrib/salesforce.py, luigi/worker.py, luigi/contrib/sqla.py]
   - base_case_id: pysnooper-2-custom-repr
     report_ref: 0662f9542056a4ab749e4ebad966921f5f4e6e4922eed6933d20d4012d1e6321
+    index_v8_report_ref: a4d7a6db830953aa5c25efbc28836bf788936a80d93f07a43edd8c9ad93a3f2e
     baseline_rank: null
     replacement_rank: 1
     additive_rank: 1
@@ -125,6 +134,7 @@ groups:
     returned_paths: [pysnooper/pycompat.py, pysnooper/variables.py, pysnooper/tracer.py, pysnooper/utils.py, pysnooper/tracer.py, pysnooper/tracer.py, pysnooper/variables.py, pysnooper/tracer.py]
   - base_case_id: tornado-2-redirect-put-without-body
     report_ref: 4d9ae6806aa5155bcd7c64bbd99b8bcbce0d8cfc4e690e56589f4f06eb3e82a8
+    index_v8_report_ref: 7ab648adcd54e558fb20e06216560815a77c64f8f7d9bc266be019382f089ac9
     baseline_rank: 4
     replacement_rank: 2
     additive_rank: 2

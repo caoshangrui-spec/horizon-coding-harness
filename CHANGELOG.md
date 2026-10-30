@@ -17,6 +17,11 @@ for public releases; unreleased work must not be presented as a published releas
   redispatching or charging the stopped request. `horizon doctor` now exposes this exact bounded
   profile for installed-package and interview inspection, while the portfolio documentation keeps
   it explicitly separate from the main Demo's write-crash EvidencePack.
+- Restored the external retrieval evidence gate after index algorithm v8 intentionally changed
+  content-addressed report references. The published v7 baseline and all historical report refs
+  remain intact; a separate v8 baseline and additive v8 refs bind the cache-isolated implementation.
+  Offline replay confirmed the same queries, paths, ranks, statuses, recall, MRR, and retained
+  negative results across all 28 query groups before CI switched to the new refs.
 - Added Trace-derived retrieval-consumption lineage to source-bound Run A/B reports. Successful
   `retrieve_code` receipts are now matched to exact later ContextProjection tool messages or active
   post-replan RunMemory excerpts, then joined to write compare-and-swap preconditions by source model
