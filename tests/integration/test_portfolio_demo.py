@@ -203,6 +203,28 @@ def test_portfolio_demo_cli_is_one_command_and_never_overwrites(tmp_path):
     assert pack_path.read_bytes() == original
 
 
+def test_portfolio_demo_cli_human_output_is_bound_and_reverifiable(tmp_path):
+    runner = CliRunner()
+    output = tmp_path / "portfolio-evidence"
+
+    completed = runner.invoke(
+        app,
+        ["demo", "run", "--human", "--output", str(output)],
+    )
+
+    assert completed.exit_code == 0, completed.stdout
+    summary = (output / "SUMMARY.md").read_text(encoding="utf-8").rstrip()
+    resolved_pack = (output / "evidence-pack.json").resolve()
+    assert completed.stdout.startswith(summary)
+    assert "## Offline verification" in completed.stdout
+    assert "- Result: `PASS`" in completed.stdout
+    assert f"- EvidencePack: `{resolved_pack}`" in completed.stdout
+    assert "- Mode: `offline_hash_trace_semantic_replay`" in completed.stdout
+    assert "- Paid model / network: `false / false`" in completed.stdout
+    assert (f'horizon demo verify-portfolio "{resolved_pack}"') in completed.stdout
+    assert verify_portfolio_evidence_pack(resolved_pack).all_checks_passed
+
+
 def test_portfolio_demo_cli_verifies_after_databases_are_removed(tmp_path):
     runner = CliRunner()
     output = tmp_path / "portfolio-evidence"

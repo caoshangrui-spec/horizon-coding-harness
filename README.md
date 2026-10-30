@@ -75,12 +75,12 @@ uv run --locked --cache-dir .uv-cache horizon intake route `
 
 ```powershell
 uv sync --locked
-$result = uv run --locked --cache-dir .uv-cache horizon demo run | ConvertFrom-Json
-uv run --locked --cache-dir .uv-cache horizon demo verify-portfolio `
-  "$($result.evidence_pack)"
+uv run --locked --cache-dir .uv-cache horizon demo run --human
 ```
 
-这条命令无需 API Key、Docker 或网络。它先故意触发一次结构化工具错误并完成安全 Worker
+这组命令无需 API Key、Docker 或网络。`--human` 会直接打印已进入 EvidencePack 哈希清单的
+`SUMMARY.md`、本次离线复核结果和可复制的独立 verifier 命令。演示先故意触发一次结构化工具
+错误并完成安全 Worker
 交接；`lease_epoch=2` 的真实子进程随后在文件写入生效、tool receipt 尚未提交时用
 `os._exit(86)` 硬退出。控制器只把悬空 intent 标为 `unknown`，核对唯一后态后显式接纳既有
 写入且不重复执行，再由 `lease_epoch=3` 继续保护性验证、Trace 重放和 EvidencePack 自检。
@@ -127,7 +127,7 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | main 的[标准 CI](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/ci.yml)运行离线回归和三条演示；主作品集、直接子进程 timeout 与上下文容量恢复分别递归复核并发布 14 天 EvidencePack；[禁网 Docker Evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/full-checkout-evidence.yml)独立运行 | CI 不读取 API Key、不运行付费模型；workflow artifact 通常需要登录 GitHub 下载，不是永久发布资产 |
-| 离线回归 | `651 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `653 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | [通用终态 EvidencePack](docs/terminal-evidence-pack.md) | `SUCCEEDED`、`FAILED`、`CANCELLED` 均可导出并离线复核 Trace、最终投影和 schema v2 可靠性摘要；区分 unknown 验收、已知 check 失败与 unknown/open effect，真实检索降级与工具回执原子绑定，确定性上下文折叠以 `context_compacted` 单独标记，兼容验证 schema v1 | model fallback、语义摘要和 model degradation 尚无 Trace history；自洽哈希不是来源签名，也不证明外部 Provider 或副作用已结清 |
 | [终态 Run 顺序汇总](docs/terminal-suite-evaluation.md) | 有序聚合已有终态 Run；递归验证每个子 EvidencePack，分列结果、验收未知/失败、clean/quality-flagged success、检索降级与 unknown/open effect | 不执行任务，不是 batch scheduler，也没有并发性能声明 |
 | [可恢复的顺序 Agent 任务批次](docs/sequential-agent-batch.md) | `agent batch` 按 1～100 条 TaskSpec manifest 顺序执行；任务间原子保存 checkpoint，确定性 invocation/Run receipt 支持重启识别，终态失败原样记录后继续，非终态/不确定 case 阻塞后项；全部闭合后复用 terminal-suite | 单机并发度 1；不自动越过人工/悬空 effect/旧 Worker 边界，不是 20～30 个真实模型任务成绩或吞吐声明 |
@@ -175,13 +175,14 @@ uv run --locked horizon --help
 最短的完整演示命令：
 
 ```powershell
-uv run --locked --cache-dir .uv-cache horizon demo run
+uv run --locked --cache-dir .uv-cache horizon demo run --human
 ```
 
 它会在 `.horizon/demos/` 下创建唯一证据目录且不覆盖旧结果。输出合同、完整性链和声明边界见
-[一键作品集演示与 EvidencePack](docs/portfolio-demo.md)。把命令返回的 `evidence_pack` 交给
-`horizon demo verify-portfolio`，即可在不读取 SQLite、模型、网络、Docker 或存活 Worker 的情况下
-重新验证文件哈希、Trace 投影、检索到写入 lineage 和硬崩溃恢复语义。
+[一键作品集演示与 EvidencePack](docs/portfolio-demo.md)。人类模式会展示哈希绑定摘要、离线复核
+结果和再次复核命令；自动化脚本省略 `--human` 后仍获得原有单行 JSON。把其中的
+`evidence_pack` 交给 `horizon demo verify-portfolio`，即可在不读取 SQLite、模型、网络、Docker
+或存活 Worker 的情况下重新验证文件哈希、Trace 投影、检索到写入 lineage 和硬崩溃恢复语义。
 
 要在不运行模型、Docker 或仓库代码的情况下单独展示直接子进程 timeout 取消链，运行：
 
@@ -584,7 +585,7 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **651 passed，11 skipped**；11 项跳过项需要本机 Docker daemon。v11 新增的
+当前离线全量回归为 **653 passed，11 skipped**；11 项跳过项需要本机 Docker daemon。v11 新增的
 Sanic-3、TheFuck-5 与 Luigi-7 已由本地完整 Harness 确认 buggy 失败、Baseline 等待、Treatment 恢复；
 二十二案例又由[公开 workflow](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40804131201)
 的生产 Docker adapter 统一通过 22/22。另有一次真实

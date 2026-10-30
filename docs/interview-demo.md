@@ -34,8 +34,9 @@ AgentSession 继续，用成对范围读取后执行精确写入；文件副作�
 `unknown`，不会直接 retry。第三任 Worker 核对唯一精确后态，显式 `accept_replace`，再做受保护
 验收和最终提交。”
 
-运行下方命令，并指出输出中的 `final_lease_epoch=3`、`worker_handoffs=2`、
-`hard_crash_recovery_verified=true`、`evidence_backed_write=true` 和 `external_cost_cny=0`。关键状态流是：
+运行下方命令，并指出摘要中的 Final lease epoch `3`、Durable worker handoffs `2`、
+Hard-crash recovery verified `True`、Exact write backed by same-revision evidence `True` 和
+External model cost `CNY 0`。关键状态流是：
 
 ```text
 retrieve evidence -> structured tool error -> durable handoff
@@ -55,8 +56,9 @@ Trace、复算最终 Run 投影，并重新验证检索 Artifact → 模型写�
 
 “这个案例证明一个固定的 `replace_text` effect-before-receipt 窗口可以保守对账并续跑，不证明
 任意崩溃、操作系统重启或跨主机 exactly-once。公开评测另外在 youtube-dl、Luigi、FastAPI 三个
-完整 checkout 上通过三阶段、两次 Worker 重启的 3/3 Scripted Model 合同；真实模型七轮 Pilot
-仍都是负结果，所以我把 Harness 可靠性证据与模型修复能力明确分开。”
+完整 checkout 上通过三阶段、两次 Worker 重启的 3/3 Scripted Model 合同；来源绑定 hard-crash
+v2 又在 Luigi `replace_text` 和 FastAPI `create_file` 两个案例上实现 2/2、零重派和零重复副作用。
+真实模型八轮 Pilot 仍都是负结果，所以我把 Harness 可靠性证据与模型修复能力明确分开。”
 
 ## 现场演示命令
 
@@ -69,17 +71,23 @@ uv sync --locked
 运行主作品集演示并独立复核本次 EvidencePack：
 
 ```powershell
-$result = uv run --locked --cache-dir .uv-cache horizon demo run |
-  ConvertFrom-Json
-$result | Format-List
+$demo = ".horizon/demos/interview-$((Get-Date).ToString('yyyyMMdd-HHmmss'))"
+uv run --locked --cache-dir .uv-cache horizon demo run --human --output $demo
+Remove-Item "$demo/control.sqlite3", "$demo/campaign.sqlite3", "$demo/retrieval.sqlite3"
 uv run --locked --cache-dir .uv-cache horizon demo verify-portfolio `
-  "$($result.evidence_pack)"
+  "$demo/evidence-pack.json"
 ```
 
-不指定 `--output` 时会在 `.horizon/demos/` 下创建唯一目录，不覆盖旧证据。两条命令都不调用
-真实模型、网络、Docker 或外部仓库代码，外部费用为 0；演示会运行冻结 Scripted Model、真实
-Harness 工具链和一个故意硬退出的本地子进程。若现场时间很短，只展示第一次输出的恢复字段，
-再运行独立 verifier 即可。
+不指定 `--output` 时也会在 `.horizon/demos/` 下创建唯一目录，不覆盖旧证据。`--human` 原样展示
+哈希绑定的 `SUMMARY.md`，并附上即时离线复核结果和可复制命令；省略该参数仍返回适合脚本解析的
+单行 JSON。上述命令不调用真实模型、网络、Docker 或外部仓库代码，外部费用为 0；演示会运行
+冻结 Scripted Model、真实 Harness 工具链和一个故意硬退出的本地子进程。若现场时间很短，只运行
+第一条演示命令；若要证明证据不依赖运行数据库，再删除三个 SQLite 文件并运行独立 verifier。
+
+公开来源绑定 hard-crash v2 的 Linux 证据见
+[`41027080498`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/41027080498)。
+它与本地一键作品集故事分开：前者覆盖 Luigi/FastAPI 两类写入工具的 2/2 公开复跑，后者提供最短、
+无需 Docker 的面试入口。
 
 ## 一张图说明数据流
 
@@ -205,7 +213,7 @@ exactly-once，也不证明任意崩溃窗口都已覆盖。
 - 不说“通过了 SWE-bench”；当前外部案例是来源绑定、作者选择且使用 Scripted Model 的评测。
 - 不说“保证 exactly-once”；当前保证的是可审计 intent/receipt、保守 unknown 和有限窗口恢复。
 - 不说“支持分布式容灾”；当前进程证据覆盖本地直接子 Worker。
-- 不把七轮真实模型 Pilot 的可重放失败说成修复成功；它们是保留的负结果。
+- 不把八轮真实模型 Pilot 的可重放失败说成修复成功；它们是保留的负结果。
 - 不把 Docker 限制参数说成安全沙箱认证。
 
 更细的实现合同见[一键作品集演示](portfolio-demo.md)、

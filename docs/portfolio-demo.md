@@ -36,21 +36,27 @@ Run Memory、上下文会话和事件存储，但模型动作由冻结脚本提�
 
 ## 2. 运行
 
+面试或人工检查时直接使用人类可读模式：
+
 ```powershell
-uv run --locked --cache-dir .uv-cache horizon demo run
+uv run --locked --cache-dir .uv-cache horizon demo run --human
 ```
+
+它先原样打印已被 EvidencePack 记录大小与 SHA-256 的 `SUMMARY.md`，随后调用同一离线验证器，
+显示 `PASS/FAIL`、证据包绝对路径、验证模式、是否调用付费模型/网络，以及一条可复制的独立复核
+命令。追加的复核区是本次即时验证结果；哈希绑定的交付摘要仍是 `SUMMARY.md` 本身。
 
 默认在 `.horizon/demos/portfolio-<随机 ID>/` 创建全新目录。也可以明确指定目录：
 
 ```powershell
-uv run --locked --cache-dir .uv-cache horizon demo run `
+uv run --locked --cache-dir .uv-cache horizon demo run --human `
   --output .horizon/demos/interview-demo
 ```
 
 目标目录必须不存在。Horizon 不会覆盖已有 EvidencePack；重复使用同一路径会以退出码 2 拒绝。
 如果执行中断，已产生的状态会保留供诊断，不会自动删除或伪装成成功。
 
-成功时 CLI 返回一行 JSON，关键字段包括：
+自动化脚本省略 `--human` 后仍返回向后兼容的单行 JSON，关键字段包括：
 
 ```json
 {

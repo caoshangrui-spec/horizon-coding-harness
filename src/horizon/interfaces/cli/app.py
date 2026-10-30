@@ -1262,53 +1262,79 @@ def portfolio_demo_run(
             help="New evidence directory; defaults to a unique path below .horizon/demos.",
         ),
     ] = None,
+    human: Annotated[
+        bool,
+        typer.Option(
+            "--human",
+            help="Print the integrity-bound summary and offline verification result.",
+        ),
+    ] = False,
 ):
     """Run the deterministic offline hard-crash recovery story and export its EvidencePack."""
     destination = output or Path(".horizon") / "demos" / f"portfolio-{uuid4().hex[:12]}"
     result = PortfolioDemoRunner().run(destination)
-    typer.echo(
-        canonical_json(
-            {
-                "demo_id": result.report.demo_id,
-                "run_id": result.report.run_id,
-                "status": result.report.status,
-                "all_checks_passed": result.report.verification.all_checks_passed,
-                "output_dir": str(result.output_dir),
-                "evidence_pack": str(result.evidence_pack_path),
-                "summary": str(result.summary_path),
-                "report": str(result.report_path),
-                "trace": str(result.trace_path),
-                "final_state": str(result.final_run_path),
-                "workspace": str(result.workspace),
-                "paid_model_called": result.report.paid_model_called,
-                "network_called": result.report.network_called,
-                "repository_code_executed": result.report.repository_code_executed,
-                "external_cost_cny": str(result.report.external_cost_cny),
-                "simulated_model_cost_cny": str(result.report.simulated_model_cost),
-                "claim_scope": result.report.claim_scope,
-                "recovery_mode": result.report.recovery_mode,
-                "worker_handoffs": result.report.worker_handoffs,
-                "final_lease_epoch": result.report.final_lease_epoch,
-                "event_count": result.report.event_count,
-                "evidence_backed_write": (result.report.verification.evidence_backed_write),
-                "trace_replay_verified": result.report.verification.trace_replay_verified,
-                "hard_crash_recovery_verified": (
-                    result.report.verification.hard_crash_recovery_verified
-                ),
-                "crashed_worker_exit_code": (
-                    result.report.crash_recovery.observed_exit_code
-                    if result.report.crash_recovery is not None
-                    else None
-                ),
-                "write_recovery_disposition": (
-                    result.report.crash_recovery.recovery_disposition
-                    if result.report.crash_recovery is not None
-                    else None
-                ),
-                "excluded_claims": result.report.excluded_claims,
-            }
+    if human:
+        pack = verify_portfolio_evidence_pack(result.evidence_pack_path)
+        resolved_pack = result.evidence_pack_path.resolve()
+        typer.echo(result.summary_path.read_text(encoding="utf-8").rstrip())
+        typer.echo("\n## Offline verification\n")
+        typer.echo(f"- Result: `{'PASS' if pack.all_checks_passed else 'FAIL'}`")
+        typer.echo(f"- EvidencePack: `{resolved_pack}`")
+        typer.echo("- Mode: `offline_hash_trace_semantic_replay`")
+        typer.echo(
+            "- Paid model / network: "
+            f"`{str(pack.paid_model_called).lower()} / {str(pack.network_called).lower()}`"
         )
-    )
+        typer.echo("\nRe-run the portable verifier:\n")
+        typer.echo("```powershell")
+        typer.echo(
+            f'uv run --locked --cache-dir .uv-cache horizon demo verify-portfolio "{resolved_pack}"'
+        )
+        typer.echo("```")
+    else:
+        typer.echo(
+            canonical_json(
+                {
+                    "demo_id": result.report.demo_id,
+                    "run_id": result.report.run_id,
+                    "status": result.report.status,
+                    "all_checks_passed": result.report.verification.all_checks_passed,
+                    "output_dir": str(result.output_dir),
+                    "evidence_pack": str(result.evidence_pack_path),
+                    "summary": str(result.summary_path),
+                    "report": str(result.report_path),
+                    "trace": str(result.trace_path),
+                    "final_state": str(result.final_run_path),
+                    "workspace": str(result.workspace),
+                    "paid_model_called": result.report.paid_model_called,
+                    "network_called": result.report.network_called,
+                    "repository_code_executed": result.report.repository_code_executed,
+                    "external_cost_cny": str(result.report.external_cost_cny),
+                    "simulated_model_cost_cny": str(result.report.simulated_model_cost),
+                    "claim_scope": result.report.claim_scope,
+                    "recovery_mode": result.report.recovery_mode,
+                    "worker_handoffs": result.report.worker_handoffs,
+                    "final_lease_epoch": result.report.final_lease_epoch,
+                    "event_count": result.report.event_count,
+                    "evidence_backed_write": (result.report.verification.evidence_backed_write),
+                    "trace_replay_verified": (result.report.verification.trace_replay_verified),
+                    "hard_crash_recovery_verified": (
+                        result.report.verification.hard_crash_recovery_verified
+                    ),
+                    "crashed_worker_exit_code": (
+                        result.report.crash_recovery.observed_exit_code
+                        if result.report.crash_recovery is not None
+                        else None
+                    ),
+                    "write_recovery_disposition": (
+                        result.report.crash_recovery.recovery_disposition
+                        if result.report.crash_recovery is not None
+                        else None
+                    ),
+                    "excluded_claims": result.report.excluded_claims,
+                }
+            )
+        )
     if not result.report.verification.all_checks_passed:
         raise typer.Exit(3)
 

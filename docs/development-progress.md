@@ -6,6 +6,18 @@
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
 
+## 2026-10-30 人类可读作品集入口
+
+- 现有 `horizon demo run` 新增可选 `--human`，直接原样打印 EvidencePack 哈希绑定的
+  `SUMMARY.md`，随后再次从磁盘运行离线哈希、Trace 重放和语义验证，并给出证据包绝对路径与
+  可复制 verifier 命令。默认不带参数的单行 JSON 合同保持不变，自动化和既有 CI 无需迁移。
+- 新增集成测试把终端展示与实际 `SUMMARY.md` 字节内容绑定，并复核 PASS、验证模式、零付费模型、
+  零网络和独立命令路径。真实命令现场生成了一份 77-event、2 次 Worker 交接、child exit 86、
+  final epoch 3 的 `SUCCEEDED` EvidencePack；再次调用独立 verifier 通过。
+- 同步刷新 3 分钟讲解：明确来源绑定 hard-crash v2 在 Luigi `replace_text/accept_replace` 与
+  FastAPI `create_file/accept_create` 上公开 2/2，同时保留八轮真实模型均未完成修复的负结果边界。
+  本批没有新框架、新故障类型、联网或付费模型调用；整仓离线回归为 **653 passed，11 skipped**。
+
 ## 2026-10-30 第二个来源绑定写入硬崩溃案例
 
 - 新增 `bugsinpy-multi-stage-hard-crash-v2`，原样复用 v1 的 Luigi `replace_text` 案例与冻结 digest，
@@ -1566,8 +1578,8 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 八轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 651 passed；全量入口对应
-651 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
+当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 653 passed；全量入口对应
+653 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
 `run_model_cost_limit` 进入 `FAILED`。没有工具、编辑、checkpoint 或验证，Trace 14 事件可重放，
