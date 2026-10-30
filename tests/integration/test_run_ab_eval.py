@@ -332,14 +332,16 @@ def test_run_ab_suite_separates_trace_bound_retrieval_degradation_from_task_succ
         "acceptance_evidence_unknown",
         "retrieval_degraded",
     )
-    assert report.baseline.reliability.degradation_count == 2
-    assert report.baseline.reliability.retrieval_degradation_count == 2
+    # Only the first retrieval is dispatched. Later identical queries settle as local
+    # RetrievalQueryPolicy errors and must not manufacture extra degradation records.
+    assert report.baseline.reliability.degradation_count == 1
+    assert report.baseline.reliability.retrieval_degradation_count == 1
     assert report.single_replan.status == RunStatus.SUCCEEDED
     assert report.single_replan.reliability is not None
     assert report.single_replan.reliability.required_checks_passed is True
     assert report.single_replan.reliability.quality_flags == ("retrieval_degraded",)
-    assert report.single_replan.reliability.degradation_count == 2
-    assert report.single_replan.reliability.retrieval_degradation_count == 2
+    assert report.single_replan.reliability.degradation_count == 1
+    assert report.single_replan.reliability.retrieval_degradation_count == 1
     baseline_lineage = report.baseline.reliability.retrieval_lineage
     treatment_lineage = report.single_replan.reliability.retrieval_lineage
     assert baseline_lineage is not None
@@ -412,7 +414,7 @@ def test_run_ab_suite_separates_trace_bound_retrieval_degradation_from_task_succ
     assert reliability.quality_flagged_terminal_success_count == 1
     assert reliability.degradation_arm_count == 2
     assert reliability.retrieval_degraded_arm_count == 2
-    assert reliability.degradation_record_count == 4
+    assert reliability.degradation_record_count == 2
     assert reliability.retrieval_lineage_arm_count == 2
     assert reliability.successful_retrieval_count == (
         len(baseline_lineage.successful_retrieval_call_ids)

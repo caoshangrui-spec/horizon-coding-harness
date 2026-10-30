@@ -5,6 +5,7 @@ import pytest
 
 from horizon.adapters.persistence.artifacts import ArtifactStore
 from horizon.application.memory import RunMemoryProjector
+from horizon.application.retrieval_control import RETRIEVAL_QUERY_POLICY
 from horizon.domain.common import canonical_json, digest
 from horizon.domain.errors import IntegrityError
 from horizon.domain.retrieval import EvidenceChunk, EvidencePack
@@ -166,6 +167,16 @@ def test_run_memory_preserves_two_ranked_retrieval_chunks_for_replan_context(
         status="success",
         content=canonical_json(evidence),
     )
+    run = settle_tool(
+        service,
+        run.run_id,
+        token,
+        artifacts,
+        call_id="retrieve-reuse-1",
+        name="retrieve_code",
+        status="error",
+        content=(f"{RETRIEVAL_QUERY_POLICY}: reuse src/request.py and inspect a bounded neighbor"),
+    )
 
     snapshot = RunMemoryProjector(artifacts).project(
         run,
@@ -175,6 +186,7 @@ def test_run_memory_preserves_two_ranked_retrieval_chunks_for_replan_context(
     )
 
     assert len(snapshot.entries) == 1
+    assert snapshot.total_entry_count == 1
     visible = json.loads(snapshot.entries[0].excerpt)
     assert [chunk["path"] for chunk in visible["chunks"]] == [
         "src/request.py",

@@ -87,6 +87,17 @@ jobs:
             exit "$retrieval_status"
           fi
 
+      - name: Replay observed TheFuck-2 model queries
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=.horizon/retrieval-v3-evidence
+          uv run --locked horizon eval retrieval \
+            benchmarks/retrieval/thefuck2-real-model-queries-v1.yaml \
+            --source .horizon/retrieval-v3/sources/thefuck-2-executable-path-separator \
+            --state-dir .horizon/retrieval-v3/thefuck2-real-model-queries-v1 \
+            | tee "$evidence/thefuck2-real-model-queries-v1.json"
+
       - name: Run frozen query-robustness slice
         shell: bash
         run: |
@@ -275,6 +286,19 @@ jobs:
           if metrics[1]["hit_count"] != 11 or metrics[5]["hit_count"] != 16:
               raise SystemExit("Frozen retrieval metrics changed unexpectedly")
 
+          observed_queries = json.loads(
+              (evidence / "thefuck2-real-model-queries-v1.json").read_text(
+                  encoding="utf-8"
+              )
+          )["report"]
+          observed_cases = observed_queries["cases"]
+          if observed_queries["paid_model_called"] or observed_queries["network_called"]:
+              raise SystemExit("Observed-query replay made a forbidden external call")
+          if [case["first_relevant_rank"] for case in observed_cases] != [1, 6]:
+              raise SystemExit("Observed TheFuck-2 query path ranks drifted")
+          if observed_cases[0]["returned_paths"][0] != "thefuck/utils.py":
+              raise SystemExit("Observed TheFuck-2 rank-1 path drifted")
+
           robustness = yaml.safe_load(
               Path(
                   "benchmarks/retrieval/external-development-v3/"
@@ -449,6 +473,7 @@ jobs:
               f"- Hit@5: `{metrics[5]['hit_count']}/{report['case_count']}`",
               f"- Micro recall@8: `{metrics[8]['micro_path_recall']}`",
               f"- MRR: `{report['mean_reciprocal_rank']}`",
+              "- Observed TheFuck-2 target-path ranks: `1 / 6`",
               f"- Leakage / empty / degraded: `{report['leakage_count']}/"
               f"{report['empty_count']}/{report['degraded_count']}`",
               (

@@ -1405,6 +1405,49 @@ def test_no_progress_guard_blocks_third_identical_action_then_allows_progress(
     assert result.failure_reason is None
 
 
+def test_near_duplicate_retrieval_reuses_rank_one_path_before_dispatch(
+    tmp_path,
+    task_dict,
+):
+    actions = [
+        ("retrieve_code", {"query": "parse value empty behavior"}),
+        ("retrieve_code", {"query": "parse empty value find"}),
+        ("read_file", {"path": "src/parser.py", "start_line": 1, "end_line": 2}),
+        (
+            "replace_text",
+            {
+                "path": "src/parser.py",
+                "old": "return [value]",
+                "new": "return [] if value == '' else [value]",
+            },
+        ),
+        ("submit", {"summary": "Fixed parser after reusing retrieval evidence."}),
+    ]
+    runner, store, run_id, token, _, _ = setup_loop(tmp_path, task_dict, actions)
+
+    paused = runner.run(run_id, token, max_iterations_this_invocation=1)
+    assert paused.status == RunStatus.RUNNING
+    assert paused.agent_session is not None
+
+    result = runner.run(run_id, token)
+
+    assert result.status == RunStatus.SUCCEEDED
+    retrievals = [record for record in result.tool_calls if record.name == "retrieve_code"]
+    assert [record.status for record in retrievals] == ["success", "error"]
+    denial = runner.session_store.read(retrievals[-1].artifact_ref).decode("utf-8")
+    assert denial.startswith("RetrievalQueryPolicy:")
+    assert "src/parser.py" in denial
+    assert "read_file" in denial
+    assert "add a genuinely new symbol or path term" in denial
+    settled = [
+        event
+        for event in store.events(run_id)
+        if event.event_type == "TOOL_CALL_SETTLED"
+        and event.payload["record"]["call_id"] == retrievals[-1].call_id
+    ]
+    assert len(settled) == 1
+
+
 def test_no_progress_guard_waits_on_exact_alternating_two_action_cycle(
     tmp_path,
     task_dict,
@@ -1455,10 +1498,19 @@ def test_no_progress_guard_waits_on_exact_period_three_cycle(tmp_path, task_dict
     assert waiting.pending_human_request.pattern == "periodic_action_cycle"
     assert waiting.pending_human_request.cycle_period == 3
     assert len(model.requests) == 9
-    assert [record.status for record in waiting.tool_calls] == ["success"] * 7 + [
+    assert [record.status for record in waiting.tool_calls] == [
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "error",  # near-duplicate retrieval is settled without redispatch
+        "success",
         "error",
         "error",
     ]
+    retrieval_denial = runner.session_store.read(waiting.tool_calls[5].artifact_ref).decode("utf-8")
+    assert retrieval_denial.startswith("RetrievalQueryPolicy:")
     denial = runner.session_store.read(waiting.tool_calls[-1].artifact_ref).decode("utf-8")
     assert "exact period-3 action cycle" in denial
     assert "9 consecutive unchanged-revision receipts" in denial

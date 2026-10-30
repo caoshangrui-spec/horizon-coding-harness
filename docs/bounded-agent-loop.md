@@ -153,6 +153,14 @@ Provider 派发前和 response receipt 后的两个双库提交窗口，并输�
 每次工具调用先写 `TOOL_CALL_RESERVED`，再派发，最后写 `TOOL_CALL_SETTLED`。receipt 包含
 参数 hash、状态、输出 hash/Artifact、前后工作区 revision 和 workspace manifest。工具输出
 以内容寻址 Artifact 保存，事件不内嵌无限日志。
+
+`retrieve_code` 还有一个窄的 revision-bound 复用门。若最近一次成功 EvidencePack 与新查询在同一
+workspace revision 上高度重合，而新查询没有增加 symbol、path、有效领域词或更大的 `max_chunks`，
+Harness 不重复构建相似检索回执；它结算一个 `RetrievalQueryPolicy` error，引用原 rank-1
+path/range，并建议最多 400 行的邻近 `read_file` 范围。该 error 与普通工具调用共用持久 intent、
+receipt 和 no-progress 分类，所以崩溃恢复不会忘记它，精确周期检测也不会被绕过；但它不是新的
+仓库观察，不占 RunMemory 条目，避免把它引用的成功 EvidencePack 挤出 replan 上下文。跨 revision、
+扩大候选或加入具体定位词时该门旁路，不把语义猜测当成仓库证据。
 三个写工具的 reservation 还包含 `WorkspaceWritePrecondition`。它把来源 execution model call、
 模型请求中的 expected tree revision、派发前 observed revision/manifest 和目标路径绑定在同一
 Trace。详细算法、重放不变量与限制见[模型上下文绑定的写入 CAS](model-context-write-cas.md)。

@@ -68,6 +68,36 @@
   `credential_loaded/paid_model_called/network_called` 均为 false；新 report ref 为
   `8f389d990604629bcfc89b9d5fd3616e41fe3d45f0e127c0ef51cf412512f4f2`。
 
+## 2026-10-30 TheFuck-2 Trace 驱动的检索复用门
+
+- 将第九轮两条模型原始查询原样冻结为
+  [`thefuck2-real-model-queries-v1.yaml`](../benchmarks/retrieval/thefuck2-real-model-queries-v1.yaml)。
+  这是付费 Run 后的 development 回归，不是 holdout。精确 buggy checkout 上的 v8 负基线为：
+  第一条目标 path rank 1，但实际 chunk 是 `thefuck/utils.py:36-75` 中已经正确的 `which()`；
+  第二条目标 path rank 6、rank 1 为 `thefuck/system/unix.py`。路径命中不能替代目标函数命中。
+- 新增 `retrieval_control.py` 的纯本地门控。只有当前查询与最近一次已结算 retrieval 在同一
+  workspace revision 上至少共享 3 个词、对较短查询覆盖率至少 0.75，且没有新增有效 symbol、
+  path、领域词，也没有显式扩大 `max_chunks` 时，控制器才拒绝重复派发。它不修改底层 v8 排名、
+  不读取 gold patch，也不会跨 revision 复用。
+- 拒绝回执不只说“重复”：它绑定上一次 rank-1 path/range，并给出最多 400 行的邻近
+  `read_file` 建议。对真实 TheFuck-2 回执，第二条查询被拦截，建议范围为
+  `thefuck/utils.py:16-155`，覆盖真实缺陷函数 `get_all_executables()` 的 108–128 行。该控制器错误仍
+  经过 `TOOL_CALL_RESERVED/SETTLED`，所以进程切片恢复后可以重算，既有 period-3 no-progress 循环
+  仍在第 9 步进入 `WAITING_FOR_USER`，没有绕过持久停滞检测。
+- 新增 4 个纯策略单测和 1 个跨 Agent 安全切片的集成回归；完整 Agent Loop 切片为
+  **83 passed**。第一次整仓回归为 **666 passed / 1 failed / 11 skipped**：重复检索已经少派发，
+  但两个策略 error 在 replan 后挤出了更早的成功 EvidencePack，使测试观测到
+  `write_context_bound_count=0`。修复没有放宽 lineage 门，而是让这种纯复用提示继续保留在
+  EventLog/Trace 和 no-progress 计数中、但不占 RunMemory observation 槽位；原 EvidencePack 因而
+  继续跨 replan 可见。定向 Memory/Run A/B 回归通过，第二次整仓为
+  **667 passed，11 skipped**。
+- 本地真实 checkout 重放和测试均未调用模型或网络、外部费用为 0。公开 retrieval
+  workflow 会按既有来源合同联网物化 exact-commit source，随后离线重放两条冻结查询并保存
+  `1 / 6` 的目标路径 rank 负基线；具体公开运行结果以对应主干提交的 GitHub Actions 为准。
+- 这项改进只证明重复检索会被更小、更可操作的控制器回执替代；它没有让 v8 RAG 自动命中目标
+  chunk，也没有产生编辑、验证或真实模型成功证据。下一次付费 Run 仍需新的明确授权和通过更新后
+  的 execution sizing preflight。
+
 ## 2026-10-30 人类可读作品集入口
 
 - 现有 `horizon demo run` 新增可选 `--human`，直接原样打印 EvidencePack 哈希绑定的

@@ -24,6 +24,10 @@ from horizon.application.model_recovery import (
     recoverable_model_turn,
     recoverable_readonly_tool_turn,
 )
+from horizon.application.retrieval_control import (
+    RETRIEVAL_QUERY_POLICY,
+    find_redundant_retrieval,
+)
 from horizon.application.services import HarnessService, LeaseToken
 from horizon.domain.agent import AgentSession, AgentSessionRecord
 from horizon.domain.budget import Usage
@@ -286,7 +290,10 @@ def _initial_messages(
                 "early call sites. After retrieve_code, use its path and line range with "
                 "read_file: copy both start_line and end_line, and never send only one bound; "
                 "unbounded reads of large files are rejected. Do not repeat a "
-                "saturated search with equivalent queries. Plan objectives and expected "
+                "saturated search with equivalent queries. If rank-1 evidence shows an "
+                "already-correct implementation while the task still fails, inspect a bounded "
+                "neighboring range in the same file or add a concrete symbol/path term instead "
+                "of issuing a synonym-only retrieval. Plan objectives and expected "
                 "artifacts are work guidance, not repository evidence: when current, "
                 "revision-bound retrieval contradicts a guessed path, follow the evidence "
                 "instead of searching to satisfy the guess. Every workspace write is bound "
@@ -879,6 +886,7 @@ class CodingAgentRunner:
         enforce_no_progress: bool = False,
         source_model_call_id: str | None = None,
         expected_workspace_revision: str | None = None,
+        controller_policy: tuple[str, str] | None = None,
     ) -> tuple[ToolOutcome, NoProgressDecision | None]:
         local_id = f"tool_{uuid4().hex}"
         arguments_hash = digest(arguments)
@@ -959,6 +967,22 @@ class CodingAgentRunner:
             artifact_ref = self.session_store.put(payload)
             if self.session_store.read(artifact_ref) != payload:
                 raise Conflict("No-progress policy artifact verification failed")
+            outcome = ToolOutcome(
+                status="error",
+                content=content,
+                output_hash=artifact_ref,
+                workspace_revision_before=workspace_revision,
+                workspace_revision_after=workspace_revision,
+                artifact_ref=artifact_ref,
+                workspace_manifest_ref=workspace_manifest_ref,
+            )
+        elif controller_policy is not None:
+            policy_name, detail = controller_policy
+            content = f"{policy_name}: {detail}"
+            payload = content.encode("utf-8")
+            artifact_ref = self.session_store.put(payload)
+            if self.session_store.read(artifact_ref) != payload:
+                raise Conflict("Controller tool policy artifact verification failed")
             outcome = ToolOutcome(
                 status="error",
                 content=content,
@@ -1507,6 +1531,18 @@ class CodingAgentRunner:
             submitted = False
             source_model_call_id = run.model_calls[-1].call_id
             for call in response.message.tool_calls:
+                redundant_retrieval = None
+                if call.function.name == "retrieve_code":
+                    redundant_retrieval = find_redundant_retrieval(
+                        messages,
+                        call.function.arguments,
+                        model_workspace_revision,
+                    )
+                controller_policy = (
+                    (RETRIEVAL_QUERY_POLICY, redundant_retrieval.detail)
+                    if redundant_retrieval is not None
+                    else None
+                )
                 outcome, hard_no_progress_decision = self._tool_call(
                     run_id,
                     token,
@@ -1515,6 +1551,7 @@ class CodingAgentRunner:
                     enforce_no_progress=len(response.message.tool_calls) == 1,
                     source_model_call_id=source_model_call_id,
                     expected_workspace_revision=model_workspace_revision,
+                    controller_policy=controller_policy,
                 )
                 run = self.service.store.get(run_id)
                 if run.terminal:

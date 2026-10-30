@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pydantic import ValidationError
 
+from horizon.application.retrieval_control import RETRIEVAL_QUERY_POLICY
 from horizon.domain.agent import AgentSessionRecord
 from horizon.domain.common import canonical_json, digest
 from horizon.domain.errors import Conflict, IntegrityError
@@ -112,7 +113,7 @@ class RunMemoryProjector:
         record: ToolCallRecord,
         current_revision: str,
         work_item_id: str,
-    ) -> RunMemoryEntry:
+    ) -> RunMemoryEntry | None:
         if record.status == "unknown":
             raise IntegrityError("Unknown tool effects cannot be stored as settled observations")
         if record.artifact_ref is None or record.artifact_ref != record.output_hash:
@@ -122,6 +123,14 @@ class RunMemoryProjector:
             content = raw.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise IntegrityError("Tool memory evidence must be UTF-8 text") from exc
+        if (
+            record.name == "retrieve_code"
+            and record.status == "error"
+            and content.startswith(f"{RETRIEVAL_QUERY_POLICY}:")
+        ):
+            # The controller feedback points back to an earlier settled EvidencePack. Keeping
+            # another memory entry would evict the evidence it tells the model to reuse.
+            return None
         dependency_revision = record.workspace_revision_after or record.workspace_revision_before
         status = "active" if dependency_revision == current_revision else "stale"
         assert run.plan is not None
@@ -256,16 +265,16 @@ class RunMemoryProjector:
                     continue
                 if current_work_item_id is None:
                     raise IntegrityError("Tool memory has no active work item session")
-                relevant_events.append(event)
-                entries.append(
-                    self._settled_entry(
-                        run,
-                        event,
-                        record,
-                        current_revision,
-                        current_work_item_id,
-                    )
+                entry = self._settled_entry(
+                    run,
+                    event,
+                    record,
+                    current_revision,
+                    current_work_item_id,
                 )
+                if entry is not None:
+                    relevant_events.append(event)
+                    entries.append(entry)
                 continue
             if event.event_type == "TOOL_CALL_UNKNOWN":
                 call_id = event.payload.get("call_id")

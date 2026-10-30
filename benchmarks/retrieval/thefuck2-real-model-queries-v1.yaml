@@ -1,0 +1,15 @@
+schema_version: 1
+benchmark_id: thefuck2-real-model-queries-v1
+allowed_paths: [thefuck/**]
+denied_paths: [.git/**, .env, .env.*, secrets/**, "**/test/**", "**/tests/**"]
+cases:
+  # Observed verbatim in paid Run run_9cfbde76d85a4bfcbf1f3463fbacf8ed.
+  # This is a post-run development regression set, not a holdout benchmark.
+  - case_id: thefuck2-observed-query-1
+    query: split PATH entries executable discovery os.pathsep
+    expected_paths: [thefuck/utils.py]
+    max_chunks: 8
+  - case_id: thefuck2-observed-query-2
+    query: PATH split executable find
+    expected_paths: [thefuck/utils.py]
+    max_chunks: 8

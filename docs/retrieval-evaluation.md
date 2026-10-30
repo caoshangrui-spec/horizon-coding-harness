@@ -510,3 +510,28 @@ v8 的 16-case 精确内容寻址基线保存在
 其 receipt 与公开 CI 的文件数、字节数、tree digest、source manifest digest
 `74a87b4dbf6c54f8f9fd003473dcc0a7995f5b7be9953e080a1f5d672ec16431` 全部一致；来源不明的旧
 本地源即使返回路径相同也不能生成基线 ref。这只是实现兼容性复核，不是新增样本或新的质量提升结论。
+
+## 18. TheFuck-2 真实查询复用回归
+
+第九轮真实模型生成的两条查询现原样保存在
+[`thefuck2-real-model-queries-v1.yaml`](../benchmarks/retrieval/thefuck2-real-model-queries-v1.yaml)：
+
+| query | 目标 path rank | rank-1 证据 |
+|---|---:|---|
+| `split PATH entries executable discovery os.pathsep` | 1 | `thefuck/utils.py:36-75`，但为已正确使用 `os.pathsep` 的 `which()` |
+| `PATH split executable find` | 6 | `thefuck/system/unix.py:36-57` |
+
+因此该回归同时保留“path 命中但目标 span 未命中”和“目标 path 排名靠后”两种负结果。没有用已知
+gold patch 调整 v8 排序，也没有改写冻结的 16-case/holdout 指标。
+
+生产 Agent Loop 增加 revision-bound 近重复门：同一 revision 上，第二条查询若只删减词或加入
+`find/search/use` 等低信息动作词，就不再次执行 RAG；如果新增结构化 symbol/path、有效领域词，或
+显式扩大 `max_chunks`，仍正常派发。拒绝回执引用前一个 EvidencePack 的 rank-1 path/range，并给出
+有界邻近读取建议。真实回放得到 `thefuck/utils.py:16-155`，覆盖目标 108–128 行。该判断从持久化
+Agent transcript 和 typed EvidencePack 重建，控制器结果仍进入 Trace/no-progress 计数，但作为
+重复控制反馈不占 RunMemory 条目；原成功 EvidencePack 因而能继续跨 replan 进入写入 lineage。
+
+公开 `External retrieval evidence` 工作流会在重建 exact-commit source 后重放这两条查询，确认
+目标 path rank 仍为 `1 / 6`，且离线评估 report 中没有模型和网络调用。策略单测另覆盖 revision 隔离、显式扩大候选、
+新增 symbol/领域词旁路；Agent 集成测试覆盖一次安全切片后的恢复。这仍不是检索质量提升或真实修复
+成功，只是减少已观察到的无效重复并把下一步引回已有 path 证据。
