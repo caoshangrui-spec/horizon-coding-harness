@@ -1,15 +1,28 @@
 # 源码绑定的多阶段写入硬崩溃恢复
 
-更新：2026-10-07。本文记录一个刻意收窄、但走真实产品主链路的可靠性增量：在完整 Luigi
-上游 checkout 的三阶段任务中，独立 Worker 子进程完成 `replace_text` 副作用后、工具回执提交前
-以 `os._exit(87)` 退出；Harness 必须先把悬空调用保守标为 unknown，再由新 lease epoch 精确接纳
-已经存在的唯一后态，不能重发模型调用或再次执行写入。
+更新：2026-10-30。本文记录一个刻意收窄、但走真实产品主链路的可靠性增量。冻结 v1 在完整
+Luigi checkout 的三阶段任务中，让独立 Worker 子进程完成 `replace_text` 副作用后、工具回执提交前
+以 `os._exit(87)` 退出；v2 原样保留该案例，又在独立 FastAPI checkout 中把同一故障窗口放到
+`create_file`。Harness 必须先把悬空调用保守标为 unknown，再由新 lease epoch 精确接纳已经存在的
+唯一后态，不能重发模型调用或再次执行写入。
 
 这不是任意崩溃恢复、分布式 exactly-once 或真实模型能力证明。它回答的是一个更具体的问题：
 已有 intent/receipt、Lease fencing、Workspace Manifest、Tool Recovery 和 Trace 机制，能否在一个
 来源绑定的长程软件工程任务里组合成可验证的恢复闭环。
 
 ## 1. 冻结输入与范围
+
+- 最新 Suite：[`bugsinpy-multi-stage-hard-crash-v2.yaml`](../benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v2.yaml)，
+  digest `1e24d7414a05eed8167be595a54156be8ec84e36f3b6ae8fd5b030f9072ea943`；
+- 新增 Case：[`multi-stage-hard-crash-v2.yaml`](../benchmarks/run_ab/full/fastapi-5-nested-field-clone/multi-stage-hard-crash-v2.yaml)，
+  digest `339cb04c6022a0bb277afa4d70d26c6262aeb643c5a3eeddb185a488417cdb09`；
+- 新增来源：BugsInPy FastAPI bug 5，buggy commit
+  `7cea84b74ca3106a7f861b774e9d215e5228728f`，629 个 Git tracked files；
+- 新增故障窗口：两条 FastAPI arm 的第 5 次模型调用，且动作是相同参数与内容的 `create_file`；
+- FastAPI 在调用 3 后先跨一次正常 Worker 边界，`create_file` 崩溃由 epoch 2→3 恢复，再在调用 6
+  后跨第二次边界，最终 epoch 4；
+
+以下 v1 Suite/Case 及 digest 原样保留，并继续由回归测试保护：
 
 - Suite：[`bugsinpy-multi-stage-hard-crash-v1.yaml`](../benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v1.yaml)，
   digest `3b421aca80519b65e50d230c4cb3e397dc40851796f615c5ab778a83f1e64a02`；
@@ -43,6 +56,10 @@ epoch 2 / runner       从下一条 scripted action 继续，不重派第 2 次�
 epoch 3 / runner       第一个 WorkItem 边界重启
 epoch 4 / runner       第二个 WorkItem 边界重启并完成后续 A/B 行为
 ```
+
+上图是 v1 Luigi 的精确时序。v2 不改变恢复算法，只改变故障工具和相对边界位置：FastAPI 在 epoch 1
+先完成生产修复并于调用 3 后重启；epoch 2 的调用 5 创建上游 regression 文件后退出；恢复使用
+epoch 3 的 `accept_create`，调用 6 后再重启到 epoch 4。两个 profile 都要求最终只有一个恢复 receipt。
 
 子进程不是一个只改测试夹具的旁路。它重开同一 `control.sqlite3`、Campaign ledger、CAS Artifact
 和 revision-aware Retriever，复用 `CodingAgentRunner`、`ScriptedModelGateway` 与
@@ -81,6 +98,8 @@ Run A/B report schema v2 为每条 arm 增加 `hard_crash` 证据：
 
 ## 4. 本地可信结果
 
+### 4.1 冻结 v1 结果
+
 本地运行使用固定 382-file checkout 与严格 test-only Python 验收器。初始 checkout 的三项 required
 check 均失败；核心 evaluator 返回 `all_expectations_met=true`。一次性的结果打印器随后因读取了
 不存在的旧字段名而以 `AttributeError` 退出；没有把这个辅助脚本错误当作成功，也没有重跑核心
@@ -104,6 +123,23 @@ check 均失败；核心 evaluator 返回 `all_expectations_met=true`。一次�
 `accept_replace` receipt；最终投影与 JSONL replay 投影相同。Treatment 的三个 required checks
 全部通过；Baseline 完成两个 production WorkItem 后按既有 NoProgress 合同安全等待。源 checkout
 在运行后仍为固定 HEAD 且 `git status --porcelain --untracked-files=all` 为空。
+
+### 4.2 v2 双工具结果
+
+2026-10-30 使用本机 `python:3.12-alpine` 镜像和生产 Docker acceptance 路径运行 v2。两个来源
+checkout 初始 required checks 均按 manifest 失败，suite 返回 `all_expectations_met=true`、2/2；
+没有 Provider、付费模型或容器网络调用。聚合报告 ref 为
+`2cba66bab3b878f6565f2cd233f1fa2d27d8f80969c617b5f16e631fa6976249`。
+
+| Case | 工具 / disposition | 崩溃→恢复→最终 epoch | Baseline / Treatment events | Treatment |
+|---|---|---|---:|---|
+| Luigi bug 1 | `replace_text` / `accept_replace` | `1→2→4` | 128 / 171 | `SUCCEEDED` |
+| FastAPI bug 5 | `create_file` / `accept_create` | `2→3→4` | 128 / 162 | `SUCCEEDED` |
+
+4 条 arm 全部先记录 unknown，再精确接纳既有效果；hard-crash recovery 4/4、恢复率 1.0、模型重派
+0、重复副作用 0、最终 open effect 0、Trace replay 4/4、source unchanged 4/4。两条 Baseline 仍按
+冻结 NoProgress 合同停在 `WAITING_FOR_USER`，两条 Treatment 完成；quality flag 与 degradation 继续
+独立记录，不把 Scripted Model 的终态写成真实模型成功率。
 
 ## 5. 自动化验证
 
@@ -130,17 +166,28 @@ digest 为 `sha256:30c69b28d8c38602b5e0b7a83ad355ca27bb7da8a284958b1f3aa4e0e3152
 acceptance，Treatment 为带检索降级的 quality-flagged success，2 条 arm 共保留 9 条 degradation
 record。该新增分类没有改变硬崩溃 manifest、故障点或恢复结论。
 
+2026-10-30 的 v2 公开 run
+[`41027080498`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/41027080498)
+在 Linux runner 上重建两个固定 commit，并在 `python:3.12-alpine`、`--network none` 的生产路径通过
+2/2。最终 gate 逐案例核对工具与 disposition、退出码 87、崩溃/恢复 epoch、unknown→accept、
+单一恢复 receipt、零模型重派、每 arm 三次重启/final epoch 4、Trace replay、source unchanged 和
+最终无 open effect。统一 artifact `source-bound-docker-evidence` 的 ID 为 `12964696027`，大小
+260,301,498 bytes，digest
+`sha256:bdcbd86bdcd2a64c6f9d8d447d83f5dad2d7144a04fc6236e6379be7cf1ea722`，保留到
+2026-11-29。`horizon doctor` 的 hard-crash case/Docker verified count 因此为 2。
+
 ## 6. 明确边界
 
-当前可以声称：一个作者选择的完整上游任务，已真实经历“写入 effect 已发生、receipt 未提交”的
-进程退出，并沿产品主链路完成保守隔离、lease fencing、精确接纳、无模型重派和后续多阶段执行。
+当前可以声称：两个作者选择的完整上游任务、两种写工具，已真实经历“写入 effect 已发生、receipt
+未提交”的进程退出，并沿产品主链路完成保守隔离、lease fencing、精确接纳、无模型重派和后续
+多阶段执行。
 
 当前不能声称：
 
 - 任意指令、任意工具、容器/主机断电或多个并发悬空副作用都可恢复；
 - `accept` 是自动策略；这里是 evaluator 对冻结 expected effect 的受信任决定；
 - Scripted Model 结果代表真实模型能自主定位、修复或选择 replan；
-- 单个 Luigi 案例代表 BugsInPy、SWE-bench 或任何官方基准成绩；
+- Luigi + FastAPI 两个案例代表 BugsInPy、SWE-bench 或任何官方基准成绩；
 - 一次精确 accept 构成通用 exactly-once 语义。
 
 下一步只在主链路需要时扩展故障窗口。当前不新增分布式队列、向量数据库、多 Agent supervisor、

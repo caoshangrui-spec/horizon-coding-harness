@@ -116,6 +116,17 @@
 > 与 context-bound/evidence-backed write，旧报告仍兼容。该证据仍不是语义因果或真实模型能力；
 > 尚未把检索设为所有生产写工具的强制前置策略，生产脱敏也未完成。
 
+> 2026-10-30 FR-1305 当前增量：hard-crash v2 原样保留 Luigi bug 1 的
+> `replace_text/accept_replace`，增加 FastAPI bug 5 完整 629-file checkout 的
+> `create_file/accept_create`。4 条 arm 都由真实 child 在 effect 后、receipt 前以 87 退出，先记录
+> unknown，再由新 epoch 精确接纳且不重派模型；本地与公开禁网 Docker 均为 2/2，恢复率 1.0、
+> redispatch/duplicate side effect/final open effect 均为 0。公开 run `41027080498` 还保持
+> dependency-reduced 5/5、full-checkout 22/22、multi-stage 3/3，最终四组 suite 为 32 个 manifest
+> 场景、64 条 arm；统一 artifact ID `12964696027`，digest
+> `sha256:bdcbd86bdcd2a64c6f9d8d447d83f5dad2d7144a04fc6236e6379be7cf1ea722`。两个作者选择案例仍不
+> 构成任意崩溃、自动恢复策略、真实模型能力或官方 benchmark 证据。本段取代上表 FR-1305 及
+> 2026-10-29 v11 增量中的“当前”hard-crash/场景/arm 计数，不改写其历史结果。
+
 > 2026-10-29 FR-1305 当前增量：完整 checkout v11 原样保留 v10 十九例，并增加预冻结
 > development 来源的 Sanic-3、TheFuck-5 与 Luigi-7；二十二例覆盖九项目、6,062 tracked files。
 > 本地完整 Harness 的三个 buggy 初始门、Baseline 等待、单次 replan Treatment、Trace replay 与

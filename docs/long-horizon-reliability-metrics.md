@@ -80,14 +80,14 @@ digest 没有被改写。
 | `bugsinpy-full-checkout-pilot-v10` | v9 十七例 + HTTPie-1、Tornado-4 | 19 | 9 个项目、5,177 tracked files；两个新增案例的本地完整 Harness 为 2/2；公开 run `40799174668` 已通过 19/19 |
 | `bugsinpy-full-checkout-pilot-v11` | v10 十九例 + Sanic-3、TheFuck-5、Luigi-7 | 22 | 9 个项目、6,062 tracked files；三个新增案例的本地完整 Harness 为 3/3；公开 run `40804131201` 已通过 22/22 |
 | `bugsinpy-multi-stage-pilot-v4` | youtube-dl、Luigi、FastAPI | 3 | 每条 arm 为 3 WorkItem、2 次 Worker 重启；合计 6 条 Trace、12 次重启 |
-| `bugsinpy-multi-stage-hard-crash-v1` | Luigi | 1 | 两条 arm 均真实写入后、receipt 前退出，再跨两个 WorkItem 边界；合计 2 次恢复尝试、6 次重启 |
+| `bugsinpy-multi-stage-hard-crash-v2` | Luigi、FastAPI | 2 | v1 的 `replace_text` 原样保留，新增 `create_file`；4 条 arm 均真实写入后、receipt 前退出并继续后续 WorkItem；合计 4 次恢复尝试、12 次重启 |
 
-同一 bug 在不同 suite 中用于不同实验变量，因此不能把当前 31 个场景宣传成 31 个独立真实任务。
-当前 suite 共 31 个 manifest 场景、62 条 arm，现均有公开 Docker 统一验证；历史
+同一 bug 在不同 suite 中用于不同实验变量，因此不能把当前 32 个场景宣传成 32 个独立真实任务。
+当前 suite 共 32 个 manifest 场景、64 条 arm，现均有公开 Docker 统一验证；历史
 v1/v2/v3/v4/v5/v6/v7 版本不重复累加。
 按 `(benchmark, project, bug_id, buggy_commit)` 去重后，完整 checkout 是 22 个作者选择、gold 揭示后
 制作端到端 manifest 的 development 案例；因此仍没有 20～30 个独立盲测/holdout 真实任务，也没有
-真实模型成功率。31 个场景和 62 条 arm 不能改写成泛化样本量。
+真实模型成功率。32 个场景和 64 条 arm 不能改写成泛化样本量。
 
 ## 4. 运行与读取
 
@@ -154,12 +154,24 @@ degradation 数值。
 `sha256:e1a37b2308e7992244d096cde9f629ceea5df3c2290d6cb1ea2e474bf6dd7735`，保留至
 2026-11-27。
 
+2026-10-30 的 v2 公开 run
+[`41027080498`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/41027080498)
+把 hard-crash suite 升为 2/2：Luigi `replace_text/accept_replace` 与 FastAPI
+`create_file/accept_create` 共 4 条故障 arm，恢复 4/4、recovery rate 1.0、redispatch 0、duplicate
+side effect 0、Trace replay/source unchanged 4/4、final open effect 0。四组当前 suite 合计
+32 个场景、64 条 arm，最终 summary gate 全部通过。统一 artifact ID `12964696027`，
+260,301,498 bytes，digest
+`sha256:bdcbd86bdcd2a64c6f9d8d447d83f5dad2d7144a04fc6236e6379be7cf1ea722`，保留至
+2026-11-29。
+
 ## 5. 验收门槛
 
 CI 不只检查 `all_expectations_met`。三阶段 suite 还必须满足：三个 timed scenario、Trace replay
-rate 1.0、source unchanged rate 1.0、final open effect 0。写入硬崩溃 suite 必须满足：两个故障
-arm 全部恢复、recovery rate 1.0、redispatch 0、duplicate side effect 0、Trace replay rate 1.0、
-final open effect 0。四组 suite 还必须让 reliability facts 覆盖全部 arm，并让 clean 与
+rate 1.0、source unchanged rate 1.0、final open effect 0。写入硬崩溃 suite 必须满足：两个场景、
+四条故障 arm 全部恢复、recovery rate 1.0、redispatch 0、duplicate side effect 0、Trace replay
+rate 1.0、final open effect 0；同时逐案例锁定 `replace_text/accept_replace` 与
+`create_file/accept_create`、崩溃/恢复 epoch、单一恢复 receipt 和 final epoch 4。四组 suite 还必须
+让 reliability facts 覆盖全部 arm，并让 clean 与
 quality-flagged success 之和等于原始 terminal success；dependency-reduced suite 固定为 5 个 clean
 Treatment，完整 checkout 必须实际观察到 retrieval-degraded arm 与 quality-flagged success。
 新报告还要求 retrieval lineage 覆盖全部 arm；完整 checkout 的每个案例都必须至少有一次 retrieval

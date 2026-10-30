@@ -145,8 +145,8 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 外部来源裁剪 A/B v2 | 5 个来源绑定案例的初始失败、Baseline 等待和 Treatment 修复均由本地可信与公开禁网 Docker 执行，证据已上传 | 使用 Scripted Model 和 dependency-reduced fixture，不是 BugsInPy 官方成绩 |
 | [完整 checkout A/B v11](docs/full-checkout-pilot.md) | v10 十九例原样保留，再加入 Sanic route host、TheFuck Bitbucket suggestion 与 Luigi running-task ownership；共 22 案例、9 个项目、6,062 files。三例均由本地完整 Harness 确认 buggy 失败、Baseline 等待、Treatment 恢复；[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40804131201)进一步通过 22/22 初始失败与 Treatment 恢复，并保持 Trace replay、source isolation 和零付费模型调用门 | 使用 Scripted Model 和作者选择的 development 案例；不是模型能力、泛化率或官方 BugsInPy 成绩 |
 | [三阶段恢复 A/B v4](docs/multi-stage-full-checkout-pilot.md) | youtube-dl 872 files + Luigi 382 files + FastAPI 629 files；三例均含 3 个依赖 WorkItem、2 次持久化 Worker 重启、final epoch 3 和一次只改未完成项的 replan；本地可信与[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40082814779)均为 3/3 | 作者选择的三个案例与 Scripted Model；边界重启不等于任意指令处崩溃，不是模型能力或官方成绩 |
-| [源码绑定写入硬崩溃 A/B](docs/source-bound-hard-crash-recovery.md) | Luigi 382 files；两条 arm 都在首个生产写入 effect 后、receipt 前真实退出，先标 unknown，再由新 epoch 精确 `accept_replace`，随后跨两个 WorkItem 边界到 epoch 4；本地可信与[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/37569667246)均为 1/1 | 固定第 2 次调用、单个作者选择任务与 Scripted Model；不是任意崩溃、自动恢复策略或官方成绩 |
-| [长程任务可靠性指标](docs/long-horizon-reliability-metrics.md) | 每个来源绑定 suite 的 typed report 直接聚合观测耗时/P95、Worker 重启、硬崩溃恢复率、恢复重派、重复副作用、Trace replay、source isolation 和最终 open effects；arm 级 facts 分列 unknown/failed acceptance、clean/quality-flagged success、fallback 与 degradation，并新增 retrieval 实际进入保存模型投影、post-replan RunMemory 以及 same-revision/target-path 对齐写入的 lineage；[公开禁网 Docker 复跑](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40862188498)已对 31 个场景、62 条 arm 门控全部可靠性事实，并让 22/22 个 full-checkout 案例通过逐案例 retrieval-delivery 与 evidence-backed-write 门 | 成功、质量标记与检索交付是不同维度；lineage 证明结构化 provenance，不证明检索导致修改；场景含重复上游 bug，不能宣传为 31 个独立任务或 LLM 成功率 |
+| [源码绑定写入硬崩溃 A/B v2](docs/source-bound-hard-crash-recovery.md) | Luigi 382 files 的 `replace_text` 与 FastAPI 629 files 的 `create_file`；4 条 arm 都在 effect 后、receipt 前真实退出，先标 unknown，再由新 epoch 精确 `accept_replace` / `accept_create`，不重派模型并继续到 final epoch 4；本地可信与[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/41027080498)均为 2/2 | 固定第 2/5 次调用、两个作者选择任务与 Scripted Model；不是任意崩溃、自动恢复策略或官方成绩 |
+| [长程任务可靠性指标](docs/long-horizon-reliability-metrics.md) | 每个来源绑定 suite 的 typed report 直接聚合观测耗时/P95、Worker 重启、硬崩溃恢复率、恢复重派、重复副作用、Trace replay、source isolation 和最终 open effects；arm 级 facts 分列 unknown/failed acceptance、clean/quality-flagged success、fallback 与 degradation，并新增 retrieval 实际进入保存模型投影、post-replan RunMemory 以及 same-revision/target-path 对齐写入的 lineage；[公开禁网 Docker 复跑](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/41027080498)已对 32 个场景、64 条 arm 门控全部可靠性事实，并让 22/22 个 full-checkout 与 2/2 个 hard-crash 案例通过逐案例门 | 成功、质量标记与检索交付是不同维度；lineage 证明结构化 provenance，不证明检索导致修改；场景含重复上游 bug，不能宣传为 32 个独立任务或 LLM 成功率 |
 | 真实模型 Pilot | 八轮均可重放、费用可核对且 source 未变；第八轮 HTTPie-4 完成 planning、execution 与两次真实检索后，由 5,000 字符上下文硬门限阻断 | 八轮均未编辑或验证成功，仍是负结果；离线修复不改写历史 Run，也不是成功证据 |
 | 预算预留诊断 | 8 Trace、24 个已结算调用；聚合预留/结算比 6.840594；候选公式的 7 个可回放样本按旧领域 JSON / 当前 wire basis 分开报告，当前口径有 4 个 | 样本仍不足，不自动降低费用安全门槛；HTTPie 的停止原因是上下文合同而非 BudgetStop |
 | 出站请求尺寸 | 6 类离线边界请求均复用 Adapter 的精确 wire encoder；167～9,061 bytes，含真实四工具 Schema 的检索轮次 | 无 Provider usage，不证明候选公式安全或模型效果 |
@@ -423,9 +423,9 @@ uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
 uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
   benchmarks/run_ab/bugsinpy-multi-stage-pilot-v4.yaml --image python:3.12-alpine
 
-# Luigi 完整 checkout 上的写入 effect→receipt 硬崩溃；恢复后再跨两个 Worker 边界。
+# Luigi replace_text + FastAPI create_file 的 effect→receipt 硬崩溃；恢复后继续跨 Worker 边界。
 uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
-  benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v1.yaml --image python:3.12-alpine
+  benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v2.yaml --image python:3.12-alpine
 
 # 第六轮 tqdm v2 的历史零费用预检命令；不读取 API Key、不调用模型。
 # 该轮授权已消费，后续源码也已变化；旧 report 不能再次启动付费运行。

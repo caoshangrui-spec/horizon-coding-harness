@@ -6,6 +6,28 @@
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
 
+## 2026-10-30 第二个来源绑定写入硬崩溃案例
+
+- 新增 `bugsinpy-multi-stage-hard-crash-v2`，原样复用 v1 的 Luigi `replace_text` 案例与冻结 digest，
+  再加入 FastAPI bug 5 的 629-file 完整 checkout。新增案例不引入恢复框架：直接复用 schema v2、
+  `CodingAgentRunner`、`WorkspaceToolGateway`、Tool Recovery 与现有 suite evaluator。
+- FastAPI 两条 arm 在调用 3 后先跨一次正常 Worker 边界；第 5 次调用的 `create_file` 已写出精确
+  upstream regression 文件，但 child 在 receipt 前以 87 退出。父进程先记录 unknown，围栏旧 lease，
+  epoch `2→3` 以 `accept_create` 接纳既有效果且不重派模型，再跨调用 6 边界到 final epoch 4。
+- 本机生产 Docker acceptance 路径为 2/2；4 条 hard-crash arm 全部恢复，recovery rate 1.0，模型
+  重派 0、重复副作用 0、最终 open effect 0、Trace replay/source unchanged 4/4。FastAPI Baseline/
+  Treatment event count 为 128/162，Treatment `SUCCEEDED`；Luigi v1 结果仍是 128/171。
+- 公开 Linux run
+  [`41027080498`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/41027080498)
+  的 19 个步骤全部成功。workflow 不再假设只有一个 hard-crash case，而是逐案例门控
+  `replace_text/accept_replace` 与 `create_file/accept_create`、退出码、epoch、单一恢复 receipt、
+  零重派/重复副作用和 final epoch。统一 artifact ID `12964696027`，digest
+  `sha256:bdcbd86bdcd2a64c6f9d8d447d83f5dad2d7144a04fc6236e6379be7cf1ea722`。
+- 整仓回归为 **652 passed，11 skipped**；11 项仍由公开 workflow 的本机镜像合同覆盖。本批
+  `src/tests` Ruff 与格式检查、workflow YAML/内嵌 Python 编译、`git diff --check` 均通过；全仓
+  Ruff 仍会命中已有冻结 benchmark fixture 与文档代码块的 10 个 lint/3 个 format 问题，本批未
+  越界改写它们。没有付费模型调用，也没有把两个作者选择案例扩展为任意崩溃或真实模型成绩。
+
 ## 2026-10-30 不可压缩上下文的类型化暂停与恢复
 
 - `ContextProjector` 不再让必保前缀或 incomplete tool turn 超限以裸 `Conflict` 留下无 Lease 的
@@ -521,8 +543,8 @@
 | 有界恢复矩阵 v3 | [recovery_evaluation.py](../src/horizon/domain/recovery_evaluation.py)、[recovery_eval.py](../src/horizon/application/recovery_eval.py)、[horizon-recovery-matrix-v3.yaml](../benchmarks/recovery/horizon-recovery-matrix-v3.yaml)、[recovery-matrix-evaluation.md](recovery-matrix-evaluation.md) | 保留 v1/v2 digest；新增 promotion effect→receipt 前真实硬退出，与既有写入/模型响应硬退出及 18 个三工具状态/决策组合合计 21/21。自动恢复 11/11、安全阻塞 10/10、incorrect resume/redispatch/重复副作用均 0；三条 Trace replay。仍非完整设计故障矩阵、主机故障或 exactly-once 验收 |
 | 完整 Run A/B 与来源绑定 Suite | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[scripted.py](../src/horizon/adapters/model/scripted.py) | 同一 Task/Plan/workspace 的 baseline 与单次 replan arm；先真实确认初始失败，再检查 EventLog/预算/Gateway/Trace；1 个内部、v2 的 5 个 BugsInPy 依赖裁剪案例，以及覆盖 9 个项目的 22 个完整 checkout 案例。依赖裁剪 v2 与完整 checkout v11 已由公开禁网 Docker 分别通过 5/5 与 22/22。完整案例还验证干净 Git HEAD 与 Code RAG，仍是脚本模型 |
 | 完整 checkout 多阶段/重启 A/B | [bugsinpy-multi-stage-pilot-v4.yaml](../benchmarks/run_ab/bugsinpy-multi-stage-pilot-v4.yaml) | youtube-dl 872 files、Luigi 382 files 与 FastAPI 629 files 上各有三个依赖 WorkItem；六条 arm 均跨两个持久边界到 epoch 3，合计 12 次重启，并覆盖跨 revision RAG、active/stale Run Memory、完成项保留 replan、最终三项 required checks 与 Trace replay。本地可信与公开禁网 Docker 均为 3/3，doctor 的 case/Docker 计数均为 3。v1 的 CRLF、60 秒 Lease 以及本轮 Tornado 歧义替换负结果继续保留 |
-| 源码绑定的写入硬崩溃 A/B | [bugsinpy-multi-stage-hard-crash-v1.yaml](../benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v1.yaml)、[设计与证据](source-bound-hard-crash-recovery.md) | Luigi 382-file checkout 的两条 arm 都由真实子进程在第一个生产写入 effect 后、receipt 前退出；父进程先记录 unknown、围栏旧 lease，再按精确后态 `accept_replace`，不重派模型，并继续两个 WorkItem 边界到 epoch 4。本地可信与公开禁网 Docker 均为 1/1、Trace replay、source unchanged、unknown/open 0；doctor 的 Docker 计数为 1 |
-| 公开仓库长程可靠性指标 | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[指标合同](long-horizon-reliability-metrics.md) | 新生成的每个 case 记录单调时钟观测耗时；suite typed aggregate 直接给出 scenario/arm、P95、Worker 重启、硬崩溃恢复率、恢复重派、重复副作用、Trace replay、source isolation 与最终 open effect。旧报告仍可读取，冻结 manifest digest 不变；公开 Docker workflow 将多阶段与硬崩溃关键指标设为失败门槛并写入 Job Summary。当前 suite 共 31 个 manifest 场景、62 条 arm，现均有公开统一验证。场景含重复 bug，完整 checkout 也是作者选择的 development 样本，仍无 20～30 个独立盲测/holdout 真实任务或真实模型成功率证据 |
+| 源码绑定的写入硬崩溃 A/B | [bugsinpy-multi-stage-hard-crash-v2.yaml](../benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v2.yaml)、[设计与证据](source-bound-hard-crash-recovery.md) | v2 原样保留 Luigi 382-file `replace_text/accept_replace`，新增 FastAPI 629-file `create_file/accept_create`；4 条 arm 均由真实子进程在 effect 后、receipt 前退出，先 unknown、围栏旧 lease，再精确接纳且不重派模型，最终到 epoch 4。本地与公开禁网 Docker 均为 2/2、Trace replay/source unchanged 4/4、unknown/open 0；doctor 的 case/Docker 计数为 2 |
+| 公开仓库长程可靠性指标 | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[指标合同](long-horizon-reliability-metrics.md) | 新生成的每个 case 记录单调时钟观测耗时；suite typed aggregate 直接给出 scenario/arm、P95、Worker 重启、硬崩溃恢复率、恢复重派、重复副作用、Trace replay、source isolation 与最终 open effect。旧报告仍可读取，冻结 manifest digest 不变；公开 Docker workflow 将多阶段与硬崩溃关键指标设为失败门槛并写入 Job Summary。当前 suite 共 32 个 manifest 场景、64 条 arm，现均有公开统一验证。场景含重复 bug，完整 checkout 也是作者选择的 development 样本，仍无 20～30 个独立盲测/holdout 真实任务或真实模型成功率证据 |
 | 真实模型 Pilot | [pilot.py](../src/horizon/domain/pilot.py)、[pilot.py](../src/horizon/application/pilot.py)、[real-model-pilot.md](real-model-pilot.md) | 离线预检绑定完整干净 checkout、初始失败、source snapshot、Docker image、Provider policy、Harness 源码指纹、费用 cap 和首次规划保守预留。八个付费 Run 均无编辑/验证、Trace 可重放且 source 未变；第八轮 HTTPie-4 的两次真实查询都把 `sessions.py` 排为 rank 1，随后 5,000-char context 门限阻断。当前实际累计为 `CNY 0.2173662`，没有自动复跑或真实 Issue 成功 |
 | 模型预留压力诊断 | [reservation_analysis.py](../src/horizon/application/reservation_analysis.py)、[reservation-diagnostics.md](reservation-diagnostics.md) | `trace reservation-report` 在 replay/hash-chain 校验后关联 reservation、settlement 和 BudgetStop 请求尺寸；八轮 24 次调用的聚合预留/结算比为 6.840594。候选 `request_bytes + 1024` 可回放 7 次，并按旧领域 JSON / 当前 wire basis 分层；当前口径 4 次、0 次观测低估、中位比 4.236018。生产 estimator、费用门禁和付费预算均未改变 |
 | 安全轮次续跑 | [agent.py](../src/horizon/domain/agent.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 消息 Artifact + event/revision 绑定；新 Worker 续跑；PLANNING/READY 也可恢复，任意崩溃窗口对账未完成 |
