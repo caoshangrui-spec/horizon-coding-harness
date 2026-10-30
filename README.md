@@ -115,7 +115,7 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | main 的[标准 CI](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/ci.yml)运行离线回归和两条演示；主作品集演示删除数据库后独立复核，并把完整目录发布为保留 14 天的 `horizon-portfolio-evidence`，同时发布 `horizon-process-timeout-evidence`；[禁网 Docker Evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/full-checkout-evidence.yml)独立运行 | CI 不读取 API Key、不运行付费模型；workflow artifact 通常需要登录 GitHub 下载，不是永久发布资产 |
-| 离线回归 | `646 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试 |
+| 离线回归 | `647 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试 |
 | [通用终态 EvidencePack](docs/terminal-evidence-pack.md) | `SUCCEEDED`、`FAILED`、`CANCELLED` 均可导出并离线复核 Trace、最终投影和 schema v2 可靠性摘要；区分 unknown 验收、已知 check 失败与 unknown/open effect，真实检索降级与工具回执原子绑定，确定性上下文折叠以 `context_compacted` 单独标记，兼容验证 schema v1 | model fallback、语义摘要和 model degradation 尚无 Trace history；自洽哈希不是来源签名，也不证明外部 Provider 或副作用已结清 |
 | [终态 Run 顺序汇总](docs/terminal-suite-evaluation.md) | 有序聚合已有终态 Run；递归验证每个子 EvidencePack，分列结果、验收未知/失败、clean/quality-flagged success、检索降级与 unknown/open effect | 不执行任务，不是 batch scheduler，也没有并发性能声明 |
 | [可恢复的顺序 Agent 任务批次](docs/sequential-agent-batch.md) | `agent batch` 按 1～100 条 TaskSpec manifest 顺序执行；任务间原子保存 checkpoint，确定性 invocation/Run receipt 支持重启识别，终态失败原样记录后继续，非终态/不确定 case 阻塞后项；全部闭合后复用 terminal-suite | 单机并发度 1；不自动越过人工/悬空 effect/旧 Worker 边界，不是 20～30 个真实模型任务成绩或吞吐声明 |
@@ -252,7 +252,9 @@ blocker，再终止并同步回收一个直接子 Worker；`--worker-process` �
 旧的完整工具轮次，保留初始合同、最近轮次和未完成工具对。该上界可重放但不是精确 tokenizer
 计数。发生折叠时，同一 model reservation 还会绑定投影 ref、源 transcript digest 和折叠数量；
 终态及 Run A/B 报告保留原始 task success，同时把该 Run 标为 `context_compacted`，不误报为
-clean success。完整合同见[确定性上下文投影与恢复合同](docs/context-projection.md)。每次调用另把
+clean success。最小合法投影仍超限时，会在 Provider 派发前类型化进入人工等待；在
+`--worker-process` 下父进程仍须同步回收并记录精确子进程，充分扩容后才用新子进程继续，旧请求
+不会重派。完整合同见[确定性上下文投影与恢复合同](docs/context-projection.md)。每次调用另把
 Task/Plan/权限/验收/预算/模型策略/工具 Schema/workspace 绑定为内容寻址 MandatoryFactLedger，
 恢复时逐项重建并校验。控制器还会把已结算的读取、检索、编辑和验证结果派生为有来源的
 Run Memory；失败结果保留为失败，未知副作用保持 unresolved，旧 workspace revision 的观察

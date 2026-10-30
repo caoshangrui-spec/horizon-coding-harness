@@ -1,6 +1,6 @@
 # 开发进度与验证记录
 
-更新：2026-10-29。已发布版本和主干包元数据均为 0.3.0；版本范围与发布证据见
+更新：2026-10-30。已发布版本和主干包元数据均为 0.3.0；版本范围与发布证据见
 [v0.3.0 release notes](release-v0.3.0.md)。2026-09-30 的
 可靠性内核证据保留，本次在其上增加 Provider 垂直切片和首个受控 Coding Agent 闭环。
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
@@ -23,7 +23,13 @@
   分类、不足配置拒绝、充分配置续跑和保护验收成功；CLI 覆盖低配置结构化输出、无状态消耗拒绝及
   高配置恢复完成。旧 replacement Plan、NoProgress guidance、恢复和事件重放的扩大回归共
   **178 passed**。
-- 整仓离线回归为 **646 passed，11 skipped**；11 项仍是需要显式本机 Docker 镜像的合同测试。
+- 新增真实本地子进程故障切片：child 在 `PROCESS_WORKER_START_AUTHORIZED` 后因 protected prefix
+  超限，先持久化 HumanRequest/WAITING/Lease release，再以 40 退出；父进程按精确 PID 同步 reap。
+  Trace 在 reap receipt 前的前缀仍可重放为“等待 + 无 Lease + 活动 launch”，不会用退出码猜测安全。
+  另在 decision/session 原子批次完成写入后、SQLite commit 前注入 controller 故障，三条事件全部
+  回滚；再次充分扩容后由三个新 PID 完成修复与保护验收。容量停止前模型/Campaign attempt 为零，
+  全程仅一个请求、一个决策，续跑三次 model call ID 唯一且 Trace 最终等价重放。
+- 整仓离线回归为 **647 passed，11 skipped**；11 项仍是需要显式本机 Docker 镜像的合同测试。
   Ruff 静态检查、格式检查和 `git diff --check` 通过。本批未联网、未调用付费模型，也未修改第八次
   HTTPie 真实 Run；它仍是历史 `RUNNING` 负结果，不会被新 schema 追溯改写为已恢复。
 

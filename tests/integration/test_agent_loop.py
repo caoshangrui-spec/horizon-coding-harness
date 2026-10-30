@@ -3553,7 +3553,14 @@ def _run_reaped_supervisor_worker(
     return process
 
 
-def _launch_process_supervisor_worker(tmp_path, store, run_id, workspace):
+def _launch_process_supervisor_worker(
+    tmp_path,
+    store,
+    run_id,
+    workspace,
+    *,
+    mode="sequence",
+):
     worker = Path(__file__).parents[1] / "fault_injection" / "_reaped_supervisor_worker.py"
 
     def launch(boundary, slice_iterations):
@@ -3566,7 +3573,7 @@ def _launch_process_supervisor_worker(tmp_path, store, run_id, workspace):
             [
                 getattr(sys, "_base_executable", sys.executable),
                 str(worker),
-                "sequence",
+                mode,
                 str(store.path),
                 run_id,
                 boundary.lease.lease_id,
@@ -3634,6 +3641,163 @@ def test_local_process_supervisor_reaps_each_slice_and_reaches_terminal_success(
     ]
     replayed = SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id))
     assert replayed.as_dict() == result.run.as_dict()
+
+
+def test_local_process_context_stop_is_reaped_then_resumes_without_redispatch(
+    tmp_path,
+    task_dict,
+    monkeypatch,
+):
+    oversized_task = {**task_dict, "objective": "Preserve this exact objective: " + "x" * 5_000}
+    _, store, run_id, token, workspace, parent_model = setup_loop(
+        tmp_path,
+        oversized_task,
+        [],
+    )
+    artifacts = ArtifactStore(tmp_path / "artifacts")
+    campaign = CampaignBudgetLedger(tmp_path / "campaign.sqlite3")
+
+    def recovery_factory(active_service):
+        return RecoveryService(active_service, campaign, artifacts)
+
+    stopped = LocalProcessAgentSupervisor(
+        lambda: HarnessService(SQLiteEventStore(store.path)),
+        _launch_process_supervisor_worker(
+            tmp_path,
+            store,
+            run_id,
+            workspace,
+            mode="context_stop",
+        ),
+        recovery_factory,
+        config=SequentialSupervisorConfig(slice_iterations=1, max_worker_slices=4),
+    ).run(run_id, HarnessService(store), token)
+
+    assert stopped.disposition == "stopped"
+    assert stopped.worker_slices == 1
+    assert stopped.worker_handoffs == 0
+    assert len(stopped.process_receipts) == 1
+    assert stopped.process_receipts[0].exit_code == 40
+    waiting = stopped.run
+    assert waiting.status == RunStatus.WAITING_FOR_USER
+    assert waiting.lease_id is None
+    assert waiting.process_worker_launch is None
+    assert isinstance(waiting.pending_human_request, HumanContextRequest)
+    request = waiting.pending_human_request
+    assert request.stop.reason_code == ContextStopReason.PROTECTED_PREFIX_LIMIT
+    assert waiting.model_calls == []
+    assert waiting.reservations == {}
+    assert campaign.attempts("fake-agent-loop") == ()
+    assert parent_model.requests == []
+    assert [event.event_type for event in store.events(run_id)[-4:]] == [
+        "HUMAN_REQUEST_CREATED",
+        "STATE_CHANGED",
+        "LEASE_RELEASED",
+        "PROCESS_WORKER_STOPPED",
+    ]
+    before_parent_reap = project(store.events(run_id)[:-1])
+    assert before_parent_reap.status == RunStatus.WAITING_FOR_USER
+    assert before_parent_reap.lease_id is None
+    assert before_parent_reap.pending_human_request == request
+    assert before_parent_reap.process_worker_launch is not None
+    assert before_parent_reap.process_worker_launch["process_id"] == (
+        stopped.process_receipts[0].process_id
+    )
+    assert waiting.process_worker_stop_receipts[-1]["process_id"] == (
+        stopped.process_receipts[0].process_id
+    )
+    assert SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id)).as_dict() == waiting.as_dict()
+
+    control = HarnessService(store)
+    resumed_lease = control.acquire_lease(
+        run_id,
+        "context-resume-controller",
+        "context-process-resume-lease",
+    )
+    resumed_token = LeaseToken.from_run(resumed_lease)
+    original_append = store._append
+
+    def crash_after_context_resume_append(db, active_run_id, previous, proposed, key):
+        proposed_events = list(proposed)
+        state = original_append(db, active_run_id, previous, proposed_events, key)
+        if any(event.event_type == "AGENT_SESSION_CONTEXT_RESUMED" for event in proposed_events):
+            raise RuntimeError("simulated controller exit before context-resume commit")
+        return state
+
+    with monkeypatch.context() as transaction_fault:
+        transaction_fault.setattr(store, "_append", crash_after_context_resume_append)
+        with pytest.raises(RuntimeError, match="before context-resume commit"):
+            ContextCapacityResumeService(control, artifacts).apply(
+                run_id,
+                resumed_token,
+                "context-process-resume-interrupted",
+                max_context_chars=max(60_000, request.stop.required_context_chars),
+                max_input_tokens=max(120_000, request.stop.required_input_tokens),
+            )
+
+    rolled_back = store.get(run_id)
+    assert rolled_back.seq == resumed_lease.seq
+    assert rolled_back.status == RunStatus.WAITING_FOR_USER
+    assert rolled_back.pending_human_request == request
+    assert rolled_back.human_decisions == []
+    assert rolled_back.agent_session == resumed_lease.agent_session
+    assert not any(
+        event.event_type in {"HUMAN_DECISION_RECORDED", "AGENT_SESSION_CONTEXT_RESUMED"}
+        for event in store.events(run_id)
+    )
+
+    resumed = ContextCapacityResumeService(control, artifacts).apply(
+        run_id,
+        resumed_token,
+        "context-process-resume-decision",
+        max_context_chars=max(60_000, request.stop.required_context_chars),
+        max_input_tokens=max(120_000, request.stop.required_input_tokens),
+    )
+    assert resumed.run.status == RunStatus.RUNNING
+    assert resumed.run.pending_human_request is None
+    assert resumed.run.lease_id == resumed_token.lease_id
+    assert [event.event_type for event in store.events(run_id)[-3:]] == [
+        "HUMAN_DECISION_RECORDED",
+        "STATE_CHANGED",
+        "AGENT_SESSION_CONTEXT_RESUMED",
+    ]
+
+    completed = LocalProcessAgentSupervisor(
+        lambda: HarnessService(SQLiteEventStore(store.path)),
+        _launch_process_supervisor_worker(tmp_path, store, run_id, workspace),
+        recovery_factory,
+        config=SequentialSupervisorConfig(slice_iterations=1, max_worker_slices=4),
+    ).run(run_id, control, resumed_token)
+
+    assert completed.disposition == "stopped"
+    assert completed.run.status == RunStatus.SUCCEEDED
+    assert completed.run.lease_id is None
+    assert completed.run.process_worker_launch is None
+    assert completed.worker_slices == 3
+    assert completed.worker_handoffs == 2
+    assert len(completed.process_receipts) == 3
+    assert len(completed.run.model_calls) == 3
+    assert len({record.call_id for record in completed.run.model_calls}) == 3
+    assert len(campaign.attempts("fake-agent-loop")) == 3
+    assert (
+        len(
+            [event for event in store.events(run_id) if event.event_type == "HUMAN_REQUEST_CREATED"]
+        )
+        == 1
+    )
+    assert (
+        len(
+            [
+                event
+                for event in store.events(run_id)
+                if event.event_type == "HUMAN_DECISION_RECORDED"
+            ]
+        )
+        == 1
+    )
+    assert "return [] if" in (workspace / "src/parser.py").read_text(encoding="utf-8")
+    replayed = SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id))
+    assert replayed.as_dict() == completed.run.as_dict()
 
 
 def test_local_process_supervisor_yields_unleased_at_slice_limit(tmp_path, task_dict):

@@ -18,14 +18,17 @@ from horizon.adapters.workspace.snapshot import SnapshotManager
 from horizon.application.agent_loop import AgentLoopConfig, CodingAgentRunner
 from horizon.application.services import HarnessService, LeaseToken
 from horizon.domain.common import digest
+from horizon.domain.human import HumanContextRequest
 from horizon.domain.model import CampaignBudget, PriceCard
 from horizon.domain.run_evaluation import ScriptedModelAction
+from horizon.domain.states import RunStatus
 from horizon.domain.tools import AcceptanceResult, ToolCallReservation
 from horizon.tools.gateway import WorkspaceToolGateway
 
 SAFE_SLICE_EXIT_CODE = 37
 PENDING_INTENT_EXIT_CODE = 38
 IDLE_EXIT_CODE = 39
+CONTEXT_STOP_EXIT_CODE = 40
 
 
 class _ParserCheck:
@@ -189,6 +192,69 @@ def _sequence_slice(service: HarnessService, run_id: str, token: LeaseToken) -> 
     runner.run(run_id, token, max_iterations_this_invocation=1)
 
 
+def _context_stop(service: HarnessService, run_id: str, token: LeaseToken) -> None:
+    run = service.store.get(run_id)
+    if run.plan is None:
+        raise ValueError("Context-stop Worker requires a validated Plan")
+    artifacts = ArtifactStore(Path(sys.argv[7]))
+    snapshots = SnapshotManager(artifacts)
+    runner = CodingAgentRunner(
+        service,
+        ScriptedModelGateway(
+            "context-stop-must-not-dispatch",
+            (
+                ScriptedModelAction(
+                    tool="read_file",
+                    arguments={"path": "src/parser.py", "start_line": 1, "end_line": 2},
+                ),
+            ),
+        ),
+        CampaignBudgetLedger(Path(sys.argv[9])),
+        WorkspaceToolGateway(
+            Path(sys.argv[8]),
+            run.task,
+            run.plan.items[0],
+            snapshots,
+            _ParserCheck(),
+            SQLiteCodeRetriever(Path(sys.argv[10]), snapshots),
+        ),
+        artifacts,
+        provider_id="fake-provider",
+        model_id="fake-model",
+        pricing=PriceCard(
+            currency="CNY",
+            input_per_million="3.00",
+            cached_input_per_million="0.30",
+            output_per_million="9.00",
+            version="test-price",
+            source_url="https://example.test/pricing",
+        ),
+        campaign=CampaignBudget(
+            campaign_id="fake-agent-loop",
+            currency="CNY",
+            max_cost="3.00",
+            max_cost_per_call="1.00",
+        ),
+        config=AgentLoopConfig(
+            max_model_iterations=8,
+            max_output_tokens=256,
+            max_run_cost=Decimal("1.00"),
+            max_context_chars=2_000,
+            max_input_tokens=1_000_000,
+        ),
+    )
+    stopped = runner.run(run_id, token, max_iterations_this_invocation=1)
+    if (
+        stopped.status != RunStatus.WAITING_FOR_USER
+        or not isinstance(stopped.pending_human_request, HumanContextRequest)
+        or stopped.lease_id is not None
+        or stopped.model_calls
+        or stopped.reservations
+    ):
+        raise ValueError("Context-stop Worker did not persist a clean capacity boundary")
+    os._exit(CONTEXT_STOP_EXIT_CODE)
+
+
 def _wait_for_parent(*, mode: str) -> None:
     ready = Path(sys.argv[7]).parent / f"{mode}.ready"
     ready.write_text(str(os.getpid()), encoding="utf-8")
@@ -200,6 +266,7 @@ def main() -> None:
     if len(sys.argv) != 11 or sys.argv[1] not in {
         "safe",
         "sequence",
+        "context_stop",
         "pending",
         "idle",
         "wait",
@@ -221,6 +288,8 @@ def main() -> None:
     if mode == "sequence":
         _sequence_slice(service, run_id, token)
         return
+    if mode == "context_stop":
+        _context_stop(service, run_id, token)
     if mode == "safe":
         _safe_slice(service, run_id, token)
     if mode == "idle":

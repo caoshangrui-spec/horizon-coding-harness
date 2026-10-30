@@ -1,6 +1,6 @@
 # 本地子进程 Supervisor
 
-更新：2026-10-23。
+更新：2026-10-30。
 
 `agent run` 和 `agent resume` 现在可用 `--worker-process` 把每个有界 Agent slice 放进一个
 真正的本地子进程。CLI 父进程持有进程句柄、同步回收该直接子进程，再依据 SQLite Trace 中的
@@ -138,6 +138,7 @@ stdout 中的子 Worker 小型诊断只用于汇总 `check_cleanup_failures`；�
 | Worker 在新 AgentSession 后以任意退出码结束 | 父进程验证 session 前进与 recovery-safe，记录进程证据后可换 epoch | 不把退出码 0 当作唯一证据 |
 | Worker 留下模型或工具 intent | 返回 `reconciliation_required`，保留 intent 和原 Lease | 不重试模型、不重复工具、不 fallback |
 | Worker 未产生新 session且无 pending intent | RecoveryService 返回 `unsafe_agent_boundary`，停止 | 不猜测“没有副作用所以可继续” |
+| Worker 在模型派发前生成 `context_capacity_required` | 子进程原子进入 `WAITING_FOR_USER` 并释放 Lease；父进程仍同步 reap、记录 PID/退出码后返回 | 不因非零退出码改写等待状态，不重派超限请求或产生费用 |
 | 最后允许的 slice 安全结束 | 记录 reaped release，保持无 Lease `RUNNING` | 不为一个不会启动的 Worker 多拿 Lease |
 | Run 已 `SUCCEEDED/FAILED/CANCELLED/WAITING_FOR_USER` | 直接返回持久状态 | 不开启额外 Worker |
 | 父 CLI 在 `communicate` 中收到 `Ctrl+C` | 先写 `CANCEL_WORKER_STOP_PENDING`，再停止并同步回收精确子进程 | 不先释放 Lease，不按进程名扫描 |
@@ -169,6 +170,9 @@ stdout 中的子 Worker 小型诊断只用于汇总 `check_cleanup_failures`；�
 - 独立父控制器在授权子 Worker 后被硬 `kill`：活动 launch 在 SQLite 中保留；缺失/错误 PID
   均不改变 Trace，精确停止确认后 epoch 前进并从原 AgentSession 续跑到 `SUCCEEDED`，旧模型/
   工具轮次不重派。
+- protected prefix 超限的真实子 Worker 在零模型派发/零 Campaign attempt 下持久化容量请求并以
+  40 退出；父进程保存精确 reap receipt。提交 decision/session 前的注入故障完整回滚，充分扩容
+  后三个新 PID 完成修复和保护验收；全 Trace 只有一个请求、一个决策和三次唯一模型调用。
 
 这些是离线 Scripted Model 与本地进程协议证据，不是付费模型效果、Docker 隔离安全认证或跨主机
 容灾验收。

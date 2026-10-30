@@ -261,6 +261,11 @@ Schema 约束为：字符上限 2,000～1,000,000；保守 input-token 上限
   零；stop Artifact、Run JSONL 与 Recovery `increase_context_capacity` 可重放；
 - 低于持久化所需值的 resume 配置被 CLI 拒绝且不取得 Lease；充分上限会记录 typed decision、
   用消息不变的新 session 边界续跑，并完成 Fake Model 保护验收；
+- 真实直接子 Worker 在投影前因 protected prefix 超限进入等待后以非零码退出；父进程同步 reap 并
+  记录同一 PID。按最后一条 stop receipt 之前的 Trace 前缀重放时，请求、无 Lease 状态和活动
+  process launch 均仍存在；注入 context decision/session 事务提交失败会完整回滚，随后充分扩容
+  由三个新 PID 完成 `read_file -> replace_text -> submit`，停止请求没有模型派发、预算尝试或重复
+  计费；
 - 多个旧完整工具单元确定性折叠；
 - 摘要细节超预算时确定性丢弃最旧事实并保留聚合 digest 与遗漏计数；
 - 近期完整工具对在硬上限需要时可整体折叠，输出不存在孤立 tool result；
