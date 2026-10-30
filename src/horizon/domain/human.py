@@ -5,9 +5,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Annotated, Literal, Self
 
-from pydantic import Field, TypeAdapter, model_validator
+from pydantic import Field, StrictInt, TypeAdapter, model_validator
 
 from horizon.domain.common import Contract
+from horizon.domain.errors import ContextCapacityStop
 from horizon.domain.promotion import Sha256
 from horizon.domain.task import Identifier, PositiveInt
 from horizon.domain.tools import ToolCallRecord
@@ -212,8 +213,49 @@ class HumanGuidanceDecision(Contract):
     next_iteration: PositiveInt
 
 
-HumanRequest = HumanPlanRequest | HumanGuidanceRequest
-HumanDecision = HumanPlanDecision | HumanGuidanceDecision
+class HumanContextRequest(Contract):
+    """A durable request to increase context capacity without dropping protected evidence."""
+
+    request_id: Identifier
+    kind: Literal["context_capacity_required"] = "context_capacity_required"
+    reason_code: Literal["context_projection_limit"] = "context_projection_limit"
+    detail: Annotated[str, Field(min_length=1, max_length=2000)]
+    stop: ContextCapacityStop
+    stop_artifact_ref: Sha256
+    task_spec_hash: Sha256
+    plan_version: PositiveInt
+    plan_hash: Sha256
+    work_item_id: Identifier
+    workspace_revision: Sha256
+    agent_session_artifact_ref: Sha256
+    next_iteration: PositiveInt
+    resume_state: Literal["RUNNING"] = "RUNNING"
+
+    @model_validator(mode="after")
+    def validate_stop_artifact(self) -> Self:
+        if self.stop_artifact_ref != self.stop.sha256:
+            raise ValueError("Context stop artifact must be addressed by its evidence hash")
+        return self
+
+
+class HumanContextDecision(Contract):
+    """A local retry decision bound to sufficient replacement context limits."""
+
+    decision_id: Identifier
+    request_id: Identifier
+    kind: Literal["context_capacity_retry_authorized"] = "context_capacity_retry_authorized"
+    actor: Literal["local_cli"] = "local_cli"
+    resumed_session_artifact_ref: Sha256
+    task_spec_hash: Sha256
+    plan_version: PositiveInt
+    workspace_revision: Sha256
+    next_iteration: PositiveInt
+    max_context_chars: Annotated[StrictInt, Field(ge=2_000, le=1_000_000)]
+    max_input_tokens: Annotated[StrictInt, Field(ge=2_000, le=2_000_000)]
+
+
+HumanRequest = HumanPlanRequest | HumanGuidanceRequest | HumanContextRequest
+HumanDecision = HumanPlanDecision | HumanGuidanceDecision | HumanContextDecision
 
 _REQUEST_ADAPTER = TypeAdapter(HumanRequest)
 _DECISION_ADAPTER = TypeAdapter(HumanDecision)

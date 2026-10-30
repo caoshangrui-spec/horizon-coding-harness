@@ -114,6 +114,7 @@ def events_after_agent_session(run: Run, events: list[Event]) -> list[Event] | N
     if session_event_seq > len(events) or events[session_event_seq - 1].event_type not in {
         "AGENT_SESSION_SAVED",
         "AGENT_SESSION_GUIDED",
+        "AGENT_SESSION_CONTEXT_RESUMED",
     }:
         return None
     return events[session_event_seq:]

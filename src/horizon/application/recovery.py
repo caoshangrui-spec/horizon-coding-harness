@@ -14,7 +14,7 @@ from horizon.application.model_recovery import (
 )
 from horizon.application.services import HarnessService, LeaseToken
 from horizon.domain.errors import Conflict, IntegrityError
-from horizon.domain.human import HumanGuidanceRequest, HumanPlanRequest
+from horizon.domain.human import HumanContextRequest, HumanGuidanceRequest, HumanPlanRequest
 from horizon.domain.model import CampaignAttempt, ModelCallRecord, ModelCallReservation
 from horizon.domain.ports import ArtifactStorePort, CampaignBudgetPort
 from horizon.domain.recovery import RecoveryFinding, RecoveryReport
@@ -423,11 +423,18 @@ class RecoveryService:
             and isinstance(current.pending_human_request, HumanGuidanceRequest)
             and not current.reservations
         )
+        waiting_for_context = (
+            current.status == RunStatus.WAITING_FOR_USER
+            and current.resume_state == RunStatus.RUNNING
+            and isinstance(current.pending_human_request, HumanContextRequest)
+            and not current.reservations
+        )
         safe_to_resume = self._is_safe_agent_boundary(current)
         if (
             not safe_to_resume
             and not waiting_for_plan
             and not waiting_for_guidance
+            and not waiting_for_context
             and not any(finding.blocking for finding in findings)
         ):
             findings.append(
@@ -456,6 +463,8 @@ class RecoveryService:
                 if waiting_for_plan
                 else "provide_operator_guidance"
                 if waiting_for_guidance
+                else "increase_context_capacity"
+                if waiting_for_context
                 else "manual_reconciliation"
             ),
             remaining_reservations=tuple(sorted(current.reservations)),

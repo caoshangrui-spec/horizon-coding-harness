@@ -15,6 +15,7 @@ from horizon.domain.errors import (
     BudgetStop,
     BudgetStopReason,
     Conflict,
+    ContextCapacityStop,
     InvalidTransition,
     LeaseConflict,
     RunCancellationRequested,
@@ -22,6 +23,8 @@ from horizon.domain.errors import (
 )
 from horizon.domain.events import NewEvent
 from horizon.domain.human import (
+    HumanContextDecision,
+    HumanContextRequest,
     HumanGuidanceDecision,
     HumanGuidanceRequest,
     HumanPlanDecision,
@@ -443,6 +446,148 @@ class HarnessService:
                     payload={"session": session.model_dump(mode="json")},
                 ),
                 NewEvent(event_type="LEASE_RELEASED", payload=token.model_dump()),
+            ]
+
+        return self._command(run_id, key, request_data, decide)
+
+    def request_context_capacity(
+        self,
+        run_id: str,
+        stop: ContextCapacityStop,
+        stop_artifact_ref: str,
+        token: LeaseToken,
+        key: str,
+    ) -> Run:
+        detail = (
+            "The smallest safe context projection exceeds the configured character or token "
+            "limit; increase the provider context limits before retrying."
+        )
+        request_data = {
+            "operation": "request_context_capacity",
+            "stop": stop.model_dump(mode="json"),
+            "stop_artifact_ref": stop_artifact_ref,
+            "token": token.model_dump(),
+        }
+
+        def decide(run):
+            self.check_worker(run, token)
+            session = run.agent_session
+            if (
+                run.status != RunStatus.RUNNING
+                or run.plan is None
+                or session is None
+                or run.reservations
+                or run.pending_human_request is not None
+            ):
+                raise Conflict("Context-capacity pause requires a quiescent running session")
+            if (
+                stop_artifact_ref != stop.sha256
+                or stop.source_message_count != session.message_count
+            ):
+                raise Conflict("Context-capacity stop does not match the persisted Agent session")
+            request = HumanContextRequest(
+                request_id=f"hcr_{digest((run_id, session.artifact_ref, stop.sha256))[:32]}",
+                detail=detail,
+                stop=stop,
+                stop_artifact_ref=stop_artifact_ref,
+                task_spec_hash=run.task.sha256,
+                plan_version=run.plan.version,
+                plan_hash=run.plan.sha256,
+                work_item_id=session.work_item_id,
+                workspace_revision=session.workspace_revision,
+                agent_session_artifact_ref=session.artifact_ref,
+                next_iteration=session.next_iteration,
+            )
+            return [
+                NewEvent(
+                    event_type="HUMAN_REQUEST_CREATED",
+                    payload={"request": request.model_dump(mode="json")},
+                ),
+                NewEvent(
+                    event_type="STATE_CHANGED",
+                    payload={"from": RunStatus.RUNNING, "to": RunStatus.WAITING_FOR_USER},
+                ),
+                NewEvent(event_type="LEASE_RELEASED", payload=token.model_dump()),
+            ]
+
+        return self._command(run_id, key, request_data, decide)
+
+    def resolve_context_capacity(
+        self,
+        run_id: str,
+        session: AgentSessionRecord,
+        token: LeaseToken,
+        key: str,
+        *,
+        max_context_chars: int,
+        max_input_tokens: int,
+        actor: str = "local_cli",
+    ) -> Run:
+        request_data = {
+            "operation": "resolve_context_capacity",
+            "session": session.model_dump(mode="json"),
+            "token": token.model_dump(),
+            "max_context_chars": max_context_chars,
+            "max_input_tokens": max_input_tokens,
+            "actor": actor,
+        }
+
+        def decide(run):
+            self.check_worker(run, token)
+            request = run.pending_human_request
+            current = run.agent_session
+            if (
+                run.status != RunStatus.WAITING_FOR_USER
+                or run.resume_state != RunStatus.RUNNING
+                or not isinstance(request, HumanContextRequest)
+                or run.plan is None
+                or current is None
+                or run.reservations
+            ):
+                raise Conflict("Run is not waiting for increased context capacity")
+            if actor != "local_cli":
+                raise Conflict("Only the trusted local CLI can authorize a context retry")
+            if (
+                max_context_chars < request.stop.required_context_chars
+                or max_input_tokens < request.stop.required_input_tokens
+            ):
+                raise Conflict("Configured context limits remain below the persisted requirement")
+            if (
+                session.artifact_ref == current.artifact_ref
+                or session.task_spec_hash != request.task_spec_hash
+                or session.plan_version != request.plan_version
+                or session.work_item_id != request.work_item_id
+                or session.workspace_revision != request.workspace_revision
+                or session.next_iteration != request.next_iteration
+                or session.covered_event_seq != run.seq + 2
+                or session.message_count != current.message_count
+            ):
+                raise Conflict("Resumed Agent session does not match the context request")
+            decision = HumanContextDecision(
+                decision_id=f"hcd_{digest((request.request_id, session.artifact_ref))[:32]}",
+                request_id=request.request_id,
+                actor="local_cli",
+                resumed_session_artifact_ref=session.artifact_ref,
+                task_spec_hash=request.task_spec_hash,
+                plan_version=request.plan_version,
+                workspace_revision=request.workspace_revision,
+                next_iteration=request.next_iteration,
+                max_context_chars=max_context_chars,
+                max_input_tokens=max_input_tokens,
+            )
+            return [
+                NewEvent(
+                    event_type="HUMAN_DECISION_RECORDED",
+                    payload={"decision": decision.model_dump(mode="json")},
+                ),
+                NewEvent(
+                    event_type="STATE_CHANGED",
+                    payload={"from": RunStatus.WAITING_FOR_USER, "to": RunStatus.RUNNING},
+                ),
+                NewEvent(
+                    event_type="AGENT_SESSION_CONTEXT_RESUMED",
+                    payload={"session": session.model_dump(mode="json")},
+                ),
             ]
 
         return self._command(run_id, key, request_data, decide)

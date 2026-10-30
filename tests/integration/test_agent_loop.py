@@ -17,7 +17,7 @@ from horizon.adapters.persistence.sqlite import SQLiteEventStore
 from horizon.adapters.retrieval.sqlite_fts import SQLiteCodeRetriever
 from horizon.adapters.workspace.snapshot import SnapshotManager
 from horizon.application.agent_loop import AgentLoopConfig, CodingAgentRunner
-from horizon.application.human import OperatorGuidanceService
+from horizon.application.human import ContextCapacityResumeService, OperatorGuidanceService
 from horizon.application.local_process_supervision import LocalProcessAgentSupervisor
 from horizon.application.model_probe import conservative_input_estimate
 from horizon.application.recovery import RecoveryService
@@ -36,12 +36,14 @@ from horizon.domain.context import ContextProjection, MandatoryFactLedger
 from horizon.domain.errors import (
     BudgetStopReason,
     Conflict,
+    ContextCapacityStop,
+    ContextStopReason,
     IntegrityError,
     LeaseConflict,
     ProviderConnectionError,
     RunCancellationRequested,
 )
-from horizon.domain.human import HumanGuidanceRequest
+from horizon.domain.human import HumanContextRequest, HumanGuidanceRequest
 from horizon.domain.memory import RunMemorySnapshot
 from horizon.domain.model import (
     CampaignBudget,
@@ -1744,6 +1746,138 @@ def test_no_progress_guard_waits_for_guidance_and_resumes_from_guided_session(
     replayed = SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id))
     assert replayed.as_dict() == result.as_dict()
     assert projection_hash(replayed) == projection_hash(result)
+
+
+def test_context_capacity_stop_is_durable_and_resumes_with_sufficient_limits(
+    tmp_path,
+    task_dict,
+):
+    oversized_task = {**task_dict, "objective": "Preserve this exact objective: " + "x" * 5_000}
+    actions = [
+        (
+            "replace_text",
+            {
+                "path": "src/parser.py",
+                "old": "return [value]",
+                "new": "return [] if value == '' else [value]",
+            },
+        ),
+        ("submit", {"summary": "Fixed parser after increasing context capacity."}),
+    ]
+    runner, store, run_id, token, _, model = setup_loop(
+        tmp_path,
+        oversized_task,
+        actions,
+    )
+    runner.config = AgentLoopConfig(
+        max_model_iterations=8,
+        max_output_tokens=256,
+        max_context_chars=2_000,
+        max_input_tokens=1_000_000,
+    )
+
+    waiting = runner.run(run_id, token)
+
+    assert waiting.status == RunStatus.WAITING_FOR_USER
+    assert waiting.resume_state == RunStatus.RUNNING
+    assert waiting.lease_id is None
+    assert isinstance(waiting.pending_human_request, HumanContextRequest)
+    request = waiting.pending_human_request
+    assert request.stop.reason_code == ContextStopReason.PROTECTED_PREFIX_LIMIT
+    assert request.stop.required_context_chars > request.stop.max_context_chars
+    assert request.stop.source_message_count == waiting.agent_session.message_count
+    assert model.requests == []
+    assert waiting.model_calls == []
+    assert waiting.reservations == {}
+    assert [event.event_type for event in store.events(run_id)[-3:]] == [
+        "HUMAN_REQUEST_CREATED",
+        "STATE_CHANGED",
+        "LEASE_RELEASED",
+    ]
+    stored_stop = ContextCapacityStop.model_validate_json(
+        runner.session_store.read(request.stop_artifact_ref)
+    )
+    assert stored_stop == request.stop
+    replayed = SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id))
+    assert replayed.as_dict() == waiting.as_dict()
+
+    control = HarnessService(store)
+    recovery_lease = control.acquire_lease(run_id, "recovery", "context-recovery-lease")
+    recovery_token = LeaseToken.from_run(recovery_lease)
+    report = RecoveryService(
+        control,
+        runner.campaign_ledger,
+        runner.session_store,
+    ).reconcile(run_id, recovery_token)
+    assert report.safe_to_resume is False
+    assert report.requires_human is True
+    assert report.next_action == "increase_context_capacity"
+    control.release_lease(run_id, recovery_token, "context-recovery-release")
+
+    insufficient_lease = control.acquire_lease(
+        run_id,
+        "operator-insufficient",
+        "context-insufficient-lease",
+    )
+    insufficient_token = LeaseToken.from_run(insufficient_lease)
+    with pytest.raises(Conflict, match="remain below"):
+        ContextCapacityResumeService(control, runner.session_store).apply(
+            run_id,
+            insufficient_token,
+            "reject-insufficient-context",
+            max_context_chars=request.stop.required_context_chars - 1,
+            max_input_tokens=request.stop.required_input_tokens,
+        )
+    unchanged = store.get(run_id)
+    assert unchanged.status == RunStatus.WAITING_FOR_USER
+    assert unchanged.pending_human_request == request
+    assert unchanged.human_decisions == []
+    control.release_lease(run_id, insufficient_token, "context-insufficient-release")
+
+    context_lease = control.acquire_lease(run_id, "operator", "context-resume-lease")
+    context_token = LeaseToken.from_run(context_lease)
+    resumed_max_chars = max(60_000, request.stop.required_context_chars)
+    resumed_max_input_tokens = max(120_000, request.stop.required_input_tokens)
+    resumed = (
+        ContextCapacityResumeService(control, runner.session_store)
+        .apply(
+            run_id,
+            context_token,
+            "apply-context-capacity",
+            max_context_chars=resumed_max_chars,
+            max_input_tokens=resumed_max_input_tokens,
+        )
+        .run
+    )
+
+    assert resumed.status == RunStatus.RUNNING
+    assert resumed.lease_id == context_token.lease_id
+    assert resumed.pending_human_request is None
+    assert resumed.pending_human_session_ref is None
+    assert resumed.human_decisions[-1].kind == "context_capacity_retry_authorized"
+    assert resumed.agent_session.artifact_ref != request.agent_session_artifact_ref
+    old_session = AgentSession.model_validate_json(
+        runner.session_store.read(request.agent_session_artifact_ref)
+    )
+    resumed_session = AgentSession.model_validate_json(
+        runner.session_store.read(resumed.agent_session.artifact_ref)
+    )
+    assert resumed_session.messages == old_session.messages
+    assert resumed_session.covered_event_seq > old_session.covered_event_seq
+    assert store.events(run_id)[-1].event_type == "AGENT_SESSION_CONTEXT_RESUMED"
+
+    runner.config = AgentLoopConfig(
+        max_model_iterations=8,
+        max_output_tokens=256,
+        max_context_chars=resumed_max_chars,
+        max_input_tokens=resumed_max_input_tokens,
+    )
+    result = runner.run(run_id, context_token)
+
+    assert result.status == RunStatus.SUCCEEDED
+    assert len(model.requests) == 2
+    final_replay = SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id))
+    assert final_replay.as_dict() == result.as_dict()
 
 
 def test_agent_loop_reenters_running_after_failed_validation_and_repairs(tmp_path, task_dict):

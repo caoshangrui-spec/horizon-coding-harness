@@ -45,7 +45,7 @@ Harness 最终 Docker 验证 → checkpoint → validation evidence
 | 循环编排 | [`application/agent_loop.py`](../src/horizon/application/agent_loop.py) | 顺序 DAG 调度、模型迭代、单次受限 replan、工具 observation、submit、验证、repair、终态 |
 | 自动计划 | [`application/planning.py`](../src/horizon/application/planning.py)、[`domain/planning.py`](../src/horizon/domain/planning.py) | 有界 PlanningContext、单次计划调用、DAG/权限/验收校验、response 复用 |
 | 会话快照 | [`domain/agent.py`](../src/horizon/domain/agent.py) | 完整消息、下一 iteration、工作区 revision 和已覆盖事件序号 |
-| 上下文投影 | [`application/context.py`](../src/horizon/application/context.py)、[`domain/context.py`](../src/horizon/domain/context.py) | 完整 transcript 的字符 + 完整请求保守 token 双门视图、工具对完整性和投影证据 |
+| 上下文投影 | [`application/context.py`](../src/horizon/application/context.py)、[`domain/context.py`](../src/horizon/domain/context.py)、[`domain/errors.py`](../src/horizon/domain/errors.py) | 完整 transcript 的字符 + 完整请求保守 token 双门视图、工具对完整性、投影证据与类型化容量停止 |
 | 悬空调用恢复 | [`application/recovery.py`](../src/horizon/application/recovery.py) | Run/Campaign 对账、未知副作用分类、恢复处置报告 |
 | Run 服务 | [`application/services.py`](../src/horizon/application/services.py) | policy 绑定、模型/工具预留与结算、验证和 WorkItem 事件 |
 | Run 投影 | [`domain/run.py`](../src/horizon/domain/run.py) | 从追加事件重建预算、调用、checkpoint、验证和终态 |
@@ -204,7 +204,12 @@ cap 重新生成并逐字段比较，不按新余额改写历史请求；其他�
 消息变化都会阻止继续。MandatoryFactLedger 另行绑定任务、计划、权限、验收、预算、模型
 策略、工具 Schema 和 workspace。证据驱动的 Run Memory 从工具事件/Artifact 派生：失败保留
 失败，旧 revision 标为 stale，unknown 保持 unresolved，模型 `submit` 声明不能升级为事实；
-恢复按原请求事件边界重建。当前实现是 conservative-token-ceiling-aware，但仍不是精确
+恢复按原请求事件边界重建。若必保前缀或未完成工具回合在最大合法折叠后仍超限，Runner 在
+Provider reservation 前持久化 `ContextCapacityStop` Artifact 与 `context_capacity_required`
+HumanRequest，原子进入 `WAITING_FOR_USER` 并释放 Lease。恢复报告返回
+`increase_context_capacity`；`agent resume` 只接受同时达到持久化字符/token 所需值的新配置，
+然后以消息完全不变的新 session event boundary 继续。配置不足不取得 Lease，也不调用模型。
+当前实现是 conservative-token-ceiling-aware，但仍不是精确
 tokenizer 或模型生成的语义摘要，也不是跨 Run 的 Project Memory。详见
 [上下文投影](context-projection.md)与[Run Memory](run-memory.md)。
 另行接入的词法 Code RAG 只提供带来源片段，不能宣称语义等价或真实任务召回率已验证。
@@ -373,7 +378,9 @@ after 时按已完成效果恢复，其他内容均视为 diverged。命令不�
 
 命令输出包含 Run ID、状态、staging 路径、源目录是否未变、usage、费用、调用数、验证、
 checkpoint、未决人工请求/下一动作和 Campaign 摘要。失败或 WAITING 退出码为 3；配置/合同错误
-为 2。NoProgress WAITING 可先执行 `horizon agent guide <run-id> <guidance.txt>`，再 resume；详见
+为 2。NoProgress WAITING 可先执行 `horizon agent guide <run-id> <guidance.txt>`，再 resume；
+context-capacity WAITING 则按输出的 `required_context_chars/required_input_tokens` 提高 Provider
+配置后直接 `agent resume`。详见
 [人工指导恢复](operator-guidance.md)。
 
 导出和离线重放：

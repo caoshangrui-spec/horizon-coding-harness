@@ -4,7 +4,7 @@ from horizon.application.context import ContextProjector, visible_run_memory_bin
 from horizon.application.model_probe import conservative_input_estimate
 from horizon.domain.common import canonical_json
 from horizon.domain.context import ContextCompactionRecord, MandatoryFactLedger
-from horizon.domain.errors import Conflict
+from horizon.domain.errors import Conflict, ContextStopReason, ContextWindowExceeded
 from horizon.domain.memory import RunMemoryEntry, RunMemorySnapshot
 from horizon.domain.model import FunctionCall, ModelMessage, ModelRequest, ToolCall
 
@@ -327,8 +327,17 @@ def test_projection_rejects_when_incomplete_turn_alone_exceeds_budget():
     )
     messages = (*_prefix(), incomplete)
 
-    with pytest.raises(Conflict, match="incomplete Agent turn"):
+    with pytest.raises(ContextWindowExceeded, match="context projection") as stopped:
         _projector(max_chars=2_000, preserve_recent_units=1).project(messages)
+
+    stop = stopped.value.stop
+    assert stop.reason_code == ContextStopReason.INCOMPLETE_TOOL_TURN_LIMIT
+    assert stop.max_context_chars == 2_000
+    assert stop.required_context_chars > stop.max_context_chars
+    assert stop.source_message_count == len(messages)
+    assert stop.attempted_projected_message_count == len(messages)
+    assert stop.incomplete_unit_count == 1
+    assert stop.sha256 == stop.model_copy().sha256
 
 
 def test_projection_rejects_noncanonical_prefix():
@@ -465,6 +474,23 @@ def test_projection_reduces_visible_run_memory_only_with_traceable_compaction():
     assert canonical_json(latest_binding) in system
     assert "call-memory-1" not in system
     assert "call-memory-2" in system
+
+
+def test_projection_stop_keeps_full_memory_requirement_without_compactable_history():
+    memory = _run_memory(excerpt="m" * 400, entry_count=2)
+
+    with pytest.raises(ContextWindowExceeded) as stopped:
+        _projector(max_chars=2_000, preserve_recent_units=1).project(
+            _prefix(),
+            run_memory=memory,
+            run_memory_ref=memory.sha256,
+        )
+
+    stop = stopped.value.stop
+    assert stop.reason_code == ContextStopReason.PROTECTED_PREFIX_LIMIT
+    assert stop.required_context_chars > stop.max_context_chars
+    assert stop.source_message_count == 2
+    assert stop.compacted_unit_count == 0
 
 
 def test_compaction_preserves_run_memory_binding():

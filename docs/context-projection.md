@@ -1,12 +1,12 @@
 # 确定性上下文投影：实现与恢复合同
 
-更新：2026-10-28。本文描述当前已经接入 `CodingAgentRunner` 的实现，不把确定性裁剪冒充
+更新：2026-10-30。本文描述当前已经接入 `CodingAgentRunner` 的实现，不把确定性裁剪冒充
 语义摘要或 RAG。权威完整消息始终保留；投影只是一次模型调用的可重放视图。证据驱动的
 Run Memory 已作为独立派生层接入，其边界见 [Run Memory](run-memory.md)。
 
 ## 1. 目标与非目标
 
-当前增量解决五个具体问题：
+当前增量解决七个具体问题：
 
 1. 长轮次工具输出持续累积时，模型请求不能无限增长；
 2. assistant tool call 与 tool result 不能在裁剪时被拆开或形成孤立消息；
@@ -17,6 +17,8 @@ Run Memory 已作为独立派生层接入，其边界见 [Run Memory](run-memory
    而不是直接停止或暗中放宽费用上限。
 6. 只要某次请求折叠了历史，终态证据必须把它标为执行质量事实；任务成功不能因此被误报为
    clean success。
+7. 必保前缀或未完成工具回合仍放不进窗口时，不能让进程以裸 `Conflict` 退出并把 Run 留在
+   `RUNNING`；必须在零模型派发下持久化容量证据、释放 Lease，并允许提高配置后安全续跑。
 
 当前明确不解决：
 
@@ -36,6 +38,7 @@ Run Memory 已作为独立派生层接入，其边界见 [Run Memory](run-memory
 | Run 记忆 | `RunMemorySnapshot` | 每次模型调用前的内容寻址 Artifact | 工具事件与输出证据的有界、可失效投影 |
 | 调用投影 | `ContextProjection.messages` | 每次模型调用前的内容寻址 Artifact | 该次请求的派生、可验证视图，并绑定强制事实、Run Memory 和 input-token budget |
 | 压缩事实 | `ContextCompactionRecord` | 与 `MODEL_CALL_RESERVED` 同一事件 | 绑定 model call、投影 ref、源 digest、消息/单元数量、Task 和 required acceptance |
+| 容量停止 | `ContextCapacityStop` + `HumanContextRequest` | 内容寻址 stop Artifact + Run 事件 | 绑定失败原因、当前/所需双上限、源 transcript digest 和 AgentSession 边界 |
 | Provider 请求 | `ModelRequest` | request hash + Provider response Artifact | 实际工具 Schema、模型参数与投影消息的请求合同 |
 
 `ContextProjection.source_digest` 对完整源消息的规范 JSON 做 SHA-256；schema v2 保留算法、
@@ -129,8 +132,9 @@ effective_input_cap = min(configured_input_cap, affordable_input)
    零条可见观察；这仍产生 `context_compacted` 质量标记，不能伪装成未压缩请求；
 8. 若优先保留的近期完整单元仍使请求超限，则从最老的近期完整单元开始，确定性扩大折叠前缀，
    只折叠满足上限所需的最少单元；完整 canonical transcript 不变；
-9. incomplete 单元始终不折叠。若不可压缩前缀加 incomplete 单元本身仍超过任一上限，则抛出
-   `Conflict`，不向 Provider 发送越界请求。
+9. incomplete 单元始终不折叠。若最小安全候选仍超过任一上限，则产生带
+   `protected_prefix_exceeds_limit` 或 `incomplete_tool_turn_exceeds_limit` 的
+   `ContextCapacityStop`，不向 Provider 发送越界请求。
 
 因此首版是“结构化、可审计、有损裁剪”。它能证明哪些字节被折叠、摘要如何重建，不能证明
 240 字符片段包含所有语义关键事实。
@@ -162,7 +166,32 @@ effective_input_cap = min(configured_input_cap, affordable_input)
 预留后、Run intent 前退出沿用已有 campaign-only hold 对账。Run intent 之后的 Provider/receipt
 窗口沿用模型调用恢复规则；投影并未放宽 unknown 费用处理。
 
-### 4.1 Trace-bound 压缩质量
+### 4.1 类型化容量暂停与恢复
+
+`ContextCapacityStop` 保存当前 `max_context_chars/max_input_tokens`、最小安全候选实际需要的
+`required_context_chars/required_input_tokens`、源/候选消息数、已折叠与 incomplete 单元数，
+以及完整 canonical transcript 的 SHA-256。Runner 先把该对象写成内容寻址 Artifact 并回读，
+然后在一个 Run command 中提交：
+
+```text
+HUMAN_REQUEST_CREATED(context_capacity_required)
+  → STATE_CHANGED(RUNNING → WAITING_FOR_USER)
+  → LEASE_RELEASED
+```
+
+此路径发生在 Campaign/Run reservation 和 Provider 派发之前，因此不会新增模型调用、费用或
+unknown effect。Recovery report 返回 `increase_context_capacity`，CLI 输出带 Run ID 的
+`agent resume ... --config <provider-config-with-larger-context>` 提示。
+
+恢复时 CLI 先检查新配置同时满足 stop 中的两个所需值；不足则保持原请求和无 Lease 状态。
+满足时，本机可信入口创建一个消息完全不变、只更新 `covered_event_seq` 的新 AgentSession Artifact，
+并原子提交 `HUMAN_DECISION_RECORDED`、`WAITING_FOR_USER → RUNNING` 和
+`AGENT_SESSION_CONTEXT_RESUMED`。Reducer 复核 request/decision、Task/Plan/WorkItem、workspace、
+iteration、原/新 session ref、消息数量和上限；应用服务还回读旧 session 并核对 transcript digest。
+随后同一 Lease 才可进入正常 Agent Loop。新上限只保证当前阻塞候选可派发；后续 transcript
+继续增长时仍可能再次产生新的类型化容量暂停，不会静默丢消息。
+
+### 4.2 Trace-bound 压缩质量
 
 当且仅当 `ContextProjection.compacted_unit_count > 0`，同一个 `MODEL_CALL_RESERVED` 事件还包含
 `ContextCompactionRecord`。重放器要求记录与 reservation 的 model call ID、投影 ref、源 digest、
@@ -217,7 +246,9 @@ request:
 Schema 约束为：字符上限 2,000～1,000,000；保守 input-token 上限
 2,000～2,000,000；近期单元 1～50。这里的 120,000 是 Horizon 的请求策略，不声明为模型官方
 窗口。`agent run`、`agent resume` 和自动规划都读取同一 Provider 上限；探针也在联网前检查。
-改变配置不会修改历史 Artifact；如果存在待恢复 response，变化会因投影不一致而拒绝。
+改变配置不会修改历史 Artifact；如果存在待恢复 response，变化会因投影不一致而拒绝。只有
+`context_capacity_required` 明确绑定的是“尚未派发请求”的安全 AgentSession，`agent resume` 才会
+按持久化最低要求接受更大的配置并记录本机决定。
 
 ## 7. 已执行验证
 
@@ -226,6 +257,10 @@ Schema 约束为：字符上限 2,000～1,000,000；保守 input-token 上限
 - 预算内投影恒等；
 - 字符预算仍有余量、但完整请求 token 上界超限时会折叠最老完整单元；
 - 不可压缩 incomplete 单元超过 token 上界时在 Provider 派发前拒绝；
+- 必保前缀超限时在 Provider 派发前进入持久 `WAITING_FOR_USER`，模型调用、reservation 和费用均为
+  零；stop Artifact、Run JSONL 与 Recovery `increase_context_capacity` 可重放；
+- 低于持久化所需值的 resume 配置被 CLI 拒绝且不取得 Lease；充分上限会记录 typed decision、
+  用消息不变的新 session 边界续跑，并完成 Fake Model 保护验收；
 - 多个旧完整工具单元确定性折叠；
 - 摘要细节超预算时确定性丢弃最旧事实并保留聚合 digest 与遗漏计数；
 - 近期完整工具对在硬上限需要时可整体折叠，输出不存在孤立 tool result；

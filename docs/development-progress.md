@@ -6,6 +6,27 @@
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
 
+## 2026-10-30 不可压缩上下文的类型化暂停与恢复
+
+- `ContextProjector` 不再让必保前缀或 incomplete tool turn 超限以裸 `Conflict` 留下无 Lease 的
+  `RUNNING`。它生成内容寻址 `ContextCapacityStop`，区分 protected-prefix / incomplete-turn，
+  记录当前与实际所需字符/token 上限、源 transcript digest、源/候选消息数和折叠单元数。
+- Runner 在任何 Campaign/Run reservation 或 Provider 派发前原子写入
+  `context_capacity_required` HumanRequest、进入 `WAITING_FOR_USER` 并释放 Lease。Recovery 明确返回
+  `increase_context_capacity`；CLI 展示充分配置后的 `agent resume` 动作。配置不足时不取得 Lease、
+  不消费请求、不记录伪决策。
+- 配置充分时，本机可信入口回读旧 AgentSession，核对 transcript digest 和 Task/Plan/WorkItem/
+  workspace/iteration 绑定，创建消息完全不变、只前移 event boundary 的 session Artifact，并原子
+  记录 `context_capacity_retry_authorized`、恢复 `RUNNING` 和
+  `AGENT_SESSION_CONTEXT_RESUMED`。同一 Lease 随后可继续正常执行。
+- 新增 Fake Model E2E 覆盖：零 execution model call 暂停、stop Artifact/JSONL replay、Recovery
+  分类、不足配置拒绝、充分配置续跑和保护验收成功；CLI 覆盖低配置结构化输出、无状态消耗拒绝及
+  高配置恢复完成。旧 replacement Plan、NoProgress guidance、恢复和事件重放的扩大回归共
+  **178 passed**。
+- 整仓离线回归为 **646 passed，11 skipped**；11 项仍是需要显式本机 Docker 镜像的合同测试。
+  Ruff 静态检查、格式检查和 `git diff --check` 通过。本批未联网、未调用付费模型，也未修改第八次
+  HTTPie 真实 Run；它仍是历史 `RUNNING` 负结果，不会被新 schema 追溯改写为已恢复。
+
 ## 2026-10-29 HTTPie-4 第八轮负结果与离线修复
 
 - 用户授权一次公开 HTTPie-4 Run：`deepseek-ai/DeepSeek-V4-Flash`、单 Run `CNY 0.053`、

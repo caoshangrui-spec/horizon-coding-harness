@@ -5,7 +5,12 @@ from dataclasses import dataclass
 
 from horizon.domain.common import canonical_json, digest
 from horizon.domain.context import ContextProjection, MandatoryFactLedger
-from horizon.domain.errors import Conflict
+from horizon.domain.errors import (
+    Conflict,
+    ContextCapacityStop,
+    ContextStopReason,
+    ContextWindowExceeded,
+)
 from horizon.domain.memory import RunMemorySnapshot
 from horizon.domain.model import (
     InputTokenBudget,
@@ -279,6 +284,8 @@ class ContextProjector:
         if run_memory is not None:
             visible_memory_limits = tuple(range(min(2, len(run_memory.entries)), -1, -1))
 
+        last_attempt: tuple[tuple[ModelMessage, ...], int, InputTokenEstimate, int] | None = None
+
         for memory_limit_index, memory_limit in enumerate(visible_memory_limits):
             visible_messages = self._bind_mandatory_facts(
                 messages,
@@ -289,24 +296,31 @@ class ContextProjector:
                 run_memory_recent_entry_limit=memory_limit,
             )
             projected_chars, token_estimate = self._measure(visible_messages)
-            if memory_limit_index == 0 and self._fits(projected_chars, token_estimate):
-                return ContextProjection(
-                    max_chars=self.max_chars,
-                    preserve_recent_units=self.preserve_recent_units,
-                    source_message_count=len(messages),
-                    projected_message_count=len(messages),
-                    projected_chars=projected_chars,
-                    input_token_budget=self._token_budget(token_estimate),
-                    compacted_unit_count=0,
-                    source_digest=source_digest,
-                    mandatory_facts_ref=mandatory_facts_ref,
-                    mandatory_facts_hash=(mandatory_facts.sha256 if mandatory_facts else None),
-                    run_memory_ref=run_memory_ref,
-                    run_memory_hash=(run_memory.sha256 if run_memory else None),
-                    run_memory_entry_count=(run_memory.included_entry_count if run_memory else 0),
-                    compacted=False,
-                    messages=visible_messages,
-                )
+            if memory_limit_index == 0:
+                # Reducing visible Run-memory entries is allowed only alongside actual transcript
+                # compaction. Keep the full-memory candidate as the stop requirement when there
+                # is no compactable unit.
+                last_attempt = (visible_messages, projected_chars, token_estimate, 0)
+                if self._fits(projected_chars, token_estimate):
+                    return ContextProjection(
+                        max_chars=self.max_chars,
+                        preserve_recent_units=self.preserve_recent_units,
+                        source_message_count=len(messages),
+                        projected_message_count=len(messages),
+                        projected_chars=projected_chars,
+                        input_token_budget=self._token_budget(token_estimate),
+                        compacted_unit_count=0,
+                        source_digest=source_digest,
+                        mandatory_facts_ref=mandatory_facts_ref,
+                        mandatory_facts_hash=(mandatory_facts.sha256 if mandatory_facts else None),
+                        run_memory_ref=run_memory_ref,
+                        run_memory_hash=(run_memory.sha256 if run_memory else None),
+                        run_memory_entry_count=(
+                            run_memory.included_entry_count if run_memory else 0
+                        ),
+                        compacted=False,
+                        messages=visible_messages,
+                    )
 
             prefix = visible_messages[:2]
             for compactable_end in range(max(1, preferred_end), first_incomplete + 1):
@@ -318,10 +332,22 @@ class ContextProjector:
                 )
                 projected = assemble(prefix, old_units, kept_units, compacted_digest, facts)
                 projected_chars, token_estimate = self._measure(projected)
+                last_attempt = (
+                    projected,
+                    projected_chars,
+                    token_estimate,
+                    len(old_units),
+                )
                 while facts and not self._fits(projected_chars, token_estimate):
                     facts = facts[1:]
                     projected = assemble(prefix, old_units, kept_units, compacted_digest, facts)
                     projected_chars, token_estimate = self._measure(projected)
+                    last_attempt = (
+                        projected,
+                        projected_chars,
+                        token_estimate,
+                        len(old_units),
+                    )
                 if self._fits(projected_chars, token_estimate):
                     return ContextProjection(
                         max_chars=self.max_chars,
@@ -342,9 +368,27 @@ class ContextProjector:
                         compacted=True,
                         messages=projected,
                     )
-        raise Conflict(
-            "Protected prefix or incomplete Agent turn exceeds the context projection "
-            "character/token budget"
+        if last_attempt is None:
+            raise Conflict("Context projection did not evaluate a candidate")
+        attempted, required_chars, required_tokens, compacted_count = last_attempt
+        incomplete_count = sum(not unit.complete for unit in units)
+        raise ContextWindowExceeded(
+            ContextCapacityStop(
+                reason_code=(
+                    ContextStopReason.INCOMPLETE_TOOL_TURN_LIMIT
+                    if incomplete_count
+                    else ContextStopReason.PROTECTED_PREFIX_LIMIT
+                ),
+                max_context_chars=self.max_chars,
+                max_input_tokens=self.max_input_tokens,
+                required_context_chars=required_chars,
+                required_input_tokens=required_tokens.token_ceiling,
+                source_message_count=len(messages),
+                attempted_projected_message_count=len(attempted),
+                compacted_unit_count=compacted_count,
+                incomplete_unit_count=incomplete_count,
+                source_digest=source_digest,
+            )
         )
 
 

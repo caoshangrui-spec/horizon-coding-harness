@@ -32,6 +32,8 @@ from horizon.domain.context import ContextProjection, MandatoryFactLedger
 from horizon.domain.errors import (
     BudgetExceeded,
     Conflict,
+    ContextCapacityStop,
+    ContextWindowExceeded,
     PolicyDenied,
     ProviderError,
     RunCancellationRequested,
@@ -532,6 +534,13 @@ class CodingAgentRunner:
         artifact_ref = self.session_store.put(payload)
         if self.session_store.read(artifact_ref) != payload:
             raise Conflict("Context projection artifact verification failed")
+        return artifact_ref
+
+    def _store_context_stop(self, stop: ContextCapacityStop) -> str:
+        payload = canonical_json(stop.model_dump(mode="json")).encode("utf-8")
+        artifact_ref = self.session_store.put(payload)
+        if artifact_ref != stop.sha256 or self.session_store.read(artifact_ref) != payload:
+            raise Conflict("Context-capacity stop artifact verification failed")
         return artifact_ref
 
     def _load_session(
@@ -1352,6 +1361,24 @@ class CodingAgentRunner:
                         token,
                         f"budget_stop_{uuid4().hex}",
                         model_request_budget=exc.model_request_budget,
+                    )
+                except ContextWindowExceeded as exc:
+                    latest = self.service.store.get(run_id)
+                    if latest.reservations:
+                        raise
+                    if exc.stop.source_digest != digest(
+                        [message.model_dump(mode="json") for message in messages]
+                    ):
+                        raise Conflict(
+                            "Context-capacity stop does not match the canonical Agent transcript"
+                        ) from exc
+                    stop_ref = self._store_context_stop(exc.stop)
+                    return self.service.request_context_capacity(
+                        run_id,
+                        exc.stop,
+                        stop_ref,
+                        token,
+                        f"context_capacity_{uuid4().hex}",
                     )
                 except ProviderError as exc:
                     latest = self.service.store.get(run_id)

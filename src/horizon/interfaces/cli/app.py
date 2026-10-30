@@ -46,7 +46,7 @@ from horizon.application.docker_worker_crash_recovery import (
     DockerWorkerCrashResumeRunner,
     verify_docker_worker_crash_resume_pack,
 )
-from horizon.application.human import OperatorGuidanceService
+from horizon.application.human import ContextCapacityResumeService, OperatorGuidanceService
 from horizon.application.intake import DeterministicIntentRouter
 from horizon.application.local_process_supervision import (
     LocalAgentWorkerLauncher,
@@ -132,7 +132,7 @@ from horizon.domain.evaluation import (
     RetrievalEvalSuiteManifest,
     RetrievalSourceManifest,
 )
-from horizon.domain.human import HumanGuidanceRequest, HumanPlanRequest
+from horizon.domain.human import HumanContextRequest, HumanGuidanceRequest, HumanPlanRequest
 from horizon.domain.intake import AdmissionContext, UserRequest
 from horizon.domain.model import ModelPolicyBinding
 from horizon.domain.pilot import RealModelPilotManifest
@@ -243,6 +243,11 @@ def pending_human_next_action(run) -> str | None:
         return f"horizon plan set {run.run_id} <plan.yaml>"
     if isinstance(request, HumanGuidanceRequest):
         return f"horizon agent guide {run.run_id} <guidance.txt>"
+    if isinstance(request, HumanContextRequest):
+        return (
+            f"horizon agent resume {run.run_id} --image <existing-image> "
+            "--config <provider-config-with-larger-context> --confirm-paid"
+        )
     return None
 
 
@@ -2722,8 +2727,27 @@ def agent_resume(
         raise ValueError(
             f"Run requires operator guidance first: horizon agent guide {run_id} <guidance.txt>"
         )
-    if current.status not in {RunStatus.PLANNING, RunStatus.READY, RunStatus.RUNNING}:
-        raise ValueError("Only a PLANNING, READY, or RUNNING Agent Run can continue")
+    context_request = (
+        current.pending_human_request
+        if isinstance(current.pending_human_request, HumanContextRequest)
+        else None
+    )
+    if context_request is not None and (
+        provider.request.max_context_chars < context_request.stop.required_context_chars
+        or provider.request.max_input_tokens < context_request.stop.required_input_tokens
+    ):
+        raise ValueError(
+            "Provider context limits remain below the persisted requirement: "
+            f"max_context_chars>={context_request.stop.required_context_chars}, "
+            f"max_input_tokens>={context_request.stop.required_input_tokens}"
+        )
+    resumable_statuses = {RunStatus.PLANNING, RunStatus.READY, RunStatus.RUNNING}
+    if context_request is not None:
+        resumable_statuses.add(RunStatus.WAITING_FOR_USER)
+    if current.status not in resumable_statuses:
+        raise ValueError(
+            "Only a PLANNING, READY, RUNNING, or context-blocked Agent Run can continue"
+        )
     if current.status == RunStatus.RUNNING and current.agent_session is None:
         raise ValueError("Run has no persisted Agent session to continue")
     if current.status == RunStatus.PLANNING and current.plan is not None:
@@ -2759,6 +2783,29 @@ def agent_resume(
     ledger = CampaignBudgetLedger(Path(provider.ledger_path))
     current = leased
     planning_response_reused = False
+    if context_request is not None:
+        resolved = False
+        try:
+            current = (
+                ContextCapacityResumeService(service, artifacts)
+                .apply(
+                    run_id,
+                    token,
+                    f"context_resume_{uuid4().hex}",
+                    max_context_chars=provider.request.max_context_chars,
+                    max_input_tokens=provider.request.max_input_tokens,
+                )
+                .run
+            )
+            resolved = True
+        finally:
+            if not resolved:
+                release_quiescent_lease(
+                    service,
+                    run_id,
+                    token,
+                    f"context_resume_error_release_{uuid4().hex}",
+                )
     if current.status == RunStatus.PLANNING:
         initial_snapshot = snapshots.verify(current.workspace_origin.source_manifest_ref)
         staged_snapshot, _ = snapshots.capture(

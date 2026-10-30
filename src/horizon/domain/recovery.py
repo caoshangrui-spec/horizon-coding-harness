@@ -56,6 +56,7 @@ class RecoveryReport(Contract):
         "resume",
         "provide_replacement_plan",
         "provide_operator_guidance",
+        "increase_context_capacity",
         "manual_reconciliation",
         "cancelled",
     ]

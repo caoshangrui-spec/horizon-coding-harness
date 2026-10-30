@@ -5,6 +5,12 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Replaced irreducible context-projection `Conflict` exits with a durable, typed recovery path.
+  Protected-prefix and incomplete-tool-turn overflow now persist content-addressed
+  `ContextCapacityStop` evidence, enter `WAITING_FOR_USER`, and release the worker lease before any
+  model reservation or provider dispatch. Recovery reports `increase_context_capacity`; the local
+  CLI rejects insufficient limits without acquiring a lease, and sufficient limits publish a
+  request-bound decision plus an unchanged-transcript session boundary before execution resumes.
 - Added Trace-derived retrieval-consumption lineage to source-bound Run A/B reports. Successful
   `retrieve_code` receipts are now matched to exact later ContextProjection tool messages or active
   post-replan RunMemory excerpts, then joined to write compare-and-swap preconditions by source model

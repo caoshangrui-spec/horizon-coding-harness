@@ -1345,6 +1345,120 @@ def test_agent_cli_applies_guidance_and_resumes_after_no_progress(tmp_path, monk
     assert (source / "src/parser.py").read_text(encoding="utf-8") == original
 
 
+def test_agent_cli_reports_context_stop_and_requires_sufficient_resume_config(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+    source, original, task_path, dotenv = write_auto_plan_cli_fixture(tmp_path)
+    task_data = json.loads(task_path.read_text(encoding="utf-8"))
+    task_data["objective"] = "Preserve this exact objective: " + "x" * 5_000
+    task_path.write_text(json.dumps(task_data), encoding="utf-8")
+
+    low_provider_data = yaml.safe_load(PROVIDER.read_text(encoding="utf-8"))
+    low_provider_data["request"]["max_context_chars"] = 2_000
+    low_provider_path = tmp_path / "provider-low-context.yaml"
+    low_provider_path.write_text(yaml.safe_dump(low_provider_data), encoding="utf-8")
+
+    model = AutoPlanAndFixModel()
+    monkeypatch.setattr(
+        cli_app_module,
+        "OpenAICompatibleModelGateway",
+        lambda *args, **kwargs: model,
+    )
+    monkeypatch.setattr(cli_app_module, "DockerSandbox", lambda *args, **kwargs: object())
+    monkeypatch.setattr(cli_app_module, "DockerAcceptanceExecutor", LocalParserAcceptance)
+
+    stopped = runner.invoke(
+        app,
+        [
+            "agent",
+            "run",
+            str(task_path),
+            "--auto-plan",
+            "--image",
+            "offline-fixture",
+            "--config",
+            str(low_provider_path),
+            "--dotenv",
+            str(dotenv),
+            "--confirm-paid",
+        ],
+    )
+
+    assert stopped.exit_code == 3, stopped.output
+    stopped_data = json.loads(stopped.stdout)
+    assert stopped_data["status"] == "WAITING_FOR_USER"
+    assert stopped_data["human_request"]["kind"] == "context_capacity_required"
+    assert stopped_data["human_request"]["reason_code"] == "context_projection_limit"
+    stop = stopped_data["human_request"]["stop"]
+    assert stop["required_context_chars"] > stop["max_context_chars"]
+    assert stopped_data["next_action"].startswith("horizon agent resume ")
+    assert "provider-config-with-larger-context" in stopped_data["next_action"]
+    assert stopped_data["model_call_records"] == 1
+    assert len(model.requests) == 1
+
+    insufficient = runner.invoke(
+        app,
+        [
+            "agent",
+            "resume",
+            stopped_data["run_id"],
+            "--image",
+            "offline-fixture",
+            "--config",
+            str(low_provider_path),
+            "--dotenv",
+            str(dotenv),
+            "--confirm-paid",
+        ],
+    )
+    assert insufficient.exit_code == 2, insufficient.output
+    assert "max_context_chars>=" in insufficient.output
+    assert len(model.requests) == 1
+    still_waiting = SQLiteEventStore(tmp_path / ".horizon/control.sqlite3").get(
+        stopped_data["run_id"]
+    )
+    assert still_waiting.status == RunStatus.WAITING_FOR_USER
+    assert still_waiting.lease_id is None
+
+    high_provider_data = yaml.safe_load(low_provider_path.read_text(encoding="utf-8"))
+    high_provider_data["request"]["max_context_chars"] = max(
+        60_000,
+        stop["required_context_chars"],
+    )
+    high_provider_data["request"]["max_input_tokens"] = max(
+        120_000,
+        stop["required_input_tokens"],
+    )
+    high_provider_path = tmp_path / "provider-high-context.yaml"
+    high_provider_path.write_text(yaml.safe_dump(high_provider_data), encoding="utf-8")
+
+    resumed = runner.invoke(
+        app,
+        [
+            "agent",
+            "resume",
+            stopped_data["run_id"],
+            "--image",
+            "offline-fixture",
+            "--config",
+            str(high_provider_path),
+            "--dotenv",
+            str(dotenv),
+            "--confirm-paid",
+        ],
+    )
+
+    assert resumed.exit_code == 0, resumed.output
+    resumed_data = json.loads(resumed.stdout)
+    assert resumed_data["status"] == "SUCCEEDED"
+    assert resumed_data["human_request"] is None
+    assert resumed_data["model_call_records"] == 3
+    assert len(model.requests) == 3
+    assert (source / "src/parser.py").read_text(encoding="utf-8") == original
+
+
 def test_agent_run_requires_exactly_one_plan_source(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(

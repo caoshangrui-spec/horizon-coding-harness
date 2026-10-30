@@ -13,6 +13,8 @@ from horizon.domain.context import ContextCompactionRecord
 from horizon.domain.errors import BudgetStop, IntegrityError, InvalidTransition, PolicyDenied
 from horizon.domain.events import Event
 from horizon.domain.human import (
+    HumanContextDecision,
+    HumanContextRequest,
     HumanDecision,
     HumanGuidanceDecision,
     HumanGuidanceRequest,
@@ -383,8 +385,7 @@ def apply(run: Run | None, event: Event) -> Run:
                 or request.requested_plan_version != (run.plan.version + 1 if run.plan else 1)
             ):
                 raise IntegrityError("Human request is not bound to failed planning evidence")
-        else:
-            assert isinstance(request, HumanGuidanceRequest)
+        elif isinstance(request, HumanGuidanceRequest):
             session = run.agent_session
             if (
                 run.status != RunStatus.RUNNING
@@ -409,6 +410,24 @@ def apply(run: Run | None, event: Event) -> Run:
                 or request.next_iteration != session.next_iteration
             ):
                 raise IntegrityError("Human request is not bound to no-progress evidence")
+        else:
+            assert isinstance(request, HumanContextRequest)
+            session = run.agent_session
+            if (
+                run.status != RunStatus.RUNNING
+                or run.plan is None
+                or session is None
+                or request.stop_artifact_ref != request.stop.sha256
+                or request.task_spec_hash != run.task.sha256
+                or request.plan_version != run.plan.version
+                or request.plan_hash != run.plan.sha256
+                or request.work_item_id != session.work_item_id
+                or request.workspace_revision != session.workspace_revision
+                or request.agent_session_artifact_ref != session.artifact_ref
+                or request.next_iteration != session.next_iteration
+                or request.stop.source_message_count != session.message_count
+            ):
+                raise IntegrityError("Human request is not bound to context-capacity evidence")
         run.pending_human_request = request
     elif event.event_type == "HUMAN_DECISION_RECORDED":
         decision = parse_human_decision(p["decision"])
@@ -426,8 +445,7 @@ def apply(run: Run | None, event: Event) -> Run:
             ):
                 raise IntegrityError("Human Plan decision does not match the pending request")
             run.pending_human_plan_hash = decision.plan_hash
-        else:
-            assert isinstance(decision, HumanGuidanceDecision)
+        elif isinstance(decision, HumanGuidanceDecision):
             if (
                 not isinstance(request, HumanGuidanceRequest)
                 or run.resume_state != RunStatus.RUNNING
@@ -444,6 +462,25 @@ def apply(run: Run | None, event: Event) -> Run:
                 raise IntegrityError("Human guidance decision does not match the pending request")
             run.pending_human_session_ref = decision.guided_session_artifact_ref
             run.no_progress_reset_tool_count = len(run.tool_calls)
+        else:
+            assert isinstance(decision, HumanContextDecision)
+            if (
+                not isinstance(request, HumanContextRequest)
+                or run.resume_state != RunStatus.RUNNING
+                or request.request_id != decision.request_id
+                or request.task_spec_hash != decision.task_spec_hash
+                or request.plan_version != decision.plan_version
+                or request.workspace_revision != decision.workspace_revision
+                or request.next_iteration != decision.next_iteration
+                or decision.task_spec_hash != run.task.sha256
+                or run.plan is None
+                or decision.plan_version != run.plan.version
+                or decision.max_context_chars < request.stop.required_context_chars
+                or decision.max_input_tokens < request.stop.required_input_tokens
+                or run.pending_human_session_ref is not None
+            ):
+                raise IntegrityError("Context retry decision does not match the pending request")
+            run.pending_human_session_ref = decision.resumed_session_artifact_ref
         run.human_decisions.append(decision)
         run.pending_human_request = None
     elif event.event_type == "PROCESS_WORKER_LAUNCHED":
@@ -868,7 +905,11 @@ def apply(run: Run | None, event: Event) -> Run:
         if call_id not in run.tool_reservations or call_id not in run.unknown_reservations:
             raise IntegrityError("Unknown tool call has no unknown budget reservation")
         run.unknown_tool_calls.add(call_id)
-    elif event.event_type in {"AGENT_SESSION_SAVED", "AGENT_SESSION_GUIDED"}:
+    elif event.event_type in {
+        "AGENT_SESSION_SAVED",
+        "AGENT_SESSION_GUIDED",
+        "AGENT_SESSION_CONTEXT_RESUMED",
+    }:
         record = AgentSessionRecord.model_validate(p["session"])
         if run.status != RunStatus.RUNNING or run.plan is None or run.reservations:
             raise InvalidTransition("Agent session requires a quiescent running phase")
@@ -878,16 +919,32 @@ def apply(run: Run | None, event: Event) -> Run:
             or record.work_item_id not in {item.work_item_id for item in run.plan.items}
         ):
             raise IntegrityError("Agent session does not match the current task and plan")
-        if event.event_type == "AGENT_SESSION_GUIDED":
+        if event.event_type in {"AGENT_SESSION_GUIDED", "AGENT_SESSION_CONTEXT_RESUMED"}:
             current = run.agent_session
+            decision = run.human_decisions[-1] if run.human_decisions else None
             if (
                 current is None
                 or run.pending_human_session_ref != record.artifact_ref
                 or record.next_iteration != current.next_iteration
                 or record.workspace_revision != current.workspace_revision
-                or record.message_count <= current.message_count
+                or (
+                    event.event_type == "AGENT_SESSION_GUIDED"
+                    and record.message_count <= current.message_count
+                )
+                or (
+                    event.event_type == "AGENT_SESSION_CONTEXT_RESUMED"
+                    and record.message_count != current.message_count
+                )
+                or (
+                    event.event_type == "AGENT_SESSION_GUIDED"
+                    and not isinstance(decision, HumanGuidanceDecision)
+                )
+                or (
+                    event.event_type == "AGENT_SESSION_CONTEXT_RESUMED"
+                    and not isinstance(decision, HumanContextDecision)
+                )
             ):
-                raise IntegrityError("Guided Agent session does not match its human decision")
+                raise IntegrityError("Resumed Agent session does not match its human decision")
             run.pending_human_session_ref = None
         elif run.agent_session is not None and (
             record.next_iteration <= run.agent_session.next_iteration
