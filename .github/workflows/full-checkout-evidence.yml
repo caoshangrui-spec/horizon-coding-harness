@@ -17,6 +17,7 @@ on:
       - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v10.yaml"
       - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v11.yaml"
       - "benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v1.yaml"
+      - "benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v2.yaml"
       - "benchmarks/run_ab/bugsinpy-multi-stage-pilot-v*.yaml"
       - "benchmarks/run_ab/bugsinpy-reduced-v2.yaml"
       - "benchmarks/run_ab/external/**/manifest.yaml"
@@ -340,10 +341,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          state_dir=.horizon/multi-stage-hard-crash-docker-v1
+          state_dir=.horizon/multi-stage-hard-crash-docker-v2
           mkdir -p "$state_dir"
           uv run --locked horizon eval run-ab-suite \
-            benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v1.yaml \
+            benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v2.yaml \
             --image python:3.12-alpine \
             --state-dir "$state_dir" \
             | tee "$state_dir/cli-result.json"
@@ -363,7 +364,7 @@ jobs:
             .horizon/reduced-docker-v2
             .horizon/full-checkout-docker-v11
             .horizon/multi-stage-docker-v4
-            .horizon/multi-stage-hard-crash-docker-v1
+            .horizon/multi-stage-hard-crash-docker-v2
             .horizon/real-model-pilot-httpie-v1
           if-no-files-found: warn
           retention-days: 30
@@ -424,7 +425,7 @@ jobs:
           )
           hard_crash = json.loads(
               Path(
-                  ".horizon/multi-stage-hard-crash-docker-v1/cli-result.json"
+                  ".horizon/multi-stage-hard-crash-docker-v2/cli-result.json"
               ).read_text(encoding="utf-8")
           )
           created_resume = json.loads(
@@ -456,13 +457,61 @@ jobs:
                   ).read_text(encoding="utf-8")
               )
               multi_cases.append((case["case_id"], report))
-          hard_crash_case_ref = hard_crash_report["cases"][0]["report_ref"]
-          hard_crash_case = json.loads(
-              (
-                  Path(".horizon/multi-stage-hard-crash-docker-v1/artifacts")
-                  / hard_crash_case_ref[:2]
-                  / hard_crash_case_ref
-              ).read_text(encoding="utf-8")
+          hard_crash_cases = []
+          for case in hard_crash_report["cases"]:
+              case_ref = case["report_ref"]
+              report = json.loads(
+                  (
+                      Path(".horizon/multi-stage-hard-crash-docker-v2/artifacts")
+                      / case_ref[:2]
+                      / case_ref
+                  ).read_text(encoding="utf-8")
+              )
+              hard_crash_cases.append((case["case_id"], report))
+          expected_hard_crash_profiles = {
+              "luigi-1-metrics-handler-three-stage-hard-crash-full": {
+                  "tool": "replace_text",
+                  "disposition": "accept_replace",
+                  "crashed_epoch": 1,
+                  "recovery_epoch": 2,
+              },
+              "fastapi-5-nested-field-clone-three-stage-create-hard-crash-full": {
+                  "tool": "create_file",
+                  "disposition": "accept_create",
+                  "crashed_epoch": 2,
+                  "recovery_epoch": 3,
+              },
+          }
+          hard_crash_case_contracts_met = (
+              {case_id for case_id, _ in hard_crash_cases}
+              == set(expected_hard_crash_profiles)
+              and all(
+                  report["baseline"]["status"] == "WAITING_FOR_USER"
+                  and report["single_replan"]["status"] == "SUCCEEDED"
+                  and all(
+                      arm["hard_crash"]["observed_exit_code"] == 87
+                      and arm["hard_crash"]["tool"] == profile["tool"]
+                      and arm["hard_crash"]["recovery_disposition"]
+                      == profile["disposition"]
+                      and arm["hard_crash"]["crashed_worker_epoch"]
+                      == profile["crashed_epoch"]
+                      and arm["hard_crash"]["recovery_worker_epoch"]
+                      == profile["recovery_epoch"]
+                      and arm["hard_crash"]["reservation_without_receipt"]
+                      and arm["hard_crash"]["conservative_unknown_recorded"]
+                      and arm["hard_crash"]["exact_effect_accepted"]
+                      and arm["hard_crash"]["recovered_without_model_redispatch"]
+                      and arm["hard_crash"]["one_recovered_tool_receipt"]
+                      and arm["worker_restarts"] == 3
+                      and arm["final_lease_epoch"] == 4
+                      and arm["unknown_model_calls"] == 0
+                      and arm["unknown_tool_calls"] == 0
+                      and arm["open_reservations"] == 0
+                      for arm in (report["baseline"], report["single_replan"])
+                  )
+                  for case_id, report in hard_crash_cases
+                  for profile in (expected_hard_crash_profiles[case_id],)
+              )
           )
           suite_reports = (reduced_report, full_report, multi_report, hard_crash_report)
           suite_reliability = tuple(report["reliability"] for report in suite_reports)
@@ -496,6 +545,11 @@ jobs:
               and full_report["passed_case_count"] == 22
               and full_report["initial_failure_confirmed_count"] == 22
               and full_report["treatment_recovered_count"] == 22
+              and hard_crash_report["case_count"] == 2
+              and hard_crash_report["passed_case_count"] == 2
+              and hard_crash_report["initial_failure_confirmed_count"] == 2
+              and hard_crash_report["treatment_recovered_count"] == 2
+              and hard_crash_case_contracts_met
               and reduced_reliability["unknown_acceptance_arm_count"] == 5
               and reduced_reliability["clean_terminal_success_count"] == 5
               and reduced_reliability["quality_flagged_terminal_success_count"] == 0
@@ -533,9 +587,9 @@ jobs:
               and multi_reliability["trace_replay_rate"] == 1.0
               and multi_reliability["source_workspace_unchanged_rate"] == 1.0
               and multi_reliability["final_open_effect_count"] == 0
-              and hard_crash_reliability["timed_scenario_count"] == 1
-              and hard_crash_reliability["hard_crash_arm_count"] == 2
-              and hard_crash_reliability["recovered_hard_crash_arm_count"] == 2
+              and hard_crash_reliability["timed_scenario_count"] == 2
+              and hard_crash_reliability["hard_crash_arm_count"] == 4
+              and hard_crash_reliability["recovered_hard_crash_arm_count"] == 4
               and hard_crash_reliability["recovery_success_rate"] == 1.0
               and hard_crash_reliability["recovery_redispatch_count"] == 0
               and hard_crash_reliability["duplicate_side_effect_count"] == 0
@@ -585,6 +639,7 @@ jobs:
                       )
                   },
                   "missing_full_case_lineage": missing_case_lineage,
+                  "hard_crash_case_contracts_met": hard_crash_case_contracts_met,
                   "paid_model_called": paid_model_called,
                   "network_called": network_called,
               }
@@ -626,6 +681,7 @@ jobs:
                       },
                       "created_resume_verified": created_resume["verified"],
                       "worker_crash_verified": worker_crash["verified"],
+                      "hard_crash_case_contracts_met": hard_crash_case_contracts_met,
                   }
               }
               rendered_diagnostics = json.dumps(diagnostics, sort_keys=True)
@@ -733,20 +789,22 @@ jobs:
                   )
               ),
               (
-                  "- Hard-crash exit / recovered disposition / worker restarts / final epoch: "
+                  "- Hard-crash tool / exit / recovered disposition / worker restarts / final epoch: "
                   + "; ".join(
-                      f"{arm_name} `{arm['hard_crash']['observed_exit_code']}/"
+                      f"{case_id}/{arm_name} `{arm['hard_crash']['tool']}/"
+                      f"{arm['hard_crash']['observed_exit_code']}/"
                       f"{arm['hard_crash']['recovery_disposition']}/"
                       f"{arm['worker_restarts']}/{arm['final_lease_epoch']}`"
+                      for case_id, case in hard_crash_cases
                       for arm_name, arm in (
-                          ("baseline", hard_crash_case["baseline"]),
-                          ("treatment", hard_crash_case["single_replan"]),
+                          ("baseline", case["baseline"]),
+                          ("treatment", case["single_replan"]),
                       )
                   )
               ),
               (
                   "- Hard-crash recovery without model redispatch: "
-                  f"`{all(arm['hard_crash']['recovered_without_model_redispatch'] for arm in (hard_crash_case['baseline'], hard_crash_case['single_replan']))}`"
+                  f"`{all(arm['hard_crash']['recovered_without_model_redispatch'] for _, case in hard_crash_cases for arm in (case['baseline'], case['single_replan']))}`"
               ),
               (
                   "- Three-stage reliability metrics: scenarios `"

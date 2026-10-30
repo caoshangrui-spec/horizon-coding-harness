@@ -399,11 +399,11 @@ def test_doctor_checks_fts_without_model():
     assert data["source_bound_run_ab_multi_stage_work_item_count"] == 3
     assert data["source_bound_run_ab_multi_stage_worker_restart_count"] == 2
     assert data["source_bound_run_ab_multi_stage_docker_verified_count"] == 3
-    assert data["source_bound_run_ab_multi_stage_hard_crash_case_count"] == 1
+    assert data["source_bound_run_ab_multi_stage_hard_crash_case_count"] == 2
     assert data["source_bound_run_ab_multi_stage_hard_crash_worker_restart_count"] == 3
-    assert data["source_bound_run_ab_multi_stage_hard_crash_docker_verified_count"] == 1
+    assert data["source_bound_run_ab_multi_stage_hard_crash_docker_verified_count"] == 2
     assert data["source_bound_run_ab_multi_stage_hard_crash_profile"] == (
-        "write_effect_before_receipt_exact_accept_no_redispatch"
+        "replace_and_create_effect_before_receipt_exact_accept_no_redispatch"
     )
     assert data["bounded_multi_file_patch"] is True
     assert data["max_patch_files"] == 8

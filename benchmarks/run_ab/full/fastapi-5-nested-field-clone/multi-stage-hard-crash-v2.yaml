@@ -1,0 +1,270 @@
+schema_version: 2
+benchmark_id: fastapi-5-nested-field-clone-three-stage-create-hard-crash-full
+fixture_path: fixture
+
+task:
+  task_id: fastapi-nested-field-clone-three-stage-full
+  title: Repair nested field cloning and preserve the upstream regression
+  objective: Complete recursive production cloning, add the upstream regression module, and close their joint contract across recoverable worker boundaries
+  repository:
+    source: local
+    path: /fixture
+    base_commit: 7cea84b74ca3106a7f861b774e9d215e5228728f
+  constraints:
+    allowed_paths: ["**"]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+  acceptance:
+    - id: fastapi-nested-clone-runtime
+      command: >-
+        python -B -c "import ast,pathlib,types; from typing import Type; source=pathlib.Path('fastapi/utils.py').read_text(encoding='utf-8'); tree=ast.parse(source); node=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='create_cloned_field'); BaseModel=type('BaseModel',(),{}); make_field=lambda name,type_=None,**kwargs:types.SimpleNamespace(name=name,type_=type_,has_alias=False,alias=name,class_validators={},default=None,required=False,model_config=None,field_info=None,allow_none=False,validate_always=False,sub_fields=[],key_field=None,validators=[],pre_validators=[],post_validators=[],parse_json=False,shape=1,populate_validators=lambda:None); make_model=lambda name,fields:type(name,(BaseModel,),{'__config__':object(),'__fields__':fields,'__validators__':{}}); namespace={'ModelField':make_field,'BaseModel':BaseModel,'BaseConfig':object,'FieldInfo':lambda *args:None,'PYDANTIC_1':True,'Type':Type,'is_dataclass':lambda value:False,'lenient_issubclass':lambda value,parent:isinstance(value,type) and issubclass(value,parent),'cast':lambda kind,value:value,'create_model':lambda name,__config__:make_model(name,{})}; exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),'fastapi/utils.py','exec'),namespace); leaf=make_field('username',str); Nested=make_model('ModelB',{'username':leaf}); nested=make_field('model_b',Nested); Root=make_model('ModelA',{'model_b':nested}); root=make_field('root',Root); cloned=namespace['create_cloned_field'](root); cloned_nested=cloned.type_.__fields__['model_b']; cloned_leaf=cloned_nested.type_.__fields__['username']; assert cloned_nested is not nested and cloned_leaf is not leaf"
+      timeout_seconds: 30
+      required: true
+    - id: fastapi-nested-clone-regression-source
+      command: >-
+        python -B -c "import ast,pathlib; path=pathlib.Path('tests/test_filter_pydantic_sub_model.py'); source=path.read_text(encoding='utf-8'); tree=ast.parse(source); classes={node.name for node in tree.body if isinstance(node,ast.ClassDef)}; functions={node.name for node in tree.body if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef))}; assert {'ModelA','ModelB','ModelC'}<=classes; assert {'get_model_a','get_model_c','test_openapi_schema','test_filter_sub_model'}<=functions; assert 'response_model=ModelA' in source and '\"model_b\": {\"username\": \"test-user\"}' in source"
+      timeout_seconds: 30
+      required: true
+    - id: fastapi-nested-clone-joint-contract
+      command: >-
+        python -B -c "import ast,pathlib; production=pathlib.Path('fastapi/utils.py').read_text(encoding='utf-8'); regression=pathlib.Path('tests/test_filter_pydantic_sub_model.py').read_text(encoding='utf-8'); ast.parse(production); ast.parse(regression); assert production.count('use_type.__fields__[f.name] = create_cloned_field(f)')==1; assert 'class ModelC(ModelB):' in regression and 'password: str' in regression; result=regression[regression.index('def test_filter_sub_model():'):]; assert '\"model_b\": {\"username\": \"test-user\"}' in result and '\"password\"' not in result"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 50
+    max_model_calls: 30
+    max_tool_calls: 50
+    max_wall_time_seconds: 900
+    max_cost_usd: "1.00"
+    max_input_tokens: 120000
+    max_output_tokens: 8000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+
+initial_plan:
+  version: 1
+  items:
+    - &production_item
+      work_item_id: repair-nested-field-clone
+      title: Recursively clone nested response fields
+      objective: Remove nested aliases from the cloned response-field graph
+      dependencies: []
+      expected_artifacts: [Code EvidencePack, fastapi-nested-clone-runtime receipt]
+      acceptance_ids: [fastapi-nested-clone-runtime]
+      allowed_tools: [retrieve_code, replace_text, run_check]
+    - &regression_item
+      work_item_id: add-nested-field-regression
+      title: Add the upstream response-filter regression module
+      objective: Preserve the nested subclass filtering failure as an executable upstream test shape
+      dependencies: [repair-nested-field-clone]
+      expected_artifacts: [Code EvidencePack, fastapi-nested-clone-regression-source receipt]
+      acceptance_ids: [fastapi-nested-clone-regression-source]
+      allowed_tools: [retrieve_code, create_file, run_check]
+    - work_item_id: verify-nested-field-joint-contract
+      title: Verify production and regression remain bound
+      objective: Close the task with joint evidence for recursive cloning and password filtering
+      dependencies: [add-nested-field-regression]
+      expected_artifacts: [Code EvidencePack, fastapi-nested-clone-joint-contract receipt]
+      acceptance_ids: [fastapi-nested-clone-joint-contract]
+      allowed_tools: [retrieve_code]
+
+expected_initial_failed_checks:
+  - fastapi-nested-clone-runtime
+  - fastapi-nested-clone-regression-source
+  - fastapi-nested-clone-joint-contract
+
+arms:
+  - arm_id: no-replan-create-hard-crash
+    role: baseline
+    description: Recover the regression create after its child process exits, cross both worker boundaries, then remain stalled on joint contract closure.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items:
+      - repair-nested-field-clone
+      - add-nested-field-regression
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 10
+    expected_tool_calls: 12
+    expected_steps: 12
+    restart_after_model_calls: [3, 6]
+    hard_crash_after_tool_effect_at_model_call: 5
+    actions:
+      - &retrieve_production
+        tool: retrieve_code
+        arguments:
+          query: create_cloned_field nested response model fields alias
+          max_chunks: 4
+      - &repair_production
+        tool: replace_text
+        arguments:
+          path: fastapi/utils.py
+          old: "use_type.__fields__[f.name] = f"
+          new: "use_type.__fields__[f.name] = create_cloned_field(f)"
+      - &submit_production
+        tool: submit
+        arguments:
+          summary: Recursively cloned nested response fields and verified object isolation.
+      - &retrieve_regression
+        tool: retrieve_code
+        arguments:
+          query: filter pydantic sub model response password regression
+          max_chunks: 4
+      - &create_regression
+        tool: create_file
+        arguments:
+          path: tests/test_filter_pydantic_sub_model.py
+          content: |
+            from fastapi import Depends, FastAPI
+            from pydantic import BaseModel
+            from starlette.testclient import TestClient
+
+            app = FastAPI()
+
+
+            class ModelB(BaseModel):
+                username: str
+
+
+            class ModelC(ModelB):
+                password: str
+
+
+            class ModelA(BaseModel):
+                name: str
+                description: str = None
+                model_b: ModelB
+
+
+            async def get_model_c() -> ModelC:
+                return ModelC(username="test-user", password="test-password")
+
+
+            @app.get("/model", response_model=ModelA)
+            async def get_model_a(model_c=Depends(get_model_c)):
+                return {"name": "model-a-name", "description": "model-a-desc", "model_b": model_c}
+
+
+            client = TestClient(app)
+
+
+            openapi_schema = {
+                "openapi": "3.0.2",
+                "info": {"title": "Fast API", "version": "0.1.0"},
+                "paths": {
+                    "/model": {
+                        "get": {
+                            "summary": "Get Model A",
+                            "operationId": "get_model_a_model_get",
+                            "responses": {
+                                "200": {
+                                    "description": "Successful Response",
+                                    "content": {
+                                        "application/json": {
+                                            "schema": {"$ref": "#/components/schemas/ModelA"}
+                                        }
+                                    },
+                                }
+                            },
+                        }
+                    }
+                },
+                "components": {
+                    "schemas": {
+                        "ModelA": {
+                            "title": "ModelA",
+                            "required": ["name", "model_b"],
+                            "type": "object",
+                            "properties": {
+                                "name": {"title": "Name", "type": "string"},
+                                "description": {"title": "Description", "type": "string"},
+                                "model_b": {"$ref": "#/components/schemas/ModelB"},
+                            },
+                        },
+                        "ModelB": {
+                            "title": "ModelB",
+                            "required": ["username"],
+                            "type": "object",
+                            "properties": {"username": {"title": "Username", "type": "string"}},
+                        },
+                    }
+                },
+            }
+
+
+            def test_openapi_schema():
+                response = client.get("/openapi.json")
+                assert response.status_code == 200
+                assert response.json() == openapi_schema
+
+
+            def test_filter_sub_model():
+                response = client.get("/model")
+                assert response.status_code == 200
+                assert response.json() == {
+                    "name": "model-a-name",
+                    "description": "model-a-desc",
+                    "model_b": {"username": "test-user"},
+                }
+      - &submit_regression
+        tool: submit
+        arguments:
+          summary: Added the exact upstream nested-submodel regression shape and verified its structure.
+      - &retrieve_joint_contract
+        tool: retrieve_code
+        arguments:
+          query: nested response field clone regression password filtering contract
+          max_chunks: 4
+      - *retrieve_joint_contract
+      - *retrieve_joint_contract
+      - *retrieve_joint_contract
+
+  - arm_id: single-replan-create-hard-crash
+    role: single_replan
+    description: Recover the regression create without redispatch, preserve both completed WorkItems, revise only the stalled joint verification, and finish all required checks.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items:
+      - repair-nested-field-clone
+      - add-nested-field-regression
+      - verify-nested-field-joint-contract-after-stall
+    expected_model_calls: 12
+    expected_tool_calls: 17
+    expected_steps: 17
+    restart_after_model_calls: [3, 6]
+    hard_crash_after_tool_effect_at_model_call: 5
+    actions:
+      - *retrieve_production
+      - *repair_production
+      - *submit_production
+      - *retrieve_regression
+      - *create_regression
+      - *submit_regression
+      - *retrieve_joint_contract
+      - *retrieve_joint_contract
+      - *retrieve_joint_contract
+      - tool: revise_plan
+        arguments:
+          reason: Production recursion and the upstream regression module are already validated; replace only the stalled joint verification with a bounded evidence-ready closure item.
+          items:
+            - *production_item
+            - *regression_item
+            - work_item_id: verify-nested-field-joint-contract-after-stall
+              title: Close recursive cloning and filtering from persisted evidence
+              objective: Verify production recursion and the password-filtering regression remain bound
+              dependencies: [add-nested-field-regression]
+              expected_artifacts: [Code EvidencePack, fastapi-nested-clone-joint-contract receipt]
+              acceptance_ids: [fastapi-nested-clone-joint-contract]
+              allowed_tools: [retrieve_code, run_check]
+      - tool: retrieve_code
+        arguments:
+          query: create_cloned_field test_filter_sub_model password excluded response
+          max_chunks: 4
+      - tool: submit
+        arguments:
+          summary: Preserved both completed edits and closed the joint recursive-clone regression contract.
+

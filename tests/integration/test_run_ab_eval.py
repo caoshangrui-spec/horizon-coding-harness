@@ -137,6 +137,9 @@ FASTAPI_MULTI_STAGE_MANIFEST_PATH = (
     ROOT / "benchmarks" / "run_ab" / "full" / "fastapi-5-nested-field-clone" / "multi-stage-v4.yaml"
 )
 HARD_CRASH_SUITE_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-hard-crash-v1.yaml"
+HARD_CRASH_V2_SUITE_PATH = (
+    ROOT / "benchmarks" / "run_ab" / "bugsinpy-multi-stage-hard-crash-v2.yaml"
+)
 LUIGI_HARD_CRASH_MANIFEST_PATH = (
     ROOT
     / "benchmarks"
@@ -144,6 +147,14 @@ LUIGI_HARD_CRASH_MANIFEST_PATH = (
     / "full"
     / "luigi-1-metrics-handler"
     / "multi-stage-hard-crash-v1.yaml"
+)
+FASTAPI_HARD_CRASH_MANIFEST_PATH = (
+    ROOT
+    / "benchmarks"
+    / "run_ab"
+    / "full"
+    / "fastapi-5-nested-field-clone"
+    / "multi-stage-hard-crash-v2.yaml"
 )
 
 
@@ -2101,7 +2112,7 @@ def test_fastapi_three_stage_preserves_exact_upstream_production_and_regression_
     )
 
 
-def test_source_bound_hard_crash_suite_binds_exact_recovery_window():
+def test_source_bound_hard_crash_v1_suite_binds_exact_recovery_window():
     suite = RunABSuiteManifest.model_validate(
         yaml.safe_load(HARD_CRASH_SUITE_PATH.read_text(encoding="utf-8"))
     )
@@ -2122,6 +2133,36 @@ def test_source_bound_hard_crash_suite_binds_exact_recovery_window():
     assert crash_actions[0] == crash_actions[1]
     assert crash_actions[0].tool == "replace_text"
     assert crash_actions[0].arguments["path"] == "luigi/server.py"
+
+
+def test_source_bound_hard_crash_v2_adds_independent_create_recovery_window():
+    suite = RunABSuiteManifest.model_validate(
+        yaml.safe_load(HARD_CRASH_V2_SUITE_PATH.read_text(encoding="utf-8"))
+    )
+    luigi = RunABEvalManifest.model_validate(
+        yaml.safe_load(LUIGI_HARD_CRASH_MANIFEST_PATH.read_text(encoding="utf-8"))
+    )
+    fastapi = RunABEvalManifest.model_validate(
+        yaml.safe_load(FASTAPI_HARD_CRASH_MANIFEST_PATH.read_text(encoding="utf-8"))
+    )
+
+    assert suite.sha256 == "1e24d7414a05eed8167be595a54156be8ec84e36f3b6ae8fd5b030f9072ea943"
+    assert fastapi.sha256 == "339cb04c6022a0bb277afa4d70d26c6262aeb643c5a3eeddb185a488417cdb09"
+    assert len(suite.cases) == 2
+    suite.cases[0].check_manifest(luigi)
+    suite.cases[1].check_manifest(fastapi)
+    assert [case.source.project for case in suite.cases] == ["luigi", "fastapi"]
+    assert {case.source.reduction for case in suite.cases} == {"full_checkout"}
+    assert fastapi.schema_version == 2
+    assert {arm.restart_points for arm in fastapi.arms} == {(3, 6)}
+    assert {arm.hard_crash_after_tool_effect_at_model_call for arm in fastapi.arms} == {5}
+    crash_actions = [arm.actions[4] for arm in fastapi.arms]
+    assert crash_actions[0] == crash_actions[1]
+    assert crash_actions[0].tool == "create_file"
+    assert crash_actions[0].arguments["path"] == "tests/test_filter_pydantic_sub_model.py"
+    assert hashlib.sha256(crash_actions[0].arguments["content"].encode("utf-8")).hexdigest() == (
+        "f64fb11b78917f494f3101424f30219be3d8e761bff6da437f9ccd586b372c50"
+    )
 
 
 def test_three_stage_regression_edit_is_line_ending_independent():
