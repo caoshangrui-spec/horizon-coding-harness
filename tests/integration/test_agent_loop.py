@@ -707,7 +707,9 @@ def test_agent_loop_edits_runs_protected_validation_and_succeeds(tmp_path, task_
     assert "retrieve_code tool is preferred" in (model.requests[0].messages[0].content or "")
     assert "Do not repeat a saturated search" in (model.requests[0].messages[0].content or "")
     assert "follow the evidence" in (model.requests[0].messages[0].content or "")
-    assert "never send only one bound" in (model.requests[0].messages[0].content or "")
+    assert "one-sided range is deterministically completed" in (
+        model.requests[0].messages[0].content or ""
+    )
     reservations = [
         ModelCallReservation.model_validate(event.payload["reservation"])
         for event in store.events(run_id)
@@ -969,14 +971,10 @@ def test_agent_response_artifact_failure_is_quarantined_without_replay(tmp_path,
     assert report.findings[0].client_trace_id == reservation.client_trace_id
 
 
-def test_agent_loop_recovers_from_one_sided_read_range_and_replays(tmp_path, task_dict):
+def test_agent_loop_completes_one_sided_read_range_and_replays(tmp_path, task_dict):
     actions = [
         ("retrieve_code", {"query": "parse"}),
         ("read_file", {"path": "src/parser.py", "start_line": 1}),
-        (
-            "read_file",
-            {"path": "src/parser.py", "start_line": 1, "end_line": 2},
-        ),
         (
             "replace_text",
             {
@@ -995,21 +993,17 @@ def test_agent_loop_recovers_from_one_sided_read_range_and_replays(tmp_path, tas
     assert result.status == RunStatus.SUCCEEDED
     assert "return [] if" in (workspace / "src/parser.py").read_text(encoding="utf-8")
     reads = [record for record in result.tool_calls if record.name == "read_file"]
-    assert [record.status for record in reads] == ["error", "success"]
+    assert [record.status for record in reads] == ["success"]
     assert reads[0].artifact_ref is not None
-    error_content = runner.session_store.read(reads[0].artifact_ref).decode("utf-8")
-    assert "start_line and end_line must be supplied together" in error_content
-    assert '"start_line":<start_line>,"end_line":<end_line>' in error_content
+    read_content = runner.session_store.read(reads[0].artifact_ref).decode("utf-8")
+    assert "READ_RANGE path=src/parser.py lines=1-2 total_lines=2" in read_content
     assert any(
         message.role == "tool"
-        and "start_line and end_line must be supplied together" in (message.content or "")
+        and "READ_RANGE path=src/parser.py lines=1-2 total_lines=2" in (message.content or "")
         for message in model.requests[2].messages
     )
     read_schema = next(tool for tool in model.requests[0].tools if tool.name == "read_file")
-    assert read_schema.parameters["dependentRequired"] == {
-        "start_line": ["end_line"],
-        "end_line": ["start_line"],
-    }
+    assert "dependentRequired" not in read_schema.parameters
     replayed = SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id))
     assert projection_hash(replayed) == projection_hash(result)
 

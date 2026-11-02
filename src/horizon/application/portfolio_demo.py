@@ -51,7 +51,7 @@ from horizon.tools.gateway import WorkspaceToolGateway
 
 _FIXTURE_CONTENT = "def parse(value):\n    return [value]\n"
 _FIXED_CONTENT = "def parse(value):\n    return [] if value == '' else [value]\n"
-_STRUCTURED_RANGE_ERROR = "start_line and end_line must be supplied together"
+_STRUCTURED_RANGE_ERROR = "read_file ranges are limited to 400 lines"
 _WRITE_PATH = "src/parser.py"
 _WRITE_PREIMAGE = "return [value]"
 _OFFLINE_PRICE = PriceCard(
@@ -390,7 +390,7 @@ class PortfolioDemoRunner:
             task_id=f"horizon-portfolio-{demo_id[-12:]}",
             title="Recover from a bounded file-read error and repair an empty-input bug",
             objective=(
-                "Use repository evidence, recover from an invalid one-sided line range, "
+                "Use repository evidence, recover from an oversized bounded line range, "
                 "and make parse('') return an empty list."
             ),
             repository=Repository(
@@ -448,7 +448,7 @@ class PortfolioDemoRunner:
             ScriptedModelAction(tool="retrieve_code", arguments={"query": "parse"}),
             ScriptedModelAction(
                 tool="read_file",
-                arguments={"path": "src/parser.py", "start_line": 1},
+                arguments={"path": "src/parser.py", "start_line": 1, "end_line": 401},
             ),
             ScriptedModelAction(
                 tool="read_file",

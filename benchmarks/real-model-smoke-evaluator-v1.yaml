@@ -16,7 +16,7 @@ tasks:
         end_line: 145
 
   - smoke_task_id: luigi-2-beam-target-path
-    pilot_id: luigi-2-beam-target-path-smoke-candidate-v1
+    pilot_id: luigi-2-beam-target-path-smoke-v1
     target_locations:
       - location_id: beam-bigquery-target-path
         path: luigi/contrib/beam_dataflow.py

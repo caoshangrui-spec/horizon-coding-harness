@@ -5,6 +5,17 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Ran the second frozen real-model Smoke task, Luigi-2, under a new user-authorized independent
+  CNY 0.120 Campaign with one Provider attempt per request and no fallback. The only Run reached
+  the evaluator-known production location four times but produced no edit or validation: five
+  one-sided `read_file` calls failed strict argument validation, and the next model request was
+  stopped before dispatch when its CNY 0.071094 reservation exceeded the CNY 0.055098 remaining
+  Campaign headroom. The replay-verified result remains a negative: false/true/false/unknown,
+  CNY 0.064902, seven model calls, `budget_gate`. The two-run Smoke aggregate is now coverage 2/5,
+  success 0/2, CNY 0.078165, and nine calls. A narrow zero-cost follow-up now deterministically
+  completes exactly one supplied `read_file` bound to a maximum 400-line window; path, line,
+  output-size, and authority limits remain enforced. This regression does not rewrite the paid
+  Trace or claim a real-model repair.
 - Replaced irreducible context-projection `Conflict` exits with a durable, typed recovery path.
   Protected-prefix and incomplete-tool-turn overflow now persist content-addressed
   `ContextCapacityStop` evidence, enter `WAITING_FOR_USER`, and release the worker lease before any

@@ -261,9 +261,9 @@ RetryPolicy 的逻辑请求次数上限，但现有 ProviderError 都保持“�
 - 真实代码任务、长程恢复、benchmark 成功率和成本结论；
 - 独立安全复核。
 
-上文历史 SiliconFlow fixture 发生在 `retrieve_code` 加入工具面之前。当前词法 RAG 只由
-Scripted Model 离线走通过，尚未授权或执行新的付费模型调用，因此不能声称真实模型已经会用
-该证据包改善任务结果。
+上文历史 SiliconFlow fixture 发生在 `retrieve_code` 加入工具面之前。后续付费 Pilot 已实际调用
+词法 RAG：TheFuck-2 的查询失焦，第十轮 Luigi-2 则正确覆盖冻结目标行，但随后卡在旧读取参数合同，
+仍没有形成代码编辑或 protected validation。因此不能声称 RAG 已改善端到端任务结果。
 
 接口与计费字段依据 SiliconFlow 的
 [Chat Completions API](https://docs.siliconflow.cn/docs/api/chat-completions-post)、

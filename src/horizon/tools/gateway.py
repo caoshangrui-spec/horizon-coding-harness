@@ -44,13 +44,30 @@ class ReadArgs(Contract):
     start_line: int | None = Field(default=None, ge=1)
     end_line: int | None = Field(default=None, ge=1)
 
+    @model_validator(mode="before")
+    @classmethod
+    def complete_one_sided_range(cls, value):
+        if not isinstance(value, dict):
+            return value
+        data = dict(value)
+        start = data.get("start_line")
+        end = data.get("end_line")
+        if start is not None and not isinstance(start, bool) and end is None:
+            try:
+                data["end_line"] = int(start) + MAX_READ_LINES - 1
+            except (TypeError, ValueError):
+                pass
+        elif end is not None and not isinstance(end, bool) and start is None:
+            try:
+                data["start_line"] = max(1, int(end) - MAX_READ_LINES + 1)
+            except (TypeError, ValueError):
+                pass
+        return data
+
     @model_validator(mode="after")
     def valid_range(self):
         if (self.start_line is None) != (self.end_line is None):
-            raise ValueError(
-                "start_line and end_line must be supplied together; either omit both or use "
-                '{"path":"<path>","start_line":<start_line>,"end_line":<end_line>}'
-            )
+            raise ValueError("read_file line bounds must be integers when supplied")
         if self.start_line is None or self.end_line is None:
             return self
         if self.end_line < self.start_line:
@@ -128,9 +145,9 @@ def tool_definitions() -> tuple[ToolDefinition, ...]:
             name="read_file",
             description=(
                 "Read one allowed UTF-8 text file. Large files require an inclusive "
-                "start_line/end_line range (maximum 400 lines). Never send only one bound: "
-                "omit both bounds for a small file, or copy both start_line and end_line from "
-                "retrieve_code evidence."
+                "start_line/end_line range (maximum 400 lines). Copy both bounds from "
+                "retrieve_code evidence when available. If exactly one bound is supplied, "
+                "the controller deterministically completes a bounded 400-line window."
             ),
             parameters={
                 "type": "object",
@@ -140,22 +157,18 @@ def tool_definitions() -> tuple[ToolDefinition, ...]:
                         "type": "integer",
                         "minimum": 1,
                         "description": (
-                            "Inclusive 1-based start. Omit with end_line or provide both."
+                            "Inclusive 1-based start; a missing end is completed forward."
                         ),
                     },
                     "end_line": {
                         "type": "integer",
                         "minimum": 1,
                         "description": (
-                            "Inclusive 1-based end. Omit with start_line or provide both."
+                            "Inclusive 1-based end; a missing start is completed backward."
                         ),
                     },
                 },
                 "required": ["path"],
-                "dependentRequired": {
-                    "start_line": ["end_line"],
-                    "end_line": ["start_line"],
-                },
                 "additionalProperties": False,
             },
         ),

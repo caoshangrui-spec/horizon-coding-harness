@@ -38,14 +38,11 @@ def test_retrieve_code_defaults_to_one_bounded_chunk():
     assert RetrieveArgs.model_validate({"query": "unescapeHTML"}).max_chunks == 1
 
 
-def test_read_file_schema_requires_line_bounds_as_a_pair():
+def test_read_file_schema_advertises_bounded_one_sided_recovery():
     definition = next(tool for tool in tool_definitions() if tool.name == "read_file")
 
-    assert definition.parameters["dependentRequired"] == {
-        "start_line": ["end_line"],
-        "end_line": ["start_line"],
-    }
-    assert "Never send only one bound" in definition.description
+    assert "dependentRequired" not in definition.parameters
+    assert "deterministically completes a bounded 400-line window" in definition.description
 
 
 def make_gateway(tmp_path: Path, task, *, checks=None):
@@ -138,21 +135,32 @@ def test_large_read_requires_a_bounded_line_range(tmp_path, task):
     assert "line-0012-" not in ranged.content
 
 
-def test_read_range_contract_rejects_partial_or_oversized_ranges(tmp_path, task):
+def test_read_range_contract_completes_partial_and_rejects_oversized_ranges(tmp_path, task):
     gateway, _, _ = make_gateway(tmp_path, task)
 
-    partial = gateway.dispatch_safe(
+    start_only = gateway.dispatch_safe(
         "read_file",
         {"path": "src/parser.py", "start_line": 1},
+    )
+    end_only = gateway.dispatch_safe(
+        "read_file",
+        {"path": "src/parser.py", "end_line": 2},
+    )
+    invalid_boolean = gateway.dispatch_safe(
+        "read_file",
+        {"path": "src/parser.py", "start_line": True},
     )
     oversized = gateway.dispatch_safe(
         "read_file",
         {"path": "src/parser.py", "start_line": 1, "end_line": 401},
     )
 
-    assert partial.status == "error"
-    assert "must be supplied together" in partial.content
-    assert '"start_line":<start_line>,"end_line":<end_line>' in partial.content
+    assert start_only.status == "success"
+    assert "READ_RANGE path=src/parser.py lines=1-2 total_lines=2" in start_only.content
+    assert end_only.status == "success"
+    assert "READ_RANGE path=src/parser.py lines=1-2 total_lines=2" in end_only.content
+    assert invalid_boolean.status == "error"
+    assert "line bounds must be integers" in invalid_boolean.content
     assert oversized.status == "error"
     assert "limited to 400 lines" in oversized.content
 

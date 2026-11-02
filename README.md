@@ -17,7 +17,8 @@ Horizon 是一个面向长程软件工程任务的**可恢复执行控制层**�
 > Luigi 与 FastAPI 三个独立的三 WorkItem／两次 Worker 重启场景；它们分别通过本地可信执行和
 > 公开禁网 Docker 5/5、3/3。该版本还加入父控制器硬退出后的持久 PID 启动闸门与精确停止确认，
 > 并让来源绑定 suite 直接输出耗时、恢复成功率、恢复重派、重复副作用、Trace 完整性与最终悬空
-> effect 指标。八次真实模型 Pilot 均为负结果，因此目前**不宣称真实 Issue 成功率或官方
+> effect 指标。v0.3.0 发布时的八次真实模型 Pilot 与当前主干累计十次 Pilot 均为负结果，因此
+> 目前**不宣称真实 Issue 成功率或官方
 > benchmark 成绩**。完整范围与证据边界见 [v0.3.0 release notes](docs/release-v0.3.0.md)。
 
 > **求职入口：** [简历项目描述、架构图、STAR 故事与面试问答](docs/internship-portfolio-kit.md) ·
@@ -130,7 +131,7 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | main 的[标准 CI](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/ci.yml)运行离线回归和三条演示；主作品集、直接子进程 timeout 与上下文容量恢复分别递归复核并发布 14 天 EvidencePack；[禁网 Docker Evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/full-checkout-evidence.yml)独立运行 | CI 不读取 API Key、不运行付费模型；workflow artifact 通常需要登录 GitHub 下载，不是永久发布资产 |
-| 离线回归 | `675 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试；4 条 smoke 候选另在本机禁网 Docker 精确预检通过 |
+| 离线回归 | `676 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试；真实 Luigi-2 preflight 已在本机禁网 Docker 通过，随后唯一付费 Run 的失败结果按原样保留 |
 | [通用终态 EvidencePack](docs/terminal-evidence-pack.md) | `SUCCEEDED`、`FAILED`、`CANCELLED` 均可导出并离线复核 Trace、最终投影和 schema v2 可靠性摘要；区分 unknown 验收、已知 check 失败与 unknown/open effect，真实检索降级与工具回执原子绑定，确定性上下文折叠以 `context_compacted` 单独标记，兼容验证 schema v1 | model fallback、语义摘要和 model degradation 尚无 Trace history；自洽哈希不是来源签名，也不证明外部 Provider 或副作用已结清 |
 | [终态 Run 顺序汇总](docs/terminal-suite-evaluation.md) | 有序聚合已有终态 Run；递归验证每个子 EvidencePack，分列结果、验收未知/失败、clean/quality-flagged success、检索降级与 unknown/open effect | 不执行任务，不是 batch scheduler，也没有并发性能声明 |
 | [可恢复的顺序 Agent 任务批次](docs/sequential-agent-batch.md) | `agent batch` 按 1～100 条 TaskSpec manifest 顺序执行；任务间原子保存 checkpoint，确定性 invocation/Run receipt 支持重启识别，终态失败原样记录后继续，非终态/不确定 case 阻塞后项；全部闭合后复用 terminal-suite | 单机并发度 1；不自动越过人工/悬空 effect/旧 Worker 边界，不是 20～30 个真实模型任务成绩或吞吐声明 |
@@ -145,14 +146,14 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 有界恢复矩阵 v3 | 21/21；自动恢复 11/11、安全阻塞 10/10、incorrect resume 0、恢复重派/重复副作用 0；含 3 个真实硬退出和 Trace replay | 其余 18 例是生成 fixture 的状态/决策矩阵，不是完整 8 故障点或主机故障验收 |
 | [外部 RAG 定位集 v3](docs/retrieval-evaluation.md#10-24-案例外部定位集与-v030-development-基线) | 先冻结 7 项目 24 个 BugsInPy 案例；当前只揭示 16 个 development，8 个 holdout 仍密封。4 个门控设计案例上，选择性策略把 Hit@8 13/16→16/16、路径 Recall 23/32→30/32；其余 12 个案例的 48 条扩展查询则只有两条 identifier rank 3→2，中文仍为 3/12。新的保守 CJK 候选在 4 条高覆盖查询保持 4/4 Hit、7/8 路径召回，并对 12 条低覆盖中文精确旁路；[历史真实模型查询审计](docs/retrieval-evaluation.md#16-历史真实模型查询形态审计)又从 7 份 Trace 的 10 次检索中哈希确认 6 次、3 种公开查询，均为原样旁路 | 保留原文与直接替换在四例排名完全相同，且这四例参与过词表设计；低覆盖旁路复用旧 baseline 而非新运行。真实模型审计仍有 4/10 原文为 `UNKNOWN`，只覆盖两个任务和单一模型。默认 runtime 不变，全部证据仍不代表查询分布泛化或端到端修复成功率 |
 | [24 条独立任务注册表](docs/independent-task-registry.md) | 原样绑定预冻结的 16 development / 8 holdout，按仓库 URL + BugsInPy bug ID 得到 24/24 唯一身份；零费用预检交叉验证 commit、license 元数据、失败测试及现有证据。当前 16 条有源码物化配方，15 条有执行 manifest，其中 14 条为完整 checkout | 预检不联网、不执行仓库代码；仍有 9 条无执行 manifest，其中 8 条是密封 holdout，另 1 条 development 因上游符号链接被安全快照门拒绝；这不是 24 条真实模型成功率 |
-| [5 条真实模型 Smoke 合同](docs/real-model-smoke-evaluation.md) | 从冻结注册表选定 HTTPie、Luigi、Sanic、TheFuck、Tornado 五个不同项目的低复杂度 development 任务；`smoke-result` 现把原始 preflight、prepared Task、模型策略、source snapshot、终态包、模型/工具工件与 evaluator-only 行区间绑定为七指标，TheFuck-2 自动得到 `false/false/false/unknown/CNY 0.013263/2/budget_gate`；`smoke-aggregate` 显式输出当前覆盖 `1/5` 与四条未运行任务。剩余 4 条 exact-checkout 零费用预检均 ready，冻结下一候选为 Luigi-2 | 作者在已知 Scripted Model 修复后选题，不是盲测或泛化成绩；location 区域不进入模型上下文，但仍是作者已知答案；费用是 Trace price-card estimate，不是账单。TheFuck-2 没有编辑或验证成功，Luigi-2 尚无付费授权，proposal-only `CNY 0.120` cap 不是消费授权 |
+| [5 条真实模型 Smoke 合同](docs/real-model-smoke-evaluation.md) | 从冻结注册表选定 HTTPie、Luigi、Sanic、TheFuck、Tornado 五个不同项目的低复杂度 development 任务；`smoke-result` 把 preflight、Task、模型策略、source snapshot、终态包及模型/工具工件绑定为七指标。TheFuck-2 为 `false/false/false/unknown/CNY 0.013263/2/budget_gate`；Luigi-2 为 `false/true/false/unknown/CNY 0.064902/7/budget_gate`。当前聚合 coverage `2/5`、success `0/2`、总费用 `CNY 0.078165`，其余三条明确 unevaluated | 作者在已知 Scripted Model 修复后选题，不是盲测或泛化成绩；location 区域不进入模型上下文，但仍是作者已知答案；费用是 Trace price-card estimate，不是账单。Luigi-2 命中目标行但因 5 次单边 `read_file` 参数错误未编辑，后续确定性补界回归是零费用 Harness 证据，不是对真实 Run 的改写或成功声明 |
 | 外部来源裁剪 A/B v2 | 5 个来源绑定案例的初始失败、Baseline 等待和 Treatment 修复均由本地可信与公开禁网 Docker 执行，证据已上传 | 使用 Scripted Model 和 dependency-reduced fixture，不是 BugsInPy 官方成绩 |
 | [完整 checkout A/B v11](docs/full-checkout-pilot.md) | v10 十九例原样保留，再加入 Sanic route host、TheFuck Bitbucket suggestion 与 Luigi running-task ownership；共 22 案例、9 个项目、6,062 files。三例均由本地完整 Harness 确认 buggy 失败、Baseline 等待、Treatment 恢复；[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40804131201)进一步通过 22/22 初始失败与 Treatment 恢复，并保持 Trace replay、source isolation 和零付费模型调用门 | 使用 Scripted Model 和作者选择的 development 案例；不是模型能力、泛化率或官方 BugsInPy 成绩 |
 | [三阶段恢复 A/B v4](docs/multi-stage-full-checkout-pilot.md) | youtube-dl 872 files + Luigi 382 files + FastAPI 629 files；三例均含 3 个依赖 WorkItem、2 次持久化 Worker 重启、final epoch 3 和一次只改未完成项的 replan；本地可信与[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40082814779)均为 3/3 | 作者选择的三个案例与 Scripted Model；边界重启不等于任意指令处崩溃，不是模型能力或官方成绩 |
 | [源码绑定写入硬崩溃 A/B v2](docs/source-bound-hard-crash-recovery.md) | Luigi 382 files 的 `replace_text` 与 FastAPI 629 files 的 `create_file`；4 条 arm 都在 effect 后、receipt 前真实退出，先标 unknown，再由新 epoch 精确 `accept_replace` / `accept_create`，不重派模型并继续到 final epoch 4；本地可信与[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/41027080498)均为 2/2 | 固定第 2/5 次调用、两个作者选择任务与 Scripted Model；不是任意崩溃、自动恢复策略或官方成绩 |
 | [长程任务可靠性指标](docs/long-horizon-reliability-metrics.md) | 每个来源绑定 suite 的 typed report 直接聚合观测耗时/P95、Worker 重启、硬崩溃恢复率、恢复重派、重复副作用、Trace replay、source isolation 和最终 open effects；arm 级 facts 分列 unknown/failed acceptance、clean/quality-flagged success、fallback 与 degradation，并新增 retrieval 实际进入保存模型投影、post-replan RunMemory 以及 same-revision/target-path 对齐写入的 lineage；[公开禁网 Docker 复跑](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/41027080498)已对 32 个场景、64 条 arm 门控全部可靠性事实，并让 22/22 个 full-checkout 与 2/2 个 hard-crash 案例通过逐案例门 | 成功、质量标记与检索交付是不同维度；lineage 证明结构化 provenance，不证明检索导致修改；场景含重复上游 bug，不能宣传为 32 个独立任务或 LLM 成功率 |
-| 真实模型 Pilot | 九轮均可重放、费用可核对且 source 未变；第九轮 TheFuck-2 完成 planning、execution 与两次真实检索后，下一请求预留 `CNY 0.069186` 超过单调用上限 | 九轮均未编辑或验证成功，仍是负结果；离线修复不改写历史 Run，也不是成功证据 |
-| 预算预留诊断 | 9 Trace、26 个已结算调用；聚合预留/结算比 6.822406；候选公式有 9 个可回放样本，其中当前 wire basis 6 个且观测低估为 0 | 样本仍不足，不自动降低生产费用安全门槛；TheFuck-2 的新 preflight 只增加付费前 sizing gate |
+| 真实模型 Pilot | 十轮均可重放、费用可核对且 source 未变；共 33 个已结算调用、累计 `CNY 0.2955312`。第十轮 Luigi-2 正确定位目标行，但连续 5 次单边读取被旧工具合同拒绝，最终由 Campaign 门安全停止 | 十轮均未编辑或验证成功，仍是负结果；确定性补界的离线修复不改写历史 Run，也不是成功证据 |
+| 预算预留诊断 | 历史九轮样本含 9 Trace、26 个已结算调用；聚合预留/结算比 6.822406；候选公式有 9 个可回放样本，其中当前 wire basis 6 个且观测低估为 0 | 尚未把第十轮追加进该诊断报告；样本仍不足，不自动降低生产费用安全门槛 |
 | 出站请求尺寸 | 6 类离线边界请求均复用 Adapter 的精确 wire encoder；167～9,061 bytes，含真实四工具 Schema 的检索轮次 | 无 Provider usage，不证明候选公式安全或模型效果 |
 | 模型响应提交窗 | 普通落盘/receipt 失败立即双账 `unknown`；真实子进程在模型返回后、Artifact 前硬退出，重启后 Trace 可重放且不重派 | 无 Provider 查询接口时不能恢复丢失响应，仍需人工对账 |
 
@@ -613,14 +614,14 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **675 passed，11 skipped**；11 项跳过项需要本机 Docker daemon。v11 新增的
+当前离线全量回归为 **676 passed，11 skipped**；11 项跳过项需要本机 Docker daemon。v11 新增的
 Sanic-3、TheFuck-5 与 Luigi-7 已由本地完整 Harness 确认 buggy 失败、Baseline 等待、Treatment 恢复；
 二十二案例又由[公开 workflow](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40804131201)
 的生产 Docker adapter 统一通过 22/22。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实
 Issue 效果。新增真实模型 Pilot 单元测试覆盖私有答案拒绝、初始失败证据、内容寻址报告和
 启动时任务/源码/镜像/Provider/Harness 源码漂移拒绝；真实 checkout 的离线 Docker preflight
-已通过，tqdm 候选还把首次规划保守预留纳入 `ready` 门。九轮真实模型负结果均已导出并可重放，分别驱动 Plan/搜索反馈、有界行读取/
+已通过，tqdm 候选还把首次规划保守预留纳入 `ready` 门。十轮真实模型负结果均已导出并可重放，分别驱动 Plan/搜索反馈、有界行读取/
 近期完整单元应急压缩/异常租约释放、“不猜路径、优先 revision-bound 证据、默认 rank 1”，
 范围参数成对约束/规划输入收窄，以及完整 inventory 下的不存在路径准入。第五轮只完成规划，
 第一条执行请求在派发前因 Run 余额短缺 `CNY 0.000096` 被硬门禁终止。第六轮完成规划、一次
@@ -634,8 +635,10 @@ execution 与一次 rank-1 检索，但下一请求需 `CNY 0.05832`，被 Campa
 16-case development suite 完整恢复既有 Hit@1/3/5/8=`11/15/16/16`、MRR=`0.817708`，不改写历史
 EvidencePack。第九轮 TheFuck-2 的两个真实查询又分别命中同文件错误函数与错误模块，第三次请求
 因需预留 `CNY 0.069186` 超过 `CNY 0.060` 单调用上限而未派发；新 bounded-execution preflight
-case 会在付费前拒绝同一配置。全部历史 Pilot 累计付费 `CNY 0.2306292`；没有自动重试或 fallback，
-也没有代码编辑或 protected validation。
+case 会在付费前拒绝同一配置。前九轮历史 Pilot 累计付费 `CNY 0.2306292`；
+第十轮 Luigi-2 已正确命中目标行，但 5 次单边 `read_file` 参数错误后由 Campaign 门停止；新增
+`CNY 0.064902`，全部历史 Pilot 累计为 `CNY 0.2955312`。没有自动重试、fallback、代码编辑或
+protected validation。
 未来确定性费用拒绝不再留下无 Lease 的 `RUNNING`：控制器会持久化类型化 `BudgetStop`、进入
 `FAILED` 并在 CLI/status 中报告所需与可用金额。新停止还会相邻保存未派发请求的 call/request
 标识、purpose、估算器、请求字节、input cap/ceiling 和 output ceiling，便于零费用回放；unknown

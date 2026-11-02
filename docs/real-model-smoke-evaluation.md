@@ -266,9 +266,9 @@ Run/Campaign 门通过；`credential_loaded/paid_model_called/network_called` �
 目标 rank 3 且要改两处；HTTPie-1 是多编辑任务。Luigi-2 的检索状态为 degraded，原因是
 `non_utf8_file_skipped` 与 `oversized_line_skipped`，即使目标路径仍为 rank 1 也不删除该限制。
 
-这只是作者选择的 development 候选排序，不是 holdout、真实模型成功或泛化证据。当前
-`paid_execution_authorized=false`；任何 Luigi-2 付费 Run 仍需基于当时可接受的单 Run 与累计上限
-取得新的明确授权。
+这只是作者选择的 development 候选排序，不是 holdout、真实模型成功或泛化证据。选择冻结时
+`paid_execution_authorized=false`；后续 Luigi-2 的一次性明确授权、唯一 Run 及其失败结果见第 11 节，
+不能把后来授权倒写进该选择文件。
 
 ## 10. Run 后七指标与部分覆盖聚合
 
@@ -333,7 +333,48 @@ uv run --locked --cache-dir .uv-cache horizon eval smoke-aggregate `
   --output <新的汇总目录>
 ```
 
-聚合器按 evaluated tasks 计算成功率，同时强制报告 suite coverage 和未运行 task IDs。当前只有
-TheFuck-2 的付费 Run，所以输出是 coverage `1/5`、evaluated success `0/1`、budget gate `1`；其余
-四条保持 `unevaluated`，不会被偷偷计成失败或形成“0/5”的虚假完整成绩。聚合只校验 child schema、
-suite binding、唯一性和文件哈希，不重新执行 Run，也不扩大 Luigi-2 的付费权限。
+聚合器按 evaluated tasks 计算成功率，同时强制报告 suite coverage 和未运行 task IDs。当前已有
+TheFuck-2 与 Luigi-2 两条唯一付费 Run，所以输出是 coverage `2/5`、evaluated success `0/2`、
+budget gate `2`、总费用 `CNY 0.078165`、总模型调用 9；HTTPie-1、Sanic-2、Tornado-2 保持
+`unevaluated`，不会被偷偷计成失败或形成“0/5”的虚假完整成绩。聚合 report ref 为
+`bf7f0b353eb75650c06a3ea584c50cfe1b99ca513f659cd03f96fff7df273788`。聚合不重新执行 Run，也不
+扩大任何付费权限。
+
+## 11. Luigi-2 唯一真实 Run：定位成功、工具协议失败
+
+用户随后明确授权 Luigi-2 唯一一次付费 Run：模型为 `deepseek-ai/DeepSeek-V4-Flash`，专属独立
+Run/Campaign 上限均为 `CNY 0.120`，`max_attempts=1`、无 retry、无 fallback。专属
+[`policy`](../config/providers/siliconflow-luigi2-smoke-v1.yaml) 与
+[`Pilot`](../benchmarks/run_ab/full/luigi-2-beam-target-path/real-model-smoke-pilot-v1.yaml)
+先在精确 buggy commit 上重新执行禁网、零费用 preflight：初始失败、source unchanged、solution
+isolation 及 planning+execution 累计门通过，`ready=true`，report ref
+`a1af1286b4b4c9e2a6e8241b999b02f525c6cd2d9da7ff084a956b36171f64eb`。
+
+唯一 Run `run_940f6a82909a444f82b58c142191b716` 结算 7 次模型调用、11 次工具调用、18,853 input /
+927 output tokens和 `CNY 0.064902`。5 次 retrieval 成功，其中 4 次返回
+`luigi/contrib/beam_dataflow.py:456-479`，覆盖 evaluator-only 目标 473–477 行并直接包含错误表达式；
+因此 `correct_location_reached=true`。但模型随后 5 次调用 `read_file` 都只提供 `start_line`，遗漏
+`end_line`，被当时的严格参数合同拒绝；另一次近重复 retrieval 被 revision-bound 策略拒绝。没有
+write、validation、checkpoint 或 passed item。
+
+第 8 次模型请求派发前，保守预留为 `CNY 0.071094`，高于 Campaign 剩余 `CNY 0.055098`，因此
+Run 以 `FAILED/campaign_cost_limit` 安全停止。reserved/unknown 为 0，source 与 staging workspace
+均未变化，unknown/open effect 为 false。Terminal EvidencePack 离线 replay projection hash 为
+`a819d85179f49615ad0a64e86a52545847ba3b4d46ff9dee7d32a361ce6e07ae`；Smoke report ref 为
+`d9167f36833f1fe7714795443146290be6d295a32cac6a213eb029c45739d0d3`。七指标为：
+
+| 字段 | 自动结果 |
+|---|---:|
+| `task_success` | false |
+| `correct_location_reached` | true |
+| `valid_edit_produced` | false |
+| `protected_validation_passed` | unknown / null |
+| `actual_cost_cny` | 0.064902 |
+| `model_calls` | 7 |
+| `stop_category` | budget_gate |
+
+该负结果只驱动一个有界、零费用的 Harness 修复：当 `read_file` 恰好收到一个行边界时，控制器
+确定性补成最多 400 行的窗口；同时继续执行 path allowlist、双边界最大 400 行、32 KiB 输出上限、
+UTF-8 与 workspace revision 约束。Scripted Agent 回归证明同类单边调用可继续到 edit、protected
+validation 和 Trace replay，但没有复跑 Luigi-2，也不能据此把真实结果升级为成功。Harness 源码
+变化使本节 preflight 失效；任何未来真实调用都需要新的零费用 preflight 和新的明确授权。

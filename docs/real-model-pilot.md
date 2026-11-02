@@ -1,11 +1,11 @@
-# 真实模型 Pilot：离线预检、九轮负结果与付费边界
+# 真实模型 Pilot：离线预检、十轮负结果与付费边界
 
-更新：2026-10-30。本 Pilot 的目标不是立即追求 benchmark 分数，而是在**完整真实仓库、
-模型自主计划、模型自主检索和编辑**的条件下观察 Harness 的真实失败分布。已执行九个
+更新：2026-11-02。本 Pilot 的目标不是立即追求 benchmark 分数，而是在**完整真实仓库、
+模型自主计划、模型自主检索和编辑**的条件下观察 Harness 的真实失败分布。已执行十个
 付费 Agent Run：分别暴露计划结构/检索反馈、无界读取/上下文投影、Plan 路径假设/请求预留
 过大、单边范围读取/单 Run 预留、路径存在与语义定位的区别、Campaign 预留压力，以及真实查询
-失焦/Run Memory 使 protected prefix 越过字符硬门限，以及工具回执进入上下文后的单调用预留压力。
-九轮均没有修改代码或进入验收；结果可重放且
+失焦/Run Memory 使 protected prefix 越过字符硬门限、工具回执进入上下文后的单调用预留压力，
+以及正确定位后连续单边读取被旧参数合同拒绝。十轮均没有修改代码或进入验收；结果可重放且
 费用可对账，但不是 Issue 成功证据，也不足以推出模型或 Harness 的总体能力结论。
 
 ## 1. 为什么复用现有主循环
@@ -614,7 +614,7 @@ fallback、人工补丁或 candidate promotion。正确 Plan 与 rank-1 检索�
 - 失败分类，而不是人工补丁替模型完成任务。
 
 一次通过只能称为“真实模型 Pilot 个案”，不能称为 BugsInPy 分数、泛化能力或长程任务
-成功率。当前九轮均是失败个案。任何下一次付费 continuation 都需要
+成功率。当前十轮均是失败个案。任何下一次付费 continuation 都需要
 新的零费用 preflight、与剩余额度一致的新 Run cap，以及新的明确授权；仍不增加向量库、多
 Agent、Project Memory、自动 fallback 或第二次 replan。
 
@@ -783,3 +783,23 @@ CLI report 与选择证据上传，而不是上传四份重复的完整源码快
 execution `CNY 0.044340` 各自低于 `CNY 0.053`，但合计 `CNY 0.077982`，因此新 preflight 必须
 `ready=false`。第 16 节在旧源码上的 `ready=true` 仍是历史事实，但已不能用于 launch。公开 Docker
 workflow 把这个非零退出固定为预期负回归，防止以后再次把“单次都可付”误写成“首个序列可付”。
+
+## 21. Luigi-2 第十轮：命中目标后卡在读取参数
+
+用户为冻结候选 Luigi-2 明确授权唯一一次独立 `CNY 0.120` Run/Campaign，模型仍为
+`deepseek-ai/DeepSeek-V4-Flash`，单次 Provider attempt、无 retry、无 fallback。专属 preflight
+先在精确 buggy commit `baa54c9...` 上通过，planning+execution 累计预留 `CNY 0.109998`，未读取
+凭据或调用模型；随后唯一 Run `run_940f6a82909a444f82b58c142191b716` 终态
+`FAILED/campaign_cost_limit`。
+
+该 Run 的 7 次模型调用与 11 次工具调用结算 `CNY 0.064902`。检索不是主失败：4 次成功结果覆盖
+`luigi/contrib/beam_dataflow.py:456-479`，直接包含 473–477 行的错误表达式。模型却连续 5 次只给
+`read_file.start_line` 而没有 `end_line`，旧的成对边界合同全部拒绝，期间没有 write 或 protected
+validation。下一请求需预留 `CNY 0.071094`，Campaign 只剩 `CNY 0.055098`，所以 Provider 前安全
+停止。Smoke 七指标固定为 `false/true/false/unknown/CNY 0.064902/7/budget_gate`；Trace replay
+通过，unknown/open effect 为 false，没有第二个 Run。
+
+这条真实负结果取代了“继续增强 RAG”的假设，驱动的唯一生产修改是确定性补界：`read_file` 只给
+一个边界时，控制器补成最多 400 行的窗口，既有路径、行数、字符数和 revision 门禁不变。离线
+Scripted 回归已闭合 edit/validation/replay，但它不是 Luigi continuation 或真实模型成功证据。源码
+变化后旧 preflight 不能再 launch；新的付费尝试仍需重新预检和授权。

@@ -22,6 +22,15 @@ PILOT_PATH = (
     / "real-model-smoke-pilot-v1.yaml"
 )
 PROVIDER_PATH = ROOT / "config" / "providers" / "siliconflow-thefuck2-smoke-v1.yaml"
+LUIGI_PILOT_PATH = (
+    ROOT
+    / "benchmarks"
+    / "run_ab"
+    / "full"
+    / "luigi-2-beam-target-path"
+    / "real-model-smoke-pilot-v1.yaml"
+)
+LUIGI_PROVIDER_PATH = ROOT / "config" / "providers" / "siliconflow-luigi2-smoke-v1.yaml"
 COMPARISON_PROVIDER_PATH = (
     ROOT / "config" / "providers" / "siliconflow-smoke-candidate-preflight-v1.yaml"
 )
@@ -115,11 +124,41 @@ def test_thefuck_smoke_budget_cannot_fund_the_bounded_execution_sizing_case():
     )
 
     assert boundary.context_chars == 8_000
-    assert estimate.request_bytes == 10_293
-    assert estimate.token_ceiling == 21_610
-    assert reservation == Decimal("0.069438")
+    assert estimate.request_bytes == 10_257
+    assert estimate.token_ceiling == 21_538
+    assert reservation == Decimal("0.069222")
     assert reservation > provider.campaign.max_cost_per_call
     assert reservation > provider.run_budget.max_cost
+
+
+def test_luigi_smoke_paid_contract_is_dedicated_bounded_and_solution_isolated():
+    suite = _load_model(SUITE_PATH, RealModelSmokeSuite)
+    pilot = _load_model(LUIGI_PILOT_PATH, RealModelPilotManifest)
+    provider = load_provider_config(LUIGI_PROVIDER_PATH)
+    selected = next(task for task in suite.tasks if task.task_id == "luigi-2-beam-target-path")
+
+    assert pilot.source.project == "luigi"
+    assert pilot.source.bug_id == "2"
+    assert pilot.task.constraints.allowed_paths == selected.allowed_path_patterns
+    assert pilot.task.constraints.allowed_tools == selected.allowed_tools
+    assert pilot.provider_policy_id == provider.policy_id
+    assert provider.model.id == "deepseek-ai/DeepSeek-V4-Flash"
+    assert provider.request.max_attempts == 1
+    assert provider.fallback_enabled is False
+    assert provider.run_budget.max_cost == Decimal("0.120")
+    assert provider.campaign.max_cost == Decimal("0.120")
+    assert provider.campaign.max_cost_per_call == Decimal("0.120")
+    assert provider.campaign.campaign_id == "siliconflow-luigi2-smoke-2026-11-v1"
+    assert pilot.sha256 == "7a60400f58e15d4f160d57db62ec3968fda1a4be5ad169d3fa765e11cd74d632"
+    assert digest(provider) == "15c43c7af4f32904d2c057446983904df2f7e49118ce13e57bfa1354ae2f91f9"
+
+    visible = canonical_json(pilot.task).casefold()
+    assert pilot.source.fixed_commit not in visible
+    assert pilot.source.fix_url.casefold() not in visible
+    assert all(
+        literal.casefold() not in visible
+        for literal in pilot.solution_isolation.forbidden_task_literals
+    )
 
 
 def test_remaining_smoke_candidates_share_one_zero_spend_comparison_contract():
