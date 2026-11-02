@@ -1008,6 +1008,62 @@ def test_agent_loop_completes_one_sided_read_range_and_replays(tmp_path, task_di
     assert projection_hash(replayed) == projection_hash(result)
 
 
+def test_one_sided_read_keeps_local_code_visible_in_an_8k_context(tmp_path, task_dict):
+    actions = [
+        ("retrieve_code", {"query": "AsyncioServer parse wrapper"}),
+        ("read_file", {"path": "src/parser.py", "start_line": 646}),
+        (
+            "replace_text",
+            {
+                "path": "src/parser.py",
+                "old": "return [value]",
+                "new": "return [] if value == '' else [value]",
+            },
+        ),
+        ("run_check", {"check_id": "unit"}),
+        ("submit", {"summary": "Read a local window, repaired it, and validated the change."}),
+    ]
+    runner, store, run_id, token, workspace, model = setup_loop(
+        tmp_path,
+        task_dict,
+        actions,
+    )
+    prefix = [f"# prefix {line}" for line in range(1, 646)]
+    target = [
+        "class AsyncioServer:",
+        "    def parse(self, value):",
+        "        return [value]",
+    ]
+    local_tail = [f"# local context {line}" for line in range(649, 746)]
+    distant_tail = [f"# distant context {line} " + ("x" * 80) for line in range(746, 1014)]
+    source = "\n".join([*prefix, *target, *local_tail, *distant_tail]) + "\n"
+    assert len(source.splitlines()) == 1_013
+    (workspace / "src/parser.py").write_text(source, encoding="utf-8")
+    runner.config = AgentLoopConfig(
+        max_model_iterations=8,
+        max_output_tokens=256,
+        max_context_chars=8_000,
+        preserve_recent_context_units=2,
+    )
+
+    result = runner.run(run_id, token)
+
+    assert result.status == RunStatus.SUCCEEDED
+    reads = [record for record in result.tool_calls if record.name == "read_file"]
+    assert len(reads) == 1
+    read_content = runner.session_store.read(reads[0].artifact_ref).decode("utf-8")
+    assert "READ_RANGE path=src/parser.py lines=646-745 total_lines=1013" in read_content
+    assert "class AsyncioServer" in read_content
+    assert "return [value]" in read_content
+    assert "distant context 746" not in read_content
+    visible_to_edit = "\n".join(message.content or "" for message in model.requests[2].messages)
+    assert "class AsyncioServer" in visible_to_edit
+    assert "return [value]" in visible_to_edit
+    assert "return [] if" in (workspace / "src/parser.py").read_text(encoding="utf-8")
+    replayed = SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id))
+    assert projection_hash(replayed) == projection_hash(result)
+
+
 def test_agent_loop_recovers_from_compact_tool_argument_feedback(tmp_path, task_dict):
     actions = [
         (

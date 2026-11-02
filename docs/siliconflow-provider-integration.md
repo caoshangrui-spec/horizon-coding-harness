@@ -262,8 +262,9 @@ RetryPolicy 的逻辑请求次数上限，但现有 ProviderError 都保持“�
 - 独立安全复核。
 
 上文历史 SiliconFlow fixture 发生在 `retrieve_code` 加入工具面之前。后续付费 Pilot 已实际调用
-词法 RAG：TheFuck-2 的查询失焦，第十轮 Luigi-2 则正确覆盖冻结目标行，但随后卡在旧读取参数合同，
-仍没有形成代码编辑或 protected validation。因此不能声称 RAG 已改善端到端任务结果。
+词法 RAG：TheFuck-2 的查询失焦，第十轮 Luigi-2 正确覆盖冻结目标行但卡在旧读取参数合同；第十一轮
+Sanic-2 又找到并读取目标文件，却因约 12K 单边窗口超过 8K context、压缩丢失目标类上下文而循环。两轮
+都没有形成代码编辑或 protected validation。因此不能声称 RAG 已改善端到端任务结果。
 
 接口与计费字段依据 SiliconFlow 的
 [Chat Completions API](https://docs.siliconflow.cn/docs/api/chat-completions-post)、

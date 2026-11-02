@@ -110,6 +110,11 @@
 > 调用、累计 `CNY 0.2955312`，仍为 0 个有效编辑和 0 次 protected validation。确定性补界只由
 > 零费用回归验证，不能倒写为真实模型成功。
 
+> 2026-11-02 FR-1305 后续增量：唯一 Sanic-2 Run 找到并读取目标文件，但旧单边补界生成约 12K
+> 字符，8K Context Projection 压缩后没有保留目标类及插入位置上下文，随后由 Campaign 门停止。十一轮共
+> 41 个已结算调用、累计 `CNY 0.3628710`，仍为 0 个有效编辑和 0 次 protected validation。
+> 自动单边窗口收窄到 100 行只由零费用 8K-context 回归验证，没有复跑或升级真实结果。
+
 > 2026-10-29 FR-903 当前增量：Run A/B 已把作品集中的单例 retrieval→write lineage 提升为
 > 通用 arm/case/suite 证据。分析器从 durable reservation/receipt、EvidencePack、ContextProjection、
 > RunMemory 与 write CAS 复算 exact delivery、same-revision 和 target-path coverage；replan 后只接受

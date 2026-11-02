@@ -1,11 +1,12 @@
-# 真实模型 Pilot：离线预检、十轮负结果与付费边界
+# 真实模型 Pilot：离线预检、十一轮负结果与付费边界
 
 更新：2026-11-02。本 Pilot 的目标不是立即追求 benchmark 分数，而是在**完整真实仓库、
-模型自主计划、模型自主检索和编辑**的条件下观察 Harness 的真实失败分布。已执行十个
+模型自主计划、模型自主检索和编辑**的条件下观察 Harness 的真实失败分布。已执行十一个
 付费 Agent Run：分别暴露计划结构/检索反馈、无界读取/上下文投影、Plan 路径假设/请求预留
 过大、单边范围读取/单 Run 预留、路径存在与语义定位的区别、Campaign 预留压力，以及真实查询
 失焦/Run Memory 使 protected prefix 越过字符硬门限、工具回执进入上下文后的单调用预留压力，
-以及正确定位后连续单边读取被旧参数合同拒绝。十轮均没有修改代码或进入验收；结果可重放且
+以及正确定位后连续单边读取被旧参数合同拒绝、成功读取后目标类上下文被 8K 上下文压缩丢失。十一轮
+均没有修改代码或进入验收；结果可重放且
 费用可对账，但不是 Issue 成功证据，也不足以推出模型或 Harness 的总体能力结论。
 
 ## 1. 为什么复用现有主循环
@@ -614,7 +615,7 @@ fallback、人工补丁或 candidate promotion。正确 Plan 与 rank-1 检索�
 - 失败分类，而不是人工补丁替模型完成任务。
 
 一次通过只能称为“真实模型 Pilot 个案”，不能称为 BugsInPy 分数、泛化能力或长程任务
-成功率。当前十轮均是失败个案。任何下一次付费 continuation 都需要
+成功率。当前十一轮均是失败个案。任何下一次付费 continuation 都需要
 新的零费用 preflight、与剩余额度一致的新 Run cap，以及新的明确授权；仍不增加向量库、多
 Agent、Project Memory、自动 fallback 或第二次 replan。
 
@@ -803,3 +804,32 @@ validation。下一请求需预留 `CNY 0.071094`，Campaign 只剩 `CNY 0.05509
 一个边界时，控制器补成最多 400 行的窗口，既有路径、行数、字符数和 revision 门禁不变。离线
 Scripted 回归已闭合 edit/validation/replay，但它不是 Luigi continuation 或真实模型成功证据。源码
 变化后旧 preflight 不能再 launch；新的付费尝试仍需重新预检和授权。
+
+## 22. Sanic-2 第十一轮：读取窗口超过上下文后丢失目标类上下文
+
+用户为冻结候选 Sanic-2 明确授权唯一一次独立 `CNY 0.120` Run/Campaign，模型仍为
+`deepseek-ai/DeepSeek-V4-Flash`，单次 Provider attempt、无 retry、无 fallback。专属 preflight
+在精确 buggy commit `ba9b432993019b0af0c4827a5ed42aaa091bd17d` 的 188-file checkout 上通过；
+planning、execution 和累计预留分别为 `CNY 0.034926`、`CNY 0.069222`、`CNY 0.104148`，没有读取
+凭据或调用模型。随后唯一 Run `run_977d419fd17f4bbd9e1588515e8d0192` 终态
+`FAILED/campaign_cost_limit`。
+
+该 Run 结算 8 次模型调用、7 次只读工具调用、20,484 input / 731 output tokens 和
+`CNY 0.0673398`。第一次检索把 `sanic/server.py:666-705` 排为 rank 1，模型又成功执行
+`read_file(start_line=666)` 和 `read_file(start_line=646)`；旧单边补界却各自扩张到约 12K 字符，
+超过 policy 的 8K context 上限。Context Projection 从后续调用开始折叠旧单元，只留下读取范围摘要
+和短 Memory 前缀，没有保留 `AsyncioServer` 类及插入位置上下文，模型于是进入重复读取/检索的 reacquisition
+循环。第 9 次模型请求需预留 `CNY 0.072048`，Campaign 只剩 `CNY 0.0526602`，因此在 Provider 前
+安全停止。没有 write、validation、checkpoint、retry、fallback 或第二个 Run；source 和 workspace
+revision 未变化，unknown/open effect 为 0。
+
+Smoke 自动结果固定为 `false/unknown/false/unknown/CNY 0.0673398/8/budget_gate`。虽然人工诊断可见
+物理读取范围覆盖冻结目标，但 evaluator 没有取得匹配的 location-supporting Artifact 或有效写入，
+所以 `correct_location_reached` 保持 unknown，不能人工升级。Terminal EvidencePack replay 通过，
+projection hash 为 `377cec5eff18be49c3256e5f0882882c8c239e95672797cf7c7168e1ac670247`。
+
+该负结果驱动的唯一生产修改是把自动单边读取从 400 行收窄为 100 行；显式双边界仍可读取最多
+400 行，其他安全门不变。新的 8K-context Scripted 回归证明目标附近 100 行能在下一模型请求中保持
+可见，并继续到编辑、protected validation 和 Trace replay。它不调用外部模型，也不是 Sanic-2
+复跑。十一轮历史 Pilot 现合计 41 个已结算模型调用、`CNY 0.3628710`，仍为 0 个有效编辑和 0 次
+protected validation；单个新样本也不授权降低生产费用 estimator。

@@ -9,7 +9,7 @@ from horizon.adapters.workspace.snapshot import SnapshotManager
 from horizon.domain.errors import Conflict, PolicyDenied
 from horizon.domain.plan import WorkItem
 from horizon.domain.tools import AcceptanceResult
-from horizon.tools.gateway import RetrieveArgs, WorkspaceToolGateway, tool_definitions
+from horizon.tools.gateway import ReadArgs, RetrieveArgs, WorkspaceToolGateway, tool_definitions
 
 
 class FakeChecks:
@@ -43,7 +43,9 @@ def test_read_file_schema_advertises_bounded_one_sided_recovery():
     definition = next(tool for tool in tool_definitions() if tool.name == "read_file")
 
     assert "dependentRequired" not in definition.parameters
-    assert "deterministically completes a bounded 400-line window" in definition.description
+    assert "context-safer 100-line window" in definition.description
+    assert ReadArgs.model_validate({"path": "src/large.py", "start_line": 10}).end_line == 109
+    assert ReadArgs.model_validate({"path": "src/large.py", "end_line": 200}).start_line == 101
 
 
 def make_gateway(tmp_path: Path, task, *, checks=None):

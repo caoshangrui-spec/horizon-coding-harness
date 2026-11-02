@@ -32,6 +32,7 @@ MAX_FILE_BYTES = 256 * 1024
 MAX_CREATE_FILE_BYTES = 64 * 1024
 MAX_READ_OUTPUT_CHARS = 32 * 1024
 MAX_READ_LINES = 400
+ONE_SIDED_READ_LINES = 100
 MAX_SEARCH_BYTES = 2 * 1024 * 1024
 MAX_SEARCH_RESULTS = 30
 MAX_TOOL_ARGUMENT_FEEDBACK_ISSUES = 4
@@ -56,12 +57,12 @@ class ReadArgs(Contract):
         end = data.get("end_line")
         if start is not None and not isinstance(start, bool) and end is None:
             try:
-                data["end_line"] = int(start) + MAX_READ_LINES - 1
+                data["end_line"] = int(start) + ONE_SIDED_READ_LINES - 1
             except (TypeError, ValueError):
                 pass
         elif end is not None and not isinstance(end, bool) and start is None:
             try:
-                data["start_line"] = max(1, int(end) - MAX_READ_LINES + 1)
+                data["start_line"] = max(1, int(end) - ONE_SIDED_READ_LINES + 1)
             except (TypeError, ValueError):
                 pass
         return data
@@ -149,7 +150,8 @@ def tool_definitions() -> tuple[ToolDefinition, ...]:
                 "Read one allowed UTF-8 text file. Large files require an inclusive "
                 "start_line/end_line range (maximum 400 lines). Copy both bounds from "
                 "retrieve_code evidence when available. If exactly one bound is supplied, "
-                "the controller deterministically completes a bounded 400-line window."
+                "the controller deterministically completes a context-safer 100-line window; "
+                "use both bounds for a larger explicit range."
             ),
             parameters={
                 "type": "object",

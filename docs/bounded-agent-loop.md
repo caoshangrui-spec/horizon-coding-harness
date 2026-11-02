@@ -142,7 +142,7 @@ Provider 派发前和 response receipt 后的两个双库提交窗口，并输�
 | 工具 | 模型可提供 | Harness 强制规则 |
 |---|---|---|
 | `search_repo` | 精确子串 | 只扫描允许的 UTF-8 文件；总字节和结果数有界 |
-| `read_file` | 相对 POSIX 路径；可选成对的 1-based `start_line`/`end_line` | allow/deny、无 traversal/drive、无 symlink/junction；小文件可整读，大文件必须按最多 400 行读取，单次模型可见输出最多 32 Ki 字符 |
+| `read_file` | 相对 POSIX 路径；可选 1-based `start_line`/`end_line` | allow/deny、无 traversal/drive、无 symlink/junction；显式双边界最多 400 行，只有一个边界时补为 context-safe 的 100 行窗口；单次模型可见输出最多 32 Ki 字符 |
 | `retrieve_code` | 查询、最多 8 个 chunk | manifest + path scope 绑定的 FTS5 候选与 exact-key BM25 EvidencePack；命中回查 Artifact，empty/degraded 分离 |
 | `replace_text` | path、old、new、期望出现次数 | 绑定来源 model call、模型请求 revision 和 manifest preimage SHA-256；旧 revision 零写入拒绝；仅已存在 UTF-8 文件；精确计数；字节级临时文件 + 原子替换；失败回滚 |
 | `apply_patch` | 1～8 个不同 path 的精确 old/new edit | 同一模型请求 tree CAS；全批 preimage/替换预校验后才写；每文件原子替换；普通异常回滚，硬退出部分态保持 unknown |

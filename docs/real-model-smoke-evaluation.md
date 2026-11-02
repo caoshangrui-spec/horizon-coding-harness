@@ -334,10 +334,10 @@ uv run --locked --cache-dir .uv-cache horizon eval smoke-aggregate `
 ```
 
 聚合器按 evaluated tasks 计算成功率，同时强制报告 suite coverage 和未运行 task IDs。当前已有
-TheFuck-2 与 Luigi-2 两条唯一付费 Run，所以输出是 coverage `2/5`、evaluated success `0/2`、
-budget gate `2`、总费用 `CNY 0.078165`、总模型调用 9；HTTPie-1、Sanic-2、Tornado-2 保持
+TheFuck-2、Luigi-2 与 Sanic-2 三条唯一付费 Run，所以输出是 coverage `3/5`、evaluated success
+`0/3`、budget gate `3`、总费用 `CNY 0.1455048`、总模型调用 17；HTTPie-1、Tornado-2 保持
 `unevaluated`，不会被偷偷计成失败或形成“0/5”的虚假完整成绩。聚合 report ref 为
-`bf7f0b353eb75650c06a3ea584c50cfe1b99ca513f659cd03f96fff7df273788`。聚合不重新执行 Run，也不
+`2d6cfea5fb238ae3899385c3601cec17303dc2b36d3b86398d25dda676b308b9`。聚合不重新执行 Run，也不
 扩大任何付费权限。
 
 ## 11. Luigi-2 唯一真实 Run：定位成功、工具协议失败
@@ -374,8 +374,9 @@ Run 以 `FAILED/campaign_cost_limit` 安全停止。reserved/unknown 为 0，sou
 | `stop_category` | budget_gate |
 
 该负结果只驱动一个有界、零费用的 Harness 修复：当 `read_file` 恰好收到一个行边界时，控制器
-确定性补成最多 400 行的窗口；同时继续执行 path allowlist、双边界最大 400 行、32 KiB 输出上限、
-UTF-8 与 workspace revision 约束。Scripted Agent 回归证明同类单边调用可继续到 edit、protected
+当时确定性补成最多 400 行的窗口；第 12 节的 Sanic-2 证据随后把自动单边窗口进一步收窄到
+100 行。显式双边界仍保留最大 400 行，并继续执行 path allowlist、32 KiB 输出上限、UTF-8 与
+workspace revision 约束。Scripted Agent 回归证明同类单边调用可继续到 edit、protected
 validation 和 Trace replay，但没有复跑 Luigi-2，也不能据此把真实结果升级为成功。Harness 源码
 变化使本节 preflight 失效；任何未来真实调用都需要新的零费用 preflight 和新的明确授权。
 
@@ -386,3 +387,55 @@ source-bound development suite。它在 382-file exact checkout 中冻结真实 
 validation 和 Trace replay；Baseline 保持 `WAITING_FOR_USER`。该禁网回归不调用外部模型、费用为 0，
 并由公开 full-checkout workflow 作为独立门禁执行；它只证明修复后的 Harness 路径可闭环，不是对
 唯一付费 Run 的复跑、holdout 提升或真实模型成功。
+
+## 12. Sanic-2 唯一真实 Run：读取成功、目标代码在压缩后丢失
+
+用户随后明确授权 Sanic-2 唯一一次付费 Run：模型固定为
+`deepseek-ai/DeepSeek-V4-Flash`，新建独立 Run/Campaign，上限均为 `CNY 0.120`，Provider
+`max_attempts=1`、无 retry、无 fallback。专属
+[`policy`](../config/providers/siliconflow-sanic2-smoke-v1.yaml) 与
+[`Pilot`](../benchmarks/run_ab/full/sanic-2-asyncio-start-serving/real-model-smoke-pilot-v1.yaml)
+先在精确 buggy commit `ba9b432993019b0af0c4827a5ed42aaa091bd17d`、188-file checkout 上完成
+禁网零费用 preflight。初始失败、source unchanged、solution isolation 与 planning+execution 累计门
+均通过；保守预留分别为 `CNY 0.034926`、`CNY 0.069222`，合计 `CNY 0.104148`，report ref
+`aa7104564a718054b36eb0926ccd11ad921325e67eb9c77f90981632372612a0`。
+
+唯一 Run `run_977d419fd17f4bbd9e1588515e8d0192` 结算 8 次模型调用、7 次只读工具调用、
+20,484 input / 731 output tokens 和 `CNY 0.0673398`。第一次检索把
+`sanic/server.py:666-705` 排为 rank 1；模型随后以 `start_line=666` 和 `start_line=646` 两次成功读取
+文件，另有重复读取与被策略拒绝的近重复检索。没有 `replace_text`、`run_check`、checkpoint 或
+passed item。第 9 次模型请求需要预留 `CNY 0.072048`，但 Campaign 只剩 `CNY 0.0526602`，因此在
+Provider 派发前以 `FAILED/campaign_cost_limit` 安全停止；reserved/unknown 与 open effect 均为 0，
+source 和 workspace revision 未变化，也没有第二个 Run。
+
+这次失败不是单纯“没有找到文件”，而是读取与上下文压缩的交互缺陷。旧单边补界会自动扩成最多
+400 行，两次实际读取分别产生约 11.9K 和 12.4K 字符；Provider policy 的 context 上限只有 8K。
+从第 3 次执行调用开始，Context Projection 必须折叠历史，压缩后的消息只保留读取范围摘要和
+Run Memory 的短前缀，没有保留 `AsyncioServer` 类及插入位置上下文。模型因此再次检索、再次读取，而
+不是进入编辑。5 次模型请求带有 `context_compacted` 证据，这条事实保留为质量标记。
+
+Smoke evaluator 只接受与冻结目标区域匹配的 location-supporting Artifact 或有效写入。物理读取范围
+诊断上覆盖了目标区域，但终态包没有满足该自动证据合同，所以 `correct_location_reached` 必须保留
+为 `unknown/null`，不能按人工阅读 Trace 擅自升级为 true。最终七指标为：
+
+| 字段 | 自动结果 |
+|---|---:|
+| `task_success` | false |
+| `correct_location_reached` | unknown / null |
+| `valid_edit_produced` | false |
+| `protected_validation_passed` | unknown / null |
+| `actual_cost_cny` | 0.0673398 |
+| `model_calls` | 8 |
+| `stop_category` | budget_gate |
+
+Terminal EvidencePack replay 通过，projection hash 为
+`377cec5eff18be49c3256e5f0882882c8c239e95672797cf7c7168e1ac670247`；Smoke report ref 为
+`d75df3f1e01968f1aad1527045aa8276a3bd3b8a9da8960dc684873f547ba388`。Trace SHA-256 为
+`765434badc1e05c3a98294da5dc3a528d7152d687a09a74a415c77be8c9b9279`。
+
+这条负结果只驱动一个窄、零费用的修复：自动单边读取从 400 行收窄为 100 行；模型显式提供双边界
+时仍可读取最多 400 行，其余路径、字符数、UTF-8、revision 与权限门不变。新的 8K-context
+Scripted Agent 回归按 Sanic 形态构造第 646 行附近目标和远端长尾，证明单边读取只返回 646–745，
+目标代码仍可见，并能继续到精确编辑、protected validation 和 Trace replay。它没有调用真实模型，
+没有复跑 Sanic-2，也不能把上述真实 Run 改写为成功。生产费用 estimator 未因这一个样本下调；任何
+未来付费尝试都需要基于新源码重新 preflight 并取得新的明确授权。

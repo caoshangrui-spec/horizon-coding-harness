@@ -5,6 +5,19 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Ran the third frozen real-model Smoke task, Sanic-2, under its own user-authorized CNY 0.120
+  Campaign with one Provider attempt per request and no retry or fallback. The only Run settled
+  eight model calls and seven read-only tool calls for CNY 0.0673398, then stopped before a ninth
+  dispatch when its CNY 0.072048 reservation exceeded the CNY 0.0526602 remaining Campaign
+  headroom. It found and read `sanic/server.py`, but the old one-sided auto-range expanded to about
+  12K characters; the 8K context projection then compacted away the relevant class body and the
+  model entered a read/retrieval reacquisition loop. No edit, check, checkpoint, retry, or fallback
+  occurred. The replay-verified Smoke result remains a negative:
+  false/unknown/false/unknown, CNY 0.0673398, eight calls, `budget_gate`. The three-run aggregate is
+  coverage 3/5, success 0/3, CNY 0.1455048, and 17 calls. A narrow zero-cost follow-up now limits an
+  automatically completed one-sided read to 100 lines while explicit paired reads retain their
+  400-line ceiling; an 8K-context regression proves the target code remains visible through edit,
+  protected validation, and Trace replay. The paid Run was not retried or rewritten.
 - Added compact, schema-derived `ToolArgumentPolicy` receipts for model tool-validation failures.
   Receipts expose at most four field/type/message issues plus allowed, required, and supplied key
   names, never argument values; malformed multi-file writes now reach this safe error path before
@@ -19,9 +32,10 @@ for public releases; unreleased work must not be presented as a published releas
   stopped before dispatch when its CNY 0.071094 reservation exceeded the CNY 0.055098 remaining
   Campaign headroom. The replay-verified result remains a negative: false/true/false/unknown,
   CNY 0.064902, seven model calls, `budget_gate`. The two-run Smoke aggregate is now coverage 2/5,
-  success 0/2, CNY 0.078165, and nine calls. A narrow zero-cost follow-up now deterministically
-  completes exactly one supplied `read_file` bound to a maximum 400-line window; path, line,
-  output-size, and authority limits remain enforced. A source-bound regression now replays the
+  success 0/2, CNY 0.078165, and nine calls. A narrow zero-cost follow-up initially
+  deterministically completed exactly one supplied `read_file` bound; the later Sanic-2 evidence
+  reduced that automatic one-sided window to 100 lines, while explicit paired ranges keep the
+  400-line maximum and all path, output-size, and authority limits. A source-bound regression replays the
   exact paid query against the 382-file Luigi checkout, completes the observed `440-479` range,
   replans once, applies the one-line repair, passes protected validation, and replays both Traces
   in a network-disabled container. It calls no external model and does not rewrite the paid Trace,

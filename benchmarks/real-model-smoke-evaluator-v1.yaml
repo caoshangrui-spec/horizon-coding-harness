@@ -24,7 +24,7 @@ tasks:
         end_line: 477
 
   - smoke_task_id: sanic-2-asyncio-start-serving
-    pilot_id: sanic-2-asyncio-start-serving-smoke-candidate-v1
+    pilot_id: sanic-2-asyncio-start-serving-smoke-v1
     target_locations:
       - location_id: asyncio-server-await-boundary
         path: sanic/server.py
