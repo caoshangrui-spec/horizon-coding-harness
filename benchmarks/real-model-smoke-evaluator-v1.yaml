@@ -1,0 +1,48 @@
+schema_version: 1
+evaluator_id: bugsinpy-real-model-smoke-evaluator-v1
+suite_id: bugsinpy-real-model-smoke-v1
+suite_digest: 2c8ca4da9b88ab047944cdbce98537c8ab017f4a5a6236da1067c53759453554
+model_visible: false
+
+# These regions are evaluator-only coordinates in each exact buggy checkout. They are never
+# loaded by pilot-preflight, planning, retrieval, or the Agent loop.
+tasks:
+  - smoke_task_id: httpie-1-unique-download-filename
+    pilot_id: httpie-1-unique-download-filename-smoke-candidate-v1
+    target_locations:
+      - location_id: unique-filename-loop
+        path: httpie/downloads.py
+        start_line: 138
+        end_line: 145
+
+  - smoke_task_id: luigi-2-beam-target-path
+    pilot_id: luigi-2-beam-target-path-smoke-candidate-v1
+    target_locations:
+      - location_id: beam-bigquery-target-path
+        path: luigi/contrib/beam_dataflow.py
+        start_line: 473
+        end_line: 477
+
+  - smoke_task_id: sanic-2-asyncio-start-serving
+    pilot_id: sanic-2-asyncio-start-serving-smoke-candidate-v1
+    target_locations:
+      - location_id: asyncio-server-await-boundary
+        path: sanic/server.py
+        start_line: 738
+        end_line: 740
+
+  - smoke_task_id: thefuck-2-executable-path-separator
+    pilot_id: thefuck-2-executable-path-separator-smoke-v1
+    target_locations:
+      - location_id: executable-path-enumeration
+        path: thefuck/utils.py
+        start_line: 108
+        end_line: 128
+
+  - smoke_task_id: tornado-2-redirect-put-without-body
+    pilot_id: tornado-2-redirect-put-without-body-smoke-candidate-v1
+    target_locations:
+      - location_id: redirect-body-transfer-encoding-guards
+        path: tornado/http1connection.py
+        start_line: 385
+        end_line: 420

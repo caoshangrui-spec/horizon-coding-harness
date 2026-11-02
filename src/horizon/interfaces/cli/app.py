@@ -100,7 +100,9 @@ from horizon.application.run_ab_eval import (
     store_run_ab_suite_report,
 )
 from horizon.application.services import HarnessService, LeaseToken
+from horizon.application.smoke_aggregate import aggregate_real_model_smoke_results
 from horizon.application.smoke_evaluation import RealModelSmokePreflight
+from horizon.application.smoke_result import evaluate_real_model_smoke_run
 from horizon.application.supervision import (
     SequentialAgentSupervisor,
     SequentialSupervisorConfig,
@@ -148,7 +150,10 @@ from horizon.domain.recovery_evaluation import RecoveryMatrixManifest
 from horizon.domain.reliability import ReliabilityEvalManifest
 from horizon.domain.run import projection_hash
 from horizon.domain.run_evaluation import RunABEvalManifest, RunABSuiteManifest
-from horizon.domain.smoke_evaluation import RealModelSmokeSuite
+from horizon.domain.smoke_evaluation import (
+    RealModelSmokeEvaluatorManifest,
+    RealModelSmokeSuite,
+)
 from horizon.domain.states import RunStatus
 from horizon.domain.task import TaskSpec
 from horizon.domain.task_registry import IndependentTaskRegistry
@@ -703,6 +708,131 @@ def evaluate_smoke_preflight(
             {
                 "report": report.model_dump(mode="json"),
                 "report_ref": report_ref,
+            }
+        )
+    )
+
+
+@evaluations.command("smoke-result")
+@guarded
+def evaluate_smoke_result(
+    evaluator_path: Path,
+    smoke_task_id: str,
+    suite_path: Annotated[
+        Path,
+        typer.Option("--suite", help="Frozen five-task smoke suite manifest."),
+    ],
+    pilot_preflight: Annotated[
+        Path,
+        typer.Option(
+            "--pilot-preflight",
+            help="Original content-addressed Pilot preflight report.",
+        ),
+    ],
+    terminal_evidence: Annotated[
+        Path,
+        typer.Option(
+            "--terminal-evidence",
+            help="Replay-verified terminal EvidencePack for the paid Run.",
+        ),
+    ],
+    run_artifacts: Annotated[
+        Path,
+        typer.Option(
+            "--run-artifacts",
+            help="Content-addressed artifacts referenced by the Run Trace.",
+        ),
+    ] = Path(".horizon/artifacts"),
+    output: Annotated[
+        Path,
+        typer.Option(
+            "--output",
+            help="New directory for the offline smoke result and source recapture.",
+        ),
+    ] = Path(".horizon/smoke-result"),
+):
+    """Derive seven smoke metrics from a bound Pilot and terminal Trace without a model call."""
+    suite = RealModelSmokeSuite.model_validate(read_yaml(suite_path.resolve(strict=True)))
+    evaluator = RealModelSmokeEvaluatorManifest.model_validate(
+        read_yaml(evaluator_path.resolve(strict=True))
+    )
+    result = evaluate_real_model_smoke_run(
+        suite,
+        evaluator,
+        smoke_task_id,
+        pilot_preflight_path=pilot_preflight,
+        terminal_evidence_pack_path=terminal_evidence,
+        run_artifact_root=run_artifacts.resolve(strict=True),
+        output_dir=output,
+    )
+    report = result.report
+    typer.echo(
+        canonical_json(
+            {
+                "schema_version": report.schema_version,
+                "suite_id": report.suite_id,
+                "smoke_task_id": report.smoke_task_id,
+                "run_id": report.run_id,
+                "terminal_status": report.terminal_status,
+                "task_success": report.task_success,
+                "correct_location_reached": report.correct_location_reached,
+                "valid_edit_produced": report.valid_edit_produced,
+                "protected_validation_passed": report.protected_validation_passed,
+                "actual_cost_cny": str(report.actual_cost_cny),
+                "model_calls": report.model_calls,
+                "stop_category": report.stop_category,
+                "supporting_artifacts_verified": report.supporting_artifacts_verified,
+                "report": str(result.report_path),
+                "report_ref": result.report_ref,
+                "summary": str(result.summary_path),
+            }
+        )
+    )
+
+
+@evaluations.command("smoke-aggregate")
+@guarded
+def evaluate_smoke_aggregate(
+    suite_path: Path,
+    result_paths: Annotated[
+        list[Path],
+        typer.Argument(help="One or more existing smoke-result.json files."),
+    ],
+    output: Annotated[
+        Path,
+        typer.Option(
+            "--output",
+            help="New directory for the aggregate report and human-readable summary.",
+        ),
+    ] = Path(".horizon/smoke-aggregate"),
+):
+    """Aggregate existing smoke results while preserving missing tasks and unknown metrics."""
+    suite = RealModelSmokeSuite.model_validate(read_yaml(suite_path.resolve(strict=True)))
+    result = aggregate_real_model_smoke_results(
+        suite,
+        tuple(result_paths),
+        output_dir=output,
+    )
+    report = result.report
+    typer.echo(
+        canonical_json(
+            {
+                "schema_version": report.schema_version,
+                "suite_id": report.suite_id,
+                "evaluated_task_count": report.evaluated_task_count,
+                "suite_task_count": report.suite_task_count,
+                "suite_coverage_rate": report.suite_coverage_rate,
+                "unevaluated_task_ids": report.unevaluated_task_ids,
+                "task_success_count": report.task_success_count,
+                "task_success_rate_evaluated": report.task_success_rate_evaluated,
+                "total_actual_cost_cny": str(report.total_actual_cost_cny),
+                "total_model_calls": report.total_model_calls,
+                "stop_category_counts": [
+                    item.model_dump(mode="json") for item in report.stop_category_counts
+                ],
+                "report": str(result.report_path),
+                "report_ref": result.report_ref,
+                "summary": str(result.summary_path),
             }
         )
     )

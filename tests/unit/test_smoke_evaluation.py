@@ -6,10 +6,14 @@ from pydantic import ValidationError
 
 from horizon.application.smoke_evaluation import RealModelSmokePreflight
 from horizon.domain.errors import IntegrityError
-from horizon.domain.smoke_evaluation import RealModelSmokeSuite
+from horizon.domain.smoke_evaluation import (
+    RealModelSmokeEvaluatorManifest,
+    RealModelSmokeSuite,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 SUITE_PATH = ROOT / "benchmarks" / "real-model-smoke-v1.yaml"
+EVALUATOR_PATH = ROOT / "benchmarks" / "real-model-smoke-evaluator-v1.yaml"
 
 
 def _suite_data() -> dict:
@@ -71,3 +75,47 @@ def test_smoke_suite_rejects_prior_paid_task_and_unapproved_cost_cap():
     cost_bound["execution_policy"]["max_cost_cny"] = "0.10"
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         RealModelSmokeSuite.model_validate(cost_bound)
+
+
+def test_checked_in_smoke_evaluator_is_suite_bound_and_points_at_repair_regions():
+    suite = RealModelSmokeSuite.model_validate(_suite_data())
+    evaluator = RealModelSmokeEvaluatorManifest.model_validate(
+        yaml.safe_load(EVALUATOR_PATH.read_text(encoding="utf-8"))
+    )
+
+    assert evaluator.model_visible is False
+    assert evaluator.suite_id == suite.suite_id
+    assert evaluator.suite_digest == suite.sha256
+    assert {task.smoke_task_id for task in evaluator.tasks} == {
+        task.task_id for task in suite.tasks
+    }
+    for evaluator_task in evaluator.tasks:
+        case_root = ROOT / "benchmarks" / "run_ab" / "full" / evaluator_task.smoke_task_id
+        manifest = yaml.safe_load((case_root / "manifest.yaml").read_text(encoding="utf-8"))
+        replacements = [
+            action["arguments"]
+            for arm in manifest["arms"]
+            for action in arm["actions"]
+            if action.get("tool") == "replace_text"
+        ]
+        matched = False
+        for location in evaluator_task.target_locations:
+            source = (case_root / "fixture" / location.path).read_text(encoding="utf-8")
+            for replacement in replacements:
+                if replacement["path"] != location.path:
+                    continue
+                cursor = 0
+                while (offset := source.find(replacement["old"], cursor)) >= 0:
+                    start = source.count("\n", 0, offset) + 1
+                    end = start + replacement["old"].count("\n")
+                    matched = matched or (start <= location.end_line and end >= location.start_line)
+                    cursor = offset + 1
+        assert matched, evaluator_task.smoke_task_id
+
+
+def test_smoke_evaluator_cannot_be_marked_model_visible():
+    data = yaml.safe_load(EVALUATOR_PATH.read_text(encoding="utf-8"))
+    data["model_visible"] = True
+
+    with pytest.raises(ValidationError, match="Input should be False"):
+        RealModelSmokeEvaluatorManifest.model_validate(data)

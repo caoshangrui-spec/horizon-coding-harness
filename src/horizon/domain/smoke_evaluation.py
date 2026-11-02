@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Annotated, Literal, Self
 
 from pydantic import Field, StrictInt, field_validator, model_validator
 
 from horizon.domain.common import Contract, digest
+from horizon.domain.states import RunStatus
 from horizon.domain.task import Identifier, PositiveInt, Text, relative_pattern
 from horizon.domain.task_registry import Sha256
 
@@ -35,6 +37,18 @@ FailureCategory = Literal[
     "validation_failure",
     "harness_recovery",
     "unknown_effect",
+]
+SmokeStopCategory = Literal[
+    "completed",
+    "model_planning",
+    "retrieval",
+    "tool_protocol",
+    "context_capacity",
+    "budget_gate",
+    "validation_failure",
+    "harness_recovery",
+    "unknown_effect",
+    "unknown",
 ]
 
 REQUIRED_SUCCESS_CRITERIA = frozenset(
@@ -251,4 +265,237 @@ class RealModelSmokePreflightReport(Contract):
             task.initial_failure_evidence == "public_historical_run_declared" for task in self.tasks
         ):
             raise ValueError("Smoke preflight historical-failure count is inconsistent")
+        return self
+
+
+class SmokeTargetLocation(Contract):
+    """Evaluator-only source region; it must never be added to model context."""
+
+    location_id: Identifier
+    path: Text
+    start_line: PositiveInt
+    end_line: PositiveInt
+
+    @model_validator(mode="after")
+    def validate_location(self) -> Self:
+        relative_pattern(self.path)
+        if any(character in self.path for character in "*?[]"):
+            raise ValueError("Smoke target locations require literal paths")
+        if self.end_line < self.start_line:
+            raise ValueError("Smoke target location has a reversed line range")
+        return self
+
+
+class SmokeEvaluatorTask(Contract):
+    smoke_task_id: Identifier
+    pilot_id: Identifier
+    target_locations: Annotated[tuple[SmokeTargetLocation, ...], Field(min_length=1, max_length=8)]
+
+    @model_validator(mode="after")
+    def validate_locations(self) -> Self:
+        location_ids = [location.location_id for location in self.target_locations]
+        if len(location_ids) != len(set(location_ids)):
+            raise ValueError("Smoke evaluator location IDs must be unique within a task")
+        return self
+
+
+class RealModelSmokeEvaluatorManifest(Contract):
+    """Controller-only binding used after a Run; it is not part of the model-visible suite."""
+
+    schema_version: Literal[1] = 1
+    evaluator_id: Identifier
+    suite_id: Identifier
+    suite_digest: Sha256
+    model_visible: Literal[False] = False
+    tasks: Annotated[tuple[SmokeEvaluatorTask, ...], Field(min_length=1, max_length=100)]
+
+    @model_validator(mode="after")
+    def validate_tasks(self) -> Self:
+        task_ids = [task.smoke_task_id for task in self.tasks]
+        pilot_ids = [task.pilot_id for task in self.tasks]
+        if len(task_ids) != len(set(task_ids)):
+            raise ValueError("Smoke evaluator task IDs must be unique")
+        if len(pilot_ids) != len(set(pilot_ids)):
+            raise ValueError("Smoke evaluator pilot IDs must be unique")
+        return self
+
+    @property
+    def sha256(self) -> str:
+        return digest(self)
+
+
+class SmokeSuccessEvidence(Contract):
+    initial_failure_observed: bool
+    workspace_changed: bool
+    required_checks_passed: bool | None
+    source_unchanged: bool
+    trace_replay_verified: Literal[True] = True
+    no_open_effects: bool
+
+    @property
+    def task_success(self) -> bool:
+        return all(
+            (
+                self.initial_failure_observed,
+                self.workspace_changed,
+                self.required_checks_passed is True,
+                self.source_unchanged,
+                self.trace_replay_verified,
+                self.no_open_effects,
+            )
+        )
+
+
+class SmokeObservedLocation(Contract):
+    location_id: Identifier
+    channel: Literal["retrieval_chunk", "read_range", "write_preimage"]
+    source_call_id: Identifier
+    path: Text
+    start_line: PositiveInt
+    end_line: PositiveInt
+
+    @model_validator(mode="after")
+    def validate_observation(self) -> Self:
+        relative_pattern(self.path)
+        if self.end_line < self.start_line:
+            raise ValueError("Observed smoke location has a reversed line range")
+        return self
+
+
+class RealModelSmokeRunResult(Contract):
+    """One post-Run result derived from verified, replayable controller evidence."""
+
+    schema_version: Literal[1] = 1
+    evaluator_id: Identifier
+    evaluator_digest: Sha256
+    suite_id: Identifier
+    suite_digest: Sha256
+    smoke_task_id: Identifier
+    pilot_id: Identifier
+    pilot_preflight_ref: Sha256
+    run_id: Identifier
+    task_spec_hash: Sha256
+    terminal_status: RunStatus
+    terminal_evidence_pack_sha256: Sha256
+    trace_sha256: Sha256
+    provider_id: Identifier
+    model_id: Text
+    success_evidence: SmokeSuccessEvidence
+    task_success: bool
+    correct_location_reached: bool | None
+    valid_edit_produced: bool | None
+    protected_validation_passed: bool | None
+    actual_cost_cny: Annotated[Decimal, Field(ge=0, allow_inf_nan=False)]
+    actual_cost_basis: Literal["settled_trace_price_card_estimate"] = (
+        "settled_trace_price_card_estimate"
+    )
+    model_calls: Annotated[StrictInt, Field(ge=0)]
+    unknown_model_calls: Annotated[StrictInt, Field(ge=0)]
+    successful_retrieval_calls: Annotated[StrictInt, Field(ge=0)]
+    successful_write_calls: Annotated[StrictInt, Field(ge=0)]
+    stop_category: SmokeStopCategory
+    target_location_count: PositiveInt
+    matched_locations: tuple[SmokeObservedLocation, ...] = ()
+    supporting_artifacts_verified: bool
+    source_snapshot_revision_after: Sha256
+    source_manifest_ref_after: Sha256
+    source_capture_timing: Literal["post_run_evaluation"] = "post_run_evaluation"
+    claim_scope: Literal["single_bound_development_smoke_run"] = (
+        "single_bound_development_smoke_run"
+    )
+    limitations: Annotated[tuple[Text, ...], Field(min_length=1)]
+
+    @model_validator(mode="after")
+    def validate_result(self) -> Self:
+        if self.task_success != (
+            self.terminal_status == RunStatus.SUCCEEDED and self.success_evidence.task_success
+        ):
+            raise ValueError("Smoke task-success verdict does not match its six evidence gates")
+        if self.protected_validation_passed != self.success_evidence.required_checks_passed:
+            raise ValueError("Protected-validation metric does not match success evidence")
+        if self.correct_location_reached is True and not self.matched_locations:
+            raise ValueError("A positive location verdict requires a matched target observation")
+        if self.correct_location_reached is False and self.matched_locations:
+            raise ValueError("A negative location verdict cannot contain matched observations")
+        if self.supporting_artifacts_verified and self.correct_location_reached is None:
+            raise ValueError("Complete supporting artifacts require a known location verdict")
+        if self.stop_category == "completed" and not self.task_success:
+            raise ValueError("Only a successful smoke Run may use the completed stop category")
+        if self.task_success and self.stop_category != "completed":
+            raise ValueError("A successful smoke Run must use the completed stop category")
+        return self
+
+
+class SmokeMetricTally(Contract):
+    true_count: Annotated[StrictInt, Field(ge=0)]
+    false_count: Annotated[StrictInt, Field(ge=0)]
+    unknown_count: Annotated[StrictInt, Field(ge=0)]
+
+    @property
+    def total(self) -> int:
+        return self.true_count + self.false_count + self.unknown_count
+
+
+class SmokeStopCategoryCount(Contract):
+    category: SmokeStopCategory
+    run_count: PositiveInt
+
+
+class SmokeRunResultReference(Contract):
+    smoke_task_id: Identifier
+    run_id: Identifier
+    result_path: Text
+    result_sha256: Sha256
+    trace_sha256: Sha256
+    terminal_evidence_pack_sha256: Sha256
+
+
+class RealModelSmokeAggregateReport(Contract):
+    schema_version: Literal[1] = 1
+    suite_id: Identifier
+    suite_digest: Sha256
+    suite_task_count: Literal[5] = 5
+    evaluated_task_count: Annotated[StrictInt, Field(ge=1, le=5)]
+    unevaluated_task_ids: tuple[Identifier, ...]
+    suite_coverage_rate: Annotated[float, Field(ge=0.0, le=1.0)]
+    task_success_count: Annotated[StrictInt, Field(ge=0)]
+    task_success_rate_evaluated: Annotated[float, Field(ge=0.0, le=1.0)]
+    correct_location: SmokeMetricTally
+    valid_edit: SmokeMetricTally
+    protected_validation: SmokeMetricTally
+    total_actual_cost_cny: Annotated[Decimal, Field(ge=0, allow_inf_nan=False)]
+    total_model_calls: Annotated[StrictInt, Field(ge=0)]
+    total_unknown_model_calls: Annotated[StrictInt, Field(ge=0)]
+    stop_category_counts: tuple[SmokeStopCategoryCount, ...]
+    results: Annotated[tuple[SmokeRunResultReference, ...], Field(min_length=1, max_length=5)]
+    runs_executed_by_aggregator: Literal[False] = False
+    paid_model_called_by_aggregator: Literal[False] = False
+    network_called_by_aggregator: Literal[False] = False
+    repository_code_executed_by_aggregator: Literal[False] = False
+    claim_scope: Literal["partial_or_complete_existing_smoke_result_aggregate"] = (
+        "partial_or_complete_existing_smoke_result_aggregate"
+    )
+    limitations: Annotated[tuple[Text, ...], Field(min_length=1)]
+
+    @model_validator(mode="after")
+    def validate_aggregate(self) -> Self:
+        if len(self.results) != self.evaluated_task_count:
+            raise ValueError("Smoke aggregate evaluated count does not match its result list")
+        task_ids = [result.smoke_task_id for result in self.results]
+        run_ids = [result.run_id for result in self.results]
+        if len(task_ids) != len(set(task_ids)) or len(run_ids) != len(set(run_ids)):
+            raise ValueError("Smoke aggregate result tasks and Run IDs must be unique")
+        if len(self.unevaluated_task_ids) != self.suite_task_count - self.evaluated_task_count:
+            raise ValueError("Smoke aggregate unevaluated-task count is inconsistent")
+        expected_coverage = self.evaluated_task_count / self.suite_task_count
+        if self.suite_coverage_rate != expected_coverage:
+            raise ValueError("Smoke aggregate coverage rate is inconsistent")
+        expected_success_rate = self.task_success_count / self.evaluated_task_count
+        if self.task_success_rate_evaluated != expected_success_rate:
+            raise ValueError("Smoke aggregate success rate is inconsistent")
+        for tally in (self.correct_location, self.valid_edit, self.protected_validation):
+            if tally.total != self.evaluated_task_count:
+                raise ValueError("Smoke aggregate metric tally is inconsistent")
+        if sum(item.run_count for item in self.stop_category_counts) != self.evaluated_task_count:
+            raise ValueError("Smoke aggregate stop-category counts are inconsistent")
         return self

@@ -1,6 +1,6 @@
 # 5 条真实模型 Smoke 评测合同
 
-更新：2026-10-30。
+更新：2026-11-02。
 
 这份合同把“下一轮真实模型到底跑什么、怎样算成功、失败怎样归因”先离线冻结。入口是
 [`benchmarks/real-model-smoke-v1.yaml`](../benchmarks/real-model-smoke-v1.yaml)，验证命令是
@@ -269,3 +269,70 @@ Run/Campaign 门通过；`credential_loaded/paid_model_called/network_called` �
 这只是作者选择的 development 候选排序，不是 holdout、真实模型成功或泛化证据。当前
 `paid_execution_authorized=false`；任何 Luigi-2 付费 Run 仍需基于当时可接受的单 Run 与累计上限
 取得新的明确授权。
+
+## 10. Run 后七指标与部分覆盖聚合
+
+`smoke-preflight` 只回答“任务与付费前边界是否就绪”，通用 Terminal EvidencePack 只回答“终态
+控制状态和 Trace 是否自洽”。二者原先都不会自动产出第 4 节冻结的七项 Smoke 指标。现在新增的
+controller-only [`real-model-smoke-evaluator-v1.yaml`](../benchmarks/real-model-smoke-evaluator-v1.yaml)
+为五条 exact buggy checkout 冻结目标源码区域；该文件不进入 Pilot preflight、planning、RAG 或
+Agent context。单元回归会把每个区域与 full-checkout scripted repair 的真实 `replace_text` preimage
+交叉核验，避免目标行号静默漂移。
+
+单 Run 离线评估命令为：
+
+```powershell
+uv run --locked --cache-dir .uv-cache horizon eval smoke-result `
+  benchmarks/real-model-smoke-evaluator-v1.yaml `
+  thefuck-2-executable-path-separator `
+  --suite benchmarks/real-model-smoke-v1.yaml `
+  --pilot-preflight <原始内容寻址 preflight report> `
+  --terminal-evidence <terminal EvidencePack> `
+  --run-artifacts .horizon/artifacts `
+  --output <新的结果目录>
+```
+
+评估器不调用模型、Provider、网络或 protected check。它会拒绝错误拼接，并同时核验：
+
+- suite/evaluator digest 与任务集合；
+- 原始内容寻址 preflight、prepared TaskSpec 和本次 Run 的变换后 TaskSpec；
+- source snapshot/manifest/Git HEAD、模型策略、模型标识、币种及 Run cap；
+- Terminal EvidencePack 文件哈希、Trace 重放和最终投影；
+- 模型响应中的工具参数与 durable reservation 哈希；
+- retrieval EvidencePack 的 path/line span，以及成功写入前后的内容寻址 workspace manifest。
+
+`correct_location_reached`、`valid_edit_produced`、`protected_validation_passed` 都允许 `null`：支持工件
+缺失、外部 effect 未知或根本没有执行 validation 时不猜测 false。`actual_cost_cny` 是 Trace 中已结算
+调用按冻结 price card 得到的估算总和，不冒充 Provider invoice。`source_unchanged` 在 Run 后评估时
+重新 capture；它能确认评估时源码仍等于 launch snapshot，但不能证明期间从未短暂修改后又还原。
+
+对冻结 TheFuck-2 Run 的实际离线输出为：
+
+| 字段 | 自动结果 |
+|---|---:|
+| `task_success` | false |
+| `correct_location_reached` | false |
+| `valid_edit_produced` | false |
+| `protected_validation_passed` | unknown / null |
+| `actual_cost_cny` | 0.013263 |
+| `model_calls` | 2 |
+| `stop_category` | budget_gate |
+
+结果 report ref 为
+`bcf94baf895f3d5e59224bb9118394dcb255ed4efe7cf0311f78f7f8866a4f19`。第一次 retrieval 虽命中
+`thefuck/utils.py:36-75`，但 evaluator target 是 `get_all_executables()` 所在 108–128 行，因此不会
+把“同文件错误函数”包装成正确定位。六个成功门同时保留：initial failure/source unchanged/Trace/no
+open effect 为 true，workspace changed 为 false，required checks 为 unknown，最终任务仍为失败。
+
+已有一个或多个 `smoke-result.json` 后，可在零执行条件下聚合：
+
+```powershell
+uv run --locked --cache-dir .uv-cache horizon eval smoke-aggregate `
+  benchmarks/real-model-smoke-v1.yaml <result-1.json> [<result-2.json> ...] `
+  --output <新的汇总目录>
+```
+
+聚合器按 evaluated tasks 计算成功率，同时强制报告 suite coverage 和未运行 task IDs。当前只有
+TheFuck-2 的付费 Run，所以输出是 coverage `1/5`、evaluated success `0/1`、budget gate `1`；其余
+四条保持 `unevaluated`，不会被偷偷计成失败或形成“0/5”的虚假完整成绩。聚合只校验 child schema、
+suite binding、唯一性和文件哈希，不重新执行 Run，也不扩大 Luigi-2 的付费权限。

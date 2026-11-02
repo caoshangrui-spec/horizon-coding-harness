@@ -1,10 +1,31 @@
 # 开发进度与验证记录
 
-更新：2026-10-30。已发布版本和主干包元数据均为 0.3.0；版本范围与发布证据见
+更新：2026-11-02。已发布版本和主干包元数据均为 0.3.0；版本范围与发布证据见
 [v0.3.0 release notes](release-v0.3.0.md)。2026-09-30 的
 可靠性内核证据保留，本次在其上增加 Provider 垂直切片和首个受控 Coding Agent 闭环。
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
+
+## 2026-11-02 真实模型 Smoke Run 后指标闭环
+
+- 新增 controller-only `real-model-smoke-evaluator-v1.yaml`，为五条冻结 development smoke 任务绑定
+  exact-checkout 目标源码区域。该文件不会进入 planning、RAG、Agent context 或模型请求；单测会把
+  每个区域与已有 full-checkout scripted repair 的真实 `replace_text` preimage 交叉核验。
+- 新增 `horizon eval smoke-result`：离线绑定原始内容寻址 preflight、prepared/transformed TaskSpec、
+  source snapshot、Provider/model/费用策略、Terminal EvidencePack、Trace replay、模型响应与 durable
+  tool reservation、retrieval 行区间及写入前后 manifest。定位、有效编辑与 protected validation 均为
+  tri-state；缺证据时保持 unknown，不把“未执行”写成 false。
+- 对冻结 TheFuck-2 Run 的实际派生结果是 task success=false、correct location=false、valid edit=false、
+  protected validation=unknown、Trace price-card estimate `CNY 0.013263`、2 次模型调用、budget gate。
+  第一次 retrieval 虽然命中 `thefuck/utils.py`，但命中的是 36–75 行的错误函数，目标函数在 108–128
+  行，因此不会把“同文件命中”包装成正确定位。稳定 report ref 为
+  `bcf94baf895f3d5e59224bb9118394dcb255ed4efe7cf0311f78f7f8866a4f19`。
+- 新增 `horizon eval smoke-aggregate`：只聚合已有结果，校验 suite binding、唯一 task 和 child 哈希，
+  同时报告 evaluated success 与 suite coverage。当前覆盖为 1/5、evaluated success 0/1；HTTPie-1、
+  Luigi-2、Sanic-2、Tornado-2 明确列为 unevaluated，而不是被计成失败。
+- 完整离线回归为 **675 passed，11 skipped**；Ruff、格式检查与 `git diff --check` 通过。11 项 skip
+  仍只因当前入口未设置 Docker 测试镜像。本批没有读取凭据、联网、调用模型或产生费用；Luigi-2
+  仍没有新的付费授权，历史 TheFuck-2 负结果与累计费用均未改写。
 
 ## 2026-10-30 五任务真实模型 Smoke 合同
 
@@ -1671,8 +1692,8 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 九轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 672 passed；全量入口对应
-672 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
+当前主干继续补齐尚未统一覆盖的故障点；最新无 Docker 主套件为 675 passed；全量入口对应
+675 passed、11 个显式 Docker skip，11 个 Docker 合同此前已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
 `run_model_cost_limit` 进入 `FAILED`。没有工具、编辑、checkpoint 或验证，Trace 14 事件可重放，
