@@ -866,3 +866,25 @@ rank 3。因此按冻结 tie-breaker 选择 Sanic-5，TheFuck-5 保留为 altern
 该选择只说明 Sanic-5 是当前最小、定位证据最强的 post-hoc development follow-up，不证明模型会
 修复它，也不增加原 Smoke 的分母或成功数。proposal cap `CNY 0.120` 仍只是容量；没有新的付费
 授权、retry 或 fallback，任何 Provider 请求都必须先取得新的明确授权。
+
+## 25. Sanic-5 post-Smoke：定位成功但没有从证据转入修改
+
+后续独立授权只覆盖一个 `CNY 0.120` Run/Campaign、Provider `max_attempts=1`、无 retry/fallback。
+专用 preflight ref 为
+`34c947146596b8f521f0a2b95ce202dc408601c812c47acd6e132c114a1ba297`，累计 reservation
+`CNY 0.103572`，且在调用前确认初始缺陷、source isolation、镜像与源码 HEAD 全部一致。
+
+唯一 Run `run_6e40579b14734e7e979c0a059b0844df` 是负结果。第一次 execution
+`retrieve_code` 已 rank-1 返回 `sanic/log.py`，并直接显示应处理的 `"root"` logger 行；模型随后
+仍重复读取相同的 58 行文件，其中第三次同参读取被 `NoProgressPolicy` 拒绝，又以新增 symbol query
+检索同一块并再次读取。最终只有 2 次 retrieval 与 4 次 read，没有 `replace_text` 或 `run_check`。
+
+7 次模型调用结算 `CNY 0.060561`；费用门在下一次派发前要求 `CNY 0.074094` reservation，而
+Campaign 只剩 `CNY 0.059439`，因此以 `campaign_cost_limit` 终止。四次确定性 context compaction
+均被 Trace 记录，但现有单样本不能单独归因给模型、压缩策略或保守费用估算中的任一项。可确认的
+工程结论仅是：目标定位成功，证据到修改的转换失败，源码未变，validation 未运行且结果为 unknown。
+
+终态 EvidencePack 对 80 个事件离线重放通过，projection hash 为
+`5cda769d49abd799b8cf8b1c4347f9580380318cce3c8e7cef553ccb3e0755d3`，无 open/unknown effect 或
+悬空 reservation。该 Run 不进入原五任务 Smoke 聚合，也没有复跑；机器可读冻结结果见
+[`real-model-post-smoke-sanic5-result-v1.yaml`](../benchmarks/real-model-post-smoke-sanic5-result-v1.yaml)。

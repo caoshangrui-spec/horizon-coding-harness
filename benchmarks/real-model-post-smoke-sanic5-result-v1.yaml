@@ -1,0 +1,105 @@
+schema_version: 1
+result_id: sanic-5-root-logger-config-post-smoke-v1
+task_id: sanic-5-root-logger-config
+classification: post_hoc_development_follow_up
+
+scope:
+  original_smoke_suite_unchanged: true
+  included_in_original_smoke_aggregate: false
+  blind_or_holdout_evidence: false
+  retry_performed: false
+  fallback_performed: false
+
+preflight:
+  ready: true
+  report_ref: 34c947146596b8f521f0a2b95ce202dc408601c812c47acd6e132c114a1ba297
+  prepared_task_ref: 5491c605d0c370c9bf521d69f0ec6133b668c7796e6d6c0a7e5ecc3aeeeef992
+  manifest_digest: 60b1741efd2778adebfd2fbd67bc4a74c5db2c7700db76e3ffd9d883bc5f46b2
+  provider_config_digest: fa7589c20ba46d3da1d6a6aef3ea1efd75252612690159b618dfaeb8c9054191
+  source_snapshot_revision: cfee8376a68de06e31540c5a8bc686e4e6074e75ed3853f2db8544766b54233d
+  source_git_head: e3a27c2cc485d57aa1ff87d9f69098e4ab12727e
+  initial_failure_matches: true
+  source_unchanged: true
+  solution_isolation_passed: true
+  credential_loaded: false
+  paid_model_called: false
+  network_called: false
+  planning_reserved_cost_cny: "0.034044"
+  bounded_execution_reserved_cost_cny: "0.069528"
+  planning_execution_reserved_cost_cny: "0.103572"
+
+run:
+  run_id: run_6e40579b14734e7e979c0a059b0844df
+  status: FAILED
+  task_succeeded: false
+  failure_reason: campaign_cost_limit
+  provider_id: siliconflow
+  provider_policy_id: siliconflow-deepseek-v4-flash-sanic5-post-smoke-012-v1
+  model_id: deepseek-ai/DeepSeek-V4-Flash
+  provider_max_attempts: 1
+  fallback_enabled: false
+  run_cost_cap_cny: "0.120"
+  campaign_id: siliconflow-sanic5-post-smoke-2026-11-v1
+  campaign_cost_cap_cny: "0.120"
+  settled_cost_cny: "0.060561"
+  campaign_remaining_cost_cny: "0.059439"
+  campaign_reserved_cost_cny: "0"
+  campaign_unknown_cost_cny: "0"
+  model_calls: 7
+  planning_calls: 1
+  execution_calls: 6
+  tool_calls: 6
+  input_tokens: 18063
+  output_tokens: 708
+  steps: 6
+  context_compaction_count: 4
+  source_workspace_unchanged: true
+  final_workspace_revision: cfee8376a68de06e31540c5a8bc686e4e6074e75ed3853f2db8544766b54233d
+  budget_stop:
+    scope: campaign
+    available_cost_cny: "0.059439"
+    required_cost_cny: "0.074094"
+    shortfall_cny: "0.014655"
+
+observed_quality:
+  correct_location_reached: true
+  correct_location_evidence:
+    tool: retrieve_code
+    rank: 1
+    path: sanic/log.py
+    target_line_visible: true
+  valid_edit_produced: false
+  protected_validation_passed: null
+  acceptance_evidence_unknown: true
+  tool_sequence:
+    - {name: retrieve_code, status: success}
+    - {name: read_file, status: success}
+    - {name: read_file, status: success}
+    - {name: read_file, status: error, controller_policy: NoProgressPolicy}
+    - {name: retrieve_code, status: success}
+    - {name: read_file, status: success}
+  write_tool_calls: 0
+  protected_check_calls: 0
+
+trace:
+  event_count: 80
+  event_hash: 7f2c181db709fa9001483e086d1a2092d2fcf4afcc9b2aa4beb6b457db4678c3
+  trace_sha256: 139a77ec9dacfd4a590b6693e405881bd8601cfa7ac8a222c4a545f35ab73d3a
+  projection_hash: 5cda769d49abd799b8cf8b1c4347f9580380318cce3c8e7cef553ccb3e0755d3
+  final_state_sha256: d68643c5c7566315a48518651f4ea7aa751c53963bcd547412ce4476c131669b
+  terminal_pack_verified: true
+  open_effects_present: false
+  unknown_effects_present: false
+  open_reservations_present: false
+
+diagnosis:
+  failure_class: evidence_reacquisition_loop_before_edit
+  facts:
+    - The first execution tool call returned sanic/log.py at rank 1 with the faulty root logger line visible.
+    - The model made six read-only tool calls and never called replace_text or run_check.
+    - One third identical read was rejected by NoProgressPolicy, but an interleaved retrieval and an argument variant still reacquired the same file.
+    - Four requests used deterministic context compaction before the campaign gate blocked the next dispatch.
+  limitations:
+    - The settled cost is a frozen local price-card estimate, not a provider invoice.
+    - No protected validation ran, so its outcome remains unknown rather than false.
+    - This post-hoc development result is not part of the original five-task Smoke denominator.

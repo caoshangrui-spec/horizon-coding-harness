@@ -487,3 +487,20 @@ Windows 提权身份下第一次 Sanic-5 预检被 Git ownership 判定拒绝；
 该进程声明精确 fixture 的 `safe.directory` 后成功，没有修改全局 Git 配置。这是本机执行环境负
 结果，不是候选证据。最终选择仍是 proposal-only：`paid_execution_authorized=false`，未来若执行
 必须把它报告为 post-hoc development Run，并重新取得独立预算授权。
+
+## 15. Sanic-5 独立 follow-up 结果不回填原 Smoke
+
+Sanic-5 随后取得了一次独立 `CNY 0.120` Run/Campaign 授权，但这一后验 development follow-up
+没有改变第 14 节的选择时证据，也没有修改原五任务 suite。fresh preflight 累计 reservation 为
+`CNY 0.103572`；唯一 Run 结算 7 次模型调用和 `CNY 0.060561` 后，在下一次 Provider 派发前被
+Campaign gate 安全阻断。
+
+七指标按本次独立结果报告为：task success `false`；correct location `true`（第一次 execution
+retrieval 已 rank-1 返回 `sanic/log.py` 的目标行）；valid edit `false`；protected validation
+`unknown`；cost `CNY 0.060561`；model calls `7`；stop category `budget_gate`。模型只执行 2 次检索
+和 4 次读取，没有写入或检查。Trace/终态包离线验证通过，源码未变，open/unknown effect 与悬空
+reservation 都是 0。
+
+因此原聚合继续保持 coverage `3/5`、success `0/3`、`CNY 0.1455048` 和 17 calls；不得把
+Sanic-5 加成第 4 条 Smoke，也不得用它重算成功率。独立机器可读记录为
+[`real-model-post-smoke-sanic5-result-v1.yaml`](../benchmarks/real-model-post-smoke-sanic5-result-v1.yaml)。

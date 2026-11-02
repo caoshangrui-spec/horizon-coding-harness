@@ -6,6 +6,28 @@
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
 
+## 2026-11-02 Sanic-5 独立 Post-Smoke 真实模型负结果
+
+- 新建独立 Provider policy、Campaign ledger 与 Pilot manifest，锁定
+  `deepseek-ai/DeepSeek-V4-Flash`、`sanic/**`、单请求最多 1 次、无 retry/fallback，以及 Run/Campaign
+  双重 `CNY 0.120` 上限；它不复用任何历史预算。
+- fresh preflight 在固定 buggy HEAD 和禁网 Docker 中得到 `ready=true`，planning/execution/累计
+  reservation 为 `0.034044/0.069528/0.103572` CNY；初始失败、源码未变、solution isolation 均通过，
+  且 credential/model/network 为 false。
+- 唯一付费 Run `run_6e40579b14734e7e979c0a059b0844df` 结算 7 次模型调用、6 次只读工具、
+  18,063 input / 708 output tokens 与 `CNY 0.060561`。第 8 次 Provider 派发前，费用门发现其
+  `CNY 0.074094` 保守 reservation 大于 Campaign 剩余 `CNY 0.059439`，以
+  `campaign_cost_limit` 安全终止；reserved/unknown 均归零。
+- 第一次 execution 检索已把 `sanic/log.py` 和错误 `"root"` 配置以 rank 1 返回，但随后序列为
+  2 次 `retrieve_code`、4 次 `read_file`，其中第三次相同读取被 `NoProgressPolicy` 拒绝；没有
+  `replace_text`、`run_check`、有效编辑或 validation。源码 revision 始终未变，protected validation
+  保留为 `UNKNOWN`，不是 false。
+- 80-event Trace 的 SHA-256 为
+  `139a77ec9dacfd4a590b6693e405881bd8601cfa7ac8a222c4a545f35ab73d3a`，离线 projection hash 为
+  `5cda769d49abd799b8cf8b1c4347f9580380318cce3c8e7cef553ccb3e0755d3`；终态包验证通过，open/unknown
+  effect 为 0。结果冻结在 `benchmarks/real-model-post-smoke-sanic5-result-v1.yaml`，不加入原 Smoke
+  的 3/5 coverage、0/3 success 或费用聚合，也没有复跑。
+
 ## 2026-11-02 Post-Smoke 十任务 census 与 Sanic-5 零费用入选
 
 - 原五任务 Smoke 与 3/5 coverage、0/3 success 保持冻结；另从 16 条已揭示 development 中排除
@@ -26,7 +48,8 @@
   `paid_execution_authorized=false`，本批没有外部调用和费用。
 - 新增 3 条单测从 registry、原 Smoke、历史付费集合、冻结 RAG 与 A/B manifest 反推 10 条 population、
   2 条 survivor 和 tie-breaker；来源绑定 workflow 会在 Linux 禁网容器重跑两条 preflight。整仓为
-  **689 passed，11 skipped**，Ruff、格式、workflow YAML/嵌入 Python 和 `git diff --check` 通过。
+  该批选择时整仓为 **689 passed，11 skipped**；后续 Sanic-5 结果冻结后最新整仓为
+  **691 passed，11 skipped**。
 
 ## 2026-11-02 三条 Smoke 负结果后的零费用候选弃跑
 

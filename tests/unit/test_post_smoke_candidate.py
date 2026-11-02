@@ -32,6 +32,16 @@ HARD_PATH = (
     / "result-v1.yaml"
 )
 PROVIDER_PATH = ROOT / "config" / "providers" / "siliconflow-smoke-candidate-preflight-v1.yaml"
+PAID_PROVIDER_PATH = ROOT / "config" / "providers" / "siliconflow-sanic5-post-smoke-v1.yaml"
+PAID_PILOT_PATH = (
+    ROOT
+    / "benchmarks"
+    / "run_ab"
+    / "full"
+    / "sanic-5-root-logger-config"
+    / "real-model-post-smoke-pilot-v1.yaml"
+)
+PAID_RESULT_PATH = ROOT / "benchmarks" / "real-model-post-smoke-sanic5-result-v1.yaml"
 CANDIDATE_MANIFESTS = {
     "sanic-5-root-logger-config": (
         ROOT
@@ -197,3 +207,105 @@ def test_post_smoke_candidate_manifests_are_bounded_and_solution_isolated():
             literal.casefold() not in visible
             for literal in pilot.solution_isolation.forbidden_task_literals
         )
+
+
+def test_sanic5_paid_follow_up_has_an_independent_one_run_budget_contract():
+    selection = _yaml(SELECTION_PATH)
+    smoke = RealModelSmokeSuite.model_validate(_yaml(SMOKE_PATH))
+    provider = load_provider_config(PAID_PROVIDER_PATH)
+    pilot = RealModelPilotManifest.model_validate(_yaml(PAID_PILOT_PATH))
+    visible = canonical_json(pilot.task).casefold()
+
+    assert selection["selected_task_id"] == "sanic-5-root-logger-config"
+    assert selection["original_smoke_suite_unchanged"] is True
+    assert pilot.pilot_id == "sanic-5-root-logger-config-post-smoke-v1"
+    assert pilot.task.task_id not in {task.task_id for task in smoke.tasks}
+
+    assert provider.policy_id == "siliconflow-deepseek-v4-flash-sanic5-post-smoke-012-v1"
+    assert provider.model.id == "deepseek-ai/DeepSeek-V4-Flash"
+    assert provider.request.max_attempts == 1
+    assert provider.fallback_enabled is False
+    assert provider.run_budget.max_cost == Decimal("0.120")
+    assert provider.campaign.max_cost == Decimal("0.120")
+    assert provider.campaign.max_cost_per_call == Decimal("0.120")
+    assert provider.campaign.campaign_id == "siliconflow-sanic5-post-smoke-2026-11-v1"
+    assert provider.ledger_path.endswith(".horizon/siliconflow-sanic5-post-smoke-campaign.sqlite3")
+
+    assert pilot.provider_policy_id == provider.policy_id
+    assert pilot.task.model_policy_id == provider.policy_id
+    assert pilot.max_paid_cost == Decimal("0.120")
+    assert pilot.task.repository.base_commit == pilot.source.buggy_commit
+    assert pilot.task.constraints.allowed_paths == ("sanic/**",)
+    assert pilot.task.constraints.network == "deny"
+    assert pilot.task.constraints.allowed_tools == (
+        "read_file",
+        "retrieve_code",
+        "replace_text",
+        "run_check",
+    )
+    assert pilot.task.budgets.max_model_calls == 14
+    assert pilot.task.budgets.max_cost_usd == Decimal("0.120")
+    assert pilot.source.fixed_commit not in visible
+    assert pilot.source.fix_url.casefold() not in visible
+    assert all(
+        literal.casefold() not in visible
+        for literal in pilot.solution_isolation.forbidden_task_literals
+    )
+
+
+def test_sanic5_paid_follow_up_freezes_the_negative_without_changing_smoke():
+    result = _yaml(PAID_RESULT_PATH)
+    provider = load_provider_config(PAID_PROVIDER_PATH)
+    smoke = RealModelSmokeSuite.model_validate(_yaml(SMOKE_PATH))
+    run = result["run"]
+    quality = result["observed_quality"]
+    trace = result["trace"]
+
+    assert result["task_id"] == "sanic-5-root-logger-config"
+    assert result["classification"] == "post_hoc_development_follow_up"
+    assert result["scope"] == {
+        "original_smoke_suite_unchanged": True,
+        "included_in_original_smoke_aggregate": False,
+        "blind_or_holdout_evidence": False,
+        "retry_performed": False,
+        "fallback_performed": False,
+    }
+    assert result["task_id"] not in {task.task_id for task in smoke.tasks}
+
+    assert run["run_id"] == "run_6e40579b14734e7e979c0a059b0844df"
+    assert run["status"] == "FAILED"
+    assert run["task_succeeded"] is False
+    assert run["failure_reason"] == "campaign_cost_limit"
+    assert run["provider_policy_id"] == provider.policy_id
+    assert run["campaign_id"] == provider.campaign.campaign_id
+    assert Decimal(run["run_cost_cap_cny"]) == provider.run_budget.max_cost
+    assert Decimal(run["campaign_cost_cap_cny"]) == provider.campaign.max_cost
+    assert Decimal(run["settled_cost_cny"]) + Decimal(
+        run["campaign_remaining_cost_cny"]
+    ) == Decimal(run["campaign_cost_cap_cny"])
+    assert Decimal(run["campaign_reserved_cost_cny"]) == 0
+    assert Decimal(run["campaign_unknown_cost_cny"]) == 0
+    assert Decimal(run["budget_stop"]["required_cost_cny"]) > Decimal(
+        run["budget_stop"]["available_cost_cny"]
+    )
+    assert run["model_calls"] == 7
+    assert run["tool_calls"] == 6
+    assert run["source_workspace_unchanged"] is True
+
+    assert quality["correct_location_reached"] is True
+    assert quality["correct_location_evidence"]["path"] == "sanic/log.py"
+    assert quality["correct_location_evidence"]["rank"] == 1
+    assert quality["valid_edit_produced"] is False
+    assert quality["protected_validation_passed"] is None
+    assert quality["acceptance_evidence_unknown"] is True
+    assert quality["write_tool_calls"] == 0
+    assert quality["protected_check_calls"] == 0
+    assert [item["name"] for item in quality["tool_sequence"]].count("read_file") == 4
+    assert [item["name"] for item in quality["tool_sequence"]].count("retrieve_code") == 2
+
+    assert trace["terminal_pack_verified"] is True
+    assert trace["open_effects_present"] is False
+    assert trace["unknown_effects_present"] is False
+    assert trace["open_reservations_present"] is False
+    assert len(trace["trace_sha256"]) == 64
+    assert len(trace["projection_hash"]) == 64
