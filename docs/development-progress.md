@@ -6,6 +6,27 @@
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
 
+## 2026-11-02 三条 Smoke 负结果后的零费用候选弃跑
+
+- 在最新 Harness 上对尚未付费执行的 HTTPie-1 与 Tornado-2 重跑精确 checkout、禁网、零费用
+  preflight。二者均保持初始失败、source unchanged、solution isolation 和累计容量门通过；本地
+  planning/execution/累计预留分别为 `0.036018/0.069528/0.105546` 与
+  `0.040320/0.069528/0.109848` CNY。没有读取凭据、调用模型或访问网络。
+- 新的选择不是按“最便宜”继续试，而是要求候选同时满足冻结 base + English query 的默认 rank-1
+  目标可见性，以及一次有界 `replace_text` 的修改形态。HTTPie-1 的查询证据为 baseline/raw/English
+  rank 1，但 repair 需要 5 次协同替换；Tornado-2 只需一次替换调用，却在 baseline 和四条困难查询
+  中分别为 rank 3 与 7/2/8/4，目标不会由默认首块交付。
+- 两个候选都只通过一侧门，因此新增
+  `benchmarks/real-model-smoke-candidate-selection-v2.yaml`，明确冻结 `decision=abstain`、
+  `selected_task_id=null`、`paid_execution_authorized=false`。这保留 HTTPie-1/Tornado-2 为
+  unevaluated，并防止把 preflight capacity 误写成成功预测或历史授权续期。
+- 三条历史 Smoke 仍是 coverage 3/5、success 0/3、17 次调用、`CNY 0.1455048`、0 个有效编辑和
+  0 次 protected validation；TheFuck/Luigi/Sanic 的失败、unknown 字段、Trace 与零费用回归均未
+  改写。本轮结论只证明“当前没有证据充分的下一次付费候选”，不声称剩余任务不可解或具有泛化性。
+- 新增交叉校验会从冻结 baseline/query-variant ranks、完整 Scripted repair manifest 和三条历史 Run
+  指标反推两个 gate，避免选择 YAML 自证。整仓回归为 **686 passed，11 skipped**；标准 CI 的
+  `ruff check/format src tests`、YAML 解析与 `git diff --check` 均通过。本批外部模型、网络和费用为 0。
+
 ## 2026-11-02 Sanic-2 第十一轮真实模型负结果与 8K 上下文窄修复
 
 - 用户明确授权公开 Sanic-2 AsyncioServer 生命周期代理缺陷的唯一一次付费 Run：模型固定

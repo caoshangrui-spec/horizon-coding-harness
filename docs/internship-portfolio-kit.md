@@ -92,8 +92,8 @@ flowchart LR
 | effect-before-receipt 可保守对账 | Luigi `replace_text/accept_replace` 与 FastAPI `create_file/accept_create` 共 2/2；恢复模型重派 0、重复副作用 0、最终 open effect 0 | 两个固定、作者选择的故障窗口，不承诺 exactly-once |
 | 词法 Code RAG 有冻结定位基线 | 7 项目 24 案例中公开 16 个 development：Hit@1 `11/16`、Hit@5 `16/16`、MRR `0.817708`；8 个 holdout 保持密封 | 有 3 个 degraded；中文困难改写仅 `1/8`，没有 symbol/vector RAG 或端到端收益结论 |
 | 真实 Provider 路径和费用门禁实际运行过 | 11 个 SiliconFlow Pilot、41 个已结算调用，累计 `CNY 0.3628710`；费用、Trace 与 source isolation 可核对 | 11 个 Run 均未完成代码编辑和 protected validation，属于负结果；第十轮正确定位 Luigi-2，第十一轮找到并读取 Sanic-2 目标文件，仍都不能算修复成功 |
-| 真实模型 Smoke 输入与结果已冻结 | 5 个不同项目的低复杂度 development smoke；TheFuck-2、Luigi-2、Sanic-2 各运行唯一一次，当前 coverage `3/5`、success `0/3`、总费用 `CNY 0.1455048`。Luigi-2 命中目标后卡在旧读取合同；Sanic-2 的约 12K 单边读取在 8K Context Projection 压缩后丢失目标类及插入位置上下文，进入重复读取/检索。后续把自动单边窗口收窄到 100 行，并以 8K-context Scripted 回归闭合编辑、验证和 Trace replay | 作者在已知 Scripted Model 修复后选题，不是盲测；三条真实失败均保留。后续回归是 post-run 零费用 Harness 证据，不是付费 Run 复跑、真实成功或 holdout 提升；HTTPie-1 与 Tornado-2 仍 unevaluated |
-| 当前离线回归稳定 | `685 passed, 11 skipped`；标准 CI、外部检索证据和来源绑定 Docker workflow 都是提交级门禁；新增 8K-context 单边读取回归在整仓测试中通过 | 11 个全量入口 skip 需要显式 Docker 镜像；本机结果与公开 runner 结果必须分别报告，不能互相代替 |
+| 真实模型 Smoke 输入、失败与弃跑决策已冻结 | 5 个不同项目的低复杂度 development smoke；TheFuck-2、Luigi-2、Sanic-2 各运行唯一一次，当前 coverage `3/5`、success `0/3`、总费用 `CNY 0.1455048`。Luigi-2 命中目标后卡在旧读取合同；Sanic-2 的约 12K 单边读取在 8K Context Projection 压缩后丢失目标类及插入位置上下文。HTTPie-1 定位稳定但需 5 次协同替换；Tornado-2 补丁小但目标不在默认 rank 1，因此 v2 主动 `abstain` | 作者在已知 Scripted Model 修复后选题，不是盲测；三条真实失败均保留。后续回归与候选筛选是 post-run 零费用 Harness 证据，不是付费 Run 复跑、真实成功或 holdout 提升；HTTPie-1 与 Tornado-2 仍 unevaluated，preflight ready 也不是消费授权 |
+| 当前离线回归稳定 | `686 passed, 11 skipped`；标准 CI、外部检索证据和来源绑定 Docker workflow 都是提交级门禁；候选弃跑交叉校验与 8K-context 单边读取回归在整仓测试中通过 | 11 个全量入口 skip 需要显式 Docker 镜像；本机结果与公开 runner 结果必须分别报告，不能互相代替 |
 
 最新公开复核入口：
 
@@ -272,7 +272,9 @@ Luigi-2 的检索已正确覆盖目标行，但工具协议阻止了编辑；第
 
 这说明真实修复能力尚未达到验收，而不是 Harness 证据无效。负结果分别暴露了规划反馈、大文件
 读取、范围参数、错误路径、费用预留和上下文容量问题，并且 Trace 能定位停止原因。面试时应把
-“可靠性控制层已验证”和“模型任务成功率仍未知”作为两个独立结论。
+“可靠性控制层已验证”和“模型任务成功率仍未知”作为两个独立结论。三条 Smoke 后我们没有继续
+用预算碰运气：HTTPie-1 只通过定位门，Tornado-2 只通过补丁复杂度门，所以 Harness 冻结了
+`abstain`。这体现的是预算治理与证据门控，不是把失败包装成成功。
 
 ### 14. 为什么没有先做 Redis、Celery、Kubernetes 或多 Agent？
 

@@ -5,6 +5,13 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Froze a zero-spend post-run triage for the two unevaluated Smoke tasks. Fresh exact-checkout
+  preflights keep HTTPie-1 and Tornado-2 capacity-ready under the proposal-only CNY 0.120 policy,
+  but neither passes both decision gates: HTTPie has rank-1 base/English target visibility but a
+  five-replacement repair, while Tornado has one bounded replacement call but target ranks
+  3/7/2/8/4 across the frozen baseline and hard variants. Selection v2 therefore records
+  `decision=abstain`, no selected task, and no paid authorization. No credential, model, or network
+  call was made; the three historical failures and their 3/5, 0/3 aggregate remain unchanged.
 - Ran the third frozen real-model Smoke task, Sanic-2, under its own user-authorized CNY 0.120
   Campaign with one Provider attempt per request and no retry or fallback. The only Run settled
   eight model calls and seven read-only tool calls for CNY 0.0673398, then stopped before a ninth

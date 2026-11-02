@@ -833,3 +833,20 @@ projection hash 为 `377cec5eff18be49c3256e5f0882882c8c239e95672797cf7c7168e1ac6
 可见，并继续到编辑、protected validation 和 Trace replay。它不调用外部模型，也不是 Sanic-2
 复跑。十一轮历史 Pilot 现合计 41 个已结算模型调用、`CNY 0.3628710`，仍为 0 个有效编辑和 0 次
 protected validation；单个新样本也不授权降低生产费用 estimator。
+
+## 23. 第十一轮后的候选收口：容量通过，但没有可辩护的下一次付费 Run
+
+HTTPie-1 与 Tornado-2 在最新 Harness 上重新完成禁网、零费用 exact-checkout preflight，均为
+`ready=true`，累计 planning+execution reservation 分别为 `CNY 0.105546` 与 `CNY 0.109848`。
+预检没有读取 Provider 凭据、调用模型或访问网络；它只证明 `CNY 0.120` proposal policy 的容量
+门可通过，不能把“可启动”解释成“值得启动”。
+
+零费用筛选要求候选同时满足两条与前三次失败直接相关的可证伪条件：冻结 base 和 English query
+能在默认首块看到目标，以及已知修复可由一次有界 `replace_text` 表达。HTTPie-1 满足前者，但其
+Scripted repair 需要 5 次协同替换；Tornado-2 满足后者，但 baseline rank 3，四条困难变体为
+7/2/8/4。两者没有任何一个同时通过，所以 v2 选择冻结为 `abstain`，没有 selected task，也没有
+新的付费权限。
+
+这是预算控制的负结果，不是功能缺失：Harness 应能拒绝一场容量足够、但成功假设没有证据支持的
+Campaign。后续只有在新增零费用证据让某个候选同时通过两门，或冻结新的开发候选并明确其评估边界
+后，才值得提出新的单 Run 预算；不得复用历史授权。

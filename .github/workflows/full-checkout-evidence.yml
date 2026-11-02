@@ -32,6 +32,7 @@ on:
       - "benchmarks/run_ab/full/sanic-2-asyncio-start-serving/real-model-smoke-pilot-v1.yaml"
       - "benchmarks/real-model-smoke-evaluator-v1.yaml"
       - "benchmarks/real-model-smoke-candidate-selection-v1.yaml"
+      - "benchmarks/real-model-smoke-candidate-selection-v2.yaml"
       - "config/providers/siliconflow-httpie-pilot.yaml"
       - "config/providers/siliconflow-sanic2-smoke-v1.yaml"
       - "config/providers/siliconflow-smoke-candidate-preflight-v1.yaml"
@@ -323,6 +324,11 @@ jobs:
                   encoding="utf-8"
               )
           )
+          post_triage = yaml.safe_load(
+              Path("benchmarks/real-model-smoke-candidate-selection-v2.yaml").read_text(
+                  encoding="utf-8"
+              )
+          )
           expected = {
               "httpie-1-unique-download-filename",
               "luigi-2-beam-target-path",
@@ -338,6 +344,27 @@ jobs:
               or {row["task_id"] for row in selection["candidates"]} != expected
           ):
               raise SystemExit("Frozen smoke-candidate selection contract drifted")
+
+          post_triage_expected = {
+              "httpie-1-unique-download-filename",
+              "tornado-2-redirect-put-without-body",
+          }
+          post_triage_rows = {
+              row["task_id"]: row for row in post_triage["candidates"]
+          }
+          if (
+              post_triage["decision"] != "abstain"
+              or post_triage["selected_task_id"] is not None
+              or post_triage["paid_execution_authorized"]
+              or post_triage["external_model_called"]
+              or post_triage["network_called_by_evaluator"]
+              or set(post_triage_rows) != post_triage_expected
+              or any(
+                  row["gates"]["all_required_gates_passed"]
+                  for row in post_triage_rows.values()
+              )
+          ):
+              raise SystemExit("Post-run smoke-candidate abstention contract drifted")
 
           reports = {}
           for task in sorted(expected):
@@ -387,6 +414,15 @@ jobs:
               "paid_execution_authorized": False,
               "paid_model_called": False,
               "network_called_by_evaluator": False,
+              "post_triage_decision": post_triage["decision"],
+              "post_triage_candidate_count": len(post_triage_rows),
+              "post_triage_all_required_gate_passed": any(
+                  row["gates"]["all_required_gates_passed"]
+                  for row in post_triage_rows.values()
+              ),
+              "post_triage_paid_execution_authorized": post_triage[
+                  "paid_execution_authorized"
+              ],
               "candidates": reports,
               "excluded_claims": [
                   "real_model_task_success",
@@ -1012,6 +1048,10 @@ jobs:
               and smoke_candidates["all_exact_checkout_preflights_ready"]
               and smoke_candidates["cumulative_budget_gate_passed"]
               and not smoke_candidates["paid_execution_authorized"]
+              and smoke_candidates["post_triage_decision"] == "abstain"
+              and smoke_candidates["post_triage_candidate_count"] == 2
+              and not smoke_candidates["post_triage_all_required_gate_passed"]
+              and not smoke_candidates["post_triage_paid_execution_authorized"]
           )
           paid_model_called = (
               any(report["paid_model_called"] for report in suite_reports)
@@ -1192,7 +1232,8 @@ jobs:
                   f"{smoke_candidates['candidate_count']}`; cumulative budget gate `"
                   f"{smoke_candidates['cumulative_budget_gate_passed']}`; selected `"
                   f"{smoke_candidates['selected_task_id']}`; paid authorization `"
-                  f"{smoke_candidates['paid_execution_authorized']}`"
+                  f"{smoke_candidates['paid_execution_authorized']}`; post-run triage `"
+                  f"{smoke_candidates['post_triage_decision']}`"
               ),
               (
                   "- Dependency-reduced success quality: clean/flagged `"

@@ -13,6 +13,7 @@ from horizon.domain.smoke_evaluation import RealModelSmokeSuite
 ROOT = Path(__file__).resolve().parents[2]
 SUITE_PATH = ROOT / "benchmarks" / "real-model-smoke-v1.yaml"
 SELECTION_PATH = ROOT / "benchmarks" / "real-model-smoke-candidate-selection-v1.yaml"
+SELECTION_V2_PATH = ROOT / "benchmarks" / "real-model-smoke-candidate-selection-v2.yaml"
 PILOT_PATH = (
     ROOT
     / "benchmarks"
@@ -65,6 +66,22 @@ FULL_MANIFESTS = {
 }
 RETRIEVAL_BASELINE_PATH = (
     ROOT / "benchmarks" / "retrieval" / "external-development-v3" / "baseline-index-v8.yaml"
+)
+QUERY_NORMALIZATION_BROAD_PATH = (
+    ROOT
+    / "benchmarks"
+    / "retrieval"
+    / "external-development-v3"
+    / "query-normalization-gate-broad-v1"
+    / "result-v1.yaml"
+)
+QUERY_ROBUSTNESS_PATH = (
+    ROOT
+    / "benchmarks"
+    / "retrieval"
+    / "external-development-v3"
+    / "query-robustness-v1"
+    / "result-v1.yaml"
 )
 
 
@@ -276,4 +293,125 @@ def test_candidate_selection_keeps_known_evidence_and_limitations_explicit():
     assert rows["luigi-2-beam-target-path"]["scripted_replaced_occurrences"] == 1
     assert rows["luigi-2-beam-target-path"]["frozen_target_path_rank"] == 1
     assert rows["luigi-2-beam-target-path"]["frozen_retrieval_status"] == "degraded"
+    assert "holdout" in " ".join(selection["limitations"])
+
+
+def test_post_run_candidate_selection_abstains_when_no_candidate_passes_both_gates():
+    selection = yaml.safe_load(SELECTION_V2_PATH.read_text(encoding="utf-8"))
+    suite = _load_model(SUITE_PATH, RealModelSmokeSuite)
+    suite_tasks = {task.task_id: task for task in suite.tasks}
+    retrieval = yaml.safe_load(RETRIEVAL_BASELINE_PATH.read_text(encoding="utf-8"))
+    retrieval_cases = {case["case_id"]: case for case in retrieval["cases"]}
+    broad = yaml.safe_load(QUERY_NORMALIZATION_BROAD_PATH.read_text(encoding="utf-8"))
+    broad_groups = {group["base_case_id"]: group for group in broad["groups"]}
+    robustness = yaml.safe_load(QUERY_ROBUSTNESS_PATH.read_text(encoding="utf-8"))
+    robustness_groups = {group["base_case_id"]: group for group in robustness["groups"]}
+    observed = {row["task_id"]: row for row in selection["observed_paid_runs"]}
+    rows = {row["task_id"]: row for row in selection["candidates"]}
+
+    assert selection["decision"] == "abstain"
+    assert selection["selected_task_id"] is None
+    assert selection["paid_execution_authorized"] is False
+    assert selection["external_model_called"] is False
+    assert selection["network_called_by_evaluator"] is False
+    assert set(observed) == {
+        "thefuck-2-executable-path-separator",
+        "luigi-2-beam-target-path",
+        "sanic-2-asyncio-start-serving",
+    }
+    assert (
+        set(rows)
+        == set(suite_tasks) - set(observed)
+        == {
+            "httpie-1-unique-download-filename",
+            "tornado-2-redirect-put-without-body",
+        }
+    )
+
+    summary = selection["observed_paid_runs_summary"]
+    assert summary["evaluated_task_count"] == len(observed) == 3
+    assert summary["suite_task_count"] == len(suite_tasks) == 5
+    assert summary["evaluated_success_count"] == 0
+    assert summary["budget_gate_stop_count"] == 3
+    assert summary["valid_edit_count"] == 0
+    assert summary["protected_validation_pass_count"] == 0
+    assert summary["settled_model_call_count"] == sum(
+        row["model_calls"] for row in observed.values()
+    )
+    assert Decimal(summary["settled_cost_cny"]) == sum(
+        (Decimal(row["settled_cost_cny"]) for row in observed.values()),
+        start=Decimal("0"),
+    )
+    assert all(row["task_success"] is False for row in observed.values())
+    assert all(row["valid_edit_produced"] is False for row in observed.values())
+    assert all(row["stop_category"] == "budget_gate" for row in observed.values())
+    assert all(len(row["smoke_result_ref"]) == 64 for row in observed.values())
+    assert all(len(row["trace_sha256"]) == 64 for row in observed.values())
+    for row in observed.values():
+        regression_path = row["zero_cost_regression"].split("::", maxsplit=1)[0]
+        assert (ROOT / regression_path).exists()
+
+    httpie_variants = {
+        name: evidence["baseline_rank"]
+        for name, evidence in broad_groups["httpie-1-unique-download-filename"]["variants"].items()
+    }
+    tornado_variants = {
+        case["variant"]: case["first_relevant_rank"]
+        for case in robustness_groups["tornado-2-redirect-put-without-body"]["cases"]
+    }
+    frozen_variants = {
+        "httpie-1-unique-download-filename": httpie_variants,
+        "tornado-2-redirect-put-without-body": tornado_variants,
+    }
+
+    for task_id, row in rows.items():
+        full_manifest = yaml.safe_load(FULL_MANIFESTS[task_id].read_text(encoding="utf-8"))
+        treatment = next(arm for arm in full_manifest["arms"] if arm["role"] == "single_replan")
+        replacements = [
+            action for action in treatment["actions"] if action["tool"] == "replace_text"
+        ]
+        replaced_occurrences = sum(
+            action["arguments"].get("expected_occurrences", 1) for action in replacements
+        )
+        planning = Decimal(row["local_planning_reserved_cost_cny"])
+        execution = Decimal(row["local_bounded_execution_reserved_cost_cny"])
+        cumulative = Decimal(row["local_planning_execution_reserved_cost_cny"])
+        rank_gate = (
+            row["frozen_target_path_rank"] == 1
+            and row["frozen_query_variant_ranks"]["raw_identifier"] == 1
+            and row["frozen_query_variant_ranks"]["english_paraphrase"] == 1
+        )
+        single_replace_gate = len(replacements) == 1
+
+        assert row["difficulty_band"] == suite_tasks[task_id].difficulty_band
+        assert row["exact_checkout_preflight_ready"] is True
+        assert row["initial_failure_observed"] is True
+        assert row["source_unchanged"] is True
+        assert row["solution_isolation_passed"] is True
+        assert cumulative == planning + execution
+        assert cumulative <= Decimal(selection["proposal_run_cap_cny"])
+        assert len(row["local_preflight_report_ref"]) == 64
+        assert row["frozen_target_path_rank"] == retrieval_cases[task_id]["first_relevant_rank"]
+        assert row["frozen_query_variant_ranks"] == frozen_variants[task_id]
+        assert row["scripted_replace_calls"] == len(replacements)
+        assert row["scripted_replaced_occurrences"] == replaced_occurrences
+        assert row["gates"]["target_rank_1_for_base_and_english_paraphrase"] is rank_gate
+        assert row["gates"]["bounded_single_replace_call"] is single_replace_gate
+        assert row["gates"]["all_required_gates_passed"] is (
+            row["exact_checkout_preflight_ready"] and rank_gate and single_replace_gate
+        )
+
+    assert rows["httpie-1-unique-download-filename"]["gates"] == {
+        "exact_checkout_preflight_ready": True,
+        "target_rank_1_for_base_and_english_paraphrase": True,
+        "bounded_single_replace_call": False,
+        "all_required_gates_passed": False,
+    }
+    assert rows["tornado-2-redirect-put-without-body"]["gates"] == {
+        "exact_checkout_preflight_ready": True,
+        "target_rank_1_for_base_and_english_paraphrase": False,
+        "bounded_single_replace_call": True,
+        "all_required_gates_passed": False,
+    }
+    assert not any(row["gates"]["all_required_gates_passed"] for row in rows.values())
     assert "holdout" in " ".join(selection["limitations"])

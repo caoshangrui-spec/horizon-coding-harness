@@ -439,3 +439,28 @@ Scripted Agent 回归按 Sanic 形态构造第 646 行附近目标和远端长�
 目标代码仍可见，并能继续到精确编辑、protected validation 和 Trace replay。它没有调用真实模型，
 没有复跑 Sanic-2，也不能把上述真实 Run 改写为成功。生产费用 estimator 未因这一个样本下调；任何
 未来付费尝试都需要基于新源码重新 preflight 并取得新的明确授权。
+
+## 13. 三条负结果后的零费用候选筛选：本轮主动弃跑
+
+三条唯一付费 Run 都以 `budget_gate` 停止，合计 coverage `3/5`、success `0/3`、17 次模型调用、
+`CNY 0.1455048`，且没有有效编辑或 protected validation。对应的窄修复都已有零费用回归：
+TheFuck-2 固定真实检索查询后的 evidence reuse，Luigi-2 固定单边读取补界，Sanic-2 固定 8K
+Context Projection 下的 100 行窗口。历史失败和自动指标保持不变。
+
+在当前 Harness 源码上，HTTPie-1 与 Tornado-2 又分别完成一次精确 checkout、禁网、零费用
+preflight。二者均确认初始失败、source unchanged、solution isolation 与累计费用容量通过；本地
+planning+execution reservation 分别为 `CNY 0.105546` 和 `CNY 0.109848`，没有读取凭据、调用模型
+或联网。`ready=true` 只说明允许的最坏请求序列装得进 `CNY 0.120`，不是成功概率或消费授权。
+
+冻结候选证据的交集为空：
+
+| 候选 | 定位证据 | 已知修改形态 | 决定 |
+|---|---|---|---|
+| HTTPie-1 | baseline、raw identifier、English paraphrase 均 rank 1；bare test rank 2，中文为空 | 5 次精确替换、5 个位置，包含 helper 与调用点协同修改 | 弃跑：三条 failure-derived 修复没有降低 multi-edit 风险 |
+| Tornado-2 | baseline rank 3；四条困难查询依次 rank 7/2/8/4，均不是默认 rank 1 | 1 次精确替换，同一 predicate 两处命中 | 弃跑：需要押注模型主动扩大 `max_chunks`，现有真实 Trace 没有支持该假设 |
+
+因此
+[`real-model-smoke-candidate-selection-v2.yaml`](../benchmarks/real-model-smoke-candidate-selection-v2.yaml)
+冻结 `decision=abstain`、`selected_task_id=null`、`paid_execution_authorized=false`。这不是声称两题
+不可解，而是拒绝在没有同时满足“默认可见目标 + 有界单次替换”的候选上继续用预算试错。下一次
+付费评估必须先形成新的、可由零费用证据反驳的成功假设，再单独取得用户授权。

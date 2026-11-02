@@ -1,0 +1,143 @@
+schema_version: 1
+selection_id: bugsinpy-real-model-smoke-next-candidate-v2
+evaluated_at: "2026-11-02"
+suite_id: bugsinpy-real-model-smoke-v1
+claim_scope: post_three_run_zero_cost_failure_triage_and_candidate_abstention
+provider_policy_id: siliconflow-deepseek-v4-flash-smoke-candidate-012-v1
+model_id: deepseek-ai/DeepSeek-V4-Flash
+proposal_run_cap_cny: "0.120"
+paid_execution_authorized: false
+external_model_called: false
+network_called_by_evaluator: false
+
+decision: abstain
+selected_task_id: null
+selection_reason: >-
+  Neither remaining task satisfies both evidence gates needed for another paid attempt.
+  HTTPie-1 has rank-1 target visibility for the frozen base and English paraphrase queries,
+  but its known repair needs five coordinated replacements and none of the three failure-derived
+  Harness changes de-risks multi-edit execution. Tornado-2 has one bounded replacement call, but
+  the target path is rank 3 in the frozen baseline and ranks 7, 2, 8, and 4 across the frozen hard
+  query variants, outside retrieve_code's default rank-1 delivery. A new paid attempt would
+  therefore be budget trial-and-error rather than a falsifiable test of a repaired precursor.
+
+decision_gates:
+  - exact_checkout_preflight_ready
+  - target_rank_1_for_base_and_english_paraphrase
+  - bounded_single_replace_call
+
+observed_paid_runs_summary:
+  evaluated_task_count: 3
+  suite_task_count: 5
+  evaluated_success_count: 0
+  budget_gate_stop_count: 3
+  valid_edit_count: 0
+  protected_validation_pass_count: 0
+  settled_model_call_count: 17
+  settled_cost_cny: "0.1455048"
+
+observed_paid_runs:
+  - task_id: thefuck-2-executable-path-separator
+    run_id: run_9cfbde76d85a4bfcbf1f3463fbacf8ed
+    task_success: false
+    correct_location_reached: false
+    valid_edit_produced: false
+    protected_validation_passed: null
+    settled_cost_cny: "0.013263"
+    model_calls: 2
+    stop_category: budget_gate
+    diagnosed_precursor: retrieval_target_misfocus
+    zero_cost_regression: benchmarks/run_ab/full/thefuck-2-executable-path-separator/retrieval-reuse-v1.yaml
+    smoke_result_ref: bcf94baf895f3d5e59224bb9118394dcb255ed4efe7cf0311f78f7f8866a4f19
+    trace_sha256: cf4400e744c51a3c61d0bb11f57eae3f5e9c4aff74adaf2ab3c1926e2b5b44d5
+
+  - task_id: luigi-2-beam-target-path
+    run_id: run_940f6a82909a444f82b58c142191b716
+    task_success: false
+    correct_location_reached: true
+    valid_edit_produced: false
+    protected_validation_passed: null
+    settled_cost_cny: "0.064902"
+    model_calls: 7
+    stop_category: budget_gate
+    diagnosed_precursor: one_sided_read_argument_rejected
+    zero_cost_regression: benchmarks/run_ab/luigi2-one-sided-read-recovery-v1.yaml
+    smoke_result_ref: d9167f36833f1fe7714795443146290be6d295a32cac6a213eb029c45739d0d3
+    trace_sha256: db47fe9fae9c25f3fbd27aadf51707b21f20397df43c3e2b0f753acf474844ce
+
+  - task_id: sanic-2-asyncio-start-serving
+    run_id: run_977d419fd17f4bbd9e1588515e8d0192
+    task_success: false
+    correct_location_reached: null
+    valid_edit_produced: false
+    protected_validation_passed: null
+    settled_cost_cny: "0.0673398"
+    model_calls: 8
+    stop_category: budget_gate
+    diagnosed_precursor: one_sided_read_exceeded_context_projection
+    zero_cost_regression: tests/integration/test_agent_loop.py::test_one_sided_read_keeps_local_code_visible_in_an_8k_context
+    smoke_result_ref: d75df3f1e01968f1aad1527045aa8276a3bd3b8a9da8960dc684873f547ba388
+    trace_sha256: 765434badc1e05c3a98294da5dc3a528d7152d687a09a74a415c77be8c9b9279
+
+candidates:
+  - task_id: httpie-1-unique-download-filename
+    difficulty_band: medium
+    pilot_manifest_path: run_ab/full/httpie-1-unique-download-filename/real-model-smoke-candidate-v1.yaml
+    exact_checkout_preflight_ready: true
+    initial_failure_observed: true
+    source_unchanged: true
+    solution_isolation_passed: true
+    local_planning_reserved_cost_cny: "0.036018"
+    local_bounded_execution_reserved_cost_cny: "0.069528"
+    local_planning_execution_reserved_cost_cny: "0.105546"
+    local_preflight_report_ref: d159e7483849c0ef8e11ff085c0ce312218a177078f11052968f81369a031a4f
+    frozen_target_path_rank: 1
+    frozen_query_variant_ranks:
+      raw_identifier: 1
+      english_paraphrase: 1
+      bare_test_sentence: 2
+      chinese_description: null
+    scripted_replace_calls: 5
+    scripted_replaced_occurrences: 5
+    repair_shape: multi_edit_helper_and_call_sites
+    gates:
+      exact_checkout_preflight_ready: true
+      target_rank_1_for_base_and_english_paraphrase: true
+      bounded_single_replace_call: false
+      all_required_gates_passed: false
+    disposition: abstained_multi_edit_not_derisked
+
+  - task_id: tornado-2-redirect-put-without-body
+    difficulty_band: easy
+    pilot_manifest_path: run_ab/full/tornado-2-redirect-put-without-body/real-model-smoke-candidate-v1.yaml
+    exact_checkout_preflight_ready: true
+    initial_failure_observed: true
+    source_unchanged: true
+    solution_isolation_passed: true
+    local_planning_reserved_cost_cny: "0.040320"
+    local_bounded_execution_reserved_cost_cny: "0.069528"
+    local_planning_execution_reserved_cost_cny: "0.109848"
+    local_preflight_report_ref: 8e015f95578691742f07972debc6f272cbb04842f6f57a5e9967159366da0625
+    frozen_target_path_rank: 3
+    frozen_query_variant_ranks:
+      raw_identifier: 7
+      english_paraphrase: 2
+      failure_description: 8
+      chinese_description: 4
+    scripted_replace_calls: 1
+    scripted_replaced_occurrences: 2
+    repair_shape: duplicated_boolean_predicate
+    gates:
+      exact_checkout_preflight_ready: true
+      target_rank_1_for_base_and_english_paraphrase: false
+      bounded_single_replace_call: true
+      all_required_gates_passed: false
+    disposition: abstained_default_rank_target_not_visible
+
+limitations:
+  - The two remaining tasks and all scripted repairs are author-known development cases, not holdout evidence.
+  - Local preflight report refs and planning costs include the local absolute source path and may differ on Linux.
+  - Frozen retrieval queries are evaluator-authored and do not predict a future model-generated query.
+  - Preflight readiness proves bounded launch capacity only; it is not a success forecast or spending authority.
+  - The Sanic regression is a synthetic 8K-context interaction test, not an exact-checkout paid Run replay.
+  - Abstention does not establish that either remaining task is unsolvable or that the Harness generalizes.
