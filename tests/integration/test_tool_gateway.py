@@ -1,4 +1,5 @@
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -163,6 +164,62 @@ def test_read_range_contract_completes_partial_and_rejects_oversized_ranges(tmp_
     assert "line bounds must be integers" in invalid_boolean.content
     assert oversized.status == "error"
     assert "limited to 400 lines" in oversized.content
+
+
+def test_validation_error_returns_compact_argument_feedback_without_values(tmp_path, task):
+    gateway, workspace, _ = make_gateway(tmp_path, task)
+    private_value = "do-not-echo-" + "x" * 2_000
+
+    outcome = gateway.dispatch_safe(
+        "replace_text",
+        {"path": "src/parser.py", "old": private_value},
+    )
+
+    assert outcome.status == "error"
+    assert outcome.content.startswith("ToolArgumentPolicy: tool=replace_text; ")
+    assert private_value not in outcome.content
+    assert len(outcome.content) < 800
+    payload = json.loads(outcome.content.split("; ", 1)[1])
+    assert payload == {
+        "allowed_keys": ["expected_occurrences", "new", "old", "path"],
+        "issues": [{"field": "$.new", "message": "Field required", "type": "missing"}],
+        "next": "retry_once_with_corrected_arguments",
+        "omitted_issue_count": 0,
+        "required_keys": ["new", "old", "path"],
+        "supplied_keys": ["old", "path"],
+    }
+    assert (
+        (workspace / "src/parser.py").read_text(encoding="utf-8").endswith("    return [value]\n")
+    )
+    assert outcome.workspace_revision_before == outcome.workspace_revision_after
+    assert outcome.workspace_manifest_ref is not None
+
+
+@pytest.mark.parametrize(
+    "edits",
+    [
+        [
+            {"path": "src/parser.py", "old": "return [value]", "new": "return []"},
+            {"path": "src/parser.py", "old": "parse", "new": "parse_value"},
+        ],
+        [{"path": f"src/file-{index}.py", "old": "old", "new": "new"} for index in range(9)],
+    ],
+)
+def test_malformed_patch_shape_reaches_argument_feedback_without_writing(
+    tmp_path,
+    task,
+    edits,
+):
+    gateway, workspace, _ = make_gateway(tmp_path, task)
+    before = (workspace / "src/parser.py").read_text(encoding="utf-8")
+
+    outcome = gateway.dispatch_safe("apply_patch", {"edits": edits})
+
+    assert outcome.status == "error"
+    assert outcome.content.startswith("ToolArgumentPolicy: tool=apply_patch;")
+    assert "retry_once_with_corrected_arguments" in outcome.content
+    assert (workspace / "src/parser.py").read_text(encoding="utf-8") == before
+    assert outcome.workspace_revision_before == outcome.workspace_revision_after
 
 
 def test_search_reports_result_truncation_and_recommends_ranked_retrieval(tmp_path, task):

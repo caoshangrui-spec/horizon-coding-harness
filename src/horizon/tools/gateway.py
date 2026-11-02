@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from uuid import uuid4
 
-from pydantic import Field, model_validator
+from pydantic import Field, ValidationError, model_validator
 
 from horizon.adapters.persistence.artifacts import reject_link
 from horizon.adapters.workspace.snapshot import FileEntry, FileSnapshot, SnapshotManager
@@ -17,6 +17,7 @@ from horizon.domain.plan import WorkItem
 from horizon.domain.ports import AcceptanceExecutorPort, CodeRetrievalPort
 from horizon.domain.task import TaskSpec, relative_pattern
 from horizon.domain.tools import (
+    TOOL_ARGUMENT_POLICY,
     WRITE_TOOLS,
     AcceptanceResult,
     CreateRecoveryAssessment,
@@ -33,6 +34,7 @@ MAX_READ_OUTPUT_CHARS = 32 * 1024
 MAX_READ_LINES = 400
 MAX_SEARCH_BYTES = 2 * 1024 * 1024
 MAX_SEARCH_RESULTS = 30
+MAX_TOOL_ARGUMENT_FEEDBACK_ISSUES = 4
 
 
 class SearchArgs(Contract):
@@ -285,6 +287,47 @@ def tool_definitions() -> tuple[ToolDefinition, ...]:
             },
         ),
     )
+
+
+def _tool_argument_location(location: tuple[object, ...]) -> str:
+    rendered = "$"
+    for part in location:
+        if isinstance(part, int):
+            rendered += f"[{part}]"
+        else:
+            rendered += f".{part}"
+    return rendered
+
+
+def _tool_argument_feedback(
+    name: str,
+    arguments: dict,
+    definition: ToolDefinition,
+    error: ValidationError,
+) -> str:
+    raw_issues = error.errors(
+        include_url=False,
+        include_context=False,
+        include_input=False,
+    )
+    issues = [
+        {
+            "field": _tool_argument_location(tuple(issue.get("loc", ()))),
+            "message": str(issue.get("msg", "Invalid argument"))[:160],
+            "type": str(issue.get("type", "invalid_argument")),
+        }
+        for issue in raw_issues[:MAX_TOOL_ARGUMENT_FEEDBACK_ISSUES]
+    ]
+    properties = definition.parameters.get("properties", {})
+    payload = {
+        "allowed_keys": sorted(str(key) for key in properties),
+        "issues": issues,
+        "next": "retry_once_with_corrected_arguments",
+        "omitted_issue_count": max(0, len(raw_issues) - len(issues)),
+        "required_keys": sorted(str(key) for key in definition.parameters.get("required", [])),
+        "supplied_keys": sorted(str(key) for key in arguments),
+    }
+    return f"{TOOL_ARGUMENT_POLICY}: tool={name}; {canonical_json(payload)}"
 
 
 class WorkspaceToolGateway:
@@ -1226,6 +1269,16 @@ class WorkspaceToolGateway:
     ) -> ToolOutcome:
         try:
             return self.dispatch(name, arguments, attempt_id, write_precondition)
+        except ValidationError as exc:
+            definition = next(tool for tool in self.definitions if tool.name == name)
+            revision, manifest_ref = self._snapshot()
+            return self._outcome(
+                "error",
+                _tool_argument_feedback(name, arguments, definition, exc),
+                revision,
+                revision,
+                manifest_ref if name in WRITE_TOOLS else None,
+            )
         except (HorizonError, ValueError) as exc:
             revision, manifest_ref = self._snapshot()
             return self._outcome(

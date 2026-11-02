@@ -124,7 +124,9 @@ effective_input_cap = min(configured_input_cap, affordable_input)
 3. 从第一个 incomplete 单元开始全部保留；
 4. 更旧且完整的单元折叠成一个 user 消息；
 5. 折叠消息记录全部被折叠单元的聚合 digest；最多最近 20 个旧单元另记录工具名、参数 hash、
-   内容 hash 和最多 240 字符片段；更早单元只有聚合 digest，不伪造细节；
+   内容 hash 和最多 240 字符片段；更早单元只有聚合 digest，不伪造细节；删除摘要细节时优先
+   保留最新 `RetrievalQueryPolicy`、`NoProgressPolicy`、`ExecutionReplanPolicy` 或
+   `ToolArgumentPolicy` controller feedback，避免压缩后立刻重复同一错误动作；
 6. 每次候选变化都重建完整请求；如果字符数或 token 上界仍超限，按最旧到最新删除摘要中的
    单元细节，同时记录 retained/omitted fact count；聚合 digest、合同和 Memory snapshot
    ref/hash/count 不删除；

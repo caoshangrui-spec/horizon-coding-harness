@@ -131,7 +131,7 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | main 的[标准 CI](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/ci.yml)运行离线回归和三条演示；主作品集、直接子进程 timeout 与上下文容量恢复分别递归复核并发布 14 天 EvidencePack；[禁网 Docker Evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/full-checkout-evidence.yml)独立运行 | CI 不读取 API Key、不运行付费模型；workflow artifact 通常需要登录 GitHub 下载，不是永久发布资产 |
-| 离线回归 | `677 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试；真实 Luigi-2 preflight 与 exact-checkout post-run 回归已在本机禁网 Docker 通过，唯一付费 Run 的失败结果仍按原样保留 |
+| 离线回归 | `683 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试；真实 Luigi-2 preflight 与 exact-checkout post-run 回归已在本机禁网 Docker 通过，唯一付费 Run 的失败结果仍按原样保留 |
 | [通用终态 EvidencePack](docs/terminal-evidence-pack.md) | `SUCCEEDED`、`FAILED`、`CANCELLED` 均可导出并离线复核 Trace、最终投影和 schema v2 可靠性摘要；区分 unknown 验收、已知 check 失败与 unknown/open effect，真实检索降级与工具回执原子绑定，确定性上下文折叠以 `context_compacted` 单独标记，兼容验证 schema v1 | model fallback、语义摘要和 model degradation 尚无 Trace history；自洽哈希不是来源签名，也不证明外部 Provider 或副作用已结清 |
 | [终态 Run 顺序汇总](docs/terminal-suite-evaluation.md) | 有序聚合已有终态 Run；递归验证每个子 EvidencePack，分列结果、验收未知/失败、clean/quality-flagged success、检索降级与 unknown/open effect | 不执行任务，不是 batch scheduler，也没有并发性能声明 |
 | [可恢复的顺序 Agent 任务批次](docs/sequential-agent-batch.md) | `agent batch` 按 1～100 条 TaskSpec manifest 顺序执行；任务间原子保存 checkpoint，确定性 invocation/Run receipt 支持重启识别，终态失败原样记录后继续，非终态/不确定 case 阻塞后项；全部闭合后复用 terminal-suite | 单机并发度 1；不自动越过人工/悬空 effect/旧 Worker 边界，不是 20～30 个真实模型任务成绩或吞吐声明 |
@@ -303,6 +303,9 @@ Task/Plan/权限/验收/预算/模型策略/工具 Schema/workspace 绑定为内
 Run Memory；失败结果保留为失败，未知副作用保持 unresolved，旧 workspace revision 的观察
 标为 stale 且不向模型暴露旧片段。每个模型请求绑定对应 Memory Artifact 和事件边界，恢复时
 按历史边界重建，模型 `submit` 声明不能直接写入事实。
+工具参数验证失败会形成紧凑 `ToolArgumentPolicy`：只给字段问题和 allowed/required/supplied
+key，不回显候选代码值。回执完整保留在 transcript/Artifact/EventLog/Trace 中，但不再复制进
+Run Memory；上下文折叠仍优先保留最新纠错指令。该路径不自动重试或增加预算。
 每个模型提出的 `replace_text`、`apply_patch` 和 `create_file` 还会自动绑定该请求实际看到的
 workspace tree revision、来源 model call 和派发前 manifest。若用户或其他进程在模型请求后改变
 任何快照可见文件，旧写动作以 `StaleWriteConflict` 留下 error receipt，前后 revision 不变且不
@@ -614,7 +617,7 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **677 passed，11 skipped**；11 项跳过项需要本机 Docker daemon。v11 新增的
+当前离线全量回归为 **683 passed，11 skipped**；11 项跳过项需要本机 Docker daemon。v11 新增的
 Sanic-3、TheFuck-5 与 Luigi-7 已由本地完整 Harness 确认 buggy 失败、Baseline 等待、Treatment 恢复；
 二十二案例又由[公开 workflow](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40804131201)
 的生产 Docker adapter 统一通过 22/22。另有一次真实

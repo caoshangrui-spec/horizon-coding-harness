@@ -12,7 +12,7 @@ from horizon.domain.plan import Plan
 from horizon.domain.ports import ArtifactStorePort
 from horizon.domain.retrieval import EvidencePack
 from horizon.domain.run import Run
-from horizon.domain.tools import ToolCallRecord
+from horizon.domain.tools import TOOL_ARGUMENT_POLICY, ToolCallRecord
 
 SUPPORTED_MEMORY_TOOLS = frozenset(
     {
@@ -28,6 +28,10 @@ SUPPORTED_MEMORY_TOOLS = frozenset(
 MAX_MEMORY_EVIDENCE_BYTES = 512 * 1024
 MAX_RETRIEVAL_MEMORY_CHUNKS = 2
 MAX_RETRIEVAL_SNIPPET_CHARS = 96
+TRANSCRIPT_ONLY_FEEDBACK_PREFIXES = (
+    f"{RETRIEVAL_QUERY_POLICY}:",
+    f"{TOOL_ARGUMENT_POLICY}:",
+)
 
 
 def _kind(tool_name: str) -> str:
@@ -123,13 +127,10 @@ class RunMemoryProjector:
             content = raw.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise IntegrityError("Tool memory evidence must be UTF-8 text") from exc
-        if (
-            record.name == "retrieve_code"
-            and record.status == "error"
-            and content.startswith(f"{RETRIEVAL_QUERY_POLICY}:")
-        ):
-            # The controller feedback points back to an earlier settled EvidencePack. Keeping
-            # another memory entry would evict the evidence it tells the model to reuse.
+        if record.status == "error" and content.startswith(TRANSCRIPT_ONLY_FEEDBACK_PREFIXES):
+            # Controller feedback already remains in the canonical Agent transcript. Copying it
+            # into Run Memory would duplicate prompt bytes and can evict the evidence needed to
+            # act on the policy.
             return None
         dependency_revision = record.workspace_revision_after or record.workspace_revision_before
         status = "active" if dependency_revision == current_revision else "stale"

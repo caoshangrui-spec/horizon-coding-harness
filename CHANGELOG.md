@@ -5,6 +5,13 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Added compact, schema-derived `ToolArgumentPolicy` receipts for model tool-validation failures.
+  Receipts expose at most four field/type/message issues plus allowed, required, and supplied key
+  names, never argument values; malformed multi-file writes now reach this safe error path before
+  any effect instead of failing while building their write precondition. The canonical transcript,
+  content-addressed Artifact, EventLog, and Trace retain the receipt, while Run Memory omits the
+  duplicate copy. Deterministic context compaction preserves the latest correction, and the normal
+  model/tool budgets and no-progress guard remain authoritative; no retry or fallback was added.
 - Ran the second frozen real-model Smoke task, Luigi-2, under a new user-authorized independent
   CNY 0.120 Campaign with one Provider attempt per request and no fallback. The only Run reached
   the evaluator-known production location four times but produced no edit or validation: five

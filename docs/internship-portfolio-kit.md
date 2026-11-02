@@ -93,7 +93,7 @@ flowchart LR
 | 词法 Code RAG 有冻结定位基线 | 7 项目 24 案例中公开 16 个 development：Hit@1 `11/16`、Hit@5 `16/16`、MRR `0.817708`；8 个 holdout 保持密封 | 有 3 个 degraded；中文困难改写仅 `1/8`，没有 symbol/vector RAG 或端到端收益结论 |
 | 真实 Provider 路径和费用门禁实际运行过 | 10 个 SiliconFlow Pilot、33 个已结算调用，累计 `CNY 0.2955312`；费用、Trace 与 source isolation 可核对 | 10 个 Run 均未完成代码编辑和 protected validation，属于负结果；第十轮虽正确定位 Luigi-2 目标行，仍不能算修复成功 |
 | 真实模型 Smoke 输入与结果已冻结 | 5 个不同项目的低复杂度 development smoke；TheFuck-2 与 Luigi-2 各运行唯一一次，当前 coverage `2/5`、success `0/2`、总费用 `CNY 0.078165`。Luigi-2 已命中正确源码区域，但 5 次单边 `read_file` 参数错误使其在编辑前由预算门停止；随后用 382-file exact checkout 将原始查询、`440-479` 补界、replan、编辑、验证和 Trace replay 固化为零外部费用回归 | 作者在已知 Scripted Model 修复后选题，不是盲测；两条真实失败均保留。新增场景是 post-run Scripted development 证据，不是对 Luigi Run 的复跑、真实成功或 holdout 提升；其余 3 条仍 unevaluated |
-| 当前离线回归稳定 | `677 passed, 11 skipped`；标准 CI、外部检索证据和来源绑定 Docker workflow 都是提交级门禁；Luigi-2 专属禁网 Docker preflight 和 exact-checkout post-run 回归均已在本机通过 | 11 个全量入口 skip 需要显式 Docker 镜像；本机结果与公开 runner 结果必须分别报告，不能互相代替 |
+| 当前离线回归稳定 | `683 passed, 11 skipped`；标准 CI、外部检索证据和来源绑定 Docker workflow 都是提交级门禁；Luigi-2 专属禁网 Docker preflight 和 exact-checkout post-run 回归均已在本机通过 | 11 个全量入口 skip 需要显式 Docker 镜像；本机结果与公开 runner 结果必须分别报告，不能互相代替 |
 
 最新公开复核入口：
 
@@ -150,7 +150,7 @@ Python 3.12/3.13 · Pydantic · Typer · SQLite/FTS5 · Docker · Pytest · GitH
   FTS5 code retrieval, typed tool authorization, protected Docker validation, and offline EvidencePack
   verification.
 - Evaluated the harness on 22 full-checkout scripted cases, three multi-stage recovery cases, and two
-  hard-crash cases in network-disabled Docker workflows; maintained 677 passing offline tests while
+  hard-crash cases in network-disabled Docker workflows; maintained 683 passing offline tests while
   explicitly preserving ten unsuccessful real-model pilot runs as negative evidence.
 
 ## 8. STAR 项目故事
@@ -175,7 +175,7 @@ Lease epoch 做提交围栏，用内容寻址 Artifact 保存大对象；把模�
 ### Result
 
 本地一键演示能够在写入生效、receipt 前强制退出并安全恢复；公开 workflow 通过 22/22 完整
-checkout、3/3 多阶段和 2/2 hard-crash 合同，离线回归为 677 passed。真实模型十轮没有完成修复，
+checkout、3/3 多阶段和 2/2 hard-crash 合同，离线回归为 683 passed。真实模型十轮没有完成修复，
 但失败被完整保留并驱动了上下文容量、检索缓存隔离、工具协议和预算诊断改进。
 
 ### Reflection

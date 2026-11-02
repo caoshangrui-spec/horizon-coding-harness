@@ -19,11 +19,13 @@ from horizon.domain.model import (
     ToolDefinition,
 )
 from horizon.domain.run import Run
+from horizon.domain.tools import TOOL_ARGUMENT_POLICY
 
 CONTROLLER_FEEDBACK_PREFIXES = (
     "RetrievalQueryPolicy:",
     "NoProgressPolicy:",
     "ExecutionReplanPolicy:",
+    f"{TOOL_ARGUMENT_POLICY}:",
 )
 
 

@@ -9,6 +9,7 @@ from horizon.domain.task import Identifier, Text
 
 Digest = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
 WRITE_TOOLS = frozenset({"replace_text", "apply_patch", "create_file"})
+TOOL_ARGUMENT_POLICY = "ToolArgumentPolicy"
 
 
 def write_target_paths(name: str, arguments: dict[str, Any]) -> tuple[str, ...]:
@@ -26,12 +27,14 @@ def write_target_paths(name: str, arguments: dict[str, Any]) -> tuple[str, ...]:
         edits = arguments.get("edits")
         if not isinstance(edits, (list, tuple)):
             return ()
+        if not 1 <= len(edits) <= 8:
+            return ()
         paths = tuple(
             edit.get("path")
             for edit in edits
             if isinstance(edit, dict) and isinstance(edit.get("path"), str) and edit.get("path")
         )
-        return paths if len(paths) == len(edits) else ()
+        return paths if len(paths) == len(edits) and len(paths) == len(set(paths)) else ()
     return ()
 
 

@@ -314,7 +314,29 @@ def test_projection_compacts_a_pilot_sized_recent_tool_result():
     )
 
 
-def test_compaction_keeps_latest_controller_feedback_from_a_multi_tool_turn():
+@pytest.mark.parametrize(
+    ("policy", "expected", "evidence_marker"),
+    [
+        (
+            'RetrievalQueryPolicy: Next call read_file {"end_line":155,'
+            '"path":"thefuck/utils.py","start_line":16}.',
+            "RetrievalQueryPolicy: Next call read_file",
+            "thefuck/utils.py",
+        ),
+        (
+            'ToolArgumentPolicy: tool=replace_text; {"issues":[{"field":"$.new",'
+            '"message":"Field required","type":"missing"}],'
+            '"next":"retry_once_with_corrected_arguments"}',
+            "ToolArgumentPolicy: tool=replace_text",
+            "$.new",
+        ),
+    ],
+)
+def test_compaction_keeps_latest_controller_feedback_from_a_multi_tool_turn(
+    policy,
+    expected,
+    evidence_marker,
+):
     retrieval_call = ToolCall(
         id="retrieval-1",
         function=FunctionCall(
@@ -329,10 +351,6 @@ def test_compaction_keeps_latest_controller_feedback_from_a_multi_tool_turn():
             arguments={"query": "PATH split executable find"},
         ),
     )
-    policy = (
-        'RetrievalQueryPolicy: Next call read_file {"end_line":155,'
-        '"path":"thefuck/utils.py","start_line":16}.'
-    )
     messages = (
         *_prefix(),
         ModelMessage(role="assistant", tool_calls=(retrieval_call, repeated_call)),
@@ -345,8 +363,8 @@ def test_compaction_keeps_latest_controller_feedback_from_a_multi_tool_turn():
     assert projection.compacted is True
     assert projection.compacted_unit_count == 1
     summary = projection.messages[2].content or ""
-    assert "RetrievalQueryPolicy: Next call read_file" in summary
-    assert "thefuck/utils.py" in summary
+    assert expected in summary
+    assert evidence_marker in summary
     assert '"controller_feedback":true' in summary
     assert "x" * 241 not in summary
 

@@ -19,6 +19,8 @@
 - 未知副作用标为 `unresolved`，没有输出 Artifact，也不能被当作成功或失败事实；
 - 每次模型调用绑定内容寻址的 `RunMemorySnapshot`，压缩后仍重新注入有界视图；
 - 跨进程恢复按原 reservation 的事件序号重建快照并逐字段比较。
+- `RetrievalQueryPolicy` 与 `ToolArgumentPolicy` 等控制器纠错回执保留在 canonical transcript、
+  Artifact、EventLog 和 Trace 中，但不重复投影为 Memory Entry，避免挤出它们要求复用的证据。
 
 当前明确不提供：
 
@@ -170,6 +172,8 @@ run_memory_excerpt_chars = 240
 - Run Memory ref/hash/count 在字符压缩后仍绑定；
 - 正常 read/edit/check 流中旧 read 失效、最新 edit/check 保持 active；
 - response settlement 中断与显式只读重试后，按历史事件边界恢复且不重复模型调用。
+- 紧凑工具参数纠错回执只在 transcript 中出现一次，Memory 不生成重复条目；上下文压缩另行保留
+  最新 controller feedback。
 
 这些验证使用 Scripted Fake Model 和本地 Artifact/Event Store，不联网、不调用付费模型。它们
 证明投影、失效和恢复合同，不证明模型会有效利用记忆。Project Memory 只有在 repo identity、

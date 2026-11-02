@@ -9,7 +9,7 @@ from horizon.application.retrieval_control import RETRIEVAL_QUERY_POLICY
 from horizon.domain.common import canonical_json, digest
 from horizon.domain.errors import IntegrityError
 from horizon.domain.retrieval import EvidenceChunk, EvidencePack
-from horizon.domain.tools import ToolCallRecord, ToolCallReservation
+from horizon.domain.tools import TOOL_ARGUMENT_POLICY, ToolCallRecord, ToolCallReservation
 
 REVISION_A = "a" * 64
 REVISION_B = "b" * 64
@@ -195,6 +195,38 @@ def test_run_memory_preserves_two_ranked_retrieval_chunks_for_replan_context(
     assert all(chunk["snippet"] for chunk in visible["chunks"])
     assert "tests/test_parser.py" not in snapshot.entries[0].excerpt
     assert len(snapshot.entries[0].excerpt) <= snapshot.excerpt_chars == 400
+
+
+def test_run_memory_does_not_duplicate_tool_argument_policy(
+    tmp_path: Path,
+    running,
+    service,
+):
+    run, token = running
+    artifacts = ArtifactStore(tmp_path / "memory-artifacts")
+    run = settle_tool(
+        service,
+        run.run_id,
+        token,
+        artifacts,
+        call_id="invalid-read-1",
+        name="read_file",
+        status="error",
+        content=(
+            f"{TOOL_ARGUMENT_POLICY}: tool=read_file; "
+            '{"issues":[{"field":"$.start_line","type":"int_parsing"}]}'
+        ),
+    )
+
+    snapshot = RunMemoryProjector(artifacts).project(
+        run,
+        service.store.events(run.run_id),
+        current_revision=REVISION_A,
+        active_work_item_id=run.plan.items[0].work_item_id,
+    )
+
+    assert snapshot.total_entry_count == 0
+    assert snapshot.entries == ()
 
 
 def test_run_memory_excludes_model_submit_claims_and_bounds_projection(

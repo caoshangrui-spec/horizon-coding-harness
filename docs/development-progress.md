@@ -6,6 +6,27 @@
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
 
+## 2026-11-02 紧凑工具参数自纠回执
+
+- 现有系统能把工具失败返回模型，但 Pydantic 原始错误可能重复携带参数值，并同时进入 canonical
+  transcript 与 Run Memory。新增 `ToolArgumentPolicy`：只发送最多 4 个字段路径、错误类型和
+  160 字符消息，并列出 allowed/required/supplied key，给出
+  `retry_once_with_corrected_arguments`，不回显代码或其他参数值。
+- 错误仍先完成 durable tool reservation/settlement，前后 workspace revision 相同，Artifact、
+  EventLog 与 Trace 不被省略。它是 transcript-only controller feedback：Run Memory 不再复制，
+  ContextProjector 在历史折叠时把最新纠错回执标为优先保留的 controller fact。
+- malformed `apply_patch` 的空、超 8 文件或重复路径现在先把 write-precondition target 收窄为空，
+  再由权威 `ApplyPatchArgs` 拒绝并生成同一回执；不会在参数校验前抛出控制器异常，也不会写入
+  部分文件。权限、CAS、最大 8 文件及不同路径限制没有放宽。
+- Scripted Agent 以“缺少 `replace_text.new` → 消费单份紧凑回执 → 修正参数 → 写入 → protected
+  validation → Trace replay”完成闭环，模型调用数精确为 3；回执没有出现原 `old` 代码值。
+- 这只是零费用 Harness 行为证据，没有调用真实模型，也没有证明模型一定遵循回执、减少 token
+  或提高任务成功率；Provider retry、fallback、预算和 no-progress 停止规则均未改变。
+- 相关 Agent Loop、Gateway、Memory、Context 与作品集测试为 **147 passed**；真实
+  `horizon demo run --human` 再次得到 77-event、2 次 Worker 交接、child exit 86、final epoch 3、
+  protected validation/Trace replay/EvidencePack verification 全部通过。整仓为
+  **683 passed，11 skipped**，Ruff、格式、YAML 与 `git diff --check` 通过；本批外部费用为 0。
+
 ## 2026-11-02 Luigi-2 第十轮真实模型负结果与窄修复
 
 - 用户明确授权公开 Luigi-2 Beam BigQuery target path 的唯一一次付费 Run：模型固定
@@ -42,8 +63,8 @@
   `CNY 0.078165`、总模型调用 9；HTTPie-1、Sanic-2、Tornado-2 继续保持 unevaluated。
 - 定向回归为 **126 passed**；第一次整仓回归诚实保留与旧作品集“单边读取必须报错”场景冲突的
   11 个失败。演示随后改用仍应拒绝的 401 行越界读取，继续覆盖结构化错误恢复而不绕过新语义；
-  第二次整仓回归为 **676 passed，11 skipped**；新增 exact-checkout post-run 场景后最新整仓回归为
-  **677 passed，11 skipped**，Ruff、格式与 `git diff --check` 继续作为提交门禁。
+  第二次整仓回归为 **676 passed，11 skipped**；新增 exact-checkout post-run 场景后为
+  **677 passed，11 skipped**，后续最新结果见本文最上方记录。
 
 ## 2026-11-02 真实模型 Smoke Run 后指标闭环
 
@@ -1736,7 +1757,7 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 十轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新全量入口为 677 passed、11 个显式 Docker skip，
+当前主干继续补齐尚未统一覆盖的故障点；最新全量入口为 683 passed、11 个显式 Docker skip，
 11 个 Docker 合同此前已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以

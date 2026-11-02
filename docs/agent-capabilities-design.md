@@ -353,6 +353,12 @@ PROPOSED -> SCHEMA_VALIDATED -> POLICY_CHECKED
 
 每一步写事件；`INTENT_COMMITTED` 前不执行。记录所有异常 observation，非法参数最多返问模型 2 次并计费；无响应不伪造成功。一次模型返回多个工具时首版顺序处理，每次执行前重查预算、取消和工作区版本。前序修改导致后续 expected_hash 失效则退回模型。
 
+当前实现把 Pydantic 参数错误规范化为紧凑的 `ToolArgumentPolicy` tool result：只发送最多 4 个
+字段级 issue 和 allowed/required/supplied key，不回显参数值。回执仍由 reservation/settlement、
+Artifact、EventLog 与 Trace 约束；canonical transcript 保留一份，Run Memory 不重复保存。上下文
+折叠优先保留最近一次 controller feedback，后续修正调用仍消耗正常模型/工具预算，完全相同的
+错误动作仍受 no-progress 规则限制。该机制不自动重试、不放宽 Schema/权限，也不证明模型会采纳。
+
 ### 7.4 Shell 不能由字符串黑名单构成安全边界
 
 任意 shell、Python 脚本、项目测试都可以读写文件。非 root Docker 也不会自动保证仓库内路径白名单。因此首版必须采用：

@@ -1008,6 +1008,54 @@ def test_agent_loop_completes_one_sided_read_range_and_replays(tmp_path, task_di
     assert projection_hash(replayed) == projection_hash(result)
 
 
+def test_agent_loop_recovers_from_compact_tool_argument_feedback(tmp_path, task_dict):
+    actions = [
+        (
+            "replace_text",
+            {"path": "src/parser.py", "old": "return [value]"},
+        ),
+        (
+            "replace_text",
+            {
+                "path": "src/parser.py",
+                "old": "return [value]",
+                "new": "return [] if value == '' else [value]",
+            },
+        ),
+        ("submit", {"summary": "Corrected the tool arguments and verified the parser."}),
+    ]
+    runner, store, run_id, token, workspace, model = setup_loop(tmp_path, task_dict, actions)
+
+    result = runner.run(run_id, token)
+
+    assert result.status == RunStatus.SUCCEEDED
+    assert len(model.requests) == 3
+    assert [(record.name, record.status) for record in result.tool_calls] == [
+        ("replace_text", "error"),
+        ("replace_text", "success"),
+        ("submit", "success"),
+        ("run_check", "success"),
+    ]
+    feedback = [
+        message.content or ""
+        for message in model.requests[1].messages
+        if message.role == "tool" and (message.content or "").startswith("ToolArgumentPolicy:")
+    ]
+    assert len(feedback) == 1
+    assert "$.new" in feedback[0]
+    assert "return [value]" not in feedback[0]
+    assert (
+        sum(
+            (message.content or "").count("ToolArgumentPolicy:")
+            for message in model.requests[1].messages
+        )
+        == 1
+    )
+    assert "return [] if" in (workspace / "src/parser.py").read_text(encoding="utf-8")
+    replayed = SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id))
+    assert projection_hash(replayed) == projection_hash(result)
+
+
 def test_agent_loop_exposes_only_task_and_work_item_allowed_tools(tmp_path, task_dict):
     task_dict["constraints"]["allowed_tools"] = ["read_file", "replace_text"]
     plan = Plan(
