@@ -29,10 +29,12 @@ on:
       - "benchmarks/run_ab/full/**/one-sided-read-recovery*.yaml"
       - "benchmarks/run_ab/full/httpie-4-host-header-overwrite/real-model-pilot.yaml"
       - "benchmarks/run_ab/full/**/real-model-smoke-candidate-v1.yaml"
+      - "benchmarks/run_ab/full/**/real-model-post-smoke-candidate-v1.yaml"
       - "benchmarks/run_ab/full/sanic-2-asyncio-start-serving/real-model-smoke-pilot-v1.yaml"
       - "benchmarks/real-model-smoke-evaluator-v1.yaml"
       - "benchmarks/real-model-smoke-candidate-selection-v1.yaml"
       - "benchmarks/real-model-smoke-candidate-selection-v2.yaml"
+      - "benchmarks/real-model-post-smoke-candidate-selection-v1.yaml"
       - "config/providers/siliconflow-httpie-pilot.yaml"
       - "config/providers/siliconflow-sanic2-smoke-v1.yaml"
       - "config/providers/siliconflow-smoke-candidate-preflight-v1.yaml"
@@ -425,6 +427,133 @@ jobs:
               ],
               "candidates": reports,
               "excluded_claims": [
+                  "real_model_task_success",
+                  "independent_holdout_performance",
+                  "task_generalization",
+              ],
+          }
+          (root / "selection-evidence.json").write_text(
+              json.dumps(evidence, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Verify the post-Smoke follow-up candidate without spending
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=.horizon/post-smoke-candidate-preflight-v1
+          tasks=(
+            sanic-5-root-logger-config
+            thefuck-5-git-push-bitbucket
+          )
+          for task in "${tasks[@]}"; do
+            state_dir="$root/$task"
+            mkdir -p "$state_dir"
+            uv run --locked horizon eval pilot-preflight \
+              "benchmarks/run_ab/full/$task/real-model-post-smoke-candidate-v1.yaml" \
+              --image python:3.12-alpine \
+              --config config/providers/siliconflow-smoke-candidate-preflight-v1.yaml \
+              --state-dir "$state_dir" \
+              | tee "$state_dir/cli-result.json"
+          done
+          uv run --locked python - <<'PY'
+          import json
+          from decimal import Decimal
+          from pathlib import Path
+
+          import yaml
+
+          root = Path(".horizon/post-smoke-candidate-preflight-v1")
+          selection = yaml.safe_load(
+              Path(
+                  "benchmarks/real-model-post-smoke-candidate-selection-v1.yaml"
+              ).read_text(encoding="utf-8")
+          )
+          expected = {
+              "sanic-5-root-logger-config",
+              "thefuck-5-git-push-bitbucket",
+          }
+          survivors = {
+              row["task_id"]
+              for row in selection["screened_population"]
+              if row["all_static_gates_passed"]
+          }
+          if (
+              selection["selected_task_id"] != "sanic-5-root-logger-config"
+              or not selection["original_smoke_suite_unchanged"]
+              or selection["paid_execution_authorized"]
+              or selection["external_model_called"]
+              or selection["network_called_by_evaluator"]
+              or survivors != expected
+          ):
+              raise SystemExit("Post-Smoke follow-up selection contract drifted")
+
+          reports = {}
+          for task in sorted(expected):
+              result = json.loads(
+                  (root / task / "cli-result.json").read_text(encoding="utf-8")
+              )
+              report = result["report"]
+              planning = Decimal(report["initial_planning_reserved_cost"])
+              execution = Decimal(report["bounded_execution_reserved_cost"])
+              cumulative = Decimal(report["planning_execution_reserved_cost"])
+              if (
+                  not report["ready"]
+                  or not report["full_checkout_verified"]
+                  or not report["initial_failure_matches"]
+                  or not report["source_unchanged"]
+                  or not report["solution_isolation_passed"]
+                  or not report["planning_execution_fits_run_cap"]
+                  or not report["planning_execution_fits_campaign"]
+                  or report["credential_loaded"]
+                  or report["paid_model_called"]
+                  or report["network_called"]
+                  or cumulative != planning + execution
+                  or cumulative > Decimal(report["run_cost_cap"])
+                  or cumulative > Decimal(report["campaign_remaining_cost"])
+                  or not result["requires_paid_confirmation"]
+              ):
+                  raise SystemExit(f"Post-Smoke zero-spend preflight failed: {task}")
+              reports[task] = {
+                  "report_ref": result["report_ref"],
+                  "planning_reserved_cost_cny": report[
+                      "initial_planning_reserved_cost"
+                  ],
+                  "bounded_execution_reserved_cost_cny": report[
+                      "bounded_execution_reserved_cost"
+                  ],
+                  "planning_execution_reserved_cost_cny": report[
+                      "planning_execution_reserved_cost"
+                  ],
+                  "ready": report["ready"],
+              }
+
+          if Decimal(
+              reports["sanic-5-root-logger-config"][
+                  "planning_execution_reserved_cost_cny"
+              ]
+          ) >= Decimal(
+              reports["thefuck-5-git-push-bitbucket"][
+                  "planning_execution_reserved_cost_cny"
+              ]
+          ):
+              raise SystemExit("Post-Smoke reservation tie-breaker drifted")
+
+          evidence = {
+              "schema_version": 1,
+              "claim_scope": selection["claim_scope"],
+              "candidate_count": len(reports),
+              "selected_task_id": selection["selected_task_id"],
+              "all_exact_checkout_preflights_ready": True,
+              "cumulative_budget_gate_passed": True,
+              "original_smoke_suite_unchanged": True,
+              "paid_execution_authorized": False,
+              "paid_model_called": False,
+              "network_called_by_evaluator": False,
+              "candidates": reports,
+              "excluded_claims": [
+                  "original_smoke_suite_membership",
                   "real_model_task_success",
                   "independent_holdout_performance",
                   "task_generalization",
@@ -861,6 +990,11 @@ jobs:
                   ".horizon/smoke-candidate-preflight-v1/selection-evidence.json"
               ).read_text(encoding="utf-8")
           )
+          post_smoke_candidates = json.loads(
+              Path(
+                  ".horizon/post-smoke-candidate-preflight-v1/selection-evidence.json"
+              ).read_text(encoding="utf-8")
+          )
           created_resume = json.loads(
               Path(".horizon/docker-created-resume-cli.json").read_text(
                   encoding="utf-8"
@@ -1052,6 +1186,13 @@ jobs:
               and smoke_candidates["post_triage_candidate_count"] == 2
               and not smoke_candidates["post_triage_all_required_gate_passed"]
               and not smoke_candidates["post_triage_paid_execution_authorized"]
+              and post_smoke_candidates["candidate_count"] == 2
+              and post_smoke_candidates["selected_task_id"]
+              == "sanic-5-root-logger-config"
+              and post_smoke_candidates["all_exact_checkout_preflights_ready"]
+              and post_smoke_candidates["cumulative_budget_gate_passed"]
+              and post_smoke_candidates["original_smoke_suite_unchanged"]
+              and not post_smoke_candidates["paid_execution_authorized"]
           )
           paid_model_called = (
               any(report["paid_model_called"] for report in suite_reports)
@@ -1060,6 +1201,7 @@ jobs:
               or retrieval_reuse["external_model_called"]
               or one_sided_read["external_model_called"]
               or smoke_candidates["paid_model_called"]
+              or post_smoke_candidates["paid_model_called"]
           )
           network_called = (
               any(report["network_called"] for report in suite_reports)
@@ -1068,6 +1210,7 @@ jobs:
               or retrieval_reuse["network_called_by_evaluator"]
               or one_sided_read["network_called_by_evaluator"]
               or smoke_candidates["network_called_by_evaluator"]
+              or post_smoke_candidates["network_called_by_evaluator"]
           )
           if not all_expectations_met:
               missing_case_lineage = [
@@ -1104,6 +1247,7 @@ jobs:
                   "missing_full_case_lineage": missing_case_lineage,
                   "hard_crash_case_contracts_met": hard_crash_case_contracts_met,
                   "smoke_candidate_selection": smoke_candidates,
+                  "post_smoke_candidate_selection": post_smoke_candidates,
                   "paid_model_called": paid_model_called,
                   "network_called": network_called,
               }
@@ -1147,6 +1291,7 @@ jobs:
                       "worker_crash_verified": worker_crash["verified"],
                       "hard_crash_case_contracts_met": hard_crash_case_contracts_met,
                       "smoke_candidate_selection": smoke_candidates,
+                      "post_smoke_candidate_selection": post_smoke_candidates,
                   }
               }
               rendered_diagnostics = json.dumps(diagnostics, sort_keys=True)
@@ -1234,6 +1379,14 @@ jobs:
                   f"{smoke_candidates['selected_task_id']}`; paid authorization `"
                   f"{smoke_candidates['paid_execution_authorized']}`; post-run triage `"
                   f"{smoke_candidates['post_triage_decision']}`"
+              ),
+              (
+                  "- Post-Smoke follow-up candidates: exact preflight `"
+                  f"{post_smoke_candidates['candidate_count']}/"
+                  f"{post_smoke_candidates['candidate_count']}`; selected `"
+                  f"{post_smoke_candidates['selected_task_id']}`; original Smoke unchanged `"
+                  f"{post_smoke_candidates['original_smoke_suite_unchanged']}`; paid "
+                  f"authorization `{post_smoke_candidates['paid_execution_authorized']}`"
               ),
               (
                   "- Dependency-reduced success quality: clean/flagged `"

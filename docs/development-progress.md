@@ -6,6 +6,28 @@
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
 
+## 2026-11-02 Post-Smoke 十任务 census 与 Sanic-5 零费用入选
+
+- 原五任务 Smoke 与 3/5 coverage、0/3 success 保持冻结；另从 16 条已揭示 development 中排除
+  原五任务和 task-level 付费历史，完整检查剩余 10 条，8 条 holdout 未打开。筛选交叉读取 registry、
+  v8 baseline、冻结 query variants 和完整 A/B manifest，不接受选择 YAML 自证。
+- 静态门要求 exact full checkout、retrieval `ok`、base/raw/English 目标均 rank 1、一次
+  `replace_text` 且单处命中。只有 Sanic-5 root logger 与 TheFuck-5 Bitbucket predicate 通过；
+  Cookiecutter-3 虽 rank 1 但没有 full-checkout manifest，其余任务明确保留 degraded、排名不足或
+  2～8 次替换等淘汰原因。
+- 两条候选在精确 buggy commit 与禁网 Docker 中完成 fresh preflight。Sanic-5 的
+  planning/execution/累计 reservation 为 `0.034164/0.069528/0.103692` CNY，TheFuck-5 为
+  `0.041778/0.069528/0.111306` CNY；initial failure、source unchanged、solution isolation 和累计
+  门均通过，credential/model/network 均为 false。
+- Sanic-5 按预先声明的 tie-breaker 入选：额外 bare-test query rank 1 优于 rank 3，156-file
+  checkout 小于 359 files，累计容量也更低。第一次提权预检受 Windows Git ownership 阻断，随后只用
+  当前进程的精确 `safe.directory` 成功，没有全局配置变更；该环境失败未包装成候选失败。
+- 选择属于 post-hoc development follow-up，不加入原 Smoke 分母，不是 blind/holdout 或成功预测；
+  `paid_execution_authorized=false`，本批没有外部调用和费用。
+- 新增 3 条单测从 registry、原 Smoke、历史付费集合、冻结 RAG 与 A/B manifest 反推 10 条 population、
+  2 条 survivor 和 tie-breaker；来源绑定 workflow 会在 Linux 禁网容器重跑两条 preflight。整仓为
+  **689 passed，11 skipped**，Ruff、格式、workflow YAML/嵌入 Python 和 `git diff --check` 通过。
+
 ## 2026-11-02 三条 Smoke 负结果后的零费用候选弃跑
 
 - 在最新 Harness 上对尚未付费执行的 HTTPie-1 与 Tornado-2 重跑精确 checkout、禁网、零费用

@@ -850,3 +850,19 @@ Scripted repair 需要 5 次协同替换；Tornado-2 满足后者，但 baseline
 这是预算控制的负结果，不是功能缺失：Harness 应能拒绝一场容量足够、但成功假设没有证据支持的
 Campaign。后续只有在新增零费用证据让某个候选同时通过两门，或冻结新的开发候选并明确其评估边界
 后，才值得提出新的单 Run 预算；不得复用历史授权。
+
+## 24. Post-Smoke follow-up：从十条未付费 development 任务中选择 Sanic-5
+
+原五任务 Smoke 保持冻结，不把后验选题加入 coverage。零费用筛选从 16 条已揭示 development 中
+排除原五任务和已有 task-level 付费历史，得到 10 条候选；同时要求完整 checkout、非 degraded
+retrieval、base/raw/English rank 1，以及一调用一命中的 `replace_text`。只有 Sanic-5 root logger
+和 TheFuck-5 Bitbucket predicate 通过全部静态门。
+
+两条 fresh preflight 均在固定 buggy commit 和禁网 Docker 中得到 `ready=true`，且
+credential/model/network 三项均为 false。Sanic-5 的累计 reservation 为 `CNY 0.103692`，156-file
+checkout 的额外英文查询也为 rank 1；TheFuck-5 为 `CNY 0.111306`、359 files、额外英文 query
+rank 3。因此按冻结 tie-breaker 选择 Sanic-5，TheFuck-5 保留为 alternate。
+
+该选择只说明 Sanic-5 是当前最小、定位证据最强的 post-hoc development follow-up，不证明模型会
+修复它，也不增加原 Smoke 的分母或成功数。proposal cap `CNY 0.120` 仍只是容量；没有新的付费
+授权、retry 或 fallback，任何 Provider 请求都必须先取得新的明确授权。

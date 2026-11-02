@@ -5,6 +5,13 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Screened all ten unpaid, non-Smoke tasks in the revealed development partition without opening
+  holdout data. Only Sanic-5 and TheFuck-5 combine an exact full-checkout manifest, non-degraded
+  rank-1 base/raw/English target visibility, and one replacement at one occurrence. Fresh
+  network-disabled preflights were ready at cumulative CNY 0.103692 and CNY 0.111306 respectively,
+  with no credential or model call. Sanic-5 is the post-hoc follow-up because it also has rank-1
+  bare-test retrieval, the smaller 156-file checkout, and the lower reservation. The original
+  five-task Smoke suite and its 3/5 coverage, 0/3 success remain unchanged; no paid Run is authorized.
 - Froze a zero-spend post-run triage for the two unevaluated Smoke tasks. Fresh exact-checkout
   preflights keep HTTPie-1 and Tornado-2 capacity-ready under the proposal-only CNY 0.120 policy,
   but neither passes both decision gates: HTTPie has rank-1 base/English target visibility but a

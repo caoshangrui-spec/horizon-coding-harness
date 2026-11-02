@@ -93,7 +93,8 @@ flowchart LR
 | 词法 Code RAG 有冻结定位基线 | 7 项目 24 案例中公开 16 个 development：Hit@1 `11/16`、Hit@5 `16/16`、MRR `0.817708`；8 个 holdout 保持密封 | 有 3 个 degraded；中文困难改写仅 `1/8`，没有 symbol/vector RAG 或端到端收益结论 |
 | 真实 Provider 路径和费用门禁实际运行过 | 11 个 SiliconFlow Pilot、41 个已结算调用，累计 `CNY 0.3628710`；费用、Trace 与 source isolation 可核对 | 11 个 Run 均未完成代码编辑和 protected validation，属于负结果；第十轮正确定位 Luigi-2，第十一轮找到并读取 Sanic-2 目标文件，仍都不能算修复成功 |
 | 真实模型 Smoke 输入、失败与弃跑决策已冻结 | 5 个不同项目的低复杂度 development smoke；TheFuck-2、Luigi-2、Sanic-2 各运行唯一一次，当前 coverage `3/5`、success `0/3`、总费用 `CNY 0.1455048`。Luigi-2 命中目标后卡在旧读取合同；Sanic-2 的约 12K 单边读取在 8K Context Projection 压缩后丢失目标类及插入位置上下文。HTTPie-1 定位稳定但需 5 次协同替换；Tornado-2 补丁小但目标不在默认 rank 1，因此 v2 主动 `abstain` | 作者在已知 Scripted Model 修复后选题，不是盲测；三条真实失败均保留。后续回归与候选筛选是 post-run 零费用 Harness 证据，不是付费 Run 复跑、真实成功或 holdout 提升；HTTPie-1 与 Tornado-2 仍 unevaluated，preflight ready 也不是消费授权 |
-| 当前离线回归稳定 | `686 passed, 11 skipped`；标准 CI、外部检索证据和来源绑定 Docker workflow 都是提交级门禁；候选弃跑交叉校验与 8K-context 单边读取回归在整仓测试中通过 | 11 个全量入口 skip 需要显式 Docker 镜像；本机结果与公开 runner 结果必须分别报告，不能互相代替 |
+| Post-Smoke 候选选择可审计 | 从 10 条未付费、非 Smoke 的已揭示 development 任务逐条交叉验证 frozen RAG 与 full-checkout repair shape；Sanic-5/TheFuck-5 是仅有的两条全门通过者。两条零费用 preflight 均 ready，最终按额外 query rank、checkout 规模和累计容量选择 Sanic-5 | 这是 post-hoc development follow-up，不改写原 Smoke 统计、不打开 holdout、不代表成功预测；`CNY 0.120` 只是 proposal capacity，没有付费授权 |
+| 当前离线回归稳定 | `689 passed, 11 skipped`；标准 CI、外部检索证据和来源绑定 Docker workflow 都是提交级门禁；十任务 post-Smoke census、候选弃跑交叉校验与 8K-context 单边读取回归在整仓测试中通过 | 11 个全量入口 skip 需要显式 Docker 镜像；本机结果与公开 runner 结果必须分别报告，不能互相代替 |
 
 最新公开复核入口：
 

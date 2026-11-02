@@ -464,3 +464,26 @@ planning+execution reservation 分别为 `CNY 0.105546` 和 `CNY 0.109848`，没
 冻结 `decision=abstain`、`selected_task_id=null`、`paid_execution_authorized=false`。这不是声称两题
 不可解，而是拒绝在没有同时满足“默认可见目标 + 有界单次替换”的候选上继续用预算试错。下一次
 付费评估必须先形成新的、可由零费用证据反驳的成功假设，再单独取得用户授权。
+
+## 14. 原五任务之外的 post-hoc development 候选
+
+第 13 节没有从原五任务中选出下一条付费 Run，因此原 suite、coverage `3/5` 和 success `0/3`
+保持冻结。后续筛选明确改称 post-Smoke development follow-up，不能把新任务追加入原聚合，也不能
+利用后验选题制造更好看的成功率。
+
+筛选只查看已经揭示的 16 条 development，继续密封 8 条 holdout。排除原五任务和已有 task-level
+付费历史后剩 10 条；再同时要求 exact full-checkout manifest、检索状态 `ok`、baseline/raw/English
+目标均 rank 1，以及一次 `replace_text`、单处命中。只有 Sanic-5 root logger 与 TheFuck-5
+Bitbucket git push 两条通过，完整十任务 census 固定在
+[`real-model-post-smoke-candidate-selection-v1.yaml`](../benchmarks/real-model-post-smoke-candidate-selection-v1.yaml)。
+
+两条候选均在当前 Harness 上完成禁网、零费用 exact-checkout preflight：初始失败、source
+unchanged、solution isolation 和累计容量门均通过；没有读取凭据、调用模型或访问网络。Sanic-5
+的 planning/execution/累计 reservation 为 `0.034164/0.069528/0.103692` CNY，TheFuck-5 为
+`0.041778/0.069528/0.111306` CNY。Sanic-5 的额外 bare-test query 为 rank 1，而 TheFuck-5 为
+rank 3；checkout 规模分别是 156 与 359 files，所以 Sanic-5 按预先声明的三个 tie-breaker 入选。
+
+Windows 提权身份下第一次 Sanic-5 预检被 Git ownership 判定拒绝；源码 HEAD 未漂移，随后只对
+该进程声明精确 fixture 的 `safe.directory` 后成功，没有修改全局 Git 配置。这是本机执行环境负
+结果，不是候选证据。最终选择仍是 proposal-only：`paid_execution_authorized=false`，未来若执行
+必须把它报告为 post-hoc development Run，并重新取得独立预算授权。

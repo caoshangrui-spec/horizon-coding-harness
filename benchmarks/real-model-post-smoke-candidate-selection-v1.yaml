@@ -1,0 +1,206 @@
+schema_version: 1
+selection_id: bugsinpy-real-model-post-smoke-followup-candidate-v1
+evaluated_at: "2026-11-02"
+source_registry_id: bugsinpy-independent-tasks-v1
+original_smoke_suite_id: bugsinpy-real-model-smoke-v1
+claim_scope: post_hoc_development_followup_candidate_selection
+provider_policy_id: siliconflow-deepseek-v4-flash-smoke-candidate-012-v1
+model_id: deepseek-ai/DeepSeek-V4-Flash
+proposal_run_cap_cny: "0.120"
+original_smoke_suite_unchanged: true
+paid_execution_authorized: false
+external_model_called: false
+network_called_by_evaluator: false
+
+historical_paid_task_ids:
+  - httpie-4-host-header-overwrite
+  - luigi-2-beam-target-path
+  - sanic-2-asyncio-start-serving
+  - thefuck-2-executable-path-separator
+
+static_gates:
+  - revealed_development_partition
+  - not_in_original_smoke_suite
+  - no_task_level_paid_run_history
+  - exact_full_checkout_manifest_available
+  - frozen_retrieval_status_ok
+  - frozen_base_raw_and_english_target_rank_1
+  - one_replace_call_and_one_replaced_occurrence
+
+tie_breakers:
+  - stronger_additional_english_query_rank
+  - smaller_exact_checkout
+  - lower_planning_execution_reservation
+
+selected_task_id: sanic-5-root-logger-config
+selected_manifest_path: run_ab/full/sanic-5-root-logger-config/real-model-post-smoke-candidate-v1.yaml
+selection_reason: >-
+  Sanic-5 and TheFuck-5 are the only two unpaid, non-Smoke development tasks that pass every
+  static gate. Both have clean rank-1 base/raw/English target visibility and a one-call,
+  one-occurrence repair. Sanic-5 wins all declared tie-breakers: its additional bare-test query is
+  rank 1 rather than rank 3, its exact checkout has 156 rather than 359 tracked files, and its
+  fresh planning-plus-execution reservation is CNY 0.103692 rather than CNY 0.111306.
+
+screened_population:
+  - task_id: cookiecutter-1-non-ascii-context
+    frozen_retrieval_status: ok
+    frozen_target_path_rank: 2
+    raw_identifier_rank: 2
+    english_paraphrase_rank: 3
+    additional_english_variant: failure_description
+    additional_english_rank: 4
+    full_checkout_manifest_path: null
+    scripted_replace_calls: null
+    scripted_replaced_occurrences: null
+    all_static_gates_passed: false
+    disposition: rejected_no_full_checkout_and_rank_gate
+
+  - task_id: cookiecutter-3-read-user-choice
+    frozen_retrieval_status: ok
+    frozen_target_path_rank: 1
+    raw_identifier_rank: 1
+    english_paraphrase_rank: 1
+    additional_english_variant: bare_test_sentence
+    additional_english_rank: 1
+    full_checkout_manifest_path: null
+    scripted_replace_calls: null
+    scripted_replaced_occurrences: null
+    all_static_gates_passed: false
+    disposition: rejected_no_full_checkout_manifest
+
+  - task_id: httpie-5-escape-long-separator
+    frozen_retrieval_status: ok
+    frozen_target_path_rank: 1
+    raw_identifier_rank: 1
+    english_paraphrase_rank: 1
+    additional_english_variant: bare_test_sentence
+    additional_english_rank: 1
+    full_checkout_manifest_path: run_ab/full/httpie-5-escape-long-separator/manifest.yaml
+    scripted_replace_calls: 6
+    scripted_replaced_occurrences: 6
+    all_static_gates_passed: false
+    disposition: rejected_multi_edit
+
+  - task_id: luigi-3-serialize-tuple-parameter
+    frozen_retrieval_status: degraded
+    frozen_target_path_rank: 1
+    raw_identifier_rank: 1
+    english_paraphrase_rank: 1
+    additional_english_variant: bare_test_sentence
+    additional_english_rank: 5
+    full_checkout_manifest_path: run_ab/full/luigi-3-serialize-tuple-parameter/manifest.yaml
+    scripted_replace_calls: 2
+    scripted_replaced_occurrences: 2
+    all_static_gates_passed: false
+    disposition: rejected_degraded_and_multi_edit
+
+  - task_id: luigi-7-status-wont-override
+    frozen_retrieval_status: degraded
+    frozen_target_path_rank: 4
+    raw_identifier_rank: 5
+    english_paraphrase_rank: 4
+    additional_english_variant: failure_description
+    additional_english_rank: 4
+    full_checkout_manifest_path: run_ab/full/luigi-7-status-wont-override/manifest.yaml
+    scripted_replace_calls: 2
+    scripted_replaced_occurrences: 2
+    all_static_gates_passed: false
+    disposition: rejected_degraded_rank_and_multi_edit
+
+  - task_id: pysnooper-2-custom-repr
+    frozen_retrieval_status: ok
+    frozen_target_path_rank: 1
+    raw_identifier_rank: 1
+    english_paraphrase_rank: 1
+    additional_english_variant: failure_description
+    additional_english_rank: 1
+    full_checkout_manifest_path: run_ab/full/pysnooper-2-custom-repr/manifest.yaml
+    scripted_replace_calls: 8
+    scripted_replaced_occurrences: 8
+    all_static_gates_passed: false
+    disposition: rejected_multi_edit
+
+  - task_id: sanic-3-routes-with-host
+    frozen_retrieval_status: ok
+    frozen_target_path_rank: 2
+    raw_identifier_rank: 3
+    english_paraphrase_rank: 2
+    additional_english_variant: bare_test_sentence
+    additional_english_rank: 4
+    full_checkout_manifest_path: run_ab/full/sanic-3-routes-with-host/manifest.yaml
+    scripted_replace_calls: 2
+    scripted_replaced_occurrences: 2
+    all_static_gates_passed: false
+    disposition: rejected_rank_and_multi_edit
+
+  - task_id: sanic-5-root-logger-config
+    frozen_retrieval_status: ok
+    frozen_target_path_rank: 1
+    raw_identifier_rank: 1
+    english_paraphrase_rank: 1
+    additional_english_variant: bare_test_sentence
+    additional_english_rank: 1
+    full_checkout_manifest_path: run_ab/full/sanic-5-root-logger-config/manifest.yaml
+    scripted_replace_calls: 1
+    scripted_replaced_occurrences: 1
+    all_static_gates_passed: true
+    disposition: selected
+
+  - task_id: thefuck-5-git-push-bitbucket
+    frozen_retrieval_status: ok
+    frozen_target_path_rank: 1
+    raw_identifier_rank: 1
+    english_paraphrase_rank: 1
+    additional_english_variant: bare_test_sentence
+    additional_english_rank: 3
+    full_checkout_manifest_path: run_ab/full/thefuck-5-git-push-bitbucket/manifest.yaml
+    scripted_replace_calls: 1
+    scripted_replaced_occurrences: 1
+    all_static_gates_passed: true
+    disposition: alternate
+
+  - task_id: tornado-4-static-range-bounds
+    frozen_retrieval_status: ok
+    frozen_target_path_rank: 1
+    raw_identifier_rank: 1
+    english_paraphrase_rank: 1
+    additional_english_variant: bare_test_sentence
+    additional_english_rank: 1
+    full_checkout_manifest_path: run_ab/full/tornado-4-static-range-bounds/manifest.yaml
+    scripted_replace_calls: 2
+    scripted_replaced_occurrences: 2
+    all_static_gates_passed: false
+    disposition: rejected_multi_edit
+
+fresh_zero_spend_preflights:
+  - task_id: sanic-5-root-logger-config
+    exact_checkout_file_count: 156
+    ready: true
+    initial_failure_observed: true
+    source_unchanged: true
+    solution_isolation_passed: true
+    planning_reserved_cost_cny: "0.034164"
+    bounded_execution_reserved_cost_cny: "0.069528"
+    planning_execution_reserved_cost_cny: "0.103692"
+    local_report_ref: 15a526ea25403daf6cd5c0eb64034d677dd1e8d9dc2bdc54116838a52ca2a35a
+    disposition: selected
+
+  - task_id: thefuck-5-git-push-bitbucket
+    exact_checkout_file_count: 359
+    ready: true
+    initial_failure_observed: true
+    source_unchanged: true
+    solution_isolation_passed: true
+    planning_reserved_cost_cny: "0.041778"
+    bounded_execution_reserved_cost_cny: "0.069528"
+    planning_execution_reserved_cost_cny: "0.111306"
+    local_report_ref: 3ae358eb796221dd74223e01328aabcac616e525e79248063d5b12467dd0ef42
+    disposition: alternate
+
+limitations:
+  - This is a post-hoc development follow-up and must not be added to the frozen five-task Smoke aggregate.
+  - All repair shapes and target paths are evaluator-known; this is not blind or holdout selection.
+  - The model is stateless across Runs, but both surviving projects appeared in earlier distinct paid tasks.
+  - Local planning costs and report refs contain the local absolute source path and may differ on Linux.
+  - The first elevated Sanic preflight was rejected by Windows Git ownership handling; the successful rerun used a process-scoped exact safe.directory and made no global Git change.
+  - Preflight readiness is capacity evidence only and does not authorize a paid Run or predict success.
