@@ -27,6 +27,7 @@ on:
       - "benchmarks/run_ab/full/**/retrieval-reuse*.yaml"
       - "benchmarks/run_ab/full/httpie-4-host-header-overwrite/real-model-pilot.yaml"
       - "benchmarks/run_ab/full/**/real-model-smoke-candidate-v1.yaml"
+      - "benchmarks/real-model-smoke-evaluator-v1.yaml"
       - "benchmarks/real-model-smoke-candidate-selection-v1.yaml"
       - "config/providers/siliconflow-httpie-pilot.yaml"
       - "config/providers/siliconflow-smoke-candidate-preflight-v1.yaml"
@@ -49,6 +50,7 @@ on:
       - "src/horizon/interfaces/cli/app.py"
       - "tests/contract/test_docker.py"
       - "tests/fault_injection/_docker_check_worker.py"
+      - "tests/unit/test_smoke_evaluation.py"
 
 permissions:
   contents: read
@@ -229,6 +231,13 @@ jobs:
             dd1f2ce0061e7787166522a3c75339ba4755dd2c \
             benchmarks/run_ab/full/luigi-7-status-wont-override/fixture \
             338
+
+      - name: Verify smoke evaluator regions against exact checkouts
+        env:
+          HORIZON_VERIFY_SMOKE_TARGETS: "1"
+        run: >-
+          uv run --locked pytest -q -p no:cacheprovider
+          tests/unit/test_smoke_evaluation.py::test_checked_in_smoke_evaluator_is_suite_bound_and_points_at_repair_regions
 
       - name: Pull the validation image
         run: docker pull python:3.12-alpine

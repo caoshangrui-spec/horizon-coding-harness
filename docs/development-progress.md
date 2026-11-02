@@ -9,8 +9,9 @@
 ## 2026-11-02 真实模型 Smoke Run 后指标闭环
 
 - 新增 controller-only `real-model-smoke-evaluator-v1.yaml`，为五条冻结 development smoke 任务绑定
-  exact-checkout 目标源码区域。该文件不会进入 planning、RAG、Agent context 或模型请求；单测会把
-  每个区域与已有 full-checkout scripted repair 的真实 `replace_text` preimage 交叉核验。
+  exact-checkout 目标源码区域。该文件不会进入 planning、RAG、Agent context 或模型请求；普通离线
+  回归核验冻结 repair path，source-bound workflow 物化源码后再把每个区域与已有 scripted repair 的
+  真实 `replace_text` preimage 行区间交叉核验。
 - 新增 `horizon eval smoke-result`：离线绑定原始内容寻址 preflight、prepared/transformed TaskSpec、
   source snapshot、Provider/model/费用策略、Terminal EvidencePack、Trace replay、模型响应与 durable
   tool reservation、retrieval 行区间及写入前后 manifest。定位、有效编辑与 protected validation 均为
@@ -26,6 +27,10 @@
 - 完整离线回归为 **675 passed，11 skipped**；Ruff、格式检查与 `git diff --check` 通过。11 项 skip
   仍只因当前入口未设置 Docker 测试镜像。本批没有读取凭据、联网、调用模型或产生费用；Luigi-2
   仍没有新的付费授权，历史 TheFuck-2 负结果与累计费用均未改写。
+- 首次公开标准 CI 保留一个环境边界失败：本机完整 checkout 位于按设计忽略的 `fixture/`，新单测却
+  假设干净 Git checkout 也包含它，结果为 674 passed / 1 failed / 11 skipped。修复没有提交第三方
+  源码或降低行区间断言：普通 CI 只运行 committed manifest/path 合同，已有 source-bound workflow
+  在物化五条 exact checkout 后显式开启并执行同一 target-region 断言。
 
 ## 2026-10-30 五任务真实模型 Smoke 合同
 

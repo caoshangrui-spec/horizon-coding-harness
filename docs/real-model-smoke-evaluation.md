@@ -276,8 +276,9 @@ Run/Campaign 门通过；`credential_loaded/paid_model_called/network_called` �
 控制状态和 Trace 是否自洽”。二者原先都不会自动产出第 4 节冻结的七项 Smoke 指标。现在新增的
 controller-only [`real-model-smoke-evaluator-v1.yaml`](../benchmarks/real-model-smoke-evaluator-v1.yaml)
 为五条 exact buggy checkout 冻结目标源码区域；该文件不进入 Pilot preflight、planning、RAG 或
-Agent context。单元回归会把每个区域与 full-checkout scripted repair 的真实 `replace_text` preimage
-交叉核验，避免目标行号静默漂移。
+Agent context。普通离线回归核验 evaluator 与冻结 manifest 的 repair path；source-bound workflow
+物化 exact checkout 后，再把每个区域与 scripted repair 的真实 `replace_text` preimage 行区间交叉
+核验，避免目标行号静默漂移。
 
 单 Run 离线评估命令为：
 

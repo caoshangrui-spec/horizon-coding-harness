@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -98,19 +99,23 @@ def test_checked_in_smoke_evaluator_is_suite_bound_and_points_at_repair_regions(
             for action in arm["actions"]
             if action.get("tool") == "replace_text"
         ]
-        matched = False
         for location in evaluator_task.target_locations:
+            path_replacements = [
+                replacement for replacement in replacements if replacement["path"] == location.path
+            ]
+            assert path_replacements, (evaluator_task.smoke_task_id, location.location_id)
+            if os.environ.get("HORIZON_VERIFY_SMOKE_TARGETS") != "1":
+                continue
             source = (case_root / "fixture" / location.path).read_text(encoding="utf-8")
-            for replacement in replacements:
-                if replacement["path"] != location.path:
-                    continue
+            matched = False
+            for replacement in path_replacements:
                 cursor = 0
                 while (offset := source.find(replacement["old"], cursor)) >= 0:
                     start = source.count("\n", 0, offset) + 1
                     end = start + replacement["old"].count("\n")
                     matched = matched or (start <= location.end_line and end >= location.start_line)
                     cursor = offset + 1
-        assert matched, evaluator_task.smoke_task_id
+            assert matched, (evaluator_task.smoke_task_id, location.location_id)
 
 
 def test_smoke_evaluator_cannot_be_marked_model_visible():
