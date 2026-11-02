@@ -21,10 +21,12 @@ on:
       - "benchmarks/run_ab/bugsinpy-multi-stage-pilot-v*.yaml"
       - "benchmarks/run_ab/bugsinpy-reduced-v2.yaml"
       - "benchmarks/run_ab/thefuck2-retrieval-reuse-v1.yaml"
+      - "benchmarks/run_ab/luigi2-one-sided-read-recovery-v1.yaml"
       - "benchmarks/run_ab/external/**/manifest.yaml"
       - "benchmarks/run_ab/full/**/manifest.yaml"
       - "benchmarks/run_ab/full/**/multi-stage*.yaml"
       - "benchmarks/run_ab/full/**/retrieval-reuse*.yaml"
+      - "benchmarks/run_ab/full/**/one-sided-read-recovery*.yaml"
       - "benchmarks/run_ab/full/httpie-4-host-header-overwrite/real-model-pilot.yaml"
       - "benchmarks/run_ab/full/**/real-model-smoke-candidate-v1.yaml"
       - "benchmarks/real-model-smoke-evaluator-v1.yaml"
@@ -593,6 +595,111 @@ jobs:
           )
           PY
 
+      - name: Run the observed Luigi-2 one-sided-read recovery scenario
+        shell: bash
+        run: |
+          set -euo pipefail
+          state_dir=.horizon/luigi2-one-sided-read-recovery-v1
+          mkdir -p "$state_dir"
+          uv run --locked horizon eval run-ab-suite \
+            benchmarks/run_ab/luigi2-one-sided-read-recovery-v1.yaml \
+            --image python:3.12-alpine \
+            --state-dir "$state_dir" \
+            | tee "$state_dir/cli-result.json"
+          uv run --locked python - <<'PY'
+          import json
+          from pathlib import Path
+
+          state = Path(".horizon/luigi2-one-sided-read-recovery-v1")
+          artifacts = state / "artifacts"
+
+          def artifact(ref: str) -> Path:
+              return artifacts / ref[:2] / ref
+
+          result = json.loads((state / "cli-result.json").read_text(encoding="utf-8"))
+          suite = result["report"]
+          if (
+              not suite["all_expectations_met"]
+              or suite["paid_model_called"]
+              or suite["network_called"]
+              or suite["case_count"] != 1
+              or suite["treatment_recovered_count"] != 1
+          ):
+              raise SystemExit("Luigi-2 one-sided-read suite boundary failed")
+          case = suite["cases"][0]
+          case_report = json.loads(artifact(case["report_ref"]).read_text(encoding="utf-8"))
+          baseline = case_report["baseline"]
+          treatment = case_report["single_replan"]
+          if (
+              baseline["status"] != "WAITING_FOR_USER"
+              or treatment["status"] != "SUCCEEDED"
+              or not treatment["final_validation_passed"]
+              or not treatment["trace_replay_verified"]
+              or not treatment["source_workspace_unchanged"]
+          ):
+              raise SystemExit("Luigi-2 one-sided-read treatment did not close the loop")
+
+          events = [
+              json.loads(line)
+              for line in artifact(treatment["trace_ref"]).read_text(
+                  encoding="utf-8"
+              ).splitlines()
+          ]
+          settled = [
+              event["payload"]["record"]
+              for event in events
+              if event["event_type"] == "TOOL_CALL_SETTLED"
+          ]
+          observed = [(record["name"], record["status"]) for record in settled]
+          expected = [
+              ("retrieve_code", "success"),
+              ("read_file", "success"),
+              ("revise_plan", "success"),
+              ("replace_text", "success"),
+              ("submit", "success"),
+              ("run_check", "success"),
+          ]
+          if observed != expected:
+              raise SystemExit(f"Unexpected Luigi-2 tool sequence: {observed}")
+          read_receipt = artifact(settled[1]["artifact_ref"]).read_text(encoding="utf-8")
+          if not read_receipt.startswith(
+              "READ_RANGE path=luigi/contrib/beam_dataflow.py lines=440-479 total_lines=479"
+          ):
+              raise SystemExit("Luigi-2 one-sided read was not deterministically bounded")
+          lineage = treatment["reliability"]["retrieval_lineage"]
+          if (
+              lineage["successful_write_count"] != 1
+              or lineage["write_context_bound_count"] != 1
+              or lineage["evidence_backed_write_count"] != 1
+          ):
+              raise SystemExit("Luigi-2 write lost retrieval evidence lineage")
+          evidence = {
+              "schema_version": 1,
+              "claim_scope": "post_run_scripted_development_regression",
+              "external_model_called": False,
+              "external_model_cost_cny": "0",
+              "network_called_by_evaluator": False,
+              "repository_code_executed_in_network_disabled_container": True,
+              "baseline_status": baseline["status"],
+              "treatment_status": treatment["status"],
+              "completed_read_range": "440-479",
+              "required_check_passed": treatment["final_validation_passed"],
+              "trace_replay_verified": treatment["trace_replay_verified"],
+              "source_workspace_unchanged": treatment["source_workspace_unchanged"],
+              "write_context_bound": True,
+              "evidence_backed_write": True,
+              "excluded_claims": [
+                  "real_model_task_success",
+                  "paid_run_continuation",
+                  "independent_holdout_improvement",
+              ],
+          }
+          (state / "one-sided-read-evidence.json").write_text(
+              json.dumps(evidence, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+              encoding="utf-8",
+          )
+          PY
+
       - name: Run the three-case three-stage recovery suite in network-disabled containers
         shell: bash
         run: |
@@ -632,6 +739,7 @@ jobs:
             .horizon/reduced-docker-v2
             .horizon/full-checkout-docker-v11
             .horizon/thefuck2-retrieval-reuse-v1
+            .horizon/luigi2-one-sided-read-recovery-v1
             .horizon/multi-stage-docker-v4
             .horizon/multi-stage-hard-crash-docker-v2
             .horizon/real-model-pilot-httpie-v1
@@ -692,6 +800,11 @@ jobs:
           retrieval_reuse = json.loads(
               Path(
                   ".horizon/thefuck2-retrieval-reuse-v1/trace-reuse-evidence.json"
+              ).read_text(encoding="utf-8")
+          )
+          one_sided_read = json.loads(
+              Path(
+                  ".horizon/luigi2-one-sided-read-recovery-v1/one-sided-read-evidence.json"
               ).read_text(encoding="utf-8")
           )
           multi = json.loads(
@@ -852,6 +965,14 @@ jobs:
               and retrieval_reuse["source_workspace_unchanged"]
               and retrieval_reuse["write_context_bound"]
               and retrieval_reuse["evidence_backed_write"]
+              and one_sided_read["baseline_status"] == "WAITING_FOR_USER"
+              and one_sided_read["treatment_status"] == "SUCCEEDED"
+              and one_sided_read["completed_read_range"] == "440-479"
+              and one_sided_read["required_check_passed"]
+              and one_sided_read["trace_replay_verified"]
+              and one_sided_read["source_workspace_unchanged"]
+              and one_sided_read["write_context_bound"]
+              and one_sided_read["evidence_backed_write"]
               and multi_reliability["required_check_failure_arm_count"] == 0
               and hard_crash_reliability["required_check_failure_arm_count"] == 0
               and created_resume["verified"]
@@ -894,6 +1015,7 @@ jobs:
               or created_resume["paid_model_called"]
               or worker_crash["paid_model_called"]
               or retrieval_reuse["external_model_called"]
+              or one_sided_read["external_model_called"]
               or smoke_candidates["paid_model_called"]
           )
           network_called = (
@@ -901,6 +1023,7 @@ jobs:
               or created_resume["network_called"]
               or worker_crash["network_called"]
               or retrieval_reuse["network_called_by_evaluator"]
+              or one_sided_read["network_called_by_evaluator"]
               or smoke_candidates["network_called_by_evaluator"]
           )
           if not all_expectations_met:
@@ -1051,6 +1174,14 @@ jobs:
                   f"{retrieval_reuse['post_policy_request_payload_bytes']}` bytes; "
                   f"compacted units `"
                   f"{retrieval_reuse['post_policy_compacted_unit_count']}`"
+              ),
+              (
+                  "- Luigi-2 observed one-sided read: `"
+                  f"{one_sided_read['baseline_status']} -> "
+                  f"{one_sided_read['treatment_status']}`; completed range `"
+                  f"{one_sided_read['completed_read_range']}`; protected validation `"
+                  f"{one_sided_read['required_check_passed']}`; Trace replay `"
+                  f"{one_sided_read['trace_replay_verified']}`"
               ),
               (
                   "- Remaining real-model smoke candidates: exact preflight `"

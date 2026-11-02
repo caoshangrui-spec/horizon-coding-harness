@@ -100,6 +100,17 @@ THEFUCK_TRACE_REUSE_MANIFEST_PATH = (
 LUIGI_BEAM_FULL_MANIFEST_PATH = (
     ROOT / "benchmarks" / "run_ab" / "full" / "luigi-2-beam-target-path" / "manifest.yaml"
 )
+LUIGI_ONE_SIDED_SUITE_PATH = (
+    ROOT / "benchmarks" / "run_ab" / "luigi2-one-sided-read-recovery-v1.yaml"
+)
+LUIGI_ONE_SIDED_MANIFEST_PATH = (
+    ROOT
+    / "benchmarks"
+    / "run_ab"
+    / "full"
+    / "luigi-2-beam-target-path"
+    / "one-sided-read-recovery-v1.yaml"
+)
 HTTPIE_LONGSEP_FULL_MANIFEST_PATH = (
     ROOT / "benchmarks" / "run_ab" / "full" / "httpie-5-escape-long-separator" / "manifest.yaml"
 )
@@ -1647,6 +1658,41 @@ def test_thefuck_trace_reuse_suite_freezes_observed_queries_and_bounded_recovery
         "start_line": 16,
         "end_line": 155,
     }
+    assert treatment.expected_status == RunStatus.SUCCEEDED
+    assert treatment.expected_execution_replans == 1
+    assert baseline.expected_status == RunStatus.WAITING_FOR_USER
+    assert baseline.expected_human_request_pattern == "identical_action"
+
+
+def test_luigi_trace_recovery_freezes_observed_query_and_one_sided_read():
+    suite = RunABSuiteManifest.model_validate(
+        yaml.safe_load(LUIGI_ONE_SIDED_SUITE_PATH.read_text(encoding="utf-8"))
+    )
+    manifest = RunABEvalManifest.model_validate(
+        yaml.safe_load(LUIGI_ONE_SIDED_MANIFEST_PATH.read_text(encoding="utf-8"))
+    )
+
+    assert suite.suite_id == "luigi2-one-sided-read-recovery-v1"
+    assert len(suite.cases) == 1
+    suite.cases[0].check_manifest(manifest)
+    assert manifest.task.constraints.allowed_paths == ("luigi/**",)
+    assert manifest.task.constraints.network == "deny"
+    assert manifest.expected_initial_failed_checks == ("luigi-one-sided-read-recovery",)
+
+    baseline, treatment = manifest.arms
+    assert baseline.actions[0].arguments == {"query": "beam_dataflow.py BigQuery target path"}
+    assert [action.tool for action in treatment.actions] == [
+        "retrieve_code",
+        "read_file",
+        "revise_plan",
+        "replace_text",
+        "submit",
+    ]
+    assert treatment.actions[1].arguments == {
+        "path": "luigi/contrib/beam_dataflow.py",
+        "start_line": 440,
+    }
+    assert "end_line" not in treatment.actions[1].arguments
     assert treatment.expected_status == RunStatus.SUCCEEDED
     assert treatment.expected_execution_replans == 1
     assert baseline.expected_status == RunStatus.WAITING_FOR_USER

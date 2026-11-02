@@ -1,0 +1,24 @@
+schema_version: 1
+suite_id: luigi2-one-sided-read-recovery-v1
+
+# One post-run development scenario derived from the paid Luigi-2 Trace. It stays separate from
+# the frozen 22-case suite and does not count as an independent task or real-model success.
+cases:
+  - case_id: luigi-2-one-sided-read-recovery-v1
+    manifest_path: full/luigi-2-beam-target-path/one-sided-read-recovery-v1.yaml
+    source:
+      benchmark: BugsInPy
+      project: luigi
+      bug_id: "2"
+      repository_url: https://github.com/spotify/luigi
+      buggy_commit: baa54c9f4f809692d62d4c3e4497161717c76550
+      fixed_commit: 24e85945ae39e5975491527e00c3f0f64b42ea6e
+      fix_url: https://github.com/spotify/luigi/commit/24e85945ae39e5975491527e00c3f0f64b42ea6e
+      upstream_test: test/contrib/beam_dataflow_test.py::BeamDataflowTest::test_get_target_path
+      license_spdx: Apache-2.0
+      license_url: https://github.com/spotify/luigi/blob/baa54c9f4f809692d62d4c3e4497161717c76550/LICENSE
+      reduction: full_checkout
+      reduction_note: >-
+        Uses the clean 382-file buggy checkout, one verbatim paid-Run query, and the observed
+        one-sided read starting at line 440. The scripted treatment validates only the repaired
+        Harness path; it is not a continuation of the paid model Run.

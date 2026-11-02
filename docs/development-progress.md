@@ -31,11 +31,19 @@
   有界窗口；双边界、路径 allowlist、最大行数、最大输出字符和 UTF-8 限制不变。Scripted Agent
   回归证明单边请求可继续到 edit、protected validation 与 Trace replay，但这不是 Luigi 真实模型
   continuation，也没有新增付费调用。
+- 新增独立的 source-bound post-run development 场景，把真实 Trace 中的原始查询
+  `beam_dataflow.py BigQuery target path` 和 `start_line=440` 绑定到 382-file buggy checkout。
+  本机禁网 Docker 实跑得到 Baseline `WAITING_FOR_USER`、Treatment `SUCCEEDED`：控制器实际读取
+  `440-479`，随后 replan、单行 `replace_text`、protected validation 与双 arm Trace replay 全部通过，
+  source unchanged、write context-bound、evidence-backed write 均通过，外部模型/网络调用为 0；suite
+  report ref 为 `d8a65f67fc8cec61adc80aa039e1e0459b6a62a46b5c62af4756080638586f2f`。
+  该场景明确排除 real-model success、paid Run continuation 与 independent holdout improvement。
 - 两条已有 Smoke 的离线聚合现在为 coverage 2/5、evaluated success 0/2、budget gate 2、总费用
   `CNY 0.078165`、总模型调用 9；HTTPie-1、Sanic-2、Tornado-2 继续保持 unevaluated。
 - 定向回归为 **126 passed**；第一次整仓回归诚实保留与旧作品集“单边读取必须报错”场景冲突的
   11 个失败。演示随后改用仍应拒绝的 401 行越界读取，继续覆盖结构化错误恢复而不绕过新语义；
-  第二次整仓回归为 **676 passed，11 skipped**，Ruff、格式与 `git diff --check` 通过。
+  第二次整仓回归为 **676 passed，11 skipped**；新增 exact-checkout post-run 场景后最新整仓回归为
+  **677 passed，11 skipped**，Ruff、格式与 `git diff --check` 继续作为提交门禁。
 
 ## 2026-11-02 真实模型 Smoke Run 后指标闭环
 
@@ -1728,7 +1736,7 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 十轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新全量入口为 676 passed、11 个显式 Docker skip，
+当前主干继续补齐尚未统一覆盖的故障点；最新全量入口为 677 passed、11 个显式 Docker skip，
 11 个 Docker 合同此前已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以

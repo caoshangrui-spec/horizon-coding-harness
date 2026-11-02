@@ -14,8 +14,11 @@ for public releases; unreleased work must not be presented as a published releas
   CNY 0.064902, seven model calls, `budget_gate`. The two-run Smoke aggregate is now coverage 2/5,
   success 0/2, CNY 0.078165, and nine calls. A narrow zero-cost follow-up now deterministically
   completes exactly one supplied `read_file` bound to a maximum 400-line window; path, line,
-  output-size, and authority limits remain enforced. This regression does not rewrite the paid
-  Trace or claim a real-model repair.
+  output-size, and authority limits remain enforced. A source-bound regression now replays the
+  exact paid query against the 382-file Luigi checkout, completes the observed `440-479` range,
+  replans once, applies the one-line repair, passes protected validation, and replays both Traces
+  in a network-disabled container. It calls no external model and does not rewrite the paid Trace,
+  count as a holdout, or claim a real-model repair.
 - Replaced irreducible context-projection `Conflict` exits with a durable, typed recovery path.
   Protected-prefix and incomplete-tool-turn overflow now persist content-addressed
   `ContextCapacityStop` evidence, enter `WAITING_FOR_USER`, and release the worker lease before any

@@ -378,3 +378,11 @@ Run 以 `FAILED/campaign_cost_limit` 安全停止。reserved/unknown 为 0，sou
 UTF-8 与 workspace revision 约束。Scripted Agent 回归证明同类单边调用可继续到 edit、protected
 validation 和 Trace replay，但没有复跑 Luigi-2，也不能据此把真实结果升级为成功。Harness 源码
 变化使本节 preflight 失效；任何未来真实调用都需要新的零费用 preflight 和新的明确授权。
+
+为避免只用缩小 fixture 自证，另建了
+[`luigi2-one-sided-read-recovery-v1`](../benchmarks/run_ab/luigi2-one-sided-read-recovery-v1.yaml)
+source-bound development suite。它在 382-file exact checkout 中冻结真实 Run 的原始 retrieval query 与
+`start_line=440`，Scripted treatment 实际完成 `440-479` 读取、一次 replan、精确编辑、protected
+validation 和 Trace replay；Baseline 保持 `WAITING_FOR_USER`。该禁网回归不调用外部模型、费用为 0，
+并由公开 full-checkout workflow 作为独立门禁执行；它只证明修复后的 Harness 路径可闭环，不是对
+唯一付费 Run 的复跑、holdout 提升或真实模型成功。
