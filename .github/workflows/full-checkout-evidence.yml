@@ -987,7 +987,8 @@ jobs:
             .horizon/smoke-candidate-preflight-v1/selection-evidence.json
             .horizon/post-smoke-candidate-preflight-v1/*/cli-result.json
             .horizon/post-smoke-candidate-preflight-v1/selection-evidence.json
-            .horizon/sanic5-evidence-transition-preflight-v2
+            .horizon/sanic5-evidence-transition-preflight-v2/cli-result.json
+            .horizon/sanic5-evidence-transition-preflight-v2/public-evidence.json
           if-no-files-found: warn
           retention-days: 30
 
