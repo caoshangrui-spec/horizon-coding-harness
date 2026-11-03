@@ -145,6 +145,15 @@ class AgentLoopConfig(Contract):
     max_identical_no_progress_actions: Annotated[int, Field(ge=1, le=10)] = 2
 
 
+def execution_model_iteration_limit(max_model_calls: int, planning_calls: int) -> int:
+    """Honor the TaskSpec model-call ceiling after already-settled planning calls."""
+
+    remaining = max_model_calls - planning_calls
+    if remaining < 1:
+        raise ValueError("TaskSpec leaves no model call available for execution")
+    return remaining
+
+
 def _execution_replan_tool(run: Run) -> ToolDefinition:
     acceptance_ids = [check.id for check in run.task.acceptance]
     permitted_tools = list(permitted_plan_tools(run.task))

@@ -35,7 +35,11 @@ from horizon.application.agent_batch import (
     resolve_agent_batch_cases,
     write_agent_run_launch_receipt,
 )
-from horizon.application.agent_loop import AgentLoopConfig, CodingAgentRunner
+from horizon.application.agent_loop import (
+    AgentLoopConfig,
+    CodingAgentRunner,
+    execution_model_iteration_limit,
+)
 from horizon.application.context_capacity_demo import (
     ContextCapacityDemoRunner,
     verify_context_capacity_evidence_pack,
@@ -2454,7 +2458,10 @@ def agent_run(
 
     planning_calls = sum(record.purpose == "planning" for record in run.model_calls)
     runner_config = AgentLoopConfig(
-        max_model_iterations=min(8, task.budgets.max_model_calls - planning_calls),
+        max_model_iterations=execution_model_iteration_limit(
+            task.budgets.max_model_calls,
+            planning_calls,
+        ),
         max_output_tokens=min(512, provider.request.max_output_tokens),
         max_run_cost=provider.run_budget.max_cost,
         enable_thinking=provider.request.enable_thinking,
@@ -3191,9 +3198,9 @@ def agent_resume(
 
     planning_calls = sum(record.purpose == "planning" for record in current.model_calls)
     runner_config = AgentLoopConfig(
-        max_model_iterations=min(
-            8,
-            current.task.budgets.max_model_calls - planning_calls,
+        max_model_iterations=execution_model_iteration_limit(
+            current.task.budgets.max_model_calls,
+            planning_calls,
         ),
         max_output_tokens=min(512, provider.request.max_output_tokens),
         max_run_cost=provider.run_budget.max_cost,

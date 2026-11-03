@@ -710,6 +710,9 @@ def test_agent_run_worker_process_implies_supervision_and_reports_process_eviden
 ):
     monkeypatch.chdir(tmp_path)
     source, original, task_path, dotenv = write_auto_plan_cli_fixture(tmp_path)
+    task_data = json.loads(task_path.read_text(encoding="utf-8"))
+    task_data["budgets"]["max_model_calls"] = 14
+    task_path.write_text(json.dumps(task_data), encoding="utf-8")
     model = AutoPlanAndFixModel()
     monkeypatch.setattr(
         cli_app_module,
@@ -774,6 +777,7 @@ def test_agent_run_worker_process_implies_supervision_and_reports_process_eviden
         "pending_reservation_ids": [],
     }
     assert captured["config"].slice_iterations == 1
+    assert captured["config"].max_worker_slices == 14
     assert captured["launcher"].image == "offline-fixture"
     assert len(model.requests) == 1
     assert (source / "src/parser.py").read_text(encoding="utf-8") == original

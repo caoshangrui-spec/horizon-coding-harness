@@ -31,15 +31,19 @@ on:
       - "benchmarks/run_ab/full/**/real-model-smoke-candidate-v1.yaml"
       - "benchmarks/run_ab/full/**/real-model-post-smoke-candidate-v1.yaml"
       - "benchmarks/run_ab/full/sanic-2-asyncio-start-serving/real-model-smoke-pilot-v1.yaml"
+      - "benchmarks/run_ab/full/sanic-5-root-logger-config/real-model-evidence-transition-pilot-v2.yaml"
+      - "benchmarks/real-model-post-smoke-sanic5-result-v2.yaml"
       - "benchmarks/real-model-smoke-evaluator-v1.yaml"
       - "benchmarks/real-model-smoke-candidate-selection-v1.yaml"
       - "benchmarks/real-model-smoke-candidate-selection-v2.yaml"
       - "benchmarks/real-model-post-smoke-candidate-selection-v1.yaml"
       - "config/providers/siliconflow-httpie-pilot.yaml"
       - "config/providers/siliconflow-sanic2-smoke-v1.yaml"
+      - "config/providers/siliconflow-sanic5-evidence-transition-v2.yaml"
       - "config/providers/siliconflow-smoke-candidate-preflight-v1.yaml"
       - "src/horizon/adapters/sandbox/**"
       - "src/horizon/application/agent_loop.py"
+      - "src/horizon/application/_local_agent_worker.py"
       - "src/horizon/application/run_ab_eval.py"
       - "src/horizon/application/pilot.py"
       - "src/horizon/application/retrieval_control.py"
@@ -565,6 +569,74 @@ jobs:
           )
           PY
 
+      - name: Verify the Sanic-5 evidence-transition follow-up without spending
+        shell: bash
+        run: |
+          set -euo pipefail
+          state_dir=.horizon/sanic5-evidence-transition-preflight-v2
+          mkdir -p "$state_dir"
+          uv run --locked horizon eval pilot-preflight \
+            benchmarks/run_ab/full/sanic-5-root-logger-config/real-model-evidence-transition-pilot-v2.yaml \
+            --image python:3.12-alpine \
+            --config config/providers/siliconflow-sanic5-evidence-transition-v2.yaml \
+            --state-dir "$state_dir" \
+            | tee "$state_dir/cli-result.json"
+          uv run --locked python - <<'PY'
+          import json
+          from decimal import Decimal
+          from pathlib import Path
+
+          state = Path(".horizon/sanic5-evidence-transition-preflight-v2")
+          result = json.loads((state / "cli-result.json").read_text(encoding="utf-8"))
+          report = result["report"]
+          planning = Decimal(report["initial_planning_reserved_cost"])
+          execution = Decimal(report["bounded_execution_reserved_cost"])
+          cumulative = Decimal(report["planning_execution_reserved_cost"])
+          if (
+              not report["ready"]
+              or report["pilot_id"] != "sanic-5-root-logger-config-evidence-transition-v2"
+              or report["provider_policy_id"]
+              != "siliconflow-deepseek-v4-flash-sanic5-evidence-transition-018-v2"
+              or report["model_id"] != "deepseek-ai/DeepSeek-V4-Flash"
+              or report["source_git_head"]
+              != "e3a27c2cc485d57aa1ff87d9f69098e4ab12727e"
+              or report["max_model_calls"] != 14
+              or not report["full_checkout_verified"]
+              or not report["initial_failure_matches"]
+              or not report["source_unchanged"]
+              or not report["solution_isolation_passed"]
+              or not report["planning_execution_fits_run_cap"]
+              or not report["planning_execution_fits_campaign"]
+              or report["credential_loaded"]
+              or report["paid_model_called"]
+              or report["network_called"]
+              or report["fallback_enabled"]
+              or report["implicit_provider_retry_enabled"]
+              or cumulative != planning + execution
+              or cumulative > Decimal(report["run_cost_cap"])
+              or cumulative > Decimal(report["campaign_remaining_cost"])
+              or not result["requires_paid_confirmation"]
+          ):
+              raise SystemExit("Sanic-5 evidence-transition zero-spend preflight failed")
+          evidence = {
+              "schema_version": 1,
+              "pilot_id": report["pilot_id"],
+              "report_ref": result["report_ref"],
+              "source_git_head": report["source_git_head"],
+              "max_model_calls": report["max_model_calls"],
+              "planning_execution_reserved_cost_cny": str(cumulative),
+              "ready": report["ready"],
+              "source_unchanged": report["source_unchanged"],
+              "solution_isolation_passed": report["solution_isolation_passed"],
+              "paid_model_called": report["paid_model_called"],
+              "network_called": report["network_called"],
+          }
+          (state / "public-evidence.json").write_text(
+              json.dumps(evidence, sort_keys=True, separators=(",", ":")),
+              encoding="utf-8",
+          )
+          PY
+
       - name: Run the Docker sandbox contracts
         shell: bash
         env:
@@ -913,6 +985,9 @@ jobs:
             .horizon/real-model-pilot-httpie-v1
             .horizon/smoke-candidate-preflight-v1/*/cli-result.json
             .horizon/smoke-candidate-preflight-v1/selection-evidence.json
+            .horizon/post-smoke-candidate-preflight-v1/*/cli-result.json
+            .horizon/post-smoke-candidate-preflight-v1/selection-evidence.json
+            .horizon/sanic5-evidence-transition-preflight-v2
           if-no-files-found: warn
           retention-days: 30
 
@@ -993,6 +1068,11 @@ jobs:
           post_smoke_candidates = json.loads(
               Path(
                   ".horizon/post-smoke-candidate-preflight-v1/selection-evidence.json"
+              ).read_text(encoding="utf-8")
+          )
+          sanic5_transition = json.loads(
+              Path(
+                  ".horizon/sanic5-evidence-transition-preflight-v2/public-evidence.json"
               ).read_text(encoding="utf-8")
           )
           created_resume = json.loads(
@@ -1193,6 +1273,12 @@ jobs:
               and post_smoke_candidates["cumulative_budget_gate_passed"]
               and post_smoke_candidates["original_smoke_suite_unchanged"]
               and not post_smoke_candidates["paid_execution_authorized"]
+              and sanic5_transition["ready"]
+              and sanic5_transition["source_unchanged"]
+              and sanic5_transition["solution_isolation_passed"]
+              and sanic5_transition["max_model_calls"] == 14
+              and not sanic5_transition["paid_model_called"]
+              and not sanic5_transition["network_called"]
           )
           paid_model_called = (
               any(report["paid_model_called"] for report in suite_reports)
@@ -1202,6 +1288,7 @@ jobs:
               or one_sided_read["external_model_called"]
               or smoke_candidates["paid_model_called"]
               or post_smoke_candidates["paid_model_called"]
+              or sanic5_transition["paid_model_called"]
           )
           network_called = (
               any(report["network_called"] for report in suite_reports)
@@ -1211,6 +1298,7 @@ jobs:
               or one_sided_read["network_called_by_evaluator"]
               or smoke_candidates["network_called_by_evaluator"]
               or post_smoke_candidates["network_called_by_evaluator"]
+              or sanic5_transition["network_called"]
           )
           if not all_expectations_met:
               missing_case_lineage = [
@@ -1248,6 +1336,7 @@ jobs:
                   "hard_crash_case_contracts_met": hard_crash_case_contracts_met,
                   "smoke_candidate_selection": smoke_candidates,
                   "post_smoke_candidate_selection": post_smoke_candidates,
+                  "sanic5_evidence_transition_preflight": sanic5_transition,
                   "paid_model_called": paid_model_called,
                   "network_called": network_called,
               }
@@ -1292,6 +1381,7 @@ jobs:
                       "hard_crash_case_contracts_met": hard_crash_case_contracts_met,
                       "smoke_candidate_selection": smoke_candidates,
                       "post_smoke_candidate_selection": post_smoke_candidates,
+                      "sanic5_evidence_transition_preflight": sanic5_transition,
                   }
               }
               rendered_diagnostics = json.dumps(diagnostics, sort_keys=True)
@@ -1387,6 +1477,15 @@ jobs:
                   f"{post_smoke_candidates['selected_task_id']}`; original Smoke unchanged `"
                   f"{post_smoke_candidates['original_smoke_suite_unchanged']}`; paid "
                   f"authorization `{post_smoke_candidates['paid_execution_authorized']}`"
+              ),
+              (
+                  "- Sanic-5 evidence-transition v2: ready `"
+                  f"{sanic5_transition['ready']}`; model-call budget `"
+                  f"{sanic5_transition['max_model_calls']}`; planning + bounded execution `"
+                  f"CNY {sanic5_transition['planning_execution_reserved_cost_cny']}`; "
+                  f"source unchanged `{sanic5_transition['source_unchanged']}`; paid/network `"
+                  f"{sanic5_transition['paid_model_called']}/"
+                  f"{sanic5_transition['network_called']}`"
               ),
               (
                   "- Dependency-reduced success quality: clean/flagged `"

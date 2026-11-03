@@ -177,6 +177,50 @@ def test_sanic5_pattern_transitions_from_duplicate_target_reads_to_action():
     assert "protected validation" in hint.detail
 
 
+def test_evidence_transition_uses_repeated_read_when_rank_one_chunk_misses_edit_line():
+    revision = "a" * 64
+    retrieval_snippet = (
+        '        "formatter": "access",\n'
+        "    },\n"
+        "    formatters={\n"
+        'logger = logging.getLogger("sanic.root")'
+    )
+    read_content = (
+        "READ_RANGE path=sanic/log.py lines=1-58 total_lines=58\n"
+        "import logging\nimport sys\n\n"
+        "LOGGING_CONFIG_DEFAULTS = dict(\n"
+        "    version=1,\n"
+        "    disable_existing_loggers=False,\n"
+        "    loggers={\n"
+        '        "root": {"level": "INFO", "handlers": ["console"]},\n'
+        "    },\n"
+        f"{retrieval_snippet}\n"
+    )
+    messages = (
+        *_settled_messages(
+            "root logger name configuration in sanic/log.py",
+            workspace_revision=revision,
+            path="sanic/log.py",
+            snippet=retrieval_snippet,
+        ),
+        *_settled_read("read-1", "sanic/log.py", read_content),
+        *_settled_read("read-2", "sanic/log.py", read_content),
+    )
+
+    hint = find_evidence_reacquisition(
+        messages,
+        "retrieve_code",
+        {"query": "sanic/log.py LOGGING_CONFIG_DEFAULTS root logger configuration"},
+        revision,
+    )
+
+    assert hint is not None
+    assert (hint.start_line, hint.end_line) == (1, 58)
+    assert '"root": {"level": "INFO"' in hint.snippet
+    assert not hint.snippet.startswith('        "formatter": "access"')
+    assert "Edit-ready repeated-read evidence" in hint.detail
+
+
 def test_evidence_transition_requires_two_identical_reads_containing_rank_one_snippet():
     revision = "a" * 64
     first = "def which(program):\n    paths = PATH.split(os.pathsep)\n# first range"

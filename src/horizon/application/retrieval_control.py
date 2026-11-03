@@ -20,6 +20,10 @@ MIN_QUERY_CONTAINMENT = 0.75
 NEIGHBOR_CONTEXT_BEFORE = 20
 NEIGHBOR_CONTEXT_AFTER = 80
 MAX_READ_LINES = 400
+READ_RANGE_HEADER = re.compile(
+    r"\AREAD_RANGE path=(?P<path>.+?) lines=(?P<start>[1-9][0-9]*)-"
+    r"(?P<end>[1-9][0-9]*) total_lines=[1-9][0-9]*\n"
+)
 RETRIEVAL_QUERY_POLICY = "RetrievalQueryPolicy"
 EVIDENCE_TRANSITION_POLICY = "EvidenceTransitionPolicy"
 MIN_IDENTICAL_TARGET_READS = 2
@@ -91,7 +95,8 @@ class EvidenceTransitionHint:
             }
         )
         return (
-            f"Edit-ready rank-1 evidence {evidence}. Same-revision evidence was followed by "
+            f"Edit-ready repeated-read evidence {evidence}. Same-revision rank-1 evidence "
+            "was followed by "
             f"{self.identical_read_count} read_file calls that returned identical target "
             f"content for {self.path}. Further read_file/retrieve_code was not dispatched; "
             "do not reacquire it with different arguments. Next choose "
@@ -192,6 +197,30 @@ def _normalized_text(content: str) -> str:
     return content.replace("\r\n", "\n").replace("\r", "\n")
 
 
+def _read_excerpt(
+    turn: _SettledToolTurn,
+    *,
+    fallback_start_line: int,
+    fallback_end_line: int,
+) -> tuple[int, int, str]:
+    content = _normalized_text(turn.content)
+    match = READ_RANGE_HEADER.match(content)
+    if match is not None:
+        body = content[match.end() :]
+        return (
+            int(match.group("start")),
+            int(match.group("end")),
+            body[:MAX_TRANSITION_SNIPPET_CHARS],
+        )
+    start_line = turn.arguments.get("start_line", fallback_start_line)
+    end_line = turn.arguments.get("end_line", fallback_end_line)
+    if isinstance(start_line, bool) or not isinstance(start_line, int) or start_line < 1:
+        start_line = fallback_start_line
+    if isinstance(end_line, bool) or not isinstance(end_line, int) or end_line < start_line:
+        end_line = fallback_end_line
+    return start_line, end_line, content[:MAX_TRANSITION_SNIPPET_CHARS]
+
+
 def find_evidence_reacquisition(
     messages: Sequence[ModelMessage],
     current_tool_name: str,
@@ -255,29 +284,37 @@ def find_evidence_reacquisition(
         for _, _, evidence in retrievals
         if evidence.chunks[0].path == target_path
     )
-    matching_contents = [
-        turn.content
+    matching_reads = [
+        turn
         for turn in reads
         if turn.order > first_retrieval_order
         and turn.arguments.get("path") == target_path
         and any(_normalized_text(snippet) in _normalized_text(turn.content) for snippet in snippets)
     ]
-    if not matching_contents:
+    if not matching_reads:
         return None
-    content_counts = Counter(matching_contents)
-    identical_read_count = max(content_counts.values())
+    content_counts = Counter(turn.content for turn in matching_reads)
+    repeated_content, identical_read_count = content_counts.most_common(1)[0]
     if identical_read_count < MIN_IDENTICAL_TARGET_READS:
         return None
 
     latest_evidence = retrievals[-1][2]
     chunk = latest_evidence.chunks[0]
+    repeated_read = next(
+        turn for turn in reversed(matching_reads) if turn.content == repeated_content
+    )
+    start_line, end_line, snippet = _read_excerpt(
+        repeated_read,
+        fallback_start_line=chunk.start_line,
+        fallback_end_line=chunk.end_line,
+    )
     return EvidenceTransitionHint(
         path=target_path,
         query=latest_evidence.query,
-        start_line=chunk.start_line,
-        end_line=chunk.end_line,
+        start_line=start_line,
+        end_line=end_line,
         identical_read_count=identical_read_count,
-        snippet=chunk.snippet[:MAX_TRANSITION_SNIPPET_CHARS],
+        snippet=snippet,
     )
 
 

@@ -888,3 +888,29 @@ Campaign 只剩 `CNY 0.059439`，因此以 `campaign_cost_limit` 终止。四次
 `5cda769d49abd799b8cf8b1c4347f9580380318cce3c8e7cef553ccb3e0755d3`，无 open/unknown effect 或
 悬空 reservation。该 Run 不进入原五任务 Smoke 聚合，也没有复跑；机器可读冻结结果见
 [`real-model-post-smoke-sanic5-result-v1.yaml`](../benchmarks/real-model-post-smoke-sanic5-result-v1.yaml)。
+
+## 26. Sanic-5 evidence-transition follow-up：门禁触发，但反馈片段不足且运行上限漂移
+
+在 evidence-to-action 门禁合入后，用户只授权一个新的独立 `CNY 0.180` Run/Campaign；模型仍为
+`deepseek-ai/DeepSeek-V4-Flash`，Provider 单请求最多尝试一次，禁用 retry 与 fallback。fresh
+preflight ref 为 `7043711bb656a2755a3b2ff614712451b6d47113f56d7b70863da034d0a38393`，
+累计预留 `CNY 0.103716`，初始失败、source isolation、镜像、buggy HEAD 与 Harness 源码指纹均通过。
+
+唯一 Run `run_b9236f3a191440e3ad63ced0db826564` 结算 `CNY 0.083034` 后以
+`model_iteration_limit` 失败。第一次 execution 同时返回 rank-1 `sanic/log.py` 和完整文件，错误
+`"root"` key 已可见；随后三次相同读取中的第三次被 `NoProgressPolicy` 拒绝。接着新增门禁确实把一次
+替换词检索和两次相同读取拒绝为 `EvidenceTransitionPolicy`，但模型仍没有选择写工具，最终为 9 次模型
+调用、9 次工具调用、0 次写入、0 次 protected check，validation 保持 `UNKNOWN`。
+
+这次结果没有否定门禁的控制效果，却揭示了更窄的实现错误：控制回执把 rank-1 检索块 `36-58` 行的
+前 240 字符称为 edit-ready，而真正要改的第 8 行只存在于已经完成的重复读取中。修复因此改为从两次
+逐字相同的 `read_file` 输出提取范围和片段。Run 还证明 manifest 的 `max_model_calls=14` 没有被运行时
+兑现：CLI、resume 和本地 worker 都静默使用最多 8 个 execution iterations。运行时现在统一计算
+`max_model_calls - planning_calls`，仍受 Run/Campaign 费用门、Task step/tool/wall-time 门和 Provider
+单请求策略约束。
+
+该修复之后没有再次调用付费模型。v2 结果追加在
+[`real-model-post-smoke-sanic5-result-v2.yaml`](../benchmarks/real-model-post-smoke-sanic5-result-v2.yaml)；
+v1 的费用门失败和原五任务 Smoke 聚合均未改写。128-event terminal EvidencePack 已离线验证，Trace
+SHA-256 为 `eadbf2b3331fba6d2f6f559c966c3c6c82a465fcf21431f7fd133cfdfa4a2566`，projection hash
+为 `9b199d3650e0d205e0336d172c36987efbbe8a5a5f30b2c1f88592f5c4a4a8c8`，无 open/unknown effect。

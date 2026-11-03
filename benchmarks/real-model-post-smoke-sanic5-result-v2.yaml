@@ -1,0 +1,113 @@
+schema_version: 1
+result_id: sanic-5-root-logger-config-evidence-transition-v2
+task_id: sanic-5-root-logger-config
+classification: post_hoc_development_follow_up
+
+scope:
+  original_smoke_suite_unchanged: true
+  included_in_original_smoke_aggregate: false
+  blind_or_holdout_evidence: false
+  retry_performed: false
+  fallback_performed: false
+
+preflight:
+  ready: true
+  report_ref: 7043711bb656a2755a3b2ff614712451b6d47113f56d7b70863da034d0a38393
+  prepared_task_ref: 7da92870d91f17ce279af91342cddba203c4ded334648eab1ff4a1118bf9ed94
+  manifest_digest: 144bd35a3ba496b05aafe4611a9aef67e25f25eb780978ac0705484be0ec381a
+  provider_config_digest: 9f524c7754c6c61d0a9815ef84b36e82df24decc93db5308d7ef75789e0db246
+  harness_source_digest: 3fd55f988c5ebb0fddf82fa5d785c5c7048108c4a3ac8b70f20adf66f5c14622
+  source_snapshot_revision: cfee8376a68de06e31540c5a8bc686e4e6074e75ed3853f2db8544766b54233d
+  source_git_head: e3a27c2cc485d57aa1ff87d9f69098e4ab12727e
+  validation_backend_ref: sha256:0687a6bc9716edc2a6ee0fbfb0f87e7ee358b262b67c9215de91bc9b2d38ba71
+  initial_failure_matches: true
+  source_unchanged: true
+  solution_isolation_passed: true
+  credential_loaded: false
+  paid_model_called: false
+  network_called: false
+  planning_reserved_cost_cny: "0.034188"
+  bounded_execution_reserved_cost_cny: "0.069528"
+  planning_execution_reserved_cost_cny: "0.103716"
+
+run:
+  run_id: run_b9236f3a191440e3ad63ced0db826564
+  status: FAILED
+  task_succeeded: false
+  failure_reason: model_iteration_limit
+  provider_id: siliconflow
+  provider_policy_id: siliconflow-deepseek-v4-flash-sanic5-evidence-transition-018-v2
+  model_id: deepseek-ai/DeepSeek-V4-Flash
+  provider_max_attempts: 1
+  fallback_enabled: false
+  run_cost_cap_cny: "0.180"
+  campaign_id: siliconflow-sanic5-evidence-transition-2026-11-v2
+  campaign_cost_cap_cny: "0.180"
+  settled_cost_cny: "0.083034"
+  campaign_remaining_cost_cny: "0.096966"
+  campaign_reserved_cost_cny: "0"
+  campaign_unknown_cost_cny: "0"
+  model_calls: 9
+  planning_calls: 1
+  execution_calls: 8
+  tool_calls: 9
+  input_tokens: 24969
+  output_tokens: 903
+  steps: 9
+  context_compaction_count: 7
+  source_workspace_unchanged: true
+  final_workspace_revision: cfee8376a68de06e31540c5a8bc686e4e6074e75ed3853f2db8544766b54233d
+  supervision:
+    mode: local_process
+    worker_slices: 8
+    worker_handoffs: 7
+    all_worker_exit_codes_zero: true
+    pending_reservation_ids: []
+
+observed_quality:
+  correct_location_reached: true
+  correct_location_evidence:
+    retrieval_rank: 1
+    path: sanic/log.py
+    retrieval_target_line_visible: false
+    subsequent_read_target_line_visible: true
+  valid_edit_produced: false
+  protected_validation_passed: null
+  acceptance_evidence_unknown: true
+  tool_sequence:
+    - {name: retrieve_code, status: success}
+    - {name: read_file, status: success}
+    - {name: read_file, status: success}
+    - {name: read_file, status: success}
+    - {name: read_file, status: error, controller_policy: NoProgressPolicy}
+    - {name: retrieve_code, status: error, controller_policy: EvidenceTransitionPolicy}
+    - {name: read_file, status: error, controller_policy: EvidenceTransitionPolicy}
+    - {name: read_file, status: error, controller_policy: EvidenceTransitionPolicy}
+    - {name: read_file, status: error, controller_policy: NoProgressPolicy}
+  evidence_transition_feedback_count: 3
+  write_tool_calls: 0
+  protected_check_calls: 0
+
+trace:
+  event_count: 128
+  event_hash: 3795a3cd8941a1d8b967c813b3dd70493da797e2a9b0dcee0aee833200d7f0b3
+  trace_sha256: eadbf2b3331fba6d2f6f559c966c3c6c82a465fcf21431f7fd133cfdfa4a2566
+  projection_hash: 9b199d3650e0d205e0336d172c36987efbbe8a5a5f30b2c1f88592f5c4a4a8c8
+  final_state_sha256: 1370cbd17d9d957c8701d530089b6c69172c9dc263c34c93b8cf932685938a1d
+  terminal_pack_verified: true
+  open_effects_present: false
+  unknown_effects_present: false
+  open_reservations_present: false
+
+diagnosis:
+  failure_class: transition_feedback_not_edit_sufficient_before_iteration_limit
+  facts:
+    - The first execution response reached sanic/log.py through rank-1 retrieval and a full-file read that showed the faulty root logger key.
+    - EvidenceTransitionPolicy later blocked one alternate retrieval and two repeated reads, but the model still requested read-only tools and never called replace_text or run_check.
+    - The transition feedback used the rank-1 retrieval snippet from lines 36-58; that excerpt omitted the faulty logger configuration at line 8 even though the repeated read content contained it.
+    - The manifest allowed 14 model calls, but the runtime imposed an internal limit of one planning plus eight execution calls and stopped before the cost cap.
+  limitations:
+    - This single Run cannot separate model non-compliance from the non-edit-sufficient feedback excerpt or repeated context compaction.
+    - The settled cost is a frozen local price-card estimate, not a provider invoice.
+    - No protected validation ran, so its outcome remains unknown rather than false.
+    - This post-hoc development result is not part of the original five-task Smoke denominator.

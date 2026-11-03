@@ -16,7 +16,11 @@ from horizon.adapters.retrieval.sqlite_fts import SQLiteCodeRetriever
 from horizon.adapters.sandbox.docker import DockerSandbox
 from horizon.adapters.sandbox.validation import DockerAcceptanceExecutor
 from horizon.adapters.workspace.snapshot import SnapshotManager
-from horizon.application.agent_loop import AgentLoopConfig, CodingAgentRunner
+from horizon.application.agent_loop import (
+    AgentLoopConfig,
+    CodingAgentRunner,
+    execution_model_iteration_limit,
+)
 from horizon.application.services import HarnessService, LeaseToken
 from horizon.domain.common import canonical_json, digest
 from horizon.domain.states import RunStatus
@@ -164,7 +168,10 @@ def main() -> None:
         campaign=provider.campaign,
         provider_reliability=build_provider_reliability(provider, "execution"),
         config=AgentLoopConfig(
-            max_model_iterations=min(8, run.task.budgets.max_model_calls - planning_calls),
+            max_model_iterations=execution_model_iteration_limit(
+                run.task.budgets.max_model_calls,
+                planning_calls,
+            ),
             max_output_tokens=min(512, provider.request.max_output_tokens),
             max_run_cost=provider.run_budget.max_cost,
             enable_thinking=provider.request.enable_thinking,
