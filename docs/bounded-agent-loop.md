@@ -161,6 +161,16 @@ path/range，并建议最多 400 行的邻近 `read_file` 范围。该 error 与
 receipt 和 no-progress 分类，所以崩溃恢复不会忘记它，精确周期检测也不会被绕过；但它不是新的
 仓库观察，不占 RunMemory 条目，避免把它引用的成功 EvidencePack 挤出 replan 上下文。跨 revision、
 扩大候选或加入具体定位词时该门旁路，不把语义猜测当成仓库证据。
+
+Sanic-5 冻结负结果又暴露了第二个窄循环：rank-1 已交付目标片段，模型连续两次读取同一路径并取得
+完全相同内容，第三次相同读取虽被 `NoProgressPolicy` 拒绝，却改用新的 symbol query 重新取得同一
+证据。现在仅对**有写工具的 WorkItem**增加 `EvidenceTransitionPolicy`：同一 revision 上必须先有
+`ok` 的 rank-1 EvidencePack，随后同一路径至少两次读取的完整返回必须逐字相同，且都包含该检索
+snippet；再请求同一路径读取或未扩大候选、未显式指定其他路径的检索时，调用不会派发。回执内嵌
+最多 240 字符的 edit-ready snippet，并要求下一步写入后 submit、用新证据 replan，或停止而不是
+继续取证。只读 WorkItem、不同显式路径、不同读取内容、跨 revision 和更大 `max_chunks` 均旁路。
+这是确定性结构门，不判断代码语义，也不自动生成修改。
+
 三个写工具的 reservation 还包含 `WorkspaceWritePrecondition`。它把来源 execution model call、
 模型请求中的 expected tree revision、派发前 observed revision/manifest 和目标路径绑定在同一
 Trace。详细算法、重放不变量与限制见[模型上下文绑定的写入 CAS](model-context-write-cas.md)。
@@ -474,6 +484,7 @@ EvidencePack、后一个近重复检索产生短 `RetrievalQueryPolicy`，两条
 不能为了容纳旧证据而把后一个恢复方向静默删除。投影器因此对以下有界控制反馈做显式标记：
 
 - `RetrievalQueryPolicy:`；
+- `EvidenceTransitionPolicy:`；
 - `NoProgressPolicy:`；
 - `ExecutionReplanPolicy:`。
 
@@ -485,3 +496,8 @@ EvidencePack、后一个近重复检索产生短 `RetrievalQueryPolicy`，两条
 真实 checkout 的零费用 scripted 回归进一步固定了预期路径：首次检索成功、近重复检索被拒绝、
 按策略读取 `thefuck/utils.py:16-155`、replan、精确编辑、protected check。它证明 Harness 能消费
 该控制反馈形成可重放闭环，不证明同一外部模型在新 Run 中一定采取这些动作。
+
+Sanic-5 形态的零费用回归则固定：rank-1 检索、两次相同目标读取、第三次由 NoProgress 拒绝、换词
+检索由 `EvidenceTransitionPolicy` 在 dispatch 前拒绝，随后 Scripted Model 写入并进入 protected
+validation。它只证明控制器能阻断已观察到的取证循环并保留 edit-ready 证据；历史 Sanic-5 Run、
+`0/3` Smoke 成功率和 protected validation `UNKNOWN` 均未改写。

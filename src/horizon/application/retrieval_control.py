@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections import Counter
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -20,6 +21,9 @@ NEIGHBOR_CONTEXT_BEFORE = 20
 NEIGHBOR_CONTEXT_AFTER = 80
 MAX_READ_LINES = 400
 RETRIEVAL_QUERY_POLICY = "RetrievalQueryPolicy"
+EVIDENCE_TRANSITION_POLICY = "EvidenceTransitionPolicy"
+MIN_IDENTICAL_TARGET_READS = 2
+MAX_TRANSITION_SNIPPET_CHARS = 240
 
 # A shorter paraphrase that adds only one of these words does not add repository evidence.
 # A concrete symbol, path, or domain term still bypasses the guard.
@@ -68,9 +72,67 @@ class RetrievalReuseHint:
 
 
 @dataclass(frozen=True)
+class EvidenceTransitionHint:
+    path: str
+    query: str
+    start_line: int
+    end_line: int
+    identical_read_count: int
+    snippet: str
+
+    @property
+    def detail(self) -> str:
+        evidence = canonical_json(
+            {
+                "path": self.path,
+                "start_line": self.start_line,
+                "end_line": self.end_line,
+                "snippet": self.snippet,
+            }
+        )
+        return (
+            f"Edit-ready rank-1 evidence {evidence}. Same-revision evidence was followed by "
+            f"{self.identical_read_count} read_file calls that returned identical target "
+            f"content for {self.path}. Further read_file/retrieve_code was not dispatched; "
+            "do not reacquire it with different arguments. Next choose "
+            f"an allowed write tool for {self.path}, then submit for protected validation. "
+            "If repository evidence contradicts the WorkItem, revise the Plan; if no safe exact "
+            "edit can be formed, stop rather than reacquire the same evidence."
+        )
+
+
+@dataclass(frozen=True)
 class _SettledRetrieval:
     arguments: dict[str, Any]
     evidence: EvidencePack
+
+
+@dataclass(frozen=True)
+class _SettledToolTurn:
+    order: int
+    name: str
+    arguments: dict[str, Any]
+    content: str
+
+
+def _settled_tool_turns(messages: Sequence[ModelMessage]) -> Iterator[_SettledToolTurn]:
+    proposed: dict[str, tuple[str, dict[str, Any]]] = {}
+    order = 0
+    for message in messages:
+        if message.role == "assistant":
+            for call in message.tool_calls:
+                proposed[call.id] = (call.function.name, call.function.arguments)
+            continue
+        if message.role != "tool" or message.tool_call_id not in proposed:
+            continue
+        name, arguments = proposed[message.tool_call_id]
+        order += 1
+        yield _SettledToolTurn(
+            order=order,
+            name=name,
+            arguments=arguments,
+            content=message.content or "",
+        )
 
 
 def _query_terms(query: str) -> frozenset[str]:
@@ -103,27 +165,120 @@ def _latest_settled_retrieval(
     messages: Sequence[ModelMessage],
     workspace_revision: str,
 ) -> _SettledRetrieval | None:
-    proposed: dict[str, dict[str, Any]] = {}
     latest: _SettledRetrieval | None = None
-    for message in messages:
-        if message.role == "assistant":
-            for call in message.tool_calls:
-                if call.function.name == "retrieve_code":
-                    proposed[call.id] = call.function.arguments
-            continue
-        if message.role != "tool" or message.tool_call_id not in proposed:
+    for turn in _settled_tool_turns(messages):
+        if turn.name != "retrieve_code":
             continue
         try:
-            evidence = EvidencePack.model_validate_json(message.content)
+            evidence = EvidencePack.model_validate_json(turn.content)
         except ValidationError:
             continue
         if evidence.workspace_revision != workspace_revision or not evidence.chunks:
             continue
         latest = _SettledRetrieval(
-            arguments=proposed[message.tool_call_id],
+            arguments=turn.arguments,
             evidence=evidence,
         )
     return latest
+
+
+def _explicit_query_paths(query: str) -> frozenset[str]:
+    return frozenset(
+        term.replace("\\", "/") for term in _structured_terms(query) if "/" in term or "\\" in term
+    )
+
+
+def _normalized_text(content: str) -> str:
+    return content.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def find_evidence_reacquisition(
+    messages: Sequence[ModelMessage],
+    current_tool_name: str,
+    current_arguments: dict[str, Any],
+    workspace_revision: str,
+) -> EvidenceTransitionHint | None:
+    """Block a third evidence acquisition after exact duplicate target reads.
+
+    This is intentionally narrower than semantic no-progress detection. It requires an ok,
+    same-revision rank-1 EvidencePack and two later reads of that exact path whose returned
+    content is byte-for-byte identical and contains the retrieved snippet.
+    """
+
+    if current_tool_name not in {"read_file", "retrieve_code"}:
+        return None
+
+    retrievals: list[tuple[int, dict[str, Any], EvidencePack]] = []
+    reads: list[_SettledToolTurn] = []
+    for turn in _settled_tool_turns(messages):
+        if turn.name == "retrieve_code":
+            try:
+                evidence = EvidencePack.model_validate_json(turn.content)
+            except ValidationError:
+                continue
+            if (
+                evidence.workspace_revision == workspace_revision
+                and evidence.status == "ok"
+                and evidence.chunks
+            ):
+                retrievals.append((turn.order, turn.arguments, evidence))
+            continue
+        if turn.name == "read_file":
+            reads.append(turn)
+
+    if not retrievals:
+        return None
+    target_paths = {evidence.chunks[0].path for _, _, evidence in retrievals}
+    if len(target_paths) != 1:
+        return None
+    target_path = next(iter(target_paths))
+
+    if current_tool_name == "read_file":
+        if current_arguments.get("path") != target_path:
+            return None
+    else:
+        current_query = current_arguments.get("query")
+        current_max_chunks = _max_chunks(current_arguments)
+        if not isinstance(current_query, str) or not current_query or current_max_chunks is None:
+            return None
+        latest_max_chunks = _max_chunks(retrievals[-1][1])
+        if latest_max_chunks is None or current_max_chunks > latest_max_chunks:
+            return None
+        explicit_paths = _explicit_query_paths(current_query)
+        normalized_target = target_path.casefold().replace("\\", "/")
+        if any(path != normalized_target for path in explicit_paths):
+            return None
+
+    first_retrieval_order = retrievals[0][0]
+    snippets = tuple(
+        evidence.chunks[0].snippet
+        for _, _, evidence in retrievals
+        if evidence.chunks[0].path == target_path
+    )
+    matching_contents = [
+        turn.content
+        for turn in reads
+        if turn.order > first_retrieval_order
+        and turn.arguments.get("path") == target_path
+        and any(_normalized_text(snippet) in _normalized_text(turn.content) for snippet in snippets)
+    ]
+    if not matching_contents:
+        return None
+    content_counts = Counter(matching_contents)
+    identical_read_count = max(content_counts.values())
+    if identical_read_count < MIN_IDENTICAL_TARGET_READS:
+        return None
+
+    latest_evidence = retrievals[-1][2]
+    chunk = latest_evidence.chunks[0]
+    return EvidenceTransitionHint(
+        path=target_path,
+        query=latest_evidence.query,
+        start_line=chunk.start_line,
+        end_line=chunk.end_line,
+        identical_read_count=identical_read_count,
+        snippet=chunk.snippet[:MAX_TRANSITION_SNIPPET_CHARS],
+    )
 
 
 def find_redundant_retrieval(

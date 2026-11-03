@@ -324,6 +324,12 @@ def test_projection_compacts_a_pilot_sized_recent_tool_result():
             "thefuck/utils.py",
         ),
         (
+            "EvidenceTransitionPolicy: Same-revision rank-1 evidence was followed by 2 "
+            "identical reads of sanic/log.py; use an allowed write tool.",
+            "EvidenceTransitionPolicy: Same-revision rank-1 evidence",
+            "sanic/log.py",
+        ),
+        (
             'ToolArgumentPolicy: tool=replace_text; {"issues":[{"field":"$.new",'
             '"message":"Field required","type":"missing"}],'
             '"next":"retry_once_with_corrected_arguments"}',

@@ -5,7 +5,10 @@ import pytest
 
 from horizon.adapters.persistence.artifacts import ArtifactStore
 from horizon.application.memory import RunMemoryProjector
-from horizon.application.retrieval_control import RETRIEVAL_QUERY_POLICY
+from horizon.application.retrieval_control import (
+    EVIDENCE_TRANSITION_POLICY,
+    RETRIEVAL_QUERY_POLICY,
+)
 from horizon.domain.common import canonical_json, digest
 from horizon.domain.errors import IntegrityError
 from horizon.domain.retrieval import EvidenceChunk, EvidencePack
@@ -176,6 +179,18 @@ def test_run_memory_preserves_two_ranked_retrieval_chunks_for_replan_context(
         name="retrieve_code",
         status="error",
         content=(f"{RETRIEVAL_QUERY_POLICY}: reuse src/request.py and inspect a bounded neighbor"),
+    )
+    run = settle_tool(
+        service,
+        run.run_id,
+        token,
+        artifacts,
+        call_id="evidence-transition-1",
+        name="retrieve_code",
+        status="error",
+        content=(
+            f"{EVIDENCE_TRANSITION_POLICY}: reuse src/request.py and choose an allowed write tool"
+        ),
     )
 
     snapshot = RunMemoryProjector(artifacts).project(

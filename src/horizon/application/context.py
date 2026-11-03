@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from horizon.application.retrieval_control import EVIDENCE_TRANSITION_POLICY
 from horizon.domain.common import canonical_json, digest
 from horizon.domain.context import ContextProjection, MandatoryFactLedger
 from horizon.domain.errors import (
@@ -22,6 +23,7 @@ from horizon.domain.run import Run
 from horizon.domain.tools import TOOL_ARGUMENT_POLICY
 
 CONTROLLER_FEEDBACK_PREFIXES = (
+    f"{EVIDENCE_TRANSITION_POLICY}:",
     "RetrievalQueryPolicy:",
     "NoProgressPolicy:",
     "ExecutionReplanPolicy:",

@@ -1,10 +1,30 @@
 # 开发进度与验证记录
 
-更新：2026-11-02。已发布版本和主干包元数据均为 0.3.0；版本范围与发布证据见
+更新：2026-11-03。已发布版本和主干包元数据均为 0.3.0；版本范围与发布证据见
 [v0.3.0 release notes](release-v0.3.0.md)。2026-09-30 的
 可靠性内核证据保留，本次在其上增加 Provider 垂直切片和首个受控 Coding Agent 闭环。
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
+
+## 2026-11-03 Sanic-5 evidence-to-action 零费用窄修复
+
+- 保留 2026-11-02 的唯一付费 Run、`campaign_cost_limit`、`CNY 0.060561`、无编辑及 validation
+  `UNKNOWN` 原样不变；本批没有读取凭据、访问网络、调用 Provider 或复跑真实任务。
+- 从冻结序列提取可确定判断的最小模式：同 revision 的 `ok` rank-1 EvidencePack 已命中目标路径，
+  随后两次 `read_file` 返回逐字相同、且都包含目标 snippet；模型在第三次相同读取被拒绝后又以新
+  symbol query 获取同一文件。新增 `EvidenceTransitionPolicy`，只对存在写工具的 WorkItem 在下一次
+  同目标读取/未扩候选检索派发前拒绝，并把路径、行号和最多 240 字符的 edit-ready snippet 放入
+  持久工具回执。
+- 门禁显式旁路只读 WorkItem、不同显式路径、不同读取内容、更大的 `max_chunks` 和跨 revision；它不做
+  语义判断、不猜修改、不自动调用写工具。控制反馈在 Context Projection 中按最新 controller fact
+  保留，但不重复占 Run Memory observation 槽位。
+- 零费用 Scripted 回归重放 Sanic-5 形态：首次检索、两次相同读取、第三次 NoProgress error、换词
+  检索被新门禁拒绝，随后精确写入并通过 protected validation。该结果只证明 Harness 的阻断与转移
+  机制，不证明 DeepSeek-V4-Flash 或其他真实模型会采纳，也不改写任何历史成功率。
+- 第一次整仓回归暴露一个既有费用边界测试因 system prompt 增长，从预期
+  `campaign_cost_limit` 漂移为 `campaign_call_cost_limit`；没有修改冻结费用合同，而是撤回非必要
+  prompt 增量，只保留持久工具反馈。最终 Ruff、格式与 `git diff --check` 通过，离线全量为
+  **698 passed，11 skipped**；11 项仍是需要显式 Docker 镜像的合同测试。
 
 ## 2026-11-02 Sanic-5 独立 Post-Smoke 真实模型负结果
 
@@ -1848,18 +1868,18 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
    `max_cost_usd` 尚未做版本化多币种迁移；取消/截止后的迟到 receipt 已能在本地 recovery
    gate 下结算或保守分类，但没有 Provider 主动 receipt 查询、后台定时协调和生产级全链路
    脱敏。当前 Trace 包含 TaskSpec；不应在其中嵌入凭据。
-6. **真实效果与验收**：十一个真实模型 Pilot Run 分别在迭代、上下文或费用硬门限处停止；第十轮
-   Luigi-2 已命中正确源码区域，第十一轮 Sanic-2 已读取目标文件，但都没有形成编辑或 protected
-   validation。它们证明了
+6. **真实效果与验收**：十二个真实模型 Pilot Run 分别在迭代、上下文或费用硬门限处停止；第十轮
+   Luigi-2 已命中正确源码区域，第十一轮 Sanic-2 已读取目标文件，第十二轮 Sanic-5 首次检索即
+   命中目标行，但都没有形成编辑或 protected validation。它们证明了
    费用/Trace/source isolation 路径，也分别暴露
    并修复了 Plan/搜索反馈、大文件读取/上下文/租约、Plan 假设路径/请求膨胀，以及范围参数协议
    缺口和完整 inventory 路径准入，但仍没有完成目标修复或 protected validation。定位层已有 24 个
    预冻结外部案例（16 development 已跑、8 holdout 密封），但仍缺固定 20～30 个可执行端到端真实
    任务、Agent 查询生成与修复成功率对照、长程/记忆消融和关键安全独立复核。单个负样本不能替代这些证据。
 
-十一轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
+十二轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干继续补齐尚未统一覆盖的故障点；最新全量入口为 685 passed、11 个显式 Docker skip，
+当前主干将重点收敛到 evidence-to-action 主链；最新全量入口为 698 passed、11 个显式 Docker skip，
 11 个 Docker 合同此前已单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以

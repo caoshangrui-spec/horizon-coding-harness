@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from pydantic import ValidationError
 
-from horizon.application.retrieval_control import RETRIEVAL_QUERY_POLICY
+from horizon.application.retrieval_control import (
+    EVIDENCE_TRANSITION_POLICY,
+    RETRIEVAL_QUERY_POLICY,
+)
 from horizon.domain.agent import AgentSessionRecord
 from horizon.domain.common import canonical_json, digest
 from horizon.domain.errors import Conflict, IntegrityError
@@ -29,6 +32,7 @@ MAX_MEMORY_EVIDENCE_BYTES = 512 * 1024
 MAX_RETRIEVAL_MEMORY_CHUNKS = 2
 MAX_RETRIEVAL_SNIPPET_CHARS = 96
 TRANSCRIPT_ONLY_FEEDBACK_PREFIXES = (
+    f"{EVIDENCE_TRANSITION_POLICY}:",
     f"{RETRIEVAL_QUERY_POLICY}:",
     f"{TOOL_ARGUMENT_POLICY}:",
 )

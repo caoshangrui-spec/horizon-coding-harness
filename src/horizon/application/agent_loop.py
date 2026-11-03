@@ -25,7 +25,9 @@ from horizon.application.model_recovery import (
     recoverable_readonly_tool_turn,
 )
 from horizon.application.retrieval_control import (
+    EVIDENCE_TRANSITION_POLICY,
     RETRIEVAL_QUERY_POLICY,
+    find_evidence_reacquisition,
     find_redundant_retrieval,
 )
 from horizon.application.services import HarnessService, LeaseToken
@@ -1532,18 +1534,32 @@ class CodingAgentRunner:
             submitted = False
             source_model_call_id = run.model_calls[-1].call_id
             for call in response.message.tool_calls:
+                evidence_transition = None
+                if call.function.name in {"read_file", "retrieve_code"} and any(
+                    tool.name in WRITE_TOOLS for tool in self._model_tools(run)
+                ):
+                    evidence_transition = find_evidence_reacquisition(
+                        messages,
+                        call.function.name,
+                        call.function.arguments,
+                        model_workspace_revision,
+                    )
                 redundant_retrieval = None
-                if call.function.name == "retrieve_code":
+                if call.function.name == "retrieve_code" and evidence_transition is None:
                     redundant_retrieval = find_redundant_retrieval(
                         messages,
                         call.function.arguments,
                         model_workspace_revision,
                     )
-                controller_policy = (
-                    (RETRIEVAL_QUERY_POLICY, redundant_retrieval.detail)
-                    if redundant_retrieval is not None
-                    else None
-                )
+                if evidence_transition is not None:
+                    controller_policy = (
+                        EVIDENCE_TRANSITION_POLICY,
+                        evidence_transition.detail,
+                    )
+                elif redundant_retrieval is not None:
+                    controller_policy = (RETRIEVAL_QUERY_POLICY, redundant_retrieval.detail)
+                else:
+                    controller_policy = None
                 outcome, hard_no_progress_decision = self._tool_call(
                     run_id,
                     token,

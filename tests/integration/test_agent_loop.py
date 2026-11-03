@@ -21,6 +21,7 @@ from horizon.application.human import ContextCapacityResumeService, OperatorGuid
 from horizon.application.local_process_supervision import LocalProcessAgentSupervisor
 from horizon.application.model_probe import conservative_input_estimate
 from horizon.application.recovery import RecoveryService
+from horizon.application.retrieval_control import EVIDENCE_TRANSITION_POLICY
 from horizon.application.services import HarnessService, LeaseToken
 from horizon.application.supervision import (
     ReapedWorkerBoundary,
@@ -1583,6 +1584,93 @@ def test_near_duplicate_retrieval_reuses_rank_one_path_before_dispatch(
         and event.payload["record"]["call_id"] == retrievals[-1].call_id
     ]
     assert len(settled) == 1
+
+
+def test_sanic5_evidence_reacquisition_pattern_transitions_to_write_and_validation(
+    tmp_path,
+    task_dict,
+):
+    actions = [
+        ("retrieve_code", {"query": "parse value empty behavior src/parser.py"}),
+        ("read_file", {"path": "src/parser.py", "start_line": 1}),
+        ("read_file", {"path": "src/parser.py", "start_line": 1}),
+        ("read_file", {"path": "src/parser.py", "start_line": 1}),
+        (
+            "retrieve_code",
+            {"query": "PARSE_DEFAULTS empty return behavior src/parser.py"},
+        ),
+        (
+            "replace_text",
+            {
+                "path": "src/parser.py",
+                "old": "return [value]",
+                "new": "return [] if value == '' else [value]",
+            },
+        ),
+        ("submit", {"summary": "Used settled target evidence and validated the fix."}),
+    ]
+    runner, _, run_id, token, workspace, model = setup_loop(
+        tmp_path,
+        task_dict,
+        actions,
+    )
+
+    result = runner.run(run_id, token)
+
+    assert result.status == RunStatus.SUCCEEDED
+    assert "return [] if" in (workspace / "src/parser.py").read_text(encoding="utf-8")
+    reads = [record for record in result.tool_calls if record.name == "read_file"]
+    assert [record.status for record in reads] == ["success", "success", "error"]
+    retrievals = [record for record in result.tool_calls if record.name == "retrieve_code"]
+    assert [record.status for record in retrievals] == ["success", "error"]
+    transition = runner.session_store.read(retrievals[-1].artifact_ref).decode("utf-8")
+    assert transition.startswith(f"{EVIDENCE_TRANSITION_POLICY}:")
+    assert "src/parser.py" in transition
+    assert "protected validation" in transition
+    assert any(
+        message.role == "tool" and EVIDENCE_TRANSITION_POLICY in (message.content or "")
+        for request in model.requests
+        for message in request.messages
+    )
+
+
+def test_evidence_transition_does_not_block_a_read_only_work_item(
+    tmp_path,
+    task_dict,
+):
+    plan = Plan(
+        items=(
+            WorkItem(
+                work_item_id="inspect",
+                title="Inspect parser",
+                objective="Collect bounded parser evidence without editing",
+                expected_artifacts=("src/parser.py evidence",),
+                acceptance_ids=("unit",),
+                allowed_tools=("read_file", "retrieve_code"),
+            ),
+        )
+    )
+    actions = [
+        ("retrieve_code", {"query": "parse value empty behavior src/parser.py"}),
+        ("read_file", {"path": "src/parser.py", "start_line": 1}),
+        ("read_file", {"path": "src/parser.py", "start_line": 1}),
+        (
+            "retrieve_code",
+            {"query": "PARSE_DEFAULTS empty return behavior src/parser.py"},
+        ),
+    ]
+    runner, _, run_id, token, _, _ = setup_loop(
+        tmp_path,
+        task_dict,
+        actions,
+        plan=plan,
+    )
+
+    paused = runner.run(run_id, token, max_iterations_this_invocation=4)
+
+    assert paused.status == RunStatus.RUNNING
+    retrievals = [record for record in paused.tool_calls if record.name == "retrieve_code"]
+    assert [record.status for record in retrievals] == ["success", "success"]
 
 
 def test_retrieval_reuse_preserves_the_observed_campaign_stop_without_redispatch(

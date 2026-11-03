@@ -1,4 +1,7 @@
-from horizon.application.retrieval_control import find_redundant_retrieval
+from horizon.application.retrieval_control import (
+    find_evidence_reacquisition,
+    find_redundant_retrieval,
+)
 from horizon.domain.model import FunctionCall, ModelMessage, ToolCall
 from horizon.domain.retrieval import EvidenceChunk, EvidencePack
 
@@ -8,6 +11,8 @@ def _settled_messages(
     *,
     max_chunks: int = 1,
     workspace_revision: str = "a" * 64,
+    path: str = "thefuck/utils.py",
+    snippet: str = "def which(program):\n    paths = PATH.split(os.pathsep)",
 ) -> tuple[ModelMessage, ...]:
     arguments = {"query": query}
     if max_chunks != 1:
@@ -26,11 +31,11 @@ def _settled_messages(
         chunks=(
             EvidenceChunk(
                 rank=1,
-                path="thefuck/utils.py",
+                path=path,
                 start_line=36,
                 end_line=75,
                 content_hash="e" * 64,
-                snippet="def which(program):\n    paths = PATH.split(os.pathsep)",
+                snippet=snippet,
             ),
         ),
     )
@@ -49,6 +54,28 @@ def _settled_messages(
             content=evidence.model_dump_json(),
             tool_call_id="prior-retrieval",
         ),
+    )
+
+
+def _settled_read(
+    call_id: str,
+    path: str,
+    content: str,
+) -> tuple[ModelMessage, ModelMessage]:
+    return (
+        ModelMessage(
+            role="assistant",
+            tool_calls=(
+                ToolCall(
+                    id=call_id,
+                    function=FunctionCall(
+                        name="read_file",
+                        arguments={"path": path, "start_line": 1},
+                    ),
+                ),
+            ),
+        ),
+        ModelMessage(role="tool", content=content, tool_call_id=call_id),
     )
 
 
@@ -103,3 +130,109 @@ def test_retrieval_reuse_never_crosses_a_workspace_revision():
     )
 
     assert hint is None
+
+
+def test_sanic5_pattern_transitions_from_duplicate_target_reads_to_action():
+    revision = "a" * 64
+    snippet = (
+        "LOGGING_CONFIG_DEFAULTS = dict(\n"
+        "    loggers={\n"
+        '        "root": {"level": "INFO", "handlers": ["console"]},'
+    )
+    read_content = (
+        "READ_RANGE path=sanic/log.py lines=1-58 total_lines=58\n"
+        f"{snippet}\n"
+        'logger = logging.getLogger("sanic.root")\n'
+    )
+    messages = (
+        *_settled_messages(
+            "root logger default handler level sanic/log.py",
+            workspace_revision=revision,
+            path="sanic/log.py",
+            snippet=snippet,
+        ),
+        *_settled_read("read-1", "sanic/log.py", read_content),
+        *_settled_read("read-2", "sanic/log.py", read_content),
+        *_settled_read(
+            "read-3",
+            "sanic/log.py",
+            "NoProgressPolicy: identical tool name and arguments were already settled twice.",
+        ),
+    )
+
+    hint = find_evidence_reacquisition(
+        messages,
+        "retrieve_code",
+        {"query": "LOGGING_CONFIG_DEFAULTS root handlers level sanic/log.py"},
+        revision,
+    )
+
+    assert hint is not None
+    assert hint.path == "sanic/log.py"
+    assert hint.identical_read_count == 2
+    assert '"root"' in hint.snippet
+    assert "Further read_file/retrieve_code was not dispatched" in hint.detail
+    assert "replace_text" not in hint.detail
+    assert "allowed write tool" in hint.detail
+    assert "protected validation" in hint.detail
+
+
+def test_evidence_transition_requires_two_identical_reads_containing_rank_one_snippet():
+    revision = "a" * 64
+    first = "def which(program):\n    paths = PATH.split(os.pathsep)\n# first range"
+    second = "def which(program):\n    paths = PATH.split(os.pathsep)\n# second range"
+    messages = (
+        *_settled_messages(workspace_revision=revision),
+        *_settled_read("read-1", "thefuck/utils.py", first),
+        *_settled_read("read-2", "thefuck/utils.py", second),
+    )
+
+    assert (
+        find_evidence_reacquisition(
+            messages,
+            "retrieve_code",
+            {"query": "split PATH entries executable discovery"},
+            revision,
+        )
+        is None
+    )
+
+
+def test_evidence_transition_allows_explicit_candidate_expansion():
+    revision = "a" * 64
+    content = "def which(program):\n    paths = PATH.split(os.pathsep)"
+    messages = (
+        *_settled_messages(workspace_revision=revision),
+        *_settled_read("read-1", "thefuck/utils.py", content),
+        *_settled_read("read-2", "thefuck/utils.py", content),
+    )
+
+    assert (
+        find_evidence_reacquisition(
+            messages,
+            "retrieve_code",
+            {"query": "split PATH executable", "max_chunks": 3},
+            revision,
+        )
+        is None
+    )
+
+
+def test_evidence_transition_allows_an_explicit_different_path_query():
+    revision = "a" * 64
+    content = "def which(program):\n    paths = PATH.split(os.pathsep)"
+    messages = (
+        *_settled_messages(workspace_revision=revision),
+        *_settled_read("read-1", "thefuck/utils.py", content),
+        *_settled_read("read-2", "thefuck/utils.py", content),
+    )
+
+    assert (
+        find_evidence_reacquisition(
+            messages,
+            "retrieve_code",
+            {"query": "split PATH executable thefuck/shells.py"},
+            revision,
+        )
+        is None
+    )

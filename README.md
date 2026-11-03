@@ -131,7 +131,7 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | main 的[标准 CI](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/ci.yml)运行离线回归和三条演示；主作品集、直接子进程 timeout 与上下文容量恢复分别递归复核并发布 14 天 EvidencePack；[禁网 Docker Evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/full-checkout-evidence.yml)独立运行 | CI 不读取 API Key、不运行付费模型；workflow artifact 通常需要登录 GitHub 下载，不是永久发布资产 |
-| 离线回归 | `691 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试；十任务 post-Smoke census、Sanic-5 独立负结果、候选弃跑交叉校验与 8K-context 单边读取回归均已通过，三条付费 Smoke 的失败结果仍按原样保留 |
+| 离线回归 | `698 passed, 11 skipped` | 跳过项是需要本机 Docker 的契约测试；Sanic-5 冻结序列的 evidence-to-action 门禁、只读/候选扩展旁路、控制反馈压缩与 Run Memory 回归均已通过，历史付费负结果仍按原样保留 |
 | [通用终态 EvidencePack](docs/terminal-evidence-pack.md) | `SUCCEEDED`、`FAILED`、`CANCELLED` 均可导出并离线复核 Trace、最终投影和 schema v2 可靠性摘要；区分 unknown 验收、已知 check 失败与 unknown/open effect，真实检索降级与工具回执原子绑定，确定性上下文折叠以 `context_compacted` 单独标记，兼容验证 schema v1 | model fallback、语义摘要和 model degradation 尚无 Trace history；自洽哈希不是来源签名，也不证明外部 Provider 或副作用已结清 |
 | [终态 Run 顺序汇总](docs/terminal-suite-evaluation.md) | 有序聚合已有终态 Run；递归验证每个子 EvidencePack，分列结果、验收未知/失败、clean/quality-flagged success、检索降级与 unknown/open effect | 不执行任务，不是 batch scheduler，也没有并发性能声明 |
 | [可恢复的顺序 Agent 任务批次](docs/sequential-agent-batch.md) | `agent batch` 按 1～100 条 TaskSpec manifest 顺序执行；任务间原子保存 checkpoint，确定性 invocation/Run receipt 支持重启识别，终态失败原样记录后继续，非终态/不确定 case 阻塞后项；全部闭合后复用 terminal-suite | 单机并发度 1；不自动越过人工/悬空 effect/旧 Worker 边界，不是 20～30 个真实模型任务成绩或吞吐声明 |
@@ -618,14 +618,14 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **685 passed，11 skipped**；11 项跳过项需要本机 Docker daemon。v11 新增的
+当前离线全量回归为 **698 passed，11 skipped**；11 项跳过项需要本机 Docker daemon。v11 新增的
 Sanic-3、TheFuck-5 与 Luigi-7 已由本地完整 Harness 确认 buggy 失败、Baseline 等待、Treatment 恢复；
 二十二案例又由[公开 workflow](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40804131201)
 的生产 Docker adapter 统一通过 22/22。另有一次真实
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实
 Issue 效果。新增真实模型 Pilot 单元测试覆盖私有答案拒绝、初始失败证据、内容寻址报告和
 启动时任务/源码/镜像/Provider/Harness 源码漂移拒绝；真实 checkout 的离线 Docker preflight
-已通过，tqdm 候选还把首次规划保守预留纳入 `ready` 门。十一轮真实模型负结果均已导出并可重放，分别驱动 Plan/搜索反馈、有界行读取/
+已通过，tqdm 候选还把首次规划保守预留纳入 `ready` 门。十二轮真实模型负结果均已导出并可重放，分别驱动 Plan/搜索反馈、有界行读取/
 近期完整单元应急压缩/异常租约释放、“不猜路径、优先 revision-bound 证据、默认 rank 1”，
 范围参数成对约束/规划输入收窄，以及完整 inventory 下的不存在路径准入。第五轮只完成规划，
 第一条执行请求在派发前因 Run 余额短缺 `CNY 0.000096` 被硬门禁终止。第六轮完成规划、一次
@@ -643,9 +643,10 @@ case 会在付费前拒绝同一配置。前九轮历史 Pilot 累计付费 `CNY
 第十轮 Luigi-2 已正确命中目标行，但 5 次单边 `read_file` 参数错误后由 Campaign 门停止；新增
 `CNY 0.064902`。第十一轮 Sanic-2 找到并读取 `sanic/server.py`，但旧单边窗口生成约 12K 字符，
 在 8K Context Projection 中折叠掉 `AsyncioServer` 类及插入位置上下文，模型进入重复读取/检索，随后由 Campaign 门停止；
-新增 `CNY 0.0673398`。全部历史 Pilot 为 41 个已结算调用、累计 `CNY 0.3628710`，没有自动重试、
-fallback、代码编辑或 protected validation。生产修复只把自动单边窗口收窄到 100 行，显式双边界
-仍保留 400 行上限，并以零费用 8K-context Scripted 回归验证；没有复跑真实任务。
+新增 `CNY 0.0673398`。第十二轮 Sanic-5 第一次检索已命中目标行，但在 2 次检索和 4 次读取后仍未
+写入，新增 `CNY 0.060561`。全部历史 Pilot 为 48 个已结算调用、累计 `CNY 0.4234320`，没有自动
+重试、fallback、代码编辑或 protected validation。生产修复既保留零费用 8K-context 单边读取回归，
+又以 `EvidenceTransitionPolicy` 阻断 Sanic-5 形态的同 revision 重复取证；没有复跑真实任务。
 未来确定性费用拒绝不再留下无 Lease 的 `RUNNING`：控制器会持久化类型化 `BudgetStop`、进入
 `FAILED` 并在 CLI/status 中报告所需与可用金额。新停止还会相邻保存未派发请求的 call/request
 标识、purpose、估算器、请求字节、input cap/ceiling 和 output ceiling，便于零费用回放；unknown
