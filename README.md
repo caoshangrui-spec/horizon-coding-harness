@@ -169,7 +169,8 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 ```powershell
 uv sync --locked
 uv run --locked pytest
-uv run --locked ruff check src tests
+uv run --locked ruff check .
+uv run --locked mypy
 uv run --locked horizon --help
 ```
 
@@ -614,7 +615,9 @@ uv run --locked pytest -q -p no:cacheprovider
 # 如本机已有其他合适镜像，可显式替换；不会自动下载。
 $env:HORIZON_TEST_DOCKER_IMAGE = 'redis:7-alpine'
 uv run --locked pytest -q -p no:cacheprovider
-uv run --locked ruff format --check src tests
+uv run --locked ruff check .
+uv run --locked ruff format --check .
+uv run --locked mypy
 uv build
 ```
 

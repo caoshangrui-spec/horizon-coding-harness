@@ -18,7 +18,14 @@ from horizon.domain.model import ModelMessage
 from horizon.domain.ports import ArtifactStorePort, WriteRecoveryPort
 from horizon.domain.recovery import write_recovery_verdict
 from horizon.domain.run import Run
-from horizon.domain.tools import AcceptanceResult, ToolCallRecord, ToolCallReservation
+from horizon.domain.tools import (
+    AcceptanceResult,
+    CreateRecoveryAssessment,
+    PatchRecoveryAssessment,
+    ReplaceRecoveryAssessment,
+    ToolCallRecord,
+    ToolCallReservation,
+)
 
 
 class ToolRecoveryService:
@@ -488,10 +495,16 @@ class ToolRecoveryService:
             raise Conflict("Write recovery requires exactly one model tool call")
         arguments = response.message.tool_calls[0].function.arguments
         reservation = pending.reservation
+        workspace_revision = reservation.workspace_revision
+        workspace_manifest_ref = reservation.workspace_manifest_ref
+        assert workspace_revision is not None and workspace_manifest_ref is not None
+        assessment: ReplaceRecoveryAssessment | PatchRecoveryAssessment | CreateRecoveryAssessment
+        accept_disposition: Literal["accept_replace", "accept_patch", "accept_create"]
+        rollback_disposition: Literal["rollback_replace", "rollback_patch", "rollback_create"]
         if reservation.name == "replace_text":
             assessment = self.write_recovery.assess_replace_recovery(
                 arguments,
-                reservation.workspace_manifest_ref,
+                workspace_manifest_ref,
             )
             accept_disposition = "accept_replace"
             rollback_disposition = "rollback_replace"
@@ -499,7 +512,7 @@ class ToolRecoveryService:
         elif reservation.name == "apply_patch":
             assessment = self.write_recovery.assess_patch_recovery(
                 arguments,
-                reservation.workspace_manifest_ref,
+                workspace_manifest_ref,
             )
             accept_disposition = "accept_patch"
             rollback_disposition = "rollback_patch"
@@ -507,12 +520,12 @@ class ToolRecoveryService:
         else:
             assessment = self.write_recovery.assess_create_recovery(
                 arguments,
-                reservation.workspace_manifest_ref,
+                workspace_manifest_ref,
             )
             accept_disposition = "accept_create"
             rollback_disposition = "rollback_create"
             noun = "File creation"
-        if assessment.pre_revision != reservation.workspace_revision:
+        if assessment.pre_revision != workspace_revision:
             raise Conflict("Pre-dispatch manifest does not match the tool reservation")
 
         verdict = write_recovery_verdict(assessment.state, decision)
@@ -520,6 +533,15 @@ class ToolRecoveryService:
             if decision == "accept":
                 raise Conflict(f"{noun} can be accepted only when its exact expected effect exists")
             raise Conflict(f"Diverged {noun.lower()} effect cannot be rolled back automatically")
+        status: Literal["success", "cancelled"]
+        disposition: Literal[
+            "accept_replace",
+            "accept_patch",
+            "accept_create",
+            "rollback_replace",
+            "rollback_patch",
+            "rollback_create",
+        ]
         if verdict == "accept":
             status = "success"
             disposition = accept_disposition
@@ -530,19 +552,19 @@ class ToolRecoveryService:
             if reservation.name == "replace_text":
                 final_revision, final_manifest = self.write_recovery.rollback_replace_recovery(
                     arguments,
-                    reservation.workspace_manifest_ref,
+                    workspace_manifest_ref,
                     assessment.current_revision,
                 )
             elif reservation.name == "apply_patch":
                 final_revision, final_manifest = self.write_recovery.rollback_patch_recovery(
                     arguments,
-                    reservation.workspace_manifest_ref,
+                    workspace_manifest_ref,
                     assessment.current_revision,
                 )
             else:
                 final_revision, final_manifest = self.write_recovery.rollback_create_recovery(
                     arguments,
-                    reservation.workspace_manifest_ref,
+                    workspace_manifest_ref,
                     assessment.current_revision,
                 )
             if final_revision != assessment.pre_revision:
@@ -565,7 +587,7 @@ class ToolRecoveryService:
             arguments_hash=reservation.arguments_hash,
             status=status,
             output_hash=artifact_ref,
-            workspace_revision_before=reservation.workspace_revision,
+            workspace_revision_before=workspace_revision,
             workspace_revision_after=final_revision,
             artifact_ref=artifact_ref,
             workspace_manifest_ref=final_manifest,

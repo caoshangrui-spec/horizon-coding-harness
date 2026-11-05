@@ -178,32 +178,35 @@ def analyze_reservation_traces(paths: Sequence[Path]) -> dict[str, Any]:
                 continue
 
             if event.event_type == "MODEL_CALL_RESERVED":
-                reservation = ModelCallReservation.model_validate(event.payload["reservation"])
-                model_reservations[reservation.call_id] = reservation
+                model_reservation = ModelCallReservation.model_validate(
+                    event.payload["reservation"]
+                )
+                model_reservations[model_reservation.call_id] = model_reservation
                 continue
 
             if event.event_type == "MODEL_CALL_SETTLED":
                 record = ModelCallRecord.model_validate(event.payload["record"])
-                reservation = model_reservations.get(record.call_id)
+                settled_reservation = model_reservations.get(record.call_id)
                 budget = budget_reservations.get(record.call_id)
-                if reservation is None or budget is None:
+                if settled_reservation is None or budget is None:
                     raise ValueError(
                         f"Settled model call {record.call_id} lacks its reservation evidence"
                     )
                 if record.call_id in settled_call_ids:
                     raise ValueError(f"Model call {record.call_id} was settled more than once")
                 if (
-                    record.request_hash != reservation.request_hash
-                    or record.provider_id != reservation.provider_id
-                    or record.model != reservation.model
-                    or record.currency != reservation.currency
-                    or record.purpose != reservation.purpose
+                    record.request_hash != settled_reservation.request_hash
+                    or record.provider_id != settled_reservation.provider_id
+                    or record.model != settled_reservation.model
+                    or record.currency != settled_reservation.currency
+                    or record.purpose != settled_reservation.purpose
                 ):
                     raise ValueError(
                         f"Model call {record.call_id} settlement does not match its reservation"
                     )
-                if reservation.input_token_budget is not None and (
-                    reservation.input_token_budget.estimate.token_ceiling != budget.input_tokens
+                if settled_reservation.input_token_budget is not None and (
+                    settled_reservation.input_token_budget.estimate.token_ceiling
+                    != budget.input_tokens
                 ):
                     raise ValueError(
                         f"Model call {record.call_id} has inconsistent input reservation evidence"
@@ -212,12 +215,12 @@ def analyze_reservation_traces(paths: Sequence[Path]) -> dict[str, Any]:
                 settled_call_ids.add(record.call_id)
                 trace_call_count += 1
                 estimate = (
-                    reservation.input_token_budget.estimate
-                    if reservation.input_token_budget
+                    settled_reservation.input_token_budget.estimate
+                    if settled_reservation.input_token_budget
                     else None
                 )
-                payload = reservation.request_payload
-                reserved_cost = reservation.reserved_cost
+                payload = settled_reservation.request_payload
+                reserved_cost = settled_reservation.reserved_cost
                 settled_cost = record.estimated_cost
                 candidate_ceiling = (
                     _candidate_input_ceiling(estimate.request_bytes) if estimate else None

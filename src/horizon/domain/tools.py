@@ -8,6 +8,7 @@ from horizon.domain.common import Contract
 from horizon.domain.task import Identifier, Text
 
 Digest = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
+ToolStatus = Literal["success", "error", "unknown", "cancelled"]
 WRITE_TOOLS = frozenset({"replace_text", "apply_patch", "create_file"})
 TOOL_ARGUMENT_POLICY = "ToolArgumentPolicy"
 
@@ -29,11 +30,14 @@ def write_target_paths(name: str, arguments: dict[str, Any]) -> tuple[str, ...]:
             return ()
         if not 1 <= len(edits) <= 8:
             return ()
-        paths = tuple(
-            edit.get("path")
-            for edit in edits
-            if isinstance(edit, dict) and isinstance(edit.get("path"), str) and edit.get("path")
-        )
+        collected_paths: list[str] = []
+        for edit in edits:
+            if not isinstance(edit, dict):
+                continue
+            path = edit.get("path")
+            if isinstance(path, str) and path:
+                collected_paths.append(path)
+        paths = tuple(collected_paths)
         return paths if len(paths) == len(edits) and len(paths) == len(set(paths)) else ()
     return ()
 
@@ -99,7 +103,7 @@ class ToolCallRecord(Contract):
     call_id: Identifier
     name: Identifier
     arguments_hash: Digest
-    status: Literal["success", "error", "unknown", "cancelled"]
+    status: ToolStatus
     output_hash: Digest
     workspace_revision_before: str | None = None
     workspace_revision_after: str | None = None
@@ -122,7 +126,7 @@ class ToolCallRecord(Contract):
 
 
 class ToolOutcome(Contract):
-    status: Literal["success", "error", "unknown", "cancelled"]
+    status: ToolStatus
     content: Text
     output_hash: Digest
     workspace_revision_before: str | None = None

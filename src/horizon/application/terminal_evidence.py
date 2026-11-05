@@ -140,7 +140,9 @@ def _write_new(path: Path, content: bytes) -> None:
         stream.write(content)
 
 
-def _file_record(root: Path, role: str, path: Path) -> TerminalEvidenceFile:
+def _file_record(
+    root: Path, role: Literal["trace", "final_state", "summary"], path: Path
+) -> TerminalEvidenceFile:
     content = path.read_bytes()
     return TerminalEvidenceFile(
         role=role,

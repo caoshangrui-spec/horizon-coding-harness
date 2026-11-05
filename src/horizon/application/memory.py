@@ -176,7 +176,7 @@ def _bounded_evidence_excerpt(
         snippet = chunk.snippet[:MAX_RETRIEVAL_SNIPPET_CHARS]
         fitted: dict[str, int | str] | None = None
         for snippet_chars in range(len(snippet), 0, -1):
-            candidate = {
+            candidate: dict[str, int | str] = {
                 "rank": chunk.rank,
                 "path": chunk.path,
                 "snippet": snippet[:snippet_chars],

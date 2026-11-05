@@ -9,6 +9,7 @@ import sqlite3
 from collections import Counter
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any, Literal
 
 from horizon.adapters.persistence.artifacts import reject_link
 from horizon.adapters.workspace.snapshot import FileEntry, SnapshotManager
@@ -525,7 +526,7 @@ class SQLiteCodeRetriever:
         max_chunks: int,
     ) -> tuple[tuple[EvidenceChunk, ...], int, int, tuple[str, ...]]:
         rows, indexed_files, skipped_files, reasons = self._materialize(entries)
-        matches = []
+        matches: list[dict[str, Any]] = []
         for path, start_line, end_line, content_hash, content in rows:
             haystack = f"{path}\n{content}".casefold()
             score = sum(haystack.count(term) for term in terms)
@@ -588,6 +589,7 @@ class SQLiteCodeRetriever:
         entries = self._eligible_entries(manifest.files, allowed_paths, denied_paths)
         terms, priority_terms = _term_sets(query)
 
+        backend: Literal["sqlite_fts5", "lexical_scan"]
         if self.fts5_available:
             indexed_files, skipped_files, reasons = self._ensure_index(
                 index_key=index_key,
@@ -615,7 +617,7 @@ class SQLiteCodeRetriever:
             backend = "lexical_scan"
 
         if reasons:
-            status = "degraded"
+            status: Literal["ok", "empty", "degraded"] = "degraded"
         elif chunks:
             status = "ok"
         else:

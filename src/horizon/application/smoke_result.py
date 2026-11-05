@@ -5,6 +5,7 @@ import hashlib
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
+from typing import Literal
 
 import yaml
 
@@ -139,11 +140,11 @@ def _event_contracts(
             reservation = ToolCallReservation.model_validate(event.payload["reservation"])
             reservations[reservation.call_id] = (reservation, event.seq)
         elif event.event_type == "TOOL_CALL_SETTLED":
-            record = ToolCallRecord.model_validate(event.payload["record"])
-            records[record.call_id] = (record, event.seq)
+            tool_record = ToolCallRecord.model_validate(event.payload["record"])
+            records[tool_record.call_id] = (tool_record, event.seq)
         elif event.event_type == "MODEL_CALL_SETTLED":
-            record = ModelCallRecord.model_validate(event.payload["record"])
-            models[record.call_id] = record
+            model_record = ModelCallRecord.model_validate(event.payload["record"])
+            models[model_record.call_id] = model_record
     return reservations, records, models
 
 
@@ -220,7 +221,13 @@ def _location_observations(
     successful_retrievals = 0
     successful_writes = 0
 
-    def observe(channel: str, call_id: str, path: str, start: int, end: int) -> None:
+    def observe(
+        channel: Literal["retrieval_chunk", "read_range", "write_preimage"],
+        call_id: str,
+        path: str,
+        start: int,
+        end: int,
+    ) -> None:
         for location in task.target_locations:
             if _overlaps(location, path, start, end):
                 observations.append(
@@ -281,8 +288,11 @@ def _location_observations(
             end = call_arguments.get("end_line")
             if start is None and end is None:
                 manifest_ref = record.workspace_manifest_ref
+                if manifest_ref is None:
+                    supporting_artifacts_verified = False
+                    continue
                 try:
-                    snapshot = snapshots.verify(manifest_ref) if manifest_ref else None
+                    snapshot = snapshots.verify(manifest_ref)
                     entry = next(item for item in snapshot.files if item.path == path)
                     line_count = max(1, len(artifacts.read(entry.sha256).splitlines()))
                 except (IntegrityError, StopIteration):
@@ -469,8 +479,12 @@ def evaluate_real_model_smoke_run(
     destination = output_dir.resolve()
     destination.mkdir(parents=True, exist_ok=False)
     source_artifacts = ArtifactStore(destination / "source-artifacts")
-    source = Path(prepared.repository.path).resolve(strict=True)
-    if workspace_path_hash(source) != run.workspace_origin.source_path_hash:
+    source_path = prepared.repository.path
+    origin = run.workspace_origin
+    if source_path is None or origin is None:
+        raise IntegrityError("Smoke evaluation requires a local source path and workspace origin")
+    source = Path(source_path).resolve(strict=True)
+    if workspace_path_hash(source) != origin.source_path_hash:
         raise IntegrityError("Current source path does not match the Run workspace origin")
     source_after, source_manifest_after = SnapshotManager(source_artifacts).capture(
         source,
@@ -507,8 +521,7 @@ def evaluate_real_model_smoke_run(
         else reliability.required_checks_passed
     )
     workspace_changed = bool(
-        run.workspace_revision is not None
-        and run.workspace_revision != run.workspace_origin.source_revision
+        run.workspace_revision is not None and run.workspace_revision != origin.source_revision
     )
     no_open_effects = not (
         pack.evidence.unknown_effects_present or pack.evidence.open_effects_present

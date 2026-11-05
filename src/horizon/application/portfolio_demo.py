@@ -7,6 +7,7 @@ import sys
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
 from horizon.adapters.model.scripted import ScriptedModelGateway
@@ -56,9 +57,9 @@ _WRITE_PATH = "src/parser.py"
 _WRITE_PREIMAGE = "return [value]"
 _OFFLINE_PRICE = PriceCard(
     currency="CNY",
-    input_per_million="3.00",
-    cached_input_per_million="0.30",
-    output_per_million="9.00",
+    input_per_million=Decimal("3.00"),
+    cached_input_per_million=Decimal("0.30"),
+    output_per_million=Decimal("9.00"),
     version="portfolio-demo-simulated-v1",
     source_url="https://offline.invalid/horizon-portfolio-demo",
 )
@@ -105,7 +106,9 @@ def _write_new(path: Path, content: bytes) -> None:
         stream.write(content)
 
 
-def _file_record(root: Path, role: str, path: Path) -> PortfolioEvidenceFile:
+def _file_record(
+    root: Path, role: Literal["report", "trace", "final_state", "summary"], path: Path
+) -> PortfolioEvidenceFile:
     content = path.read_bytes()
     return PortfolioEvidenceFile(
         role=role,
@@ -413,7 +416,7 @@ class PortfolioDemoRunner:
                 max_model_calls=8,
                 max_tool_calls=12,
                 max_wall_time_seconds=120,
-                max_cost_usd="1.00",
+                max_cost_usd=Decimal("1.00"),
                 max_input_tokens=50_000,
                 max_output_tokens=2_048,
                 max_repair_cycles=1,
@@ -491,8 +494,8 @@ class PortfolioDemoRunner:
         campaign = CampaignBudget(
             campaign_id=f"portfolio-{demo_id[-12:]}",
             currency="CNY",
-            max_cost="10.00",
-            max_cost_per_call="1.00",
+            max_cost=Decimal("10.00"),
+            max_cost_per_call=Decimal("1.00"),
         )
         config = AgentLoopConfig(
             max_model_iterations=len(actions),

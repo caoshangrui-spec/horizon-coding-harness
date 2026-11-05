@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from typing import Literal, cast
 
 from horizon.application.context import visible_run_memory_binding, visible_run_memory_entries
 from horizon.domain.common import canonical_json, digest
@@ -32,7 +33,7 @@ class _RetrievalEvidence:
 @dataclass(frozen=True)
 class _DeliveredRetrieval:
     retrieval: _RetrievalEvidence
-    channels: frozenset[str]
+    channels: frozenset[Literal["direct_tool_message", "run_memory_excerpt"]]
     memory_paths: frozenset[str] = frozenset()
 
 
@@ -48,11 +49,11 @@ def _event_contracts(
     tool_records: dict[str, tuple[ToolCallRecord, int]] = {}
     for event in events:
         if event.event_type == "MODEL_CALL_RESERVED":
-            reservation = ModelCallReservation.model_validate(event.payload["reservation"])
-            model_reservations[reservation.call_id] = (reservation, event.seq)
+            model_reservation = ModelCallReservation.model_validate(event.payload["reservation"])
+            model_reservations[model_reservation.call_id] = (model_reservation, event.seq)
         elif event.event_type == "TOOL_CALL_RESERVED":
-            reservation = ToolCallReservation.model_validate(event.payload["reservation"])
-            tool_reservations[reservation.call_id] = (reservation, event.seq)
+            tool_reservation = ToolCallReservation.model_validate(event.payload["reservation"])
+            tool_reservations[tool_reservation.call_id] = (tool_reservation, event.seq)
         elif event.event_type == "TOOL_CALL_SETTLED":
             record = ToolCallRecord.model_validate(event.payload["record"])
             tool_records[record.call_id] = (record, event.seq)
@@ -212,7 +213,7 @@ def _deliveries_for_model_call(
     for retrieval in retrievals.values():
         if retrieval.settled_seq >= reservation_seq:
             continue
-        channels: set[str] = set()
+        channels: set[Literal["direct_tool_message", "run_memory_excerpt"]] = set()
         if (retrieval.provider_tool_call_id, retrieval.payload) in direct_messages:
             channels.add("direct_tool_message")
         memory_binding = memory_excerpts.get(retrieval.record.call_id)
@@ -334,7 +335,7 @@ def derive_run_ab_retrieval_lineage(
             == record.workspace_revision_before
         ]
         covered: set[str] = set()
-        channels: set[str] = set()
+        channels: set[Literal["direct_tool_message", "run_memory_excerpt"]] = set()
         for item in delivered:
             channels.update(item.channels)
         for item in same_revision:
@@ -354,7 +355,7 @@ def derive_run_ab_retrieval_lineage(
         writes.append(
             RunABWriteEvidenceLineage(
                 write_call_id=record.call_id,
-                write_tool=record.name,
+                write_tool=cast(Literal["replace_text", "apply_patch", "create_file"], record.name),
                 source_model_call_id=precondition.source_model_call_id,
                 context_projection_ref=model_reservation.context_projection_ref,
                 run_memory_ref=model_reservation.run_memory_ref,

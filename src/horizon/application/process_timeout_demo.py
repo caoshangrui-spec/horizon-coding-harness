@@ -8,7 +8,9 @@ import tempfile
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
+from typing import IO, Literal
 from uuid import uuid4
 
 from horizon.adapters.persistence.campaign_budget import CampaignBudgetLedger
@@ -63,7 +65,11 @@ def _write_new(path: Path, content: bytes) -> None:
         stream.write(content)
 
 
-def _file_record(root: Path, role: str, path: Path) -> ProcessTimeoutEvidenceFile:
+def _file_record(
+    root: Path,
+    role: Literal["ready_observation", "supervision_observation", "terminal_pack", "summary"],
+    path: Path,
+) -> ProcessTimeoutEvidenceFile:
     content = path.read_bytes()
     return ProcessTimeoutEvidenceFile(
         role=role,
@@ -108,7 +114,7 @@ def _task_and_plan(demo_id: str) -> tuple[TaskSpec, Plan]:
             max_model_calls=1,
             max_tool_calls=1,
             max_wall_time_seconds=120,
-            max_cost_usd="0.01",
+            max_cost_usd=Decimal("0.01"),
             max_input_tokens=1,
             max_output_tokens=1,
             max_repair_cycles=0,
@@ -160,11 +166,11 @@ class _ReadyWorkerProcess:
         return self.process.returncode
 
     @property
-    def stdin(self):
+    def stdin(self) -> IO[bytes] | None:
         return self.process.stdin
 
     @stdin.setter
-    def stdin(self, value) -> None:
+    def stdin(self, value: IO[bytes] | None) -> None:
         self.process.stdin = value
 
     def poll(self) -> int | None:
@@ -210,9 +216,13 @@ class _ReadyWorkerProcess:
             time.sleep(0.01)
         raise Conflict("Demo Worker did not publish its ready marker before the handshake timeout")
 
-    def communicate(self, timeout: float | None = None):
+    def communicate(
+        self,
+        input: bytes | None = None,
+        timeout: float | None = None,
+    ) -> tuple[bytes, bytes]:
         self._wait_until_ready()
-        return self.process.communicate(timeout=timeout)
+        return self.process.communicate(input=input, timeout=timeout)
 
 
 class _ReadyWorkerLauncher:
@@ -229,7 +239,10 @@ class _ReadyWorkerLauncher:
     ):
         self.store_path = store_path.resolve()
         self.ready_path = ready_path.resolve()
-        self.executable = executable or getattr(sys, "_base_executable", sys.executable)
+        resolved_executable = executable or getattr(sys, "_base_executable", sys.executable)
+        if not isinstance(resolved_executable, str) or not resolved_executable:
+            raise ValueError("Process-timeout demo requires a Python executable path")
+        self.executable = resolved_executable
         self.python_path = tuple(python_path if python_path is not None else sys.path)
         self.ready_timeout_seconds = ready_timeout_seconds
 

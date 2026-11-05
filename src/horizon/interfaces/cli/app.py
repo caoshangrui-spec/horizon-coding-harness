@@ -8,7 +8,7 @@ import sqlite3
 import time
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any, Literal, cast
 from uuid import uuid4
 
 import typer
@@ -144,7 +144,7 @@ from horizon.domain.evaluation import (
     RetrievalSourceManifest,
 )
 from horizon.domain.human import HumanContextRequest, HumanGuidanceRequest, HumanPlanRequest
-from horizon.domain.intake import AdmissionContext, UserRequest
+from horizon.domain.intake import AdmissionContext, RequestKind, UserRequest
 from horizon.domain.model import ModelPolicyBinding
 from horizon.domain.pilot import RealModelPilotManifest
 from horizon.domain.plan import MAX_EXECUTION_REPLANS, Plan
@@ -159,7 +159,7 @@ from horizon.domain.smoke_evaluation import (
     RealModelSmokeSuite,
 )
 from horizon.domain.states import RunStatus
-from horizon.domain.task import TaskSpec
+from horizon.domain.task import Mode, TaskSpec
 from horizon.domain.task_registry import IndependentTaskRegistry
 from horizon.domain.terminal_suite import TerminalSuiteManifest
 from horizon.tools.gateway import WorkspaceToolGateway
@@ -193,7 +193,7 @@ def guarded(function):
             typer.echo(canonical_json({"error": "schema_validation", "details": errors}), err=True)
             raise typer.Exit(2) from None
         except BudgetExceeded as exc:
-            payload = {"error": type(exc).__name__, "message": str(exc)}
+            payload: dict[str, Any] = {"error": type(exc).__name__, "message": str(exc)}
             if isinstance(exc, RunDeadlineExceeded):
                 payload["run_id"] = exc.run_id
             if exc.stop is not None:
@@ -400,17 +400,30 @@ def intake_route(
         if not resolved.is_dir():
             raise ValueError("Intake repository must be a directory")
         repository_ref = str(resolved)
+    if explicit_command is not None and explicit_command not in {
+        "task",
+        "status",
+        "resume",
+        "cancel",
+        "approval",
+        "clarification",
+    }:
+        raise ValueError("Unknown explicit intake command")
+    if authority not in {"read_only", "plan_only", "workspace_write"}:
+        raise ValueError("Unknown intake authority scope")
+    trusted_command = cast(RequestKind | None, explicit_command)
+    trusted_authority = cast(Mode, authority)
     structured_task = TaskSpec.model_validate(read_yaml(task_spec)) if task_spec else None
     envelope = DeterministicIntentRouter().route(
         UserRequest(
             text=request,
-            explicit_command=explicit_command,
+            explicit_command=trusted_command,
             target_run_id=target_run_id,
             target_request_id=target_request_id,
             task_spec=structured_task,
         ),
         AdmissionContext(
-            authority_scope=authority,
+            authority_scope=trusted_authority,
             repository_ref=repository_ref,
             known_run_ids=tuple(known_run_id or ()),
             current_run_id=current_run_id,
@@ -2380,12 +2393,15 @@ def agent_run(
                 token,
                 f"request_plan_{uuid4().hex}",
             )
+            human_request = waiting.pending_human_request
+            if human_request is None:
+                raise Conflict("Replacement-plan request was not persisted") from exc
             typer.echo(
                 canonical_json(
                     {
                         "run_id": waiting.run_id,
                         "status": waiting.status,
-                        "human_request": waiting.pending_human_request.model_dump(mode="json"),
+                        "human_request": human_request.model_dump(mode="json"),
                         "planning_error": str(exc),
                         "next_action": f"horizon plan set {waiting.run_id} <plan.yaml>",
                         "model_call_records": len(waiting.model_calls),
@@ -3076,7 +3092,10 @@ def agent_resume(
                     f"context_resume_error_release_{uuid4().hex}",
                 )
     if current.status == RunStatus.PLANNING:
-        initial_snapshot = snapshots.verify(current.workspace_origin.source_manifest_ref)
+        origin = current.workspace_origin
+        if origin is None:
+            raise Conflict("Planning resume lost its bound workspace origin")
+        initial_snapshot = snapshots.verify(origin.source_manifest_ref)
         staged_snapshot, _ = snapshots.capture(
             workspace,
             denied_paths=current.task.constraints.denied_paths,
@@ -3095,7 +3114,7 @@ def agent_resume(
         planning_context = build_planning_context(
             current.task,
             workspace_revision=initial_snapshot.workspace_revision,
-            source_manifest_ref=current.workspace_origin.source_manifest_ref,
+            source_manifest_ref=origin.source_manifest_ref,
             repository_paths=(entry.path for entry in initial_snapshot.files),
         )
         try:
@@ -3130,12 +3149,15 @@ def agent_resume(
                 token,
                 f"request_plan_{uuid4().hex}",
             )
+            human_request = waiting.pending_human_request
+            if human_request is None:
+                raise Conflict("Replacement-plan request was not persisted") from exc
             typer.echo(
                 canonical_json(
                     {
                         "run_id": waiting.run_id,
                         "status": waiting.status,
-                        "human_request": waiting.pending_human_request.model_dump(mode="json"),
+                        "human_request": human_request.model_dump(mode="json"),
                         "planning_error": str(exc),
                         "next_action": f"horizon plan set {waiting.run_id} <plan.yaml>",
                         "model_call_records": len(waiting.model_calls),
@@ -3927,7 +3949,9 @@ def agent_resolve_tool(
                     token=token,
                 )
                 sandbox_stopped = confirm_check_sandbox_stopped
-                sandbox_stop_evidence = "operator_confirmation"
+                sandbox_stop_evidence: Literal[
+                    "operator_confirmation", "controller_verified", "controller_observed_created"
+                ] = "operator_confirmation"
                 if check_image is not None:
                     sandbox = DockerSandbox(staging_root, check_image)
                     attempt = sandbox.attempt_status(call_id)

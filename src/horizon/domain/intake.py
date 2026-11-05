@@ -11,6 +11,7 @@ from horizon.domain.task import Identifier, Mode, NonNegativeInt, TaskSpec, mode
 RequestKind = Literal["task", "status", "resume", "cancel", "approval", "clarification"]
 TaskKind = Literal["bugfix", "feature", "refactor", "tests", "explain", "review", "unknown"]
 RouteSource = Literal["explicit_command", "structured_task", "deterministic_rule", "unclassified"]
+IntentField = Literal["request_kind", "task_kind", "execution_mode"]
 Sha256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 
 
@@ -51,7 +52,7 @@ class AdmissionContext(Contract):
 
 
 class IntentEvidenceSpan(Contract):
-    field: Literal["request_kind", "task_kind", "execution_mode"]
+    field: IntentField
     rule_id: Identifier
     text: Annotated[str, Field(min_length=1, max_length=500)]
     start: NonNegativeInt

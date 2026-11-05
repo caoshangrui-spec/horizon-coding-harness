@@ -8,6 +8,7 @@ import sys
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
 import yaml
@@ -105,7 +106,15 @@ def _write_new(path: Path, content: bytes) -> None:
 
 def _file_record(
     root: Path,
-    role: str,
+    role: Literal[
+        "trace",
+        "final_state",
+        "crash_observation",
+        "recovery_receipt",
+        "workspace_manifest",
+        "recovery_artifact",
+        "summary",
+    ],
     path: Path,
 ) -> DockerCreatedRecoveryFile:
     content = path.read_bytes()
@@ -138,19 +147,19 @@ def _provider_config(campaign_id: str) -> ProviderConfig:
             currency="CNY",
             # Positive deterministic prices exercise the real reservation contract. The
             # scripted adapter makes no external request, so external cost remains zero.
-            input_per_million="1",
-            cached_input_per_million="0",
-            output_per_million="1",
+            input_per_million=Decimal("1"),
+            cached_input_per_million=Decimal("0"),
+            output_per_million=Decimal("1"),
             version="offline-scripted-v2",
             source_url="https://offline.invalid/horizon-docker-recovery",
         ),
         campaign=CampaignBudget(
             campaign_id=campaign_id,
             currency="CNY",
-            max_cost="1.00",
-            max_cost_per_call="1.00",
+            max_cost=Decimal("1.00"),
+            max_cost_per_call=Decimal("1.00"),
         ),
-        run_budget=RunBudgetPolicy(currency="CNY", max_cost="1.00"),
+        run_budget=RunBudgetPolicy(currency="CNY", max_cost=Decimal("1.00")),
         ledger_path=".horizon/campaign.sqlite3",
         fallback_enabled=False,
     )
@@ -189,7 +198,7 @@ def _task(workspace: Path, revision: str, demo_id: str) -> tuple[TaskSpec, Plan]
             # One crashed check receipt, one resumed submit, and one fresh protected check.
             max_tool_calls=3,
             max_wall_time_seconds=300,
-            max_cost_usd="1.00",
+            max_cost_usd=Decimal("1.00"),
             max_input_tokens=20_000,
             max_output_tokens=256,
             max_repair_cycles=0,
@@ -770,7 +779,15 @@ class DockerCreatedRecoveryRunner:
 
 def _resume_file_record(
     root: Path,
-    role: str,
+    role: Literal[
+        "created_boundary_pack",
+        "terminal_pack",
+        "resume_observation",
+        "final_workspace_manifest",
+        "resumed_check_artifact",
+        "command_marker",
+        "summary",
+    ],
     path: Path,
 ) -> DockerCreatedResumeFile:
     content = path.read_bytes()

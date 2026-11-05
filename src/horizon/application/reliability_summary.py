@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from horizon.domain.common import digest
 from horizon.domain.run import Run
@@ -31,13 +32,15 @@ def derive_run_reliability_facts(run: Run) -> RunReliabilityFacts:
     required_acceptance_hash = digest(required_ids)
     report = run.validation
     current_validation = bool(
-        report is not None
+        report
         and report["task_spec_hash"] == run.task.sha256
         and report["workspace_revision"] == run.workspace_revision
         and report["evidence_ref"]
     )
     required_checks_passed = bool(
-        current_validation and set(required_ids) <= set(report["passed_check_ids"])
+        current_validation
+        and report is not None
+        and set(required_ids) <= set(report["passed_check_ids"])
     )
     unknown_acceptance_evidence = not current_validation
     unknown_effects_present = bool(
@@ -96,11 +99,13 @@ def derive_run_reliability_facts(run: Run) -> RunReliabilityFacts:
 
 def build_terminal_run_reliability_summary(run: Run) -> RunReliabilitySummary:
     facts = derive_run_reliability_facts(run)
-    status = {
-        RunStatus.SUCCEEDED: "passed",
-        RunStatus.FAILED: "failed",
-        RunStatus.CANCELLED: "blocked",
-    }[run.status]
+    status: Literal["passed", "failed", "blocked"]
+    if run.status == RunStatus.SUCCEEDED:
+        status = "passed"
+    elif run.status == RunStatus.FAILED:
+        status = "failed"
+    else:
+        status = "blocked"
     return RunReliabilitySummary(
         status=status,
         task_spec_hash=facts.task_spec_hash,

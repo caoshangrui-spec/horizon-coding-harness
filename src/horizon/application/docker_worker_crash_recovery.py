@@ -7,7 +7,9 @@ import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
 import yaml
@@ -77,7 +79,21 @@ def _write_fsynced_new(path: Path, content: bytes) -> None:
         os.fsync(stream.fileno())
 
 
-def _file_record(root: Path, role: str, path: Path) -> DockerWorkerCrashResumeFile:
+def _file_record(
+    root: Path,
+    role: Literal[
+        "terminal_pack",
+        "crash_launch",
+        "crash_observation",
+        "recovery_observation",
+        "resume_launch",
+        "final_workspace_manifest",
+        "resumed_check_artifact",
+        "command_marker",
+        "summary",
+    ],
+    path: Path,
+) -> DockerWorkerCrashResumeFile:
     content = path.read_bytes()
     return DockerWorkerCrashResumeFile(
         role=role,
@@ -126,7 +142,7 @@ def _task(workspace: Path, revision: str, demo_id: str) -> tuple[TaskSpec, Plan]
             max_model_calls=2,
             max_tool_calls=3,
             max_wall_time_seconds=300,
-            max_cost_usd="1.00",
+            max_cost_usd=Decimal("1.00"),
             max_input_tokens=20_000,
             max_output_tokens=256,
             max_repair_cycles=0,
@@ -693,10 +709,13 @@ class DockerWorkerCrashResumeRunner:
             if blocked.safe_to_resume or call_id not in unknown_tools:
                 raise ValueError("Takeover did not conservatively classify the check as unknown")
 
+            takeover_plan = takeover.run.plan
+            if takeover_plan is None:
+                raise ValueError("Recovery takeover lost the active plan")
             recovery_gateway = WorkspaceToolGateway(
                 workspace,
                 takeover.run.task,
-                takeover.run.plan.items[0],
+                takeover_plan.items[0],
                 snapshots,
                 None,
             )
@@ -738,6 +757,12 @@ class DockerWorkerCrashResumeRunner:
             if not safe.safe_to_resume:
                 raise ValueError("Created attempt settlement did not restore a safe Agent boundary")
             recovered_record = next(item for item in resolved.tool_calls if item.call_id == call_id)
+            if (
+                after_attempt.state != "missing"
+                or recovered_record.recovery_disposition != "discard_check"
+                or recovered_record.status != "cancelled"
+            ):
+                raise ValueError("Recovered Docker attempt did not settle as a discarded check")
             takeover_event = next(
                 event
                 for event in service.store.events(run.run_id)
@@ -752,9 +777,9 @@ class DockerWorkerCrashResumeRunner:
                 recovery_worker_id=recovery_token.worker_id,
                 recovery_worker_epoch=recovery_token.epoch,
                 takeover_event_seq=takeover_event.seq,
-                state_after_recovery=after_attempt.state,
-                recovery_disposition=recovered_record.recovery_disposition,
-                recovered_tool_status=recovered_record.status,
+                state_after_recovery="missing",
+                recovery_disposition="discard_check",
+                recovered_tool_status="cancelled",
             )
             recovery_path = evidence_dir / "recovery-observation.json"
             _write_fsynced_new(

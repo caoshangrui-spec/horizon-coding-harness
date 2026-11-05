@@ -1549,8 +1549,11 @@ class HarnessService:
             }
             model_payload: dict[str, Any] = {"reservation": reservation.as_dict()}
             if reservation.compacted_unit_count:
-                if reservation.context_source_digest is None:
-                    raise Conflict("Compacted model reservation is missing its source digest")
+                if (
+                    reservation.context_source_digest is None
+                    or reservation.context_projection_ref is None
+                ):
+                    raise Conflict("Compacted model reservation is missing its context binding")
                 required_acceptance_hash = digest(
                     tuple(check.id for check in run.task.acceptance if check.required)
                 )

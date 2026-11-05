@@ -35,10 +35,13 @@ jobs:
         run: uv sync --locked --python 3.12
 
       - name: Lint
-        run: uv run --locked ruff check src tests
+        run: uv run --locked ruff check .
 
       - name: Check formatting
-        run: uv run --locked ruff format --check src tests
+        run: uv run --locked ruff format --check .
+
+      - name: Type check
+        run: uv run --locked mypy
 
       - name: Run offline test suite
         run: uv run --locked pytest -q -p no:cacheprovider

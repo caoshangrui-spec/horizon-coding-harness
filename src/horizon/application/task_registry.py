@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 
@@ -95,7 +95,9 @@ class IndependentTaskRegistryPreflight:
                 raise IntegrityError(f"Registry task drifted from frozen selection: {task.task_id}")
 
             evidence_refs = [registry.selection.manifest_path]
-            source_readiness = "metadata_only"
+            source_readiness: Literal["frozen_materialization_recipe", "metadata_only"] = (
+                "metadata_only"
+            )
             source_ref = task.evidence.source_recipe_manifest
             if source_ref is not None:
                 source_path = _resolve_evidence(benchmark_root, source_ref)
@@ -121,8 +123,12 @@ class IndependentTaskRegistryPreflight:
                 source_readiness = "frozen_materialization_recipe"
                 evidence_refs.append(source_ref)
 
-            execution_readiness = "not_prepared"
-            initial_failure_evidence = "benchmark_declaration_only"
+            execution_readiness: Literal[
+                "full_checkout_manifest", "dependency_reduced_manifest", "not_prepared"
+            ] = "not_prepared"
+            initial_failure_evidence: Literal[
+                "public_historical_run_declared", "benchmark_declaration_only"
+            ] = "benchmark_declaration_only"
             suite_ref = task.evidence.execution_suite_manifest
             if suite_ref is not None:
                 suite_path = _resolve_evidence(benchmark_root, suite_ref)
@@ -164,7 +170,11 @@ class IndependentTaskRegistryPreflight:
                 case_path = _resolve_evidence(suite_path.parent, suite_case.manifest_path)
                 case_manifest = RunABEvalManifest.model_validate(_read_yaml_mapping(case_path))
                 suite_case.check_manifest(case_manifest)
-                execution_readiness = f"{source.reduction}_manifest"
+                execution_readiness = (
+                    "dependency_reduced_manifest"
+                    if source.reduction == "dependency_reduced"
+                    else "full_checkout_manifest"
+                )
                 initial_failure_evidence = (
                     "public_historical_run_declared"
                     if task.evidence.historical_run_url is not None

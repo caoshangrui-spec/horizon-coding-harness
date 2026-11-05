@@ -124,8 +124,8 @@ def main() -> None:
     campaign = CampaignBudget(
         campaign_id=run.model_policy.campaign_id,
         currency=run.model_policy.currency,
-        max_cost="10.00",
-        max_cost_per_call="1.00",
+        max_cost=Decimal("10.00"),
+        max_cost_per_call=Decimal("1.00"),
     )
     runner = CodingAgentRunner(
         service,

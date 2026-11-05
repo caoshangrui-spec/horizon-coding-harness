@@ -7,6 +7,7 @@ from horizon.domain.intake import (
     AdmissionContext,
     IntentEnvelope,
     IntentEvidenceSpan,
+    IntentField,
     RequestKind,
     TaskKind,
     UserRequest,
@@ -95,7 +96,7 @@ _PLAN_ONLY = (
 )
 
 
-def _span(field: str, rule_id: str, match: re.Match[str]) -> IntentEvidenceSpan:
+def _span(field: IntentField, rule_id: str, match: re.Match[str]) -> IntentEvidenceSpan:
     text = match.group(0)[:500]
     return IntentEvidenceSpan(
         field=field,
@@ -106,7 +107,7 @@ def _span(field: str, rule_id: str, match: re.Match[str]) -> IntentEvidenceSpan:
     )
 
 
-def _whole_request_span(field: str, rule_id: str, text: str) -> IntentEvidenceSpan:
+def _whole_request_span(field: IntentField, rule_id: str, text: str) -> IntentEvidenceSpan:
     evidence = text[:500]
     return IntentEvidenceSpan(
         field=field,
@@ -271,6 +272,7 @@ class DeterministicIntentRouter:
         evidence: list[IntentEvidenceSpan] = []
         conflict = _read_write_conflict(request.text)
         classified = _first_match(request.text, _TASK_RULES)
+        task_kind: TaskKind
         if conflict is not None:
             task_kind = "unknown"
             evidence.extend(
@@ -280,7 +282,7 @@ class DeterministicIntentRouter:
                 )
             )
         elif classified is None:
-            task_kind: TaskKind = "unknown"
+            task_kind = "unknown"
         else:
             task_kind, rule_id, match = classified
             evidence.append(_span("task_kind", rule_id, match))

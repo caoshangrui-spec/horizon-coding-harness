@@ -257,8 +257,8 @@ class HumanContextDecision(Contract):
 HumanRequest = HumanPlanRequest | HumanGuidanceRequest | HumanContextRequest
 HumanDecision = HumanPlanDecision | HumanGuidanceDecision | HumanContextDecision
 
-_REQUEST_ADAPTER = TypeAdapter(HumanRequest)
-_DECISION_ADAPTER = TypeAdapter(HumanDecision)
+_REQUEST_ADAPTER: TypeAdapter[HumanRequest] = TypeAdapter(HumanRequest)
+_DECISION_ADAPTER: TypeAdapter[HumanDecision] = TypeAdapter(HumanDecision)
 
 
 def parse_human_request(value) -> HumanRequest:
@@ -332,17 +332,17 @@ def matches_no_progress_evidence(
             record.status != "error" for record in window[-2:]
         ):
             return False
-        signatures_in_order = tuple((record.name, record.arguments_hash) for record in window)
+        periodic_signatures = tuple((record.name, record.arguments_hash) for record in window)
         if (
             _exact_cycle_window(
-                signatures_in_order,
+                periodic_signatures,
                 cycle_period,
                 cycle_period * EXACT_CYCLE_REPETITIONS,
             )
-            != signatures_in_order
+            != periodic_signatures
         ):
             return False
-        signatures = set(signatures_in_order[:cycle_period])
+        signatures = set(periodic_signatures[:cycle_period])
     else:
         return False
 

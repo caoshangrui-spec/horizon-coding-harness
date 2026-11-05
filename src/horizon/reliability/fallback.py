@@ -15,6 +15,22 @@ from horizon.domain.run_reliability import (
 from horizon.domain.task import Identifier, PositiveInt
 
 Sha256 = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
+FallbackReason = Literal[
+    "allowed",
+    "disabled",
+    "comparable_evaluation",
+    "target_not_approved",
+    "contract_changed",
+    "provider_not_allowed",
+    "data_boundary_mismatch",
+    "api_incompatible",
+    "tools_incompatible",
+    "structured_output_incompatible",
+    "context_too_small",
+    "currency_mismatch",
+    "unknown_cost_not_retained",
+    "budget_insufficient",
+]
 
 
 class ModelCapabilityProfile(Contract):
@@ -62,22 +78,7 @@ class ModelFallbackRequest(Contract):
 
 class ModelFallbackDecision(Contract):
     allowed: bool
-    reason_code: Literal[
-        "allowed",
-        "disabled",
-        "comparable_evaluation",
-        "target_not_approved",
-        "contract_changed",
-        "provider_not_allowed",
-        "data_boundary_mismatch",
-        "api_incompatible",
-        "tools_incompatible",
-        "structured_output_incompatible",
-        "context_too_small",
-        "currency_mismatch",
-        "unknown_cost_not_retained",
-        "budget_insufficient",
-    ]
+    reason_code: FallbackReason
     execution_profile_changed: bool
 
     @model_validator(mode="after")
@@ -95,7 +96,7 @@ def decide_model_fallback(
 ) -> ModelFallbackDecision:
     """Validate one pre-authorized candidate; never dispatch or mutate the budget."""
 
-    reason = "allowed"
+    reason: FallbackReason = "allowed"
     if not policy.enabled:
         reason = "disabled"
     elif policy.comparable_evaluation:

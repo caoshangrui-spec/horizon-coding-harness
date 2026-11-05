@@ -9,13 +9,21 @@ from horizon.domain.common import Contract, canonical_json, digest
 from horizon.domain.task import Identifier, PositiveInt, Text
 
 Currency = Literal["CNY", "USD"]
+InputTokenEstimator = Literal[
+    "request_utf8_bytes_x2_plus_1024_v1",
+    "openai_payload_utf8_bytes_x2_plus_1024_v2",
+]
 NonNegativeInt = Annotated[StrictInt, Field(ge=0)]
 NonNegativeMoney = Annotated[Decimal, Field(ge=0, allow_inf_nan=False)]
 PositiveMoney = Annotated[Decimal, Field(gt=0, allow_inf_nan=False)]
 ClientTraceId = Annotated[str, Field(pattern=r"^horizon-[a-f0-9]{32}$")]
-CONSERVATIVE_INPUT_TOKEN_ESTIMATOR = "request_utf8_bytes_x2_plus_1024_v1"
-OPENAI_PAYLOAD_INPUT_TOKEN_ESTIMATOR = "openai_payload_utf8_bytes_x2_plus_1024_v2"
-OPENAI_COMPATIBLE_PAYLOAD_ENCODING = "openai_compatible_canonical_json_v1"
+CONSERVATIVE_INPUT_TOKEN_ESTIMATOR: InputTokenEstimator = "request_utf8_bytes_x2_plus_1024_v1"
+OPENAI_PAYLOAD_INPUT_TOKEN_ESTIMATOR: InputTokenEstimator = (
+    "openai_payload_utf8_bytes_x2_plus_1024_v2"
+)
+OPENAI_COMPATIBLE_PAYLOAD_ENCODING: Literal["openai_compatible_canonical_json_v1"] = (
+    "openai_compatible_canonical_json_v1"
+)
 
 
 class ModelRequestPayloadEvidence(Contract):
@@ -55,10 +63,7 @@ class InputTokenEstimate(Contract):
     """Deterministic upper bound for one complete provider request."""
 
     schema_version: Literal[1] = 1
-    estimator: Literal[
-        "request_utf8_bytes_x2_plus_1024_v1",
-        "openai_payload_utf8_bytes_x2_plus_1024_v2",
-    ] = CONSERVATIVE_INPUT_TOKEN_ESTIMATOR
+    estimator: InputTokenEstimator = CONSERVATIVE_INPUT_TOKEN_ESTIMATOR
     request_bytes: NonNegativeInt
     token_ceiling: PositiveInt
 

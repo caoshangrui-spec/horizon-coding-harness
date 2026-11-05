@@ -300,8 +300,8 @@ def apply(run: Run | None, event: Event) -> Run:
                 raise IntegrityError("Execution replan requires an existing Plan revision")
             replan = ExecutionReplanRecord.model_validate(execution_replan_data)
             proposal = ExecutionReplanProposal(reason=replan.reason, items=plan.items)
-            model_record = run.model_calls[-1] if run.model_calls else None
-            tool_record = run.tool_calls[-1] if run.tool_calls else None
+            replan_model_record = run.model_calls[-1] if run.model_calls else None
+            replan_tool_record = run.tool_calls[-1] if run.tool_calls else None
             session = run.agent_session
             preserved = tuple(
                 item.work_item_id
@@ -313,16 +313,16 @@ def apply(run: Run | None, event: Event) -> Run:
                 or run.status != RunStatus.REPAIRING
                 or len(run.execution_replans) >= MAX_EXECUTION_REPLANS
                 or source_model_call_id != replan.source_model_call_id
-                or model_record is None
-                or model_record.call_id != replan.source_model_call_id
-                or model_record.purpose != "execution"
-                or tool_record is None
-                or tool_record.call_id != replan.source_tool_call_id
-                or tool_record.name != "revise_plan"
-                or tool_record.status != "success"
-                or tool_record.arguments_hash != replan.proposal_hash
-                or tool_record.workspace_revision_before != replan.workspace_revision
-                or tool_record.workspace_revision_after != replan.workspace_revision
+                or replan_model_record is None
+                or replan_model_record.call_id != replan.source_model_call_id
+                or replan_model_record.purpose != "execution"
+                or replan_tool_record is None
+                or replan_tool_record.call_id != replan.source_tool_call_id
+                or replan_tool_record.name != "revise_plan"
+                or replan_tool_record.status != "success"
+                or replan_tool_record.arguments_hash != replan.proposal_hash
+                or replan_tool_record.workspace_revision_before != replan.workspace_revision
+                or replan_tool_record.workspace_revision_after != replan.workspace_revision
                 or session is None
                 or session.workspace_revision != replan.workspace_revision
                 or replan.proposal_hash != proposal.sha256
@@ -370,7 +370,7 @@ def apply(run: Run | None, event: Event) -> Run:
         if isinstance(request, HumanPlanRequest):
             if run.status != RunStatus.PLANNING or run.plan is not None:
                 raise InvalidTransition("Replacement Plan request requires PLANNING")
-            record = next(
+            planning_record = next(
                 (
                     item
                     for item in run.model_calls
@@ -379,8 +379,8 @@ def apply(run: Run | None, event: Event) -> Run:
                 None,
             )
             if (
-                record is None
-                or record.response_artifact_ref != request.response_artifact_ref
+                planning_record is None
+                or planning_record.response_artifact_ref != request.response_artifact_ref
                 or request.task_spec_hash != run.task.sha256
                 or request.requested_plan_version != (run.plan.version + 1 if run.plan else 1)
             ):
@@ -431,15 +431,15 @@ def apply(run: Run | None, event: Event) -> Run:
         run.pending_human_request = request
     elif event.event_type == "HUMAN_DECISION_RECORDED":
         decision = parse_human_decision(p["decision"])
-        request = run.pending_human_request
-        if run.status != RunStatus.WAITING_FOR_USER or request is None:
+        pending_request = run.pending_human_request
+        if run.status != RunStatus.WAITING_FOR_USER or pending_request is None:
             raise IntegrityError("Human decision has no pending request")
         if isinstance(decision, HumanPlanDecision):
             if (
-                not isinstance(request, HumanPlanRequest)
+                not isinstance(pending_request, HumanPlanRequest)
                 or run.resume_state != RunStatus.PLANNING
-                or request.request_id != decision.request_id
-                or request.task_spec_hash != decision.task_spec_hash
+                or pending_request.request_id != decision.request_id
+                or pending_request.task_spec_hash != decision.task_spec_hash
                 or decision.task_spec_hash != run.task.sha256
                 or run.pending_human_plan_hash is not None
             ):
@@ -447,13 +447,13 @@ def apply(run: Run | None, event: Event) -> Run:
             run.pending_human_plan_hash = decision.plan_hash
         elif isinstance(decision, HumanGuidanceDecision):
             if (
-                not isinstance(request, HumanGuidanceRequest)
+                not isinstance(pending_request, HumanGuidanceRequest)
                 or run.resume_state != RunStatus.RUNNING
-                or request.request_id != decision.request_id
-                or request.task_spec_hash != decision.task_spec_hash
-                or request.plan_version != decision.plan_version
-                or request.workspace_revision != decision.workspace_revision
-                or request.next_iteration != decision.next_iteration
+                or pending_request.request_id != decision.request_id
+                or pending_request.task_spec_hash != decision.task_spec_hash
+                or pending_request.plan_version != decision.plan_version
+                or pending_request.workspace_revision != decision.workspace_revision
+                or pending_request.next_iteration != decision.next_iteration
                 or decision.task_spec_hash != run.task.sha256
                 or run.plan is None
                 or decision.plan_version != run.plan.version
@@ -465,18 +465,18 @@ def apply(run: Run | None, event: Event) -> Run:
         else:
             assert isinstance(decision, HumanContextDecision)
             if (
-                not isinstance(request, HumanContextRequest)
+                not isinstance(pending_request, HumanContextRequest)
                 or run.resume_state != RunStatus.RUNNING
-                or request.request_id != decision.request_id
-                or request.task_spec_hash != decision.task_spec_hash
-                or request.plan_version != decision.plan_version
-                or request.workspace_revision != decision.workspace_revision
-                or request.next_iteration != decision.next_iteration
+                or pending_request.request_id != decision.request_id
+                or pending_request.task_spec_hash != decision.task_spec_hash
+                or pending_request.plan_version != decision.plan_version
+                or pending_request.workspace_revision != decision.workspace_revision
+                or pending_request.next_iteration != decision.next_iteration
                 or decision.task_spec_hash != run.task.sha256
                 or run.plan is None
                 or decision.plan_version != run.plan.version
-                or decision.max_context_chars < request.stop.required_context_chars
-                or decision.max_input_tokens < request.stop.required_input_tokens
+                or decision.max_context_chars < pending_request.stop.required_context_chars
+                or decision.max_input_tokens < pending_request.stop.required_input_tokens
                 or run.pending_human_session_ref is not None
             ):
                 raise IntegrityError("Context retry decision does not match the pending request")
@@ -484,7 +484,7 @@ def apply(run: Run | None, event: Event) -> Run:
         run.human_decisions.append(decision)
         run.pending_human_request = None
     elif event.event_type == "PROCESS_WORKER_LAUNCHED":
-        launch = {
+        launch_record = {
             "launch_id": p.get("launch_id"),
             "lease_id": p.get("lease_id"),
             "worker_id": p.get("worker_id"),
@@ -502,20 +502,24 @@ def apply(run: Run | None, event: Event) -> Run:
             or run.cancel_requested
             or run.reservations
             or run.process_worker_launch is not None
-            or launch["source"] != "local_process_supervisor"
-            or not isinstance(launch["launch_id"], str)
-            or not launch["launch_id"].startswith("launch_")
-            or (launch["lease_id"], launch["worker_id"], launch["epoch"])
+            or launch_record["source"] != "local_process_supervisor"
+            or not isinstance(launch_record["launch_id"], str)
+            or not launch_record["launch_id"].startswith("launch_")
+            or (
+                launch_record["lease_id"],
+                launch_record["worker_id"],
+                launch_record["epoch"],
+            )
             != (run.lease_id, run.worker_id, run.lease_epoch)
-            or not isinstance(launch["process_id"], int)
-            or isinstance(launch["process_id"], bool)
-            or launch["process_id"] < 1
-            or launch["launch_event_seq"] != run.seq
+            or not isinstance(launch_record["process_id"], int)
+            or isinstance(launch_record["process_id"], bool)
+            or launch_record["process_id"] < 1
+            or launch_record["launch_event_seq"] != run.seq
         ):
             raise IntegrityError("Process Worker launch does not match the active lease boundary")
-        run.process_worker_launch = launch
+        run.process_worker_launch = launch_record
     elif event.event_type == "PROCESS_WORKER_START_AUTHORIZED":
-        launch = run.process_worker_launch
+        active_launch = run.process_worker_launch
         target = {
             "launch_id": p.get("launch_id"),
             "lease_id": p.get("lease_id"),
@@ -526,20 +530,20 @@ def apply(run: Run | None, event: Event) -> Run:
             "source": p.get("source"),
         }
         if (
-            launch is None
+            active_launch is None
             or run.terminal
             or run.status != RunStatus.RUNNING
             or run.cancel_requested
-            or launch["start_authorized"]
-            or any(launch[key] != value for key, value in target.items())
-            or (launch["lease_id"], launch["worker_id"], launch["epoch"])
+            or active_launch["start_authorized"]
+            or any(active_launch[key] != value for key, value in target.items())
+            or (active_launch["lease_id"], active_launch["worker_id"], active_launch["epoch"])
             != (run.lease_id, run.worker_id, run.lease_epoch)
         ):
             raise IntegrityError("Process Worker start authorization has no exact launch")
-        launch["start_authorized"] = True
-        launch["authorized_event_seq"] = event.seq
+        active_launch["start_authorized"] = True
+        active_launch["authorized_event_seq"] = event.seq
     elif event.event_type == "PROCESS_WORKER_STOPPED":
-        launch = run.process_worker_launch
+        active_launch = run.process_worker_launch
         target = {
             "launch_id": p.get("launch_id"),
             "lease_id": p.get("lease_id"),
@@ -549,27 +553,28 @@ def apply(run: Run | None, event: Event) -> Run:
             "launch_event_seq": p.get("launch_event_seq"),
             "source": p.get("source"),
         }
-        receipt = {
+        process_stop_receipt = {
             **target,
             "exit_code": p.get("exit_code"),
             "stop_evidence": p.get("stop_evidence"),
             "stopped_event_seq": event.seq,
         }
         synchronous_reap = (
-            receipt["stop_evidence"] == "synchronous_reap"
-            and isinstance(receipt["exit_code"], int)
-            and not isinstance(receipt["exit_code"], bool)
+            process_stop_receipt["stop_evidence"] == "synchronous_reap"
+            and isinstance(process_stop_receipt["exit_code"], int)
+            and not isinstance(process_stop_receipt["exit_code"], bool)
         )
         operator_confirmation = (
-            receipt["stop_evidence"] == "operator_confirmed" and receipt["exit_code"] is None
+            process_stop_receipt["stop_evidence"] == "operator_confirmed"
+            and process_stop_receipt["exit_code"] is None
         )
         if (
-            launch is None
-            or any(launch[key] != value for key, value in target.items())
+            active_launch is None
+            or any(active_launch[key] != value for key, value in target.items())
             or not (synchronous_reap or operator_confirmation)
         ):
             raise IntegrityError("Process Worker stop receipt has no exact active launch")
-        run.process_worker_stop_receipts.append(receipt)
+        run.process_worker_stop_receipts.append(process_stop_receipt)
         run.process_worker_launch = None
     elif event.event_type == "CANCEL_PENDING":
         if (
@@ -609,7 +614,7 @@ def apply(run: Run | None, event: Event) -> Run:
         run.cancel_requested = True
         run.cancel_worker_stop = target
     elif event.event_type == "CANCEL_WORKER_STOPPED":
-        receipt = {
+        worker_stop_receipt = {
             "lease_id": p.get("lease_id"),
             "worker_id": p.get("worker_id"),
             "epoch": p.get("epoch"),
@@ -621,7 +626,7 @@ def apply(run: Run | None, event: Event) -> Run:
             "source": p.get("source"),
         }
         target = {
-            key: receipt[key]
+            key: worker_stop_receipt[key]
             for key in (
                 "lease_id",
                 "worker_id",
@@ -632,17 +637,21 @@ def apply(run: Run | None, event: Event) -> Run:
             )
         }
         synchronous_stop = (
-            receipt["stop_method"] in {"already_exited", "terminate", "kill"}
-            and isinstance(receipt["exit_code"], int)
-            and not isinstance(receipt["exit_code"], bool)
-            and receipt["lease_release"] in {"parent", "already_released"}
+            worker_stop_receipt["stop_method"] in {"already_exited", "terminate", "kill"}
+            and isinstance(worker_stop_receipt["exit_code"], int)
+            and not isinstance(worker_stop_receipt["exit_code"], bool)
+            and worker_stop_receipt["lease_release"] in {"parent", "already_released"}
         )
         operator_stop = (
-            receipt["stop_method"] == "operator_confirmed"
-            and receipt["exit_code"] is None
-            and receipt["lease_release"] in {"takeover", "already_released"}
+            worker_stop_receipt["stop_method"] == "operator_confirmed"
+            and worker_stop_receipt["exit_code"] is None
+            and worker_stop_receipt["lease_release"] in {"takeover", "already_released"}
         )
-        lease_active = (receipt["lease_id"], receipt["worker_id"], receipt["epoch"]) == (
+        lease_active = (
+            worker_stop_receipt["lease_id"],
+            worker_stop_receipt["worker_id"],
+            worker_stop_receipt["epoch"],
+        ) == (
             run.lease_id,
             run.worker_id,
             run.lease_epoch,
@@ -651,42 +660,47 @@ def apply(run: Run | None, event: Event) -> Run:
             run.lease_id is None
             and run.worker_id is None
             and run.lease_expires_at is None
-            and receipt["epoch"] == run.lease_epoch
+            and worker_stop_receipt["epoch"] == run.lease_epoch
         )
         if (
             not run.cancel_requested
             or run.cancel_worker_stop is None
             or target != run.cancel_worker_stop
-            or receipt["source"] != "local_control"
+            or worker_stop_receipt["source"] != "local_control"
             or not (synchronous_stop or operator_stop)
-            or (receipt["lease_release"] in {"parent", "takeover"} and not lease_active)
-            or (receipt["lease_release"] == "already_released" and not lease_released)
+            or (worker_stop_receipt["lease_release"] in {"parent", "takeover"} and not lease_active)
+            or (worker_stop_receipt["lease_release"] == "already_released" and not lease_released)
         ):
             raise IntegrityError("Worker stop receipt does not match the pending cancellation")
-        run.cancel_worker_stop_receipts.append(receipt)
+        run.cancel_worker_stop_receipts.append(worker_stop_receipt)
         run.cancel_worker_stop = None
     elif event.event_type == "CANCEL_SANDBOX_STOPPED":
         call_id = p.get("call_id")
-        reservation = run.tool_reservations.get(call_id)
-        receipt = {
-            "call_id": call_id,
-            "container_name": p.get("container_name"),
-            "image_id": p.get("image_id"),
-            "source": p.get("source"),
-        }
+        container_name = p.get("container_name")
+        image_id = p.get("image_id")
+        source = p.get("source")
+        tool_reservation = run.tool_reservations.get(call_id) if isinstance(call_id, str) else None
         if (
             not run.cancel_requested
-            or reservation is None
-            or reservation.name != "run_check"
+            or not isinstance(call_id, str)
+            or tool_reservation is None
+            or tool_reservation.name != "run_check"
             or any(item["call_id"] == call_id for item in run.cancel_stop_receipts)
-            or not isinstance(receipt["container_name"], str)
-            or not receipt["container_name"]
-            or not isinstance(receipt["image_id"], str)
-            or re.fullmatch(r"sha256:[a-f0-9]{64}", receipt["image_id"]) is None
-            or receipt["source"] != "local_control"
+            or not isinstance(container_name, str)
+            or not container_name
+            or not isinstance(image_id, str)
+            or re.fullmatch(r"sha256:[a-f0-9]{64}", image_id) is None
+            or source != "local_control"
         ):
             raise IntegrityError("Sandbox stop receipt does not match a pending cancellation")
-        run.cancel_stop_receipts.append(receipt)
+        run.cancel_stop_receipts.append(
+            {
+                "call_id": call_id,
+                "container_name": container_name,
+                "image_id": image_id,
+                "source": source,
+            }
+        )
     elif event.event_type == "CANCEL_REQUESTED":
         if p.get("source") != "local_control":
             raise IntegrityError("Cancellation must originate from the trusted control plane")
@@ -768,25 +782,28 @@ def apply(run: Run | None, event: Event) -> Run:
             raise IntegrityError("Bound model policy does not match the TaskSpec")
         run.model_policy = policy
     elif event.event_type == "MODEL_CALL_RESERVED":
-        reservation = ModelCallReservation.model_validate(p["reservation"])
+        model_reservation = ModelCallReservation.model_validate(p["reservation"])
         if run.model_policy is None:
             raise IntegrityError("Model calls require a bound policy")
-        if reservation.call_id in run.model_reservations or any(
-            item.call_id == reservation.call_id for item in run.model_calls
+        if model_reservation.call_id in run.model_reservations or any(
+            item.call_id == model_reservation.call_id for item in run.model_calls
         ):
             raise IntegrityError("Duplicate model call ID")
         if (
-            reservation.provider_id != run.model_policy.provider_id
-            or reservation.model != run.model_policy.model
-            or reservation.currency != run.model_policy.currency
+            model_reservation.provider_id != run.model_policy.provider_id
+            or model_reservation.model != run.model_policy.model
+            or model_reservation.currency != run.model_policy.currency
         ):
             raise IntegrityError("Model reservation does not match the bound policy")
-        if run.model_occupied_cost + reservation.reserved_cost > run.model_policy.max_run_cost:
+        if (
+            run.model_occupied_cost + model_reservation.reserved_cost
+            > run.model_policy.max_run_cost
+        ):
             raise IntegrityError("Model reservation exceeds the bound per-run cost")
-        if reservation.call_id not in run.reservations:
+        if model_reservation.call_id not in run.reservations:
             raise IntegrityError("Model reservation requires a generic budget reservation")
         compaction_payload = p.get("context_compaction")
-        if reservation.compacted_unit_count:
+        if model_reservation.compacted_unit_count:
             if compaction_payload is None:
                 raise IntegrityError("Compacted model reservation requires compaction evidence")
             compaction = ContextCompactionRecord.model_validate(compaction_payload)
@@ -794,16 +811,16 @@ def apply(run: Run | None, event: Event) -> Run:
                 tuple(check.id for check in run.task.acceptance if check.required)
             )
             if (
-                compaction.source_model_call_id != reservation.call_id
-                or compaction.context_projection_ref != reservation.context_projection_ref
-                or compaction.source_digest != reservation.context_source_digest
-                or compaction.source_message_count != reservation.source_message_count
-                or compaction.projected_message_count != reservation.projected_message_count
-                or compaction.compacted_unit_count != reservation.compacted_unit_count
+                compaction.source_model_call_id != model_reservation.call_id
+                or compaction.context_projection_ref != model_reservation.context_projection_ref
+                or compaction.source_digest != model_reservation.context_source_digest
+                or compaction.source_message_count != model_reservation.source_message_count
+                or compaction.projected_message_count != model_reservation.projected_message_count
+                or compaction.compacted_unit_count != model_reservation.compacted_unit_count
                 or compaction.task_spec_hash != run.task.sha256
                 or compaction.required_acceptance_hash != required_acceptance_hash
                 or any(
-                    item.source_model_call_id == reservation.call_id
+                    item.source_model_call_id == model_reservation.call_id
                     for item in run.context_compactions
                 )
             ):
@@ -811,37 +828,37 @@ def apply(run: Run | None, event: Event) -> Run:
             run.context_compactions.append(compaction)
         elif compaction_payload is not None:
             raise IntegrityError("Uncompacted model reservation cannot carry compaction evidence")
-        run.model_reservations[reservation.call_id] = reservation
+        run.model_reservations[model_reservation.call_id] = model_reservation
     elif event.event_type == "MODEL_CALL_SETTLED":
-        record = ModelCallRecord.model_validate(p["record"])
-        reservation = run.model_reservations.get(record.call_id)
-        if reservation is None or record.call_id not in run.settled_ids:
+        model_record = ModelCallRecord.model_validate(p["record"])
+        settled_model_reservation = run.model_reservations.get(model_record.call_id)
+        if settled_model_reservation is None or model_record.call_id not in run.settled_ids:
             raise IntegrityError("Model settlement has no settled budget reservation")
         if (
-            record.purpose != reservation.purpose
-            or record.request_hash != reservation.request_hash
-            or record.provider_id != reservation.provider_id
-            or record.model != reservation.model
-            or record.currency != reservation.currency
+            model_record.purpose != settled_model_reservation.purpose
+            or model_record.request_hash != settled_model_reservation.request_hash
+            or model_record.provider_id != settled_model_reservation.provider_id
+            or model_record.model != settled_model_reservation.model
+            or model_record.currency != settled_model_reservation.currency
         ):
             raise IntegrityError("Model settlement does not match its reservation")
-        del run.model_reservations[record.call_id]
-        run.unknown_model_calls.discard(record.call_id)
-        run.model_calls.append(record)
+        del run.model_reservations[model_record.call_id]
+        run.unknown_model_calls.discard(model_record.call_id)
+        run.model_calls.append(model_record)
     elif event.event_type == "MODEL_CALL_UNKNOWN":
         call_id = p["call_id"]
         if call_id not in run.model_reservations or call_id not in run.unknown_reservations:
             raise IntegrityError("Unknown model call has no unknown budget reservation")
         run.unknown_model_calls.add(call_id)
     elif event.event_type == "TOOL_CALL_RESERVED":
-        reservation = ToolCallReservation.model_validate(p["reservation"])
-        if reservation.call_id in run.tool_reservations or any(
-            item.call_id == reservation.call_id for item in run.tool_calls
+        tool_reservation = ToolCallReservation.model_validate(p["reservation"])
+        if tool_reservation.call_id in run.tool_reservations or any(
+            item.call_id == tool_reservation.call_id for item in run.tool_calls
         ):
             raise IntegrityError("Duplicate tool call ID")
-        if reservation.call_id not in run.reservations:
+        if tool_reservation.call_id not in run.reservations:
             raise IntegrityError("Tool reservation requires a generic budget reservation")
-        precondition = reservation.write_precondition
+        precondition = tool_reservation.write_precondition
         if precondition is not None and (
             not run.model_calls
             or run.model_calls[-1].call_id != precondition.source_model_call_id
@@ -850,51 +867,56 @@ def apply(run: Run | None, event: Event) -> Run:
             raise IntegrityError(
                 "Write precondition must bind the latest settled execution model call"
             )
-        run.tool_reservations[reservation.call_id] = reservation
+        run.tool_reservations[tool_reservation.call_id] = tool_reservation
     elif event.event_type == "TOOL_CALL_SETTLED":
-        record = ToolCallRecord.model_validate(p["record"])
-        reservation = run.tool_reservations.get(record.call_id)
-        if reservation is None or record.call_id not in run.settled_ids:
+        tool_record = ToolCallRecord.model_validate(p["record"])
+        tool_reservation = run.tool_reservations.get(tool_record.call_id)
+        if tool_reservation is None or tool_record.call_id not in run.settled_ids:
             raise IntegrityError("Tool settlement has no settled budget reservation")
-        if record.name != reservation.name or record.arguments_hash != reservation.arguments_hash:
+        if (
+            tool_record.name != tool_reservation.name
+            or tool_record.arguments_hash != tool_reservation.arguments_hash
+        ):
             raise IntegrityError("Tool settlement does not match its reservation")
-        precondition = reservation.write_precondition
+        precondition = tool_reservation.write_precondition
         if precondition is not None:
             if precondition.stale and (
-                record.status != "error"
-                or record.workspace_revision_before != record.workspace_revision_after
+                tool_record.status != "error"
+                or tool_record.workspace_revision_before != tool_record.workspace_revision_after
             ):
                 raise IntegrityError("A stale write precondition must settle without a write")
             if (
                 not precondition.stale
-                and record.status == "success"
+                and tool_record.status == "success"
                 and (
-                    record.workspace_revision_before != precondition.expected_workspace_revision
-                    or record.workspace_revision_before != precondition.observed_workspace_revision
+                    tool_record.workspace_revision_before
+                    != precondition.expected_workspace_revision
+                    or tool_record.workspace_revision_before
+                    != precondition.observed_workspace_revision
                 )
             ):
                 raise IntegrityError("Successful write receipt does not match its CAS preimage")
-        del run.tool_reservations[record.call_id]
-        run.unknown_tool_calls.discard(record.call_id)
-        run.tool_calls.append(record)
+        del run.tool_reservations[tool_record.call_id]
+        run.unknown_tool_calls.discard(tool_record.call_id)
+        run.tool_calls.append(tool_record)
         if p.get("degradation") is not None:
             degradation = DegradationRecord.model_validate(p["degradation"])
             required_acceptance_hash = digest(
                 tuple(check.id for check in run.task.acceptance if check.required)
             )
             if (
-                record.name != "retrieve_code"
-                or record.status != "success"
-                or record.artifact_ref is None
-                or record.output_hash != record.artifact_ref
+                tool_record.name != "retrieve_code"
+                or tool_record.status != "success"
+                or tool_record.artifact_ref is None
+                or tool_record.output_hash != tool_record.artifact_ref
                 or degradation.operation != "retrieval"
-                or degradation.source_tool_call_id != record.call_id
-                or degradation.original_error_ref != record.artifact_ref
+                or degradation.source_tool_call_id != tool_record.call_id
+                or degradation.original_error_ref != tool_record.artifact_ref
                 or degradation.task_spec_hash != run.task.sha256
                 or degradation.required_acceptance_hash != required_acceptance_hash
                 or degradation.quality_flag != "retrieval_degraded"
                 or any(
-                    item.source_tool_call_id == record.call_id
+                    item.source_tool_call_id == tool_record.call_id
                     for item in run.reliability_degradations
                 )
             ):
@@ -910,51 +932,54 @@ def apply(run: Run | None, event: Event) -> Run:
         "AGENT_SESSION_GUIDED",
         "AGENT_SESSION_CONTEXT_RESUMED",
     }:
-        record = AgentSessionRecord.model_validate(p["session"])
+        session_record = AgentSessionRecord.model_validate(p["session"])
         if run.status != RunStatus.RUNNING or run.plan is None or run.reservations:
             raise InvalidTransition("Agent session requires a quiescent running phase")
         if (
-            record.task_spec_hash != run.task.sha256
-            or record.plan_version != run.plan.version
-            or record.work_item_id not in {item.work_item_id for item in run.plan.items}
+            session_record.task_spec_hash != run.task.sha256
+            or session_record.plan_version != run.plan.version
+            or session_record.work_item_id not in {item.work_item_id for item in run.plan.items}
         ):
             raise IntegrityError("Agent session does not match the current task and plan")
         if event.event_type in {"AGENT_SESSION_GUIDED", "AGENT_SESSION_CONTEXT_RESUMED"}:
             current = run.agent_session
-            decision = run.human_decisions[-1] if run.human_decisions else None
+            latest_decision = run.human_decisions[-1] if run.human_decisions else None
             if (
                 current is None
-                or run.pending_human_session_ref != record.artifact_ref
-                or record.next_iteration != current.next_iteration
-                or record.workspace_revision != current.workspace_revision
+                or run.pending_human_session_ref != session_record.artifact_ref
+                or session_record.next_iteration != current.next_iteration
+                or session_record.workspace_revision != current.workspace_revision
                 or (
                     event.event_type == "AGENT_SESSION_GUIDED"
-                    and record.message_count <= current.message_count
+                    and session_record.message_count <= current.message_count
                 )
                 or (
                     event.event_type == "AGENT_SESSION_CONTEXT_RESUMED"
-                    and record.message_count != current.message_count
+                    and session_record.message_count != current.message_count
                 )
                 or (
                     event.event_type == "AGENT_SESSION_GUIDED"
-                    and not isinstance(decision, HumanGuidanceDecision)
+                    and not isinstance(latest_decision, HumanGuidanceDecision)
                 )
                 or (
                     event.event_type == "AGENT_SESSION_CONTEXT_RESUMED"
-                    and not isinstance(decision, HumanContextDecision)
+                    and not isinstance(latest_decision, HumanContextDecision)
                 )
             ):
                 raise IntegrityError("Resumed Agent session does not match its human decision")
             run.pending_human_session_ref = None
         elif run.agent_session is not None and (
-            record.next_iteration <= run.agent_session.next_iteration
+            session_record.next_iteration <= run.agent_session.next_iteration
         ):
             raise IntegrityError("Agent session iteration must advance")
-        if record.covered_event_seq != event.seq - 1:
+        if session_record.covered_event_seq != event.seq - 1:
             raise IntegrityError("Agent session must cover the immediately preceding event")
-        if run.agent_session is not None and record.work_item_id != run.agent_session.work_item_id:
+        if (
+            run.agent_session is not None
+            and session_record.work_item_id != run.agent_session.work_item_id
+        ):
             run.no_progress_reset_tool_count = len(run.tool_calls)
-        run.agent_session = record
+        run.agent_session = session_record
     elif event.event_type == "WORKSPACE_ORIGIN_BOUND":
         origin = WorkspaceOrigin.model_validate(p["origin"])
         if run.workspace_origin is not None and run.workspace_origin != origin:
@@ -980,17 +1005,18 @@ def apply(run: Run | None, event: Event) -> Run:
             raise IntegrityError("Promotion intent does not match the successful Run evidence")
         run.promotion_intent = intent
     elif event.event_type == "PROMOTION_SETTLED":
-        receipt = PromotionReceipt.model_validate(p["receipt"])
+        promotion_receipt = PromotionReceipt.model_validate(p["receipt"])
         if run.promotion_intent is None or run.promotion_receipt is not None:
             raise IntegrityError("Promotion receipt has no pending intent")
         if (
-            receipt.promotion_id != run.promotion_intent.promotion_id
-            or receipt.plan_hash != run.promotion_intent.plan.sha256
-            or receipt.source_revision_after != run.promotion_intent.plan.candidate_revision
-            or receipt.git_head_after != run.promotion_intent.plan.git_head_before
+            promotion_receipt.promotion_id != run.promotion_intent.promotion_id
+            or promotion_receipt.plan_hash != run.promotion_intent.plan.sha256
+            or promotion_receipt.source_revision_after
+            != run.promotion_intent.plan.candidate_revision
+            or promotion_receipt.git_head_after != run.promotion_intent.plan.git_head_before
         ):
             raise IntegrityError("Promotion receipt does not match its intent")
-        run.promotion_receipt = receipt
+        run.promotion_receipt = promotion_receipt
     elif event.event_type == "TASK_SPEC_AMENDED":
         task = TaskSpec.model_validate(p["task"])
         if run.terminal or task.task_id != run.task.task_id:

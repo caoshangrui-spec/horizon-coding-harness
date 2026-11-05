@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from horizon.domain.common import digest
 from horizon.domain.errors import PolicyDenied
 from horizon.domain.human import classify_no_progress
@@ -78,7 +80,7 @@ class ReliabilityEvaluator:
                 workspace_revision=action.workspace_revision_before,
                 max_identical_actions=manifest.max_identical_actions,
             )
-            observed = (
+            observed: Literal["allow", "soft_block", "hard_stop"] = (
                 "hard_stop"
                 if decision.hard_stop
                 else "soft_block"
@@ -155,7 +157,7 @@ class ReliabilityEvaluator:
                 set(case.passed_items),
                 manifest.task,
             )
-            observed = "accept"
+            observed: Literal["accept", "reject"] = "accept"
         except PolicyDenied as exc:
             observed = "reject"
             rejection_reason = str(exc)

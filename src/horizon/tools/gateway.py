@@ -15,6 +15,7 @@ from horizon.domain.errors import Conflict, HorizonError, PolicyDenied
 from horizon.domain.model import ToolDefinition
 from horizon.domain.plan import WorkItem
 from horizon.domain.ports import AcceptanceExecutorPort, CodeRetrievalPort
+from horizon.domain.recovery import WriteRecoveryState
 from horizon.domain.task import TaskSpec, relative_pattern
 from horizon.domain.tools import (
     TOOL_ARGUMENT_POLICY,
@@ -24,6 +25,7 @@ from horizon.domain.tools import (
     PatchRecoveryAssessment,
     ReplaceRecoveryAssessment,
     ToolOutcome,
+    ToolStatus,
     WorkspaceWritePrecondition,
     write_target_paths,
 )
@@ -484,7 +486,7 @@ class WorkspaceToolGateway:
 
     def _outcome(
         self,
-        status: str,
+        status: ToolStatus,
         content: str,
         before: str | None,
         after: str | None,
@@ -771,7 +773,11 @@ class WorkspaceToolGateway:
         new = cls._use_line_ending(args.new, line_ending)
         observed_occurrences = text.count(old)
         if observed_occurrences != args.expected_occurrences:
-            style = {"\r\n": "CRLF", "\n": "LF", "\r": "CR"}.get(line_ending, "mixed-or-none")
+            style = (
+                {"\r\n": "CRLF", "\n": "LF", "\r": "CR"}.get(line_ending, "mixed-or-none")
+                if line_ending is not None
+                else "mixed-or-none"
+            )
             raise ValueError(
                 "Exact replacement occurrence count did not match: "
                 f"expected={args.expected_occurrences}, observed={observed_occurrences}, "
@@ -959,6 +965,7 @@ class WorkspaceToolGateway:
             self.workspace,
             denied_paths=self.task.constraints.denied_paths,
         )
+        state: WriteRecoveryState
         if current.workspace_revision == pre.workspace_revision:
             state = "pre_effect"
         elif current.workspace_revision == expected.workspace_revision:
@@ -1021,6 +1028,7 @@ class WorkspaceToolGateway:
             self.workspace,
             denied_paths=self.task.constraints.denied_paths,
         )
+        state: WriteRecoveryState
         if current.workspace_revision == pre.workspace_revision:
             state = "pre_effect"
         elif current.workspace_revision == expected.workspace_revision:
@@ -1098,6 +1106,7 @@ class WorkspaceToolGateway:
             self.workspace,
             denied_paths=self.task.constraints.denied_paths,
         )
+        state: WriteRecoveryState
         if current.excluded_paths != pre.excluded_paths:
             state = "diverged"
         elif current.workspace_revision == pre.workspace_revision:

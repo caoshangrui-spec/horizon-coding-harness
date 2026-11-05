@@ -164,8 +164,8 @@ def normalize_retrieval_query(query: str) -> RetrievalQueryNormalization:
     events.sort(key=lambda event: event[0])
     terms: list[str] = []
     seen_terms: set[str] = set()
-    for _, event_terms in events:
-        for term in event_terms:
+    for _, normalized_event_terms in events:
+        for term in normalized_event_terms:
             folded = term.casefold()
             if folded and folded not in seen_terms:
                 seen_terms.add(folded)

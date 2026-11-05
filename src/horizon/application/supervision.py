@@ -31,7 +31,8 @@ class AgentSliceRunner(Protocol):
 class LocalWorkerProcess(Protocol):
     """Minimal trusted-parent handle needed to stop and synchronously reap one child."""
 
-    pid: int
+    @property
+    def pid(self) -> int: ...
 
     def poll(self) -> int | None: ...
 

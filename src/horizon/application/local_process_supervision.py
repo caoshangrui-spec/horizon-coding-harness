@@ -6,12 +6,13 @@ import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import IO, Literal, Protocol
 from uuid import uuid4
 
 from horizon.application.recovery import RecoveryService
 from horizon.application.services import HarnessService, LeaseToken
 from horizon.application.supervision import (
+    LocalWorkerProcess,
     ReapedWorkerBoundary,
     SequentialAgentSupervisor,
     SequentialSupervisorConfig,
@@ -55,9 +56,26 @@ class LocalProcessSupervisionResult:
     interruption: WorkerProcessInterruption | None = None
 
 
+class WorkerProcess(LocalWorkerProcess, Protocol):
+    @property
+    def returncode(self) -> int | None: ...
+
+    @property
+    def stdin(self) -> IO[bytes] | None: ...
+
+    @stdin.setter
+    def stdin(self, value: IO[bytes] | None) -> None: ...
+
+    def communicate(
+        self,
+        input: bytes | None = None,
+        timeout: float | None = None,
+    ) -> tuple[bytes | None, bytes | None]: ...
+
+
 WorkerProcessLauncher = Callable[
     [ReapedWorkerBoundary, int],
-    subprocess.Popen[bytes],
+    WorkerProcess,
 ]
 
 
@@ -94,7 +112,10 @@ class LocalAgentWorkerLauncher:
         self.staging_path = staging_path.resolve()
         self.image = image
         self.retrieval_path = retrieval_path.resolve()
-        self.executable = executable or getattr(sys, "_base_executable", sys.executable)
+        resolved_executable = executable or getattr(sys, "_base_executable", sys.executable)
+        if not isinstance(resolved_executable, str) or not resolved_executable:
+            raise ValueError("Local Agent Worker requires a Python executable path")
+        self.executable = resolved_executable
         self.python_path = tuple(python_path if python_path is not None else sys.path)
 
     def command(
@@ -200,7 +221,7 @@ class LocalProcessAgentSupervisor:
 
     @staticmethod
     def _stop_failed_launch(
-        process: subprocess.Popen[bytes],
+        process: WorkerProcess,
         terminate_timeout_seconds: float,
     ) -> int:
         """Stop and reap a child that has not crossed a usable launch boundary."""
@@ -251,7 +272,7 @@ class LocalProcessAgentSupervisor:
     def _open_start_gate(
         service: HarnessService,
         boundary: ReapedWorkerBoundary,
-        process: subprocess.Popen[bytes],
+        process: WorkerProcess,
         launch_number: int,
     ) -> None:
         service.record_process_worker_launched(
@@ -281,7 +302,7 @@ class LocalProcessAgentSupervisor:
 
     @staticmethod
     def _receipt(
-        process: subprocess.Popen[bytes],
+        process: WorkerProcess,
         stdout: bytes | str | None,
         stderr: bytes | str | None,
     ) -> WorkerProcessReceipt:
@@ -327,7 +348,7 @@ class LocalProcessAgentSupervisor:
         handoff: SequentialAgentSupervisor,
         boundary: ReapedWorkerBoundary,
         service: HarnessService,
-        process: subprocess.Popen[bytes],
+        process: WorkerProcess,
         receipts: list[WorkerProcessReceipt],
         slice_number: int,
         worker_handoffs: int,

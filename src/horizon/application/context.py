@@ -352,7 +352,7 @@ class ContextProjector:
                 *(message for unit in kept_units for message in unit.messages),
             )
 
-        visible_memory_limits = (2,)
+        visible_memory_limits: tuple[int, ...] = (2,)
         if run_memory is not None:
             maximum = min(2, len(run_memory.entries))
             has_task_relevant_code = any(

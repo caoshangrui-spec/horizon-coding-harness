@@ -159,9 +159,9 @@ class RecoveryService:
         if run.model_policy is None:
             raise IntegrityError("Run-linked model attempts require a bound model policy")
         campaign_id = run.model_policy.campaign_id
-        for call_id, reservation in run.model_reservations.items():
+        for call_id, pending_reservation in run.model_reservations.items():
             attempt = self.campaign_ledger.attempt(campaign_id, call_id)
-            self._validate_attempt(attempt, reservation, campaign_id)
+            self._validate_attempt(attempt, pending_reservation, campaign_id)
             if (
                 call_id not in run.unknown_reservations
                 or call_id not in run.unknown_model_calls
@@ -169,11 +169,11 @@ class RecoveryService:
             ):
                 raise IntegrityError(f"Recovery left a model intent unresolved: {call_id}")
         for record in run.model_calls:
-            reservation = historical.get(record.call_id)
-            if reservation is None:
+            historical_reservation = historical.get(record.call_id)
+            if historical_reservation is None:
                 raise IntegrityError(f"Model receipt has no historical intent: {record.call_id}")
             attempt = self.campaign_ledger.attempt(campaign_id, record.call_id)
-            self._validate_attempt(attempt, reservation, campaign_id)
+            self._validate_attempt(attempt, historical_reservation, campaign_id)
             if (
                 attempt.status != "settled"
                 or attempt.actual_cost != record.estimated_cost
@@ -237,26 +237,26 @@ class RecoveryService:
                         f"Campaign-only attempt has nonzero or unknown usage: {attempt.attempt_id}"
                     )
 
-        for call_id, reservation in run.model_reservations.items():
+        for call_id, pending_reservation in run.model_reservations.items():
             if campaign_id is None:
                 raise IntegrityError("Model reservation has no campaign binding")
             attempt = self.campaign_ledger.attempt(campaign_id, call_id)
-            self._validate_attempt(attempt, reservation, campaign_id)
+            self._validate_attempt(attempt, pending_reservation, campaign_id)
             run_unknown = call_id in run.unknown_model_calls
             if attempt.status == "reserved":
                 actions.append(_RecoveryAction("mark_campaign_unknown", call_id))
                 if not run_unknown:
                     actions.append(_RecoveryAction("mark_model_unknown", call_id))
-                action = (
-                    "campaign_marked_unknown" if run_unknown else "run_and_campaign_marked_unknown"
-                )
+                finding_action: Literal[
+                    "campaign_marked_unknown", "run_and_campaign_marked_unknown"
+                ] = "campaign_marked_unknown" if run_unknown else "run_and_campaign_marked_unknown"
                 findings.append(
                     RecoveryFinding(
                         operation_id=call_id,
                         operation_kind="model",
-                        client_trace_id=reservation.client_trace_id,
+                        client_trace_id=pending_reservation.client_trace_id,
                         classification="model_effect_unknown",
-                        action=action,
+                        action=finding_action,
                         blocking=True,
                         detail=(
                             "A durable model intent exists without a trusted response; the call "
@@ -271,7 +271,7 @@ class RecoveryService:
                     RecoveryFinding(
                         operation_id=call_id,
                         operation_kind="model",
-                        client_trace_id=reservation.client_trace_id,
+                        client_trace_id=pending_reservation.client_trace_id,
                         classification="model_effect_unknown",
                         action="run_marked_unknown" if not run_unknown else "none",
                         blocking=True,
@@ -285,7 +285,7 @@ class RecoveryService:
                     RecoveryFinding(
                         operation_id=call_id,
                         operation_kind="model",
-                        client_trace_id=reservation.client_trace_id,
+                        client_trace_id=pending_reservation.client_trace_id,
                         classification="model_response_unavailable",
                         action="run_marked_unknown" if not run_unknown else "none",
                         blocking=True,
@@ -299,18 +299,18 @@ class RecoveryService:
         for record in run.model_calls:
             if campaign_id is None:
                 raise IntegrityError("Model receipt has no campaign binding")
-            reservation = historical.get(record.call_id)
-            if reservation is None:
+            historical_reservation = historical.get(record.call_id)
+            if historical_reservation is None:
                 raise IntegrityError(f"Model receipt has no historical intent: {record.call_id}")
             attempt = self.campaign_ledger.attempt(campaign_id, record.call_id)
-            self._validate_attempt(attempt, reservation, campaign_id)
+            self._validate_attempt(attempt, historical_reservation, campaign_id)
             if attempt.status == "reserved":
                 actions.append(_RecoveryAction("settle_campaign", record.call_id, record))
                 findings.append(
                     RecoveryFinding(
                         operation_id=record.call_id,
                         operation_kind="model",
-                        client_trace_id=reservation.client_trace_id,
+                        client_trace_id=historical_reservation.client_trace_id,
                         classification="campaign_settlement_repaired",
                         action="campaign_settled_from_run_receipt",
                         blocking=False,
@@ -366,37 +366,41 @@ class RecoveryService:
                 )
             )
 
-        for action in actions:
-            key = f"recovery_{action.kind}_{action.operation_id}"
-            if action.kind == "settle_campaign":
-                assert campaign_id is not None and action.record is not None
+        for recovery_action in actions:
+            key = f"recovery_{recovery_action.kind}_{recovery_action.operation_id}"
+            if recovery_action.kind == "settle_campaign":
+                assert campaign_id is not None and recovery_action.record is not None
                 self.campaign_ledger.settle(
                     campaign_id,
-                    action.operation_id,
-                    action.record.estimated_cost,
-                    action.record.provider_trace_id,
+                    recovery_action.operation_id,
+                    recovery_action.record.estimated_cost,
+                    recovery_action.record.provider_trace_id,
                 )
-            elif action.kind == "settle_campaign_zero":
+            elif recovery_action.kind == "settle_campaign_zero":
                 assert campaign_id is not None
                 self.campaign_ledger.settle(
                     campaign_id,
-                    action.operation_id,
+                    recovery_action.operation_id,
                     Decimal("0"),
                     None,
                 )
-            elif action.kind == "mark_campaign_unknown":
+            elif recovery_action.kind == "mark_campaign_unknown":
                 assert campaign_id is not None
                 self.campaign_ledger.mark_unknown(
                     campaign_id,
-                    action.operation_id,
+                    recovery_action.operation_id,
                     "RecoveryUncertainDispatch",
                 )
-            elif action.kind == "mark_model_unknown":
-                self.service.mark_model_call_unknown(run_id, action.operation_id, token, key)
-            elif action.kind == "mark_tool_unknown":
-                self.service.mark_tool_call_unknown(run_id, action.operation_id, token, key)
+            elif recovery_action.kind == "mark_model_unknown":
+                self.service.mark_model_call_unknown(
+                    run_id, recovery_action.operation_id, token, key
+                )
+            elif recovery_action.kind == "mark_tool_unknown":
+                self.service.mark_tool_call_unknown(
+                    run_id, recovery_action.operation_id, token, key
+                )
             else:
-                self.service.mark_usage_unknown(run_id, action.operation_id, token, key)
+                self.service.mark_usage_unknown(run_id, recovery_action.operation_id, token, key)
 
         current = self.service.store.get(run_id)
         self._verify_linked_ledgers(current, historical)

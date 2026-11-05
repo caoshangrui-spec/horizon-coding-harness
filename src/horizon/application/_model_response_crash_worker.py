@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sys
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 
 from horizon.adapters.persistence.artifacts import ArtifactStore
@@ -103,17 +104,17 @@ def main() -> None:
         model_id="fake-model",
         pricing=PriceCard(
             currency="CNY",
-            input_per_million="3.00",
-            cached_input_per_million="0.30",
-            output_per_million="9.00",
+            input_per_million=Decimal("3.00"),
+            cached_input_per_million=Decimal("0.30"),
+            output_per_million=Decimal("9.00"),
             version="hard-exit-test",
             source_url="https://example.test/pricing",
         ),
         campaign=CampaignBudget(
             campaign_id="hard-exit-agent",
             currency="CNY",
-            max_cost="3.00",
-            max_cost_per_call="1.00",
+            max_cost=Decimal("3.00"),
+            max_cost_per_call=Decimal("1.00"),
         ),
         config=AgentLoopConfig(max_model_iterations=8, max_output_tokens=256),
     )

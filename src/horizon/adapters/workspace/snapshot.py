@@ -143,7 +143,9 @@ class SnapshotManager:
         entries.sort(key=lambda entry: entry.path)
         revision = digest([entry.model_dump(mode="json") for entry in entries])
         snapshot = FileSnapshot(
-            files=entries, excluded_paths=sorted(excluded), workspace_revision=revision
+            files=tuple(entries),
+            excluded_paths=tuple(sorted(excluded)),
+            workspace_revision=revision,
         )
         manifest_hash = self.artifacts.put(canonical_json(snapshot).encode("utf-8"))
         return snapshot, manifest_hash

@@ -189,6 +189,7 @@ class DockerSandbox:
             or not isinstance(running, bool)
         ):
             raise SandboxError("Docker attempt identity does not match the persisted operation")
+        attempt_state: Literal["created", "running", "stopped"]
         if not running and engine_state == "created":
             attempt_state = "created"
         elif running and engine_state == "running":

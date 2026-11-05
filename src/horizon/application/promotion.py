@@ -33,6 +33,8 @@ class PromotionService:
         if run.status != RunStatus.SUCCEEDED or run.workspace_origin is None:
             raise Conflict("Promotion planning requires a successful Run with a bound origin")
         if run.promotion_receipt is not None:
+            if run.promotion_intent is None:
+                raise Conflict("Promotion receipt has no matching intent")
             return run.promotion_intent.plan
         if run.promotion_intent is not None:
             plan = run.promotion_intent.plan
@@ -57,6 +59,8 @@ class PromotionService:
         run = self.service.store.get(run_id)
         source = source.resolve(strict=True)
         if run.promotion_receipt is not None:
+            if run.promotion_intent is None:
+                raise Conflict("Promotion receipt has no matching intent")
             plan = run.promotion_intent.plan
             if workspace_path_hash(source) != plan.source_path_hash:
                 raise Conflict("Source path does not match the settled promotion")

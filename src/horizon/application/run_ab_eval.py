@@ -6,6 +6,7 @@ import sys
 import time
 from decimal import Decimal
 from pathlib import Path
+from typing import Literal, cast
 from uuid import uuid4
 
 from horizon.adapters.model.scripted import ScriptedModelGateway
@@ -49,9 +50,9 @@ from horizon.tools.gateway import WorkspaceToolGateway
 
 _OFFLINE_PRICE = PriceCard(
     currency="CNY",
-    input_per_million="3.00",
-    cached_input_per_million="0.30",
-    output_per_million="9.00",
+    input_per_million=Decimal("3.00"),
+    cached_input_per_million=Decimal("0.30"),
+    output_per_million=Decimal("9.00"),
     version="offline-scripted-v1",
     source_url="https://offline.invalid/horizon-scripted-price",
 )
@@ -177,6 +178,9 @@ class RunABEvaluator:
         SnapshotManager,
         RunABHardCrashEvidence,
     ]:
+        if action.tool not in {"replace_text", "apply_patch", "create_file"}:
+            raise ValueError("Run A/B hard crash requires a recoverable write tool")
+        crash_tool = cast(Literal["replace_text", "apply_patch", "create_file"], action.tool)
         action_content = canonical_json(action).encode("utf-8")
         action_ref = artifacts.put(action_content)
         if artifacts.read(action_ref) != action_content:
@@ -344,14 +348,17 @@ class RunABEvaluator:
         assert receipt.recovery_disposition is not None
         evidence = RunABHardCrashEvidence(
             model_call_index=action_index,
-            tool=action.tool,
+            tool=crash_tool,
             observed_exit_code=crashed_process.returncode,
             crashed_worker_epoch=token.epoch,
             recovery_worker_epoch=recovery_token.epoch,
             pending_tool_call_id=reservation.call_id,
             scripted_action_ref=action_ref,
             crash_marker_ref=marker_ref,
-            recovery_disposition=receipt.recovery_disposition,
+            recovery_disposition=cast(
+                Literal["accept_replace", "accept_patch", "accept_create"],
+                receipt.recovery_disposition,
+            ),
             reservation_without_receipt=True,
             expected_effect_present=True,
             conservative_unknown_recorded=True,
@@ -411,8 +418,8 @@ class RunABEvaluator:
         campaign = CampaignBudget(
             campaign_id=f"{manifest.benchmark_id[:50]}-{arm.arm_id[:30]}-{evaluation_id[-8:]}",
             currency="CNY",
-            max_cost="10.00",
-            max_cost_per_call="1.00",
+            max_cost=Decimal("10.00"),
+            max_cost_per_call=Decimal("1.00"),
         )
         runner_config = AgentLoopConfig(
             max_model_iterations=len(arm.actions),
@@ -490,6 +497,7 @@ class RunABEvaluator:
                 )
                 if (
                     partial.status != RunStatus.RUNNING
+                    or partial.plan is None
                     or partial.agent_session is None
                     or not partial.passed_items
                     or partial.agent_session.work_item_id in partial.passed_items
@@ -595,6 +603,7 @@ class RunABEvaluator:
                     raise ValueError("Run A/B scheduler stopped outside a configured boundary")
                 if (
                     partial.status != RunStatus.RUNNING
+                    or partial.plan is None
                     or partial.agent_session is None
                     or not partial.passed_items
                     or partial.agent_session.work_item_id in partial.passed_items
@@ -633,13 +642,16 @@ class RunABEvaluator:
             if result is None or hard_crash_evidence is None:
                 raise ValueError("Hard-crash evaluation did not execute its final segment")
 
+        if result is None:
+            raise ValueError("Run A/B evaluation did not produce a final Run")
+        completed_run = result
         events = store.events(run.run_id)
         trace = store.export_jsonl(run.run_id)
         trace_ref = active_artifacts.put(trace.encode("utf-8"))
         replayed = SQLiteEventStore.replay_jsonl(trace)
-        replay_verified = replayed.as_dict() == result.as_dict() and projection_hash(
+        replay_verified = replayed.as_dict() == completed_run.as_dict() and projection_hash(
             replayed
-        ) == projection_hash(result)
+        ) == projection_hash(completed_run)
         current_snapshot, current_manifest_ref = active_snapshots.capture(
             workspace,
             allowed_paths=task.constraints.allowed_paths,
@@ -652,26 +664,26 @@ class RunABEvaluator:
         )
         source_unchanged = source_after.workspace_revision == fixture_revision
         human_pattern = (
-            result.pending_human_request.pattern
-            if isinstance(result.pending_human_request, HumanGuidanceRequest)
+            completed_run.pending_human_request.pattern
+            if isinstance(completed_run.pending_human_request, HumanGuidanceRequest)
             else None
         )
-        bound_workspace_revision = result.workspace_revision
-        if bound_workspace_revision is None and result.agent_session is not None:
-            bound_workspace_revision = result.agent_session.workspace_revision
+        bound_workspace_revision = completed_run.workspace_revision
+        if bound_workspace_revision is None and completed_run.agent_session is not None:
+            bound_workspace_revision = completed_run.agent_session.workspace_revision
         if bound_workspace_revision is None and isinstance(
-            result.pending_human_request, HumanGuidanceRequest
+            completed_run.pending_human_request, HumanGuidanceRequest
         ):
-            bound_workspace_revision = result.pending_human_request.workspace_revision
+            bound_workspace_revision = completed_run.pending_human_request.workspace_revision
         required = {check.id for check in task.acceptance if check.required}
         final_validation_passed = (
-            required <= set(result.validation["passed_check_ids"])
-            if result.validation is not None
+            required <= set(completed_run.validation["passed_check_ids"])
+            if completed_run.validation is not None
             else None
         )
-        reliability_facts = derive_run_reliability_facts(result)
+        reliability_facts = derive_run_reliability_facts(completed_run)
         retrieval_lineage = derive_run_ab_retrieval_lineage(
-            result,
+            completed_run,
             events,
             active_artifacts,
         )
@@ -693,27 +705,32 @@ class RunABEvaluator:
             crash_point is None or hard_crash_evidence is not None
         )
         expectations = (
-            (result.status == arm.expected_status, "status"),
+            (completed_run.status == arm.expected_status, "status"),
             (
-                result.plan is not None and result.plan.version == arm.expected_plan_version,
+                completed_run.plan is not None
+                and completed_run.plan.version == arm.expected_plan_version,
                 "plan_version",
             ),
-            (len(result.execution_replans) == arm.expected_execution_replans, "replan_count"),
             (
-                tuple(sorted(result.passed_items)) == tuple(sorted(arm.expected_passed_items)),
+                len(completed_run.execution_replans) == arm.expected_execution_replans,
+                "replan_count",
+            ),
+            (
+                tuple(sorted(completed_run.passed_items))
+                == tuple(sorted(arm.expected_passed_items)),
                 "passed_items",
             ),
             (human_pattern == arm.expected_human_request_pattern, "human_request_pattern"),
-            (result.usage.model_calls == arm.expected_model_calls, "model_calls"),
-            (result.usage.tool_calls == arm.expected_tool_calls, "tool_calls"),
-            (result.usage.steps == arm.expected_steps, "steps"),
+            (completed_run.usage.model_calls == arm.expected_model_calls, "model_calls"),
+            (completed_run.usage.tool_calls == arm.expected_tool_calls, "tool_calls"),
+            (completed_run.usage.steps == arm.expected_steps, "steps"),
             (actions_consumed, "scripted_actions_consumed"),
             (
                 (hard_crash_evidence is not None) == (crash_point is not None),
                 "hard_crash_evidence",
             ),
             (
-                result.lease_epoch == 1 + worker_restarts,
+                completed_run.lease_epoch == 1 + worker_restarts,
                 "worker_restart_lease_epoch",
             ),
             (replay_verified, "trace_replay"),
@@ -722,37 +739,37 @@ class RunABEvaluator:
                 current_snapshot.workspace_revision == bound_workspace_revision,
                 "workspace_revision",
             ),
-            (not result.unknown_model_calls, "unknown_model_calls"),
-            (not result.unknown_tool_calls, "unknown_tool_calls"),
-            (not result.reservations, "open_reservations"),
+            (not completed_run.unknown_model_calls, "unknown_model_calls"),
+            (not completed_run.unknown_tool_calls, "unknown_tool_calls"),
+            (not completed_run.reservations, "open_reservations"),
         )
         failures.extend(name for passed, name in expectations if not passed)
         return RunABArmResult(
             arm_id=arm.arm_id,
             role=arm.role,
-            run_id=result.run_id,
-            status=result.status,
-            plan_version=result.plan.version if result.plan is not None else 1,
-            execution_replans=len(result.execution_replans),
-            passed_items=tuple(sorted(result.passed_items)),
+            run_id=completed_run.run_id,
+            status=completed_run.status,
+            plan_version=completed_run.plan.version if completed_run.plan is not None else 1,
+            execution_replans=len(completed_run.execution_replans),
+            passed_items=tuple(sorted(completed_run.passed_items)),
             human_request_pattern=human_pattern,
-            usage=result.usage,
-            model_cost=result.model_occupied_cost,
+            usage=completed_run.usage,
+            model_cost=completed_run.model_occupied_cost,
             model_currency=_OFFLINE_PRICE.currency,
-            event_count=result.seq,
+            event_count=completed_run.seq,
             worker_restarts=worker_restarts,
-            final_lease_epoch=result.lease_epoch,
+            final_lease_epoch=completed_run.lease_epoch,
             trace_ref=trace_ref,
-            projection_hash=projection_hash(result),
+            projection_hash=projection_hash(completed_run),
             workspace_revision=current_snapshot.workspace_revision,
             workspace_manifest_ref=current_manifest_ref,
             final_validation_passed=final_validation_passed,
             actions_consumed=actions_consumed,
             trace_replay_verified=replay_verified,
             source_workspace_unchanged=source_unchanged,
-            unknown_model_calls=len(result.unknown_model_calls),
-            unknown_tool_calls=len(result.unknown_tool_calls),
-            open_reservations=len(result.reservations),
+            unknown_model_calls=len(completed_run.unknown_model_calls),
+            unknown_tool_calls=len(completed_run.unknown_tool_calls),
+            open_reservations=len(completed_run.reservations),
             reliability=arm_reliability,
             hard_crash=hard_crash_evidence,
             expectation_failures=tuple(failures),
@@ -792,67 +809,17 @@ def build_run_ab_suite_report(
         arms = (report.baseline, report.single_replan)
         hard_crashes = tuple(arm.hard_crash for arm in arms if arm.hard_crash is not None)
         arm_reliability = tuple(arm.reliability for arm in arms if arm.reliability is not None)
-        quality_fields = {}
+        quality_flags: list[str] = []
         if arm_reliability:
             quality_flags = [
                 quality_flag
                 for reliability_facts in arm_reliability
                 for quality_flag in reliability_facts.quality_flags
             ]
-            quality_fields = {
-                "reliability_evidence_arm_count": len(arm_reliability),
-                "unknown_acceptance_arm_count": sum(
-                    item.acceptance_evidence_unknown for item in arm_reliability
-                ),
-                "required_check_failure_arm_count": sum(
-                    not item.acceptance_evidence_unknown and not item.required_checks_passed
-                    for item in arm_reliability
-                ),
-                "quality_flagged_arm_count": sum(
-                    bool(item.quality_flags) for item in arm_reliability
-                ),
-                "clean_terminal_success_count": sum(
-                    arm.status == RunStatus.SUCCEEDED and not arm.reliability.quality_flags
-                    for arm in arms
-                    if arm.reliability is not None
-                ),
-                "quality_flagged_terminal_success_count": sum(
-                    arm.status == RunStatus.SUCCEEDED and bool(arm.reliability.quality_flags)
-                    for arm in arms
-                    if arm.reliability is not None
-                ),
-                "fallback_arm_count": sum(item.fallback_count > 0 for item in arm_reliability),
-                "degradation_arm_count": sum(
-                    item.degradation_count > 0 for item in arm_reliability
-                ),
-                "retrieval_degraded_arm_count": sum(
-                    item.retrieval_degradation_count > 0 for item in arm_reliability
-                ),
-                "degradation_record_count": sum(item.degradation_count for item in arm_reliability),
-                "quality_flag_counts": count_run_ab_quality_flags(quality_flags),
-            }
         arm_lineage = tuple(
             item.retrieval_lineage for item in arm_reliability if item.retrieval_lineage is not None
         )
-        lineage_fields = {}
-        if arm_lineage:
-            lineage_fields = {
-                "retrieval_lineage_arm_count": len(arm_lineage),
-                "successful_retrieval_count": sum(
-                    len(item.successful_retrieval_call_ids) for item in arm_lineage
-                ),
-                "delivered_retrieval_count": sum(
-                    len(item.delivered_retrieval_call_ids) for item in arm_lineage
-                ),
-                "successful_write_count": sum(item.successful_write_count for item in arm_lineage),
-                "write_context_bound_count": sum(
-                    item.write_context_bound_count for item in arm_lineage
-                ),
-                "evidence_backed_write_count": sum(
-                    item.evidence_backed_write_count for item in arm_lineage
-                ),
-            }
-        reliability = RunABCaseReliabilityMetrics(
+        case_reliability = RunABCaseReliabilityMetrics(
             duration_ms=report.duration_ms,
             terminal_success_count=sum(arm.status == RunStatus.SUCCEEDED for arm in arms),
             worker_restart_count=sum(arm.worker_restarts for arm in arms),
@@ -880,8 +847,44 @@ def build_run_ab_suite_report(
                 arm.unknown_model_calls + arm.unknown_tool_calls + arm.open_reservations
                 for arm in arms
             ),
-            **quality_fields,
-            **lineage_fields,
+            reliability_evidence_arm_count=len(arm_reliability),
+            unknown_acceptance_arm_count=sum(
+                item.acceptance_evidence_unknown for item in arm_reliability
+            ),
+            required_check_failure_arm_count=sum(
+                not item.acceptance_evidence_unknown and not item.required_checks_passed
+                for item in arm_reliability
+            ),
+            quality_flagged_arm_count=sum(bool(item.quality_flags) for item in arm_reliability),
+            clean_terminal_success_count=sum(
+                arm.status == RunStatus.SUCCEEDED and not arm.reliability.quality_flags
+                for arm in arms
+                if arm.reliability is not None
+            ),
+            quality_flagged_terminal_success_count=sum(
+                arm.status == RunStatus.SUCCEEDED and bool(arm.reliability.quality_flags)
+                for arm in arms
+                if arm.reliability is not None
+            ),
+            fallback_arm_count=sum(item.fallback_count > 0 for item in arm_reliability),
+            degradation_arm_count=sum(item.degradation_count > 0 for item in arm_reliability),
+            retrieval_degraded_arm_count=sum(
+                item.retrieval_degradation_count > 0 for item in arm_reliability
+            ),
+            degradation_record_count=sum(item.degradation_count for item in arm_reliability),
+            retrieval_lineage_arm_count=len(arm_lineage),
+            successful_retrieval_count=sum(
+                len(item.successful_retrieval_call_ids) for item in arm_lineage
+            ),
+            delivered_retrieval_count=sum(
+                len(item.delivered_retrieval_call_ids) for item in arm_lineage
+            ),
+            successful_write_count=sum(item.successful_write_count for item in arm_lineage),
+            write_context_bound_count=sum(item.write_context_bound_count for item in arm_lineage),
+            evidence_backed_write_count=sum(
+                item.evidence_backed_write_count for item in arm_lineage
+            ),
+            quality_flag_counts=count_run_ab_quality_flags(quality_flags),
         )
         cases.append(
             RunABSuiteCaseResult(
@@ -900,7 +903,7 @@ def build_run_ab_suite_report(
                 tool_call_delta=report.tool_call_delta,
                 step_delta=report.step_delta,
                 model_cost_delta=report.model_cost_delta,
-                reliability=reliability,
+                reliability=case_reliability,
             )
         )
 
@@ -921,7 +924,7 @@ def build_run_ab_suite_report(
     source_workspace_unchanged_count = sum(
         metrics.source_workspace_unchanged_count for metrics in observed_metrics
     )
-    reliability = RunABSuiteReliabilityMetrics(
+    suite_reliability = RunABSuiteReliabilityMetrics(
         scenario_count=len(observed_metrics),
         timed_scenario_count=len(durations),
         observed_duration_ms=sum(durations),
@@ -1025,7 +1028,7 @@ def build_run_ab_suite_report(
         model_cost_delta=sum((case.model_cost_delta for case in case_results), start=Decimal("0")),
         all_expectations_met=all(case.passed for case in case_results),
         repository_code_executed=repository_code_executed,
-        reliability=reliability,
+        reliability=suite_reliability,
     )
 
 

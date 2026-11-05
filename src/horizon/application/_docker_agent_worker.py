@@ -172,6 +172,7 @@ def main() -> None:
     )
     artifacts = ArtifactStore(Path(artifacts_arg))
     snapshots = SnapshotManager(artifacts)
+    sandbox: DockerSandbox
     if mode == "crash":
         sandbox = _ExitAfterCreatedAttempt(
             Path(staging_arg),

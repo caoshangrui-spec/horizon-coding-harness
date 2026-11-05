@@ -131,6 +131,13 @@ def _parse_time(value: str | None) -> datetime | None:
     return parsed.astimezone(UTC)
 
 
+def _required_time(value: str | None) -> datetime:
+    parsed = _parse_time(value)
+    if parsed is None:
+        raise IntegrityError("Provider health event is missing its occurrence time")
+    return parsed
+
+
 class ProviderHealthStore:
     """SQLite projection plus append-only events for a single-host circuit breaker."""
 
@@ -433,7 +440,7 @@ class ProviderHealthStore:
                     failure_class=item["failure_class"],
                     retry_action=item["retry_action"],
                     retry_reason=item["retry_reason"],
-                    occurred_at=_parse_time(item["occurred_at"]),
+                    occurred_at=_required_time(item["occurred_at"]),
                 )
                 for item in rows
             )

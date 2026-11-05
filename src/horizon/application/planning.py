@@ -375,11 +375,11 @@ class PlanGenerator:
                             )
                             if not allowed_create:
                                 missing_paths.add(path)
-                missing_paths = sorted(missing_paths)
-                if missing_paths:
+                missing_path_list = sorted(missing_paths)
+                if missing_path_list:
                     raise ValueError(
                         "Generated Plan names path(s) absent from the complete repository "
-                        f"inventory: {', '.join(missing_paths)}"
+                        f"inventory: {', '.join(missing_path_list)}"
                     )
             plan.check_task(task)
         except (PolicyDenied, ValidationError, ValueError) as exc:

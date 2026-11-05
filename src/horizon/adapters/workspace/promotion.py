@@ -329,20 +329,22 @@ class WorkspacePromoter:
                 else:
                     raise Conflict("Source contains a divergent created promotion effect")
             else:
+                before_sha256 = change.before_sha256
                 if (
                     base_entry is None
                     or current_entry is None
-                    or change.before_sha256 != base_entry.sha256
+                    or before_sha256 is None
+                    or before_sha256 != base_entry.sha256
                 ):
                     raise Conflict("Modified promotion change does not match its base manifest")
                 if current_entry.sha256 == change.after_sha256:
                     already_applied = True
-                elif current_entry.sha256 == change.before_sha256:
+                elif current_entry.sha256 == before_sha256:
                     pending_paths.append(path)
                 else:
                     raise Conflict("Source contains a divergent partial promotion effect")
                 target = self._target(source_root, path)
-                originals[path] = self.snapshots.artifacts.read(change.before_sha256)
+                originals[path] = self.snapshots.artifacts.read(before_sha256)
                 if hashlib.sha256(target.read_bytes()).hexdigest() != current_entry.sha256:
                     raise Conflict("Promotion target changed after source snapshot verification")
                 targets[path] = target

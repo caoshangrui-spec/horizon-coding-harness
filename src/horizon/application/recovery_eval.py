@@ -7,6 +7,7 @@ import sys
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 from horizon.adapters.persistence.artifacts import ArtifactStore
@@ -38,6 +39,7 @@ from horizon.domain.recovery_evaluation import (
     RecoveryMatrixCaseResult,
     RecoveryMatrixManifest,
     RecoveryMatrixReport,
+    RecoveryOutcome,
     WriteRecoveryEvalCase,
 )
 from horizon.domain.states import RunStatus
@@ -122,7 +124,7 @@ def _fixture_task(workspace: Path) -> tuple[TaskSpec, WorkItem]:
             max_model_calls=1,
             max_tool_calls=2,
             max_wall_time_seconds=3600,
-            max_cost_usd="0.01",
+            max_cost_usd=Decimal("0.01"),
         ),
         task_kind="tests",
         execution_mode="workspace_write",
@@ -169,7 +171,7 @@ def _promotion_fixture_task(candidate: Path, base_revision: str) -> tuple[TaskSp
             max_model_calls=1,
             max_tool_calls=2,
             max_wall_time_seconds=3600,
-            max_cost_usd="0.01",
+            max_cost_usd=Decimal("0.01"),
         ),
         task_kind="tests",
         execution_mode="workspace_write",
@@ -353,7 +355,7 @@ class RecoveryMatrixEvaluator:
             and demo.report.verification.trace_replay_verified
             and demo.report.verification.hard_crash_recovery_verified is True
         )
-        observed_outcome = (
+        observed_outcome: RecoveryOutcome = (
             "auto_recovered"
             if actual_crash and trace_verified and demo.report.verification.all_checks_passed
             else "unrecoverable"
@@ -555,7 +557,7 @@ class RecoveryMatrixEvaluator:
         unsafe_resume = (
             recovery.safe_to_resume or bool(restored.model_calls) or recovery_redispatch_count > 0
         )
-        observed_outcome = (
+        observed_outcome: RecoveryOutcome = (
             "safely_blocked"
             if all(checks)
             else "incorrect_resume"
@@ -838,7 +840,7 @@ class RecoveryMatrixEvaluator:
             trace_replay_verified,
         )
         unsafe_recovery = recovery_redispatch_count > 0 or duplicate_side_effect_count > 0
-        observed_outcome = (
+        observed_outcome: RecoveryOutcome = (
             "auto_recovered"
             if all(checks)
             else "incorrect_resume"
@@ -969,6 +971,7 @@ class RecoveryMatrixEvaluator:
             final, final_manifest_ref = _current_snapshot(workspace, snapshots)
             final_revision = final.workspace_revision
 
+        observed_outcome: RecoveryOutcome
         if recovery_error is not None:
             observed_outcome = "unrecoverable"
         elif verdict == "block":
@@ -1120,6 +1123,8 @@ def verify_recovery_matrix_report(
                 raise ValueError("Model-response crash final state does not match Trace replay")
             call_id = evidence.get("model_call_id")
             client_trace_id = evidence.get("client_trace_id")
+            if not isinstance(call_id, str) or not isinstance(client_trace_id, str):
+                raise ValueError("Model-response crash evidence omitted its model call identity")
             events = tuple(
                 Event.model_validate_json(line)
                 for line in trace_content.decode("utf-8").splitlines()

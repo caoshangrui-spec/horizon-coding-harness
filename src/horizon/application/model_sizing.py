@@ -51,8 +51,8 @@ def build_agent_execution_sizing_boundary(
     tools = tuple(definition for definition in known.values() if definition.name in requested)
     if not tools:
         raise ValueError("Agent execution sizing requires at least one tool")
-    observed_tool = known.get("retrieve_code") if "retrieve_code" in requested else tools[0]
-    boundary_arguments = {
+    observed_tool = known["retrieve_code"] if "retrieve_code" in requested else tools[0]
+    boundary_arguments: dict[str, dict[str, Any]] = {
         "search_repo": {"query": "sizing boundary"},
         "read_file": {"path": "src/example.py"},
         "retrieve_code": {"query": "sizing boundary"},
@@ -127,12 +127,6 @@ def _boundary_requests(
     max_output_tokens: int,
     enable_thinking: bool,
 ) -> tuple[tuple[str, str, ModelRequest], ...]:
-    shared = {
-        "model": model,
-        "max_output_tokens": max_output_tokens,
-        "temperature": Decimal("0"),
-        "enable_thinking": enable_thinking,
-    }
     lookup_tool = ToolDefinition(
         name="lookup_symbol",
         description="Return bounded source evidence for one symbol.",
@@ -171,36 +165,45 @@ def _boundary_requests(
             "minimal_ascii",
             "One short user message without tools.",
             ModelRequest(
-                **shared,
+                model=model,
                 messages=(ModelMessage(role="user", content="Return OK."),),
+                max_output_tokens=max_output_tokens,
+                temperature=Decimal("0"),
+                enable_thinking=enable_thinking,
             ),
         ),
         (
             "unicode_messages",
             "System and user messages containing multibyte text and emoji.",
             ModelRequest(
-                **shared,
+                model=model,
                 messages=(
                     ModelMessage(role="system", content="你是代码审查助手。"),
                     ModelMessage(role="user", content="检查解析器边界：空值、换行与 emoji 🧪。"),
                 ),
+                max_output_tokens=max_output_tokens,
+                temperature=Decimal("0"),
+                enable_thinking=enable_thinking,
             ),
         ),
         (
             "nested_tool_schema",
             "A nested function schema with required tool choice.",
             ModelRequest(
-                **shared,
+                model=model,
                 messages=(ModelMessage(role="user", content="Locate the parser implementation."),),
                 tools=(lookup_tool,),
                 tool_choice="required",
+                max_output_tokens=max_output_tokens,
+                temperature=Decimal("0"),
+                enable_thinking=enable_thinking,
             ),
         ),
         (
             "tool_call_arguments",
             "An assistant tool call with nested, multibyte JSON-in-JSON arguments.",
             ModelRequest(
-                **shared,
+                model=model,
                 messages=(
                     ModelMessage(role="system", content="Use repository evidence."),
                     ModelMessage(role="user", content="Find the parser."),
@@ -213,13 +216,16 @@ def _boundary_requests(
                 ),
                 tools=(lookup_tool,),
                 tool_choice="auto",
+                max_output_tokens=max_output_tokens,
+                temperature=Decimal("0"),
+                enable_thinking=enable_thinking,
             ),
         ),
         (
             "agent_retrieval_turn",
             "A multi-tool Coding Agent turn followed by a bounded retrieval observation.",
             ModelRequest(
-                **shared,
+                model=model,
                 messages=(
                     ModelMessage(
                         role="system",
@@ -241,13 +247,16 @@ def _boundary_requests(
                 ),
                 tools=agent_tools,
                 tool_choice="auto",
+                max_output_tokens=max_output_tokens,
+                temperature=Decimal("0"),
+                enable_thinking=enable_thinking,
             ),
         ),
         (
             "large_tool_result",
             "A bounded 8 KiB tool result representing a large observation turn.",
             ModelRequest(
-                **shared,
+                model=model,
                 messages=(
                     ModelMessage(role="system", content="Use repository evidence."),
                     ModelMessage(role="user", content="Inspect a large source excerpt."),
@@ -260,6 +269,9 @@ def _boundary_requests(
                 ),
                 tools=(lookup_tool,),
                 tool_choice="auto",
+                max_output_tokens=max_output_tokens,
+                temperature=Decimal("0"),
+                enable_thinking=enable_thinking,
             ),
         ),
     )
@@ -273,7 +285,7 @@ def analyze_model_request_sizing(
 ) -> dict[str, Any]:
     """Replay deterministic request shapes through the production wire encoder without I/O."""
 
-    cases = []
+    cases: list[dict[str, Any]] = []
     for case_id, description, request in _boundary_requests(
         model,
         max_output_tokens=max_output_tokens,

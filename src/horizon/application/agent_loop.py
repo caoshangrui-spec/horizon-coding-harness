@@ -947,6 +947,7 @@ class CodingAgentRunner:
             f"reserve_{local_id}",
         )
         if no_progress_pattern is not None:
+            assert decision is not None
             if no_progress_pattern == "identical_action":
                 content = (
                     "NoProgressPolicy: identical tool name and arguments were already settled "
@@ -1373,6 +1374,8 @@ class CodingAgentRunner:
 
         for iteration in range(start_iteration, self.config.max_model_iterations + 1):
             if pending_response is not None:
+                if pending_workspace_revision is None:
+                    raise Conflict("Recovered model response has no bound workspace revision")
                 run = self.service.store.get(run_id)
                 response = pending_response
                 model_workspace_revision = pending_workspace_revision
@@ -1600,11 +1603,14 @@ class CodingAgentRunner:
                         iteration + 1,
                     )
                     source = run.tool_calls[-1]
+                    pattern = hard_no_progress_decision.pattern
+                    if pattern is None:
+                        raise Conflict("Hard no-progress evidence omitted its pattern")
                     return self.service.request_operator_guidance(
                         run_id,
                         source.call_id,
                         outcome.content,
-                        hard_no_progress_decision.pattern,
+                        pattern,
                         token,
                         f"guidance_{uuid4().hex}",
                         cycle_period=hard_no_progress_decision.cycle_period,
@@ -1621,8 +1627,11 @@ class CodingAgentRunner:
                 continue
 
             run = self.service.store.get(run_id)
+            if run.plan is None:
+                raise Conflict("Agent loop lost its active plan before validation")
+            active_plan = run.plan
             active_item = _active_work_item(run)
-            is_final_item = len(run.passed_items) + 1 == len(run.plan.items)
+            is_final_item = len(run.passed_items) + 1 == len(active_plan.items)
             run, results = self._protected_validation(
                 run_id,
                 token,
@@ -1640,13 +1649,13 @@ class CodingAgentRunner:
                         f"complete_{uuid4().hex}",
                     )
                 prospective_passed = set(run.passed_items) | {active_item.work_item_id}
-                next_items = run.plan.ready_items(prospective_passed)
+                next_items = active_plan.ready_items(prospective_passed)
                 if not next_items:
                     raise Conflict("Validated work item did not unlock a successor")
                 next_item = next_items[0]
                 completed = tuple(
                     item.work_item_id
-                    for item in run.plan.items
+                    for item in active_plan.items
                     if item.work_item_id in prospective_passed
                 )
                 next_messages = _initial_messages(

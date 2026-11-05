@@ -53,7 +53,9 @@ def _resolve_member(root: Path, relative: str) -> Path:
     return candidate
 
 
-def _file_record(root: Path, role: str, path: Path) -> TerminalSuiteFile:
+def _file_record(
+    root: Path, role: Literal["manifest", "report", "summary"], path: Path
+) -> TerminalSuiteFile:
     content = path.read_bytes()
     return TerminalSuiteFile(
         role=role,
@@ -144,34 +146,10 @@ def _build_report(
     budget_stop_reasons = [
         case.budget_stop_reason.value for case in cases if case.budget_stop_reason is not None
     ]
-    reliability_fields = {}
+    quality_flags: list[str] = []
     if schema_version == 2:
         quality_flags = [flag for case in cases for flag in case.quality_flags]
-        reliability_fields = {
-            "reliability_summary_verified_count": sum(
-                case.reliability_summary_present for case in cases
-            ),
-            "unknown_acceptance_run_count": sum(
-                case.acceptance_evidence_unknown is True for case in cases
-            ),
-            "required_check_failure_run_count": sum(
-                case.acceptance_evidence_unknown is False and case.required_checks_passed is False
-                for case in cases
-            ),
-            "quality_flagged_run_count": sum(bool(case.quality_flags) for case in cases),
-            "clean_success_run_count": sum(
-                case.status == RunStatus.SUCCEEDED and not case.quality_flags for case in cases
-            ),
-            "quality_flagged_success_run_count": sum(
-                case.status == RunStatus.SUCCEEDED and bool(case.quality_flags) for case in cases
-            ),
-            "fallback_run_count": sum(case.fallback_count > 0 for case in cases),
-            "degradation_run_count": sum(case.degradation_count > 0 for case in cases),
-            "retrieval_degraded_run_count": sum(
-                "retrieval_degraded" in case.quality_flags for case in cases
-            ),
-            "quality_flag_counts": _reason_counts(quality_flags),
-        }
+    include_reliability = schema_version == 2
     return TerminalSuiteReport(
         schema_version=schema_version,
         suite_id=manifest.suite_id,
@@ -184,13 +162,53 @@ def _build_report(
         terminal_capture_verified_count=sum(case.terminal_capture_verified for case in cases),
         unknown_effect_run_count=sum(case.unknown_effects_present for case in cases),
         open_effect_run_count=sum(case.open_effects_present for case in cases),
+        reliability_summary_verified_count=(
+            sum(case.reliability_summary_present for case in cases) if include_reliability else 0
+        ),
+        unknown_acceptance_run_count=(
+            sum(case.acceptance_evidence_unknown is True for case in cases)
+            if include_reliability
+            else 0
+        ),
+        required_check_failure_run_count=(
+            sum(
+                case.acceptance_evidence_unknown is False and case.required_checks_passed is False
+                for case in cases
+            )
+            if include_reliability
+            else 0
+        ),
+        quality_flagged_run_count=(
+            sum(bool(case.quality_flags) for case in cases) if include_reliability else 0
+        ),
+        clean_success_run_count=(
+            sum(case.status == RunStatus.SUCCEEDED and not case.quality_flags for case in cases)
+            if include_reliability
+            else 0
+        ),
+        quality_flagged_success_run_count=(
+            sum(case.status == RunStatus.SUCCEEDED and bool(case.quality_flags) for case in cases)
+            if include_reliability
+            else 0
+        ),
+        fallback_run_count=(
+            sum(case.fallback_count > 0 for case in cases) if include_reliability else 0
+        ),
+        degradation_run_count=(
+            sum(case.degradation_count > 0 for case in cases) if include_reliability else 0
+        ),
+        retrieval_degraded_run_count=(
+            sum("retrieval_degraded" in case.quality_flags for case in cases)
+            if include_reliability
+            else 0
+        ),
+        quality_flag_counts=_reason_counts(quality_flags) if include_reliability else (),
         failure_reason_counts=_reason_counts(failure_reasons),
         budget_stop_reason_counts=_reason_counts(budget_stop_reasons),
         boundaries=(
             TERMINAL_SUITE_BOUNDARIES if schema_version == 2 else TERMINAL_SUITE_BOUNDARIES_V1
         ),
         cases=cases,
-        **reliability_fields,
     )
 
 
