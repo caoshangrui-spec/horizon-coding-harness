@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from horizon.application.context import visible_run_memory_binding
+from horizon.application.context import visible_run_memory_binding, visible_run_memory_entries
 from horizon.domain.common import canonical_json, digest
 from horizon.domain.context import ContextProjection
 from horizon.domain.errors import IntegrityError
@@ -147,7 +147,7 @@ def _memory_delivery(
             recent_entry_limit=entry_limit,
         )
         if canonical_json(binding) in system_content:
-            visible_entries = memory.entries[-entry_limit:] if entry_limit else ()
+            visible_entries = visible_run_memory_entries(memory, entry_limit)
             break
     if visible_entries is None:
         raise IntegrityError("Stored context projection omits its visible Run-memory binding")

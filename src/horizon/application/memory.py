@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from pydantic import ValidationError
 
 from horizon.application.retrieval_control import (
@@ -36,6 +38,90 @@ TRANSCRIPT_ONLY_FEEDBACK_PREFIXES = (
     f"{RETRIEVAL_QUERY_POLICY}:",
     f"{TOOL_ARGUMENT_POLICY}:",
 )
+TASK_RELEVANT_CODE_PREFIX = "TASK_RELEVANT_CODE\n"
+
+
+def _task_relevance_terms(run: Run, active_work_item_id: str) -> tuple[str, ...]:
+    """Derive deterministic lexical anchors from the immutable task and active work item."""
+
+    assert run.plan is not None
+    item = next(
+        candidate for candidate in run.plan.items if candidate.work_item_id == active_work_item_id
+    )
+    sources = (
+        run.task.title,
+        run.task.objective,
+        item.title,
+        item.objective,
+        *item.expected_artifacts,
+        *item.acceptance_ids,
+    )
+    terms: set[str] = set()
+    ignored = {
+        "acceptance",
+        "artifact",
+        "change",
+        "complete",
+        "expected",
+        "first",
+        "production",
+        "source",
+        "task",
+        "verify",
+    }
+    for source in sources:
+        for token in re.findall(r"[A-Za-z][A-Za-z0-9_./-]{2,}", source.lower()):
+            normalized = token.replace("-", "_").strip("_./")
+            if len(normalized) >= 4 and normalized not in ignored:
+                terms.add(normalized)
+            parts = [part for part in re.split(r"[^a-z0-9]+", token) if len(part) >= 3]
+            for width in range(2, min(4, len(parts)) + 1):
+                for start in range(len(parts) - width + 1):
+                    joined = "_".join(parts[start : start + width])
+                    if len(joined) >= 6:
+                        terms.add(joined)
+    return tuple(sorted(terms, key=lambda term: (-len(term), term)))
+
+
+def _task_relevant_code_excerpt(
+    content: str,
+    max_chars: int,
+    relevance_terms: tuple[str, ...],
+) -> str | None:
+    """Return a bounded line window around the strongest immutable-task lexical match."""
+
+    if max_chars <= len(TASK_RELEVANT_CODE_PREFIX) or not relevance_terms:
+        return None
+    lines = content.splitlines()
+    if not lines:
+        return None
+    scored: list[tuple[int, int]] = []
+    for index, line in enumerate(lines):
+        lowered = line.lower()
+        score = sum(len(term) ** 2 for term in relevance_terms if term in lowered)
+        if score:
+            scored.append((score, index))
+    if not scored:
+        return None
+    _, center = max(scored, key=lambda item: (item[0], -item[1]))
+    available = max_chars - len(TASK_RELEVANT_CODE_PREFIX)
+    selected = [lines[center]]
+    after = center + 1
+    while after < len(lines):
+        rendered = "\n".join([*selected, lines[after]])
+        if len(rendered) > available:
+            break
+        selected = rendered.splitlines()
+        after += 1
+    before = center - 1
+    while before >= 0:
+        rendered = "\n".join([lines[before], *selected])
+        if len(rendered) > available:
+            break
+        selected = rendered.splitlines()
+        before -= 1
+    excerpt = TASK_RELEVANT_CODE_PREFIX + "\n".join(selected)
+    return excerpt[:max_chars]
 
 
 def _kind(tool_name: str) -> str:
@@ -63,9 +149,14 @@ def _bounded_evidence_excerpt(
     raw: bytes,
     content: str,
     max_chars: int,
+    relevance_terms: tuple[str, ...],
 ) -> str:
     if max_chars == 0:
         return ""
+    if record.name == "read_file" and record.status == "success":
+        relevant = _task_relevant_code_excerpt(content, max_chars, relevance_terms)
+        if relevant is not None:
+            return relevant
     if record.name != "retrieve_code" or record.status != "success":
         return content[:max_chars]
     try:
@@ -121,6 +212,7 @@ class RunMemoryProjector:
         record: ToolCallRecord,
         current_revision: str,
         work_item_id: str,
+        relevance_terms: tuple[str, ...],
     ) -> RunMemoryEntry | None:
         if record.status == "unknown":
             raise IntegrityError("Unknown tool effects cannot be stored as settled observations")
@@ -161,6 +253,7 @@ class RunMemoryProjector:
                 raw,
                 content,
                 self.excerpt_chars,
+                relevance_terms,
             ),
         )
 
@@ -221,6 +314,7 @@ class RunMemoryProjector:
         current_work_item_id: str | None = None
         passed_items: set[str] = set()
         observed_unknown: set[str] = set()
+        relevance_terms = _task_relevance_terms(run, active_work_item_id)
         for event in events:
             if event.event_type == "TASK_SPEC_AMENDED":
                 current_plan = None
@@ -276,6 +370,7 @@ class RunMemoryProjector:
                     record,
                     current_revision,
                     current_work_item_id,
+                    relevance_terms,
                 )
                 if entry is not None:
                     relevant_events.append(event)

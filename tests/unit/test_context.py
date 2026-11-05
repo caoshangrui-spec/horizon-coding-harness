@@ -1,6 +1,7 @@
 import pytest
 
 from horizon.application.context import ContextProjector, visible_run_memory_binding
+from horizon.application.memory import TASK_RELEVANT_CODE_PREFIX
 from horizon.application.model_probe import conservative_input_estimate
 from horizon.domain.common import canonical_json
 from horizon.domain.context import ContextCompactionRecord, MandatoryFactLedger
@@ -507,6 +508,103 @@ def test_visible_run_memory_binding_preserves_the_projector_bounded_excerpt():
     binding = visible_run_memory_binding(memory, memory.sha256)
 
     assert binding["recent_entries"][0]["excerpt"] == excerpt
+
+
+def test_visible_run_memory_pins_target_code_over_newer_duplicate_reads():
+    revision = "e" * 64
+    target = RunMemoryEntry.create(
+        scope_id="run-context",
+        source_run_id="run-context",
+        task_spec_hash="a" * 64,
+        work_item_id="work-item",
+        source_event_id="event-target",
+        source_event_seq=3,
+        source_event_hash="5" * 64,
+        source_call_id="call-target",
+        kind="observation",
+        tool_name="read_file",
+        outcome="success",
+        status="active",
+        dependency_revision=revision,
+        evidence_ref="6" * 64,
+        evidence_hash="6" * 64,
+        statement="Controller observed target code.",
+        excerpt=TASK_RELEVANT_CODE_PREFIX + "def read_user_choice(...):",
+    )
+    duplicates = tuple(
+        RunMemoryEntry.create(
+            scope_id="run-context",
+            source_run_id="run-context",
+            task_spec_hash="a" * 64,
+            work_item_id="work-item",
+            source_event_id=f"event-duplicate-{index}",
+            source_event_seq=index + 4,
+            source_event_hash=f"{index + 7:x}" * 64,
+            source_call_id=f"call-duplicate-{index}",
+            kind="observation",
+            tool_name="read_file",
+            outcome="success",
+            status="active",
+            dependency_revision=revision,
+            evidence_ref="9" * 64,
+            evidence_hash="9" * 64,
+            statement="Controller observed a repeated unrelated range.",
+            excerpt="READ_RANGE lines=200-242 unrelated tail",
+        )
+        for index in range(2)
+    )
+    memory = RunMemorySnapshot(
+        run_id="run-context",
+        task_spec_hash="a" * 64,
+        plan_version=1,
+        work_item_id="work-item",
+        covered_event_seq=5,
+        workspace_revision=revision,
+        relevant_event_digest="8" * 64,
+        max_entries=12,
+        excerpt_chars=400,
+        total_entry_count=3,
+        included_entry_count=3,
+        omitted_entry_count=0,
+        active_count=3,
+        stale_count=0,
+        unresolved_count=0,
+        entries=(target, *duplicates),
+    )
+
+    binding = visible_run_memory_binding(memory, memory.sha256, recent_entry_limit=1)
+
+    assert len(binding["recent_entries"]) == 1
+    assert binding["recent_entries"][0]["source_call_id"] == "call-target"
+    assert "read_user_choice" in binding["recent_entries"][0]["excerpt"]
+
+
+def test_compaction_fails_closed_instead_of_dropping_target_code_memory():
+    messages = (
+        *_prefix(),
+        *_tool_unit(1, "a" * 1_200),
+        *_tool_unit(2, "b" * 1_200),
+        *_tool_unit(3, "c" * 1_200),
+    )
+    memory = _run_memory(
+        excerpt=(
+            TASK_RELEVANT_CODE_PREFIX
+            + "def read_user_choice():\n"
+            + "    # bounded target context\n" * 12
+        )
+    )
+    facts = _mandatory_facts()
+
+    with pytest.raises(ContextWindowExceeded) as stopped:
+        _projector(max_chars=2_000, preserve_recent_units=1).project(
+            messages,
+            mandatory_facts=facts,
+            mandatory_facts_ref=facts.sha256,
+            run_memory=memory,
+            run_memory_ref=memory.sha256,
+        )
+
+    assert stopped.value.stop.reason_code == ContextStopReason.PROTECTED_PREFIX_LIMIT
 
 
 def test_projection_reduces_visible_run_memory_only_with_traceable_compaction():

@@ -1,17 +1,22 @@
 import json
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
 
 from horizon.adapters.persistence.artifacts import ArtifactStore
-from horizon.application.memory import RunMemoryProjector
+from horizon.application.memory import TASK_RELEVANT_CODE_PREFIX, RunMemoryProjector
 from horizon.application.retrieval_control import (
     EVIDENCE_TRANSITION_POLICY,
     RETRIEVAL_QUERY_POLICY,
 )
+from horizon.application.services import LeaseToken
 from horizon.domain.common import canonical_json, digest
 from horizon.domain.errors import IntegrityError
+from horizon.domain.plan import Plan, WorkItem
 from horizon.domain.retrieval import EvidenceChunk, EvidencePack
+from horizon.domain.states import RunStatus
+from horizon.domain.task import TaskSpec
 from horizon.domain.tools import TOOL_ARGUMENT_POLICY, ToolCallRecord, ToolCallReservation
 
 REVISION_A = "a" * 64
@@ -113,6 +118,70 @@ def test_run_memory_preserves_observed_success_failure_and_staleness(
     assert stale.stale_count == 2
     assert stale.sha256 != active.sha256
     assert all(entry.confidence == "observed" for entry in stale.entries)
+
+
+def test_run_memory_pins_cookiecutter_target_from_a_long_full_file_read(
+    tmp_path: Path,
+    task_dict,
+    store,
+    service,
+):
+    data = deepcopy(task_dict)
+    data["title"] = "Prevent duplicate Cookiecutter choice rendering"
+    data["objective"] = "Keep the numbered prompt without Click appending its choice list"
+    data["acceptance"][0]["id"] = "cookiecutter-read-user-choice-first-closure-v1"
+    task = TaskSpec.model_validate(data)
+    plan = Plan(
+        items=(
+            WorkItem(
+                work_item_id="fix-choice",
+                title="Fix read_user_choice",
+                objective="Preserve the numbered prompt and selected return value",
+                expected_artifacts=("A bounded change in cookiecutter/prompt.py",),
+                acceptance_ids=("cookiecutter-read-user-choice-first-closure-v1",),
+            ),
+        )
+    )
+    run = store.create(task, "create-cookiecutter-memory")
+    service.set_plan(run.run_id, plan, "plan-cookiecutter-memory")
+    leased = service.acquire_lease(run.run_id, "worker-cookiecutter-memory", "lease-memory")
+    token = LeaseToken.from_run(leased)
+    run = service.transition(run.run_id, RunStatus.RUNNING, token, "start-memory")
+    artifacts = ArtifactStore(tmp_path / "cookiecutter-memory-artifacts")
+    content = "\n".join(
+        [
+            *(f"# unrelated header line {index}" for index in range(70)),
+            "def read_user_choice(var_name, options):",
+            "    prompt = build_numbered_prompt(options)",
+            "    user_choice = click.prompt(prompt, type=click.Choice(options))",
+            "    return options[user_choice]",
+            *(f"# unrelated tail line {index}" for index in range(70)),
+        ]
+    )
+    run = settle_tool(
+        service,
+        run.run_id,
+        token,
+        artifacts,
+        call_id="read-cookiecutter-prompt",
+        name="read_file",
+        status="success",
+        content=content,
+    )
+
+    snapshot = RunMemoryProjector(artifacts, excerpt_chars=240).project(
+        run,
+        service.store.events(run.run_id),
+        current_revision=REVISION_A,
+        active_work_item_id="fix-choice",
+    )
+
+    excerpt = snapshot.entries[0].excerpt
+    assert excerpt.startswith(TASK_RELEVANT_CODE_PREFIX)
+    assert "def read_user_choice" in excerpt
+    assert "click.prompt" in excerpt
+    assert "unrelated header line 0" not in excerpt
+    assert len(excerpt) <= 240
 
 
 def test_run_memory_preserves_two_ranked_retrieval_chunks_for_replan_context(

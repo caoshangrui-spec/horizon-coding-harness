@@ -6,6 +6,21 @@
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
 
+## 2026-11-05 Cookiecutter-3 负结果驱动的目标证据连续性修复
+
+- Run Memory 现在从不可变 TaskSpec 与当前 WorkItem 派生确定性词法锚点；长文件读取不再只截取文件
+  开头，而是保存命中最强任务锚点的有界代码窗口。Cookiecutter-3 形态的回归会从长
+  `cookiecutter/prompt.py` 中保留 `read_user_choice` 与相邻 `click.prompt`，不读取 evaluator-only
+  答案，也不调用外部模型。
+- 上下文投影最多仍暴露两条 Run Memory，但会固定一条 active、success、task-relevant code
+  observation，并对相同 evidence artifact 的重复读取去重。检索血缘分析复用同一选择函数，保存的
+  projection、可见证据和事后评估不会产生两套解释。
+- 如果压缩后连这一条目标代码证据都无法容纳，投影会在 Provider 派发前类型化停止，不再降级为
+  `recent_entries=[]` 后继续消耗模型调用。新增回归覆盖长文件中段目标、更新的重复尾部读取、固定证据
+  选择和 fail-closed 容量边界。
+- 完整离线回归为 **713 passed，11 skipped**；Ruff 检查通过。没有付费复跑，历史 Cookiecutter-3
+  Run、累计费用与真实闭环 `0/15` 均未改写；这里只证明 Harness 的证据连续性缺陷已被确定性覆盖。
+
 ## 2026-11-05 Cookiecutter-3 唯一真实 Run：正确位置已暴露但未进入编辑
 
 - 用户只授权一个独立 `CNY 0.120` Run/Campaign；模型固定为
@@ -2043,7 +2058,7 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 十四轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干将重点收敛到 evidence-to-action 主链；最新全量入口为 710 passed、11 个显式 Docker skip，
+当前主干将重点收敛到 evidence-to-action 主链；最新全量入口为 713 passed、11 个显式 Docker skip，
 同一版本的 11 个 Docker 合同也已用锁定镜像单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以

@@ -131,7 +131,7 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | main 的[标准 CI](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/ci.yml)运行离线回归和三条演示；主作品集、直接子进程 timeout 与上下文容量恢复分别递归复核并发布 14 天 EvidencePack；[禁网 Docker Evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/full-checkout-evidence.yml)独立运行 | CI 不读取 API Key、不运行付费模型；workflow artifact 通常需要登录 GitHub 下载，不是永久发布资产 |
-| 离线回归 | `710 passed, 11 skipped`；显式指定锁定镜像后，11 个 Docker 合同另为 `11 passed` | Sanic-5/TheFuck-5/Cookiecutter-3 真实负结果、repeated-read transition 回执、只读/候选扩展旁路、控制反馈压缩、TaskSpec 模型调用上限、统一换行精确替换与 Run Memory 回归均已纳入；历史付费结果保持追加而非覆盖 |
+| 离线回归 | `713 passed, 11 skipped`；显式指定锁定镜像后，11 个 Docker 合同另为 `11 passed` | Sanic-5/TheFuck-5/Cookiecutter-3 真实负结果、repeated-read transition 回执、只读/候选扩展旁路、控制反馈压缩、TaskSpec 模型调用上限、统一换行精确替换、目标代码证据固定与 Run Memory 回归均已纳入；历史付费结果保持追加而非覆盖 |
 | [通用终态 EvidencePack](docs/terminal-evidence-pack.md) | `SUCCEEDED`、`FAILED`、`CANCELLED` 均可导出并离线复核 Trace、最终投影和 schema v2 可靠性摘要；区分 unknown 验收、已知 check 失败与 unknown/open effect，真实检索降级与工具回执原子绑定，确定性上下文折叠以 `context_compacted` 单独标记，兼容验证 schema v1 | model fallback、语义摘要和 model degradation 尚无 Trace history；自洽哈希不是来源签名，也不证明外部 Provider 或副作用已结清 |
 | [终态 Run 顺序汇总](docs/terminal-suite-evaluation.md) | 有序聚合已有终态 Run；递归验证每个子 EvidencePack，分列结果、验收未知/失败、clean/quality-flagged success、检索降级与 unknown/open effect | 不执行任务，不是 batch scheduler，也没有并发性能声明 |
 | [可恢复的顺序 Agent 任务批次](docs/sequential-agent-batch.md) | `agent batch` 按 1～100 条 TaskSpec manifest 顺序执行；任务间原子保存 checkpoint，确定性 invocation/Run receipt 支持重启识别，终态失败原样记录后继续，非终态/不确定 case 阻塞后项；全部闭合后复用 terminal-suite | 单机并发度 1；不自动越过人工/悬空 effect/旧 Worker 边界，不是 20～30 个真实模型任务成绩或吞吐声明 |
@@ -618,7 +618,7 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **710 passed，11 skipped**；显式指定本机锁定镜像后，11 个 Docker 合同为
+当前离线全量回归为 **713 passed，11 skipped**；显式指定本机锁定镜像后，11 个 Docker 合同为
 **11 passed**。v11 新增的
 Sanic-3、TheFuck-5 与 Luigi-7 已由本地完整 Harness 确认 buggy 失败、Baseline 等待、Treatment 恢复；
 v12 再加入 Cookiecutter-3，二十三案例已由[公开 workflow](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/41997218285)
@@ -656,7 +656,10 @@ fallback、有效代码编辑或 protected validation。生产修复既保留零
 又以 `EvidenceTransitionPolicy` 阻断 Sanic-5 形态的同 revision 重复取证，并让统一换行文件在不放松
 精确 occurrence/CAS 约束的前提下适配模型片段。第十四轮原始 arguments hash 随后在同一 CRLF
 checkout 上以零费用 Scripted A/B 成功写入并通过 protected validation；这不是模型复跑，也不改写
-真实闭环 `0/15`。
+真实闭环 `0/15`。第十五轮负结果又驱动了目标证据连续性修复：长文件读取会保存与 TaskSpec/WorkItem
+词法锚点最相关的有界代码窗口；压缩时固定一条 active target-code observation，并对相同 evidence
+artifact 的重复读取去重。若连该证据都无法装入，请求会在 Provider 派发前停止，而不是在
+`recent_entries=[]` 下继续调用。该回归完全离线，不是 Cookiecutter-3 模型成功证据。
 未来确定性费用拒绝不再留下无 Lease 的 `RUNNING`：控制器会持久化类型化 `BudgetStop`、进入
 `FAILED` 并在 CLI/status 中报告所需与可用金额。新停止还会相邻保存未派发请求的 call/request
 标识、purpose、估算器、请求字节、input cap/ceiling 和 output ceiling，便于零费用回放；unknown

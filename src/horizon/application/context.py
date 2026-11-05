@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from horizon.application.memory import TASK_RELEVANT_CODE_PREFIX
 from horizon.application.retrieval_control import EVIDENCE_TRANSITION_POLICY
 from horizon.domain.common import canonical_json, digest
 from horizon.domain.context import ContextProjection, MandatoryFactLedger
@@ -12,7 +13,7 @@ from horizon.domain.errors import (
     ContextStopReason,
     ContextWindowExceeded,
 )
-from horizon.domain.memory import RunMemorySnapshot
+from horizon.domain.memory import RunMemoryEntry, RunMemorySnapshot
 from horizon.domain.model import (
     InputTokenBudget,
     InputTokenEstimate,
@@ -135,7 +136,7 @@ def visible_run_memory_binding(
         raise ValueError("Visible Run memory accepts between zero and two recent entries")
     if run_memory.sha256 != run_memory_ref:
         raise Conflict("Run memory does not match its content-addressed artifact")
-    selected_entries = run_memory.entries[-recent_entry_limit:] if recent_entry_limit else ()
+    selected_entries = visible_run_memory_entries(run_memory, recent_entry_limit)
     recent_entries = [
         {
             "source_event_seq": entry.source_event_seq,
@@ -157,6 +158,46 @@ def visible_run_memory_binding(
         "unresolved_count": run_memory.unresolved_count,
         "recent_entries": recent_entries,
     }
+
+
+def visible_run_memory_entries(
+    run_memory: RunMemorySnapshot,
+    recent_entry_limit: int,
+) -> tuple[RunMemoryEntry, ...]:
+    """Select bounded memory while pinning one task-relevant code observation.
+
+    Repeated reads of the same artifact are deduplicated so they cannot evict the code excerpt
+    that the controller derived from the immutable task contract.
+    """
+
+    if not 0 <= recent_entry_limit <= 2:
+        raise ValueError("Visible Run memory accepts between zero and two recent entries")
+    if recent_entry_limit == 0:
+        return ()
+    ordered = list(run_memory.entries)
+    target = next(
+        (
+            entry
+            for entry in reversed(ordered)
+            if entry.status == "active"
+            and entry.outcome == "success"
+            and entry.excerpt.startswith(TASK_RELEVANT_CODE_PREFIX)
+        ),
+        None,
+    )
+    selected = [target] if target is not None else []
+    seen_evidence = {target.evidence_ref} if target is not None else set()
+    for entry in reversed(ordered):
+        if len(selected) >= recent_entry_limit:
+            break
+        if entry is target or (
+            entry.evidence_ref is not None and entry.evidence_ref in seen_evidence
+        ):
+            continue
+        selected.append(entry)
+        if entry.evidence_ref is not None:
+            seen_evidence.add(entry.evidence_ref)
+    return tuple(sorted(selected, key=lambda entry: (entry.source_event_seq, entry.memory_id)))
 
 
 class ContextProjector:
@@ -313,7 +354,15 @@ class ContextProjector:
 
         visible_memory_limits = (2,)
         if run_memory is not None:
-            visible_memory_limits = tuple(range(min(2, len(run_memory.entries)), -1, -1))
+            maximum = min(2, len(run_memory.entries))
+            has_task_relevant_code = any(
+                entry.status == "active"
+                and entry.outcome == "success"
+                and entry.excerpt.startswith(TASK_RELEVANT_CODE_PREFIX)
+                for entry in run_memory.entries
+            )
+            minimum = 1 if has_task_relevant_code else 0
+            visible_memory_limits = tuple(range(maximum, minimum - 1, -1))
 
         last_attempt: tuple[tuple[ModelMessage, ...], int, InputTokenEstimate, int] | None = None
 
