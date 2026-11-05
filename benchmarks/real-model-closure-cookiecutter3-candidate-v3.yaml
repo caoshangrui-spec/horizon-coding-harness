@@ -1,0 +1,83 @@
+schema_version: 1
+candidate_id: cookiecutter-3-real-closure-post-fix-v3
+classification: zero_spend_post_fix_development_follow_up
+evaluated_at: "2026-11-05"
+
+scope:
+  original_smoke_suite_unchanged: true
+  blind_or_holdout_evidence: false
+  historical_run_changed: false
+  paid_execution_authorized: false
+  external_model_called: false
+
+change_under_test:
+  harness_commit: 500a8f31ca340b5eaf449b680a6ecfdf3e31a644
+  invariant: >-
+    Run Memory selects the strongest code-like task anchor, excludes path metadata when code
+    evidence exists, and keeps the earlier source location when anchors tie. The Cookiecutter-3
+    target definition and click.prompt call remain visible after context compaction.
+  historical_run_id: run_5d5492b956db4051b1e902165e9836df
+  historical_outcome: FAILED/campaign_cost_limit
+  historical_valid_edit: false
+  historical_protected_validation: unknown
+
+proposal:
+  manifest_path: run_ab/full/cookiecutter-3-read-user-choice/real-model-closure-pilot-v3.yaml
+  provider_policy_path: ../config/providers/siliconflow-cookiecutter3-closure-v3.yaml
+  provider_policy_id: siliconflow-deepseek-v4-flash-cookiecutter3-closure-018-v3
+  model_id: deepseek-ai/DeepSeek-V4-Flash
+  campaign_id: siliconflow-cookiecutter3-closure-2026-11-v3
+  run_cost_cap_cny: "0.180"
+  campaign_cost_cap_cny: "0.180"
+  provider_max_attempts: 1
+  retry_enabled: false
+  fallback_enabled: false
+
+pricing:
+  verified_at: "2026-11-05"
+  period: normal_period
+  input_per_million_cny: "3.00"
+  cached_input_per_million_cny: "0.30"
+  output_per_million_cny: "9.00"
+  source_url: https://docs.siliconflow.cn/docs/release-notes/overview
+
+zero_spend_preflight:
+  ready: true
+  report_ref: d119494b2a1fd3ec6f10cb5c8bcbfba9f122ebce2018874bfd195aa035ef989d
+  prepared_task_ref: 28bdc6126b7e1d4a1583ef455f687ec45c092883758766547ee27df0971f01c6
+  manifest_digest: 2480fc2ca9e92d3886c110e7142c4d77e988cdecef44f3a0e466276369800a94
+  provider_config_digest: e81ccf99a3381d097baeedf4a3df87af3b758a7c22b9839ed1e2624bf7b22a79
+  harness_source_digest: 533f02fdaa91cefd72199da88d9eb58e4f44fbe33f30e8a22894c0fc818572ea
+  source_snapshot_revision: 41051c33c618a9672934a989db3ab026bb95b57a5d02b830e3c323fffe9a4638
+  source_manifest_ref: bf13e450050e3e5b762a066be65e021884b0e74c37da540d2eba31c696b04dff
+  source_git_head: 5c282f020a8db7e5e7c4e7b51b010556ca31fb7f
+  validation_backend_ref: sha256:0687a6bc9716edc2a6ee0fbfb0f87e7ee358b262b67c9215de91bc9b2d38ba71
+  full_checkout_verified: true
+  initial_failure_observed: true
+  source_unchanged: true
+  solution_isolation_passed: true
+  credential_loaded: false
+  paid_model_called: false
+  network_called: false
+  planning_reserved_cost_cny: "0.034506"
+  bounded_execution_reserved_cost_cny: "0.069528"
+  planning_execution_reserved_cost_cny: "0.104034"
+
+environment_observation:
+  first_attempt: blocked_before_harness_by_elevated_git_safe_directory
+  successful_attempt: process_scoped_exact_safe_directory
+  global_git_config_changed: false
+  task_or_model_failure: false
+
+offline_verification:
+  focused_closure_and_context_tests: "39 passed"
+  full_tests: "715 passed, 11 skipped"
+  mypy: "115 source files, 0 errors"
+  ruff: passed
+  clean_ci_run: https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/42031008748
+
+limitations:
+  - This is a post-hoc rerun candidate on the same revealed development task, not task generalization.
+  - Preflight readiness proves integrity and conservative launch capacity only; it does not predict an edit or successful validation.
+  - The CNY 0.180 proposal is not paid authorization and no Provider request was sent.
+  - The historical aggregate remains 0/16 until a new terminal Run proves a valid edit and protected validation.
