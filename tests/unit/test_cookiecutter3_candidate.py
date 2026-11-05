@@ -12,10 +12,15 @@ FULL_MANIFEST_PATH = (
     ROOT / "benchmarks" / "run_ab" / "full" / "cookiecutter-3-read-user-choice" / "manifest.yaml"
 )
 PILOT_PATH = FULL_MANIFEST_PATH.with_name("real-model-first-closure-candidate-v1.yaml")
+PAID_PILOT_PATH = FULL_MANIFEST_PATH.with_name("real-model-first-closure-pilot-v1.yaml")
 SUITE_V11_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v11.yaml"
 SUITE_V12_PATH = ROOT / "benchmarks" / "run_ab" / "bugsinpy-full-checkout-pilot-v12.yaml"
 RESULT_PATH = ROOT / "benchmarks" / "real-model-first-closure-cookiecutter3-candidate-v1.yaml"
 PROVIDER_PATH = ROOT / "config" / "providers" / "siliconflow-smoke-candidate-preflight-v1.yaml"
+PAID_RESULT_PATH = ROOT / "benchmarks" / "real-model-first-closure-cookiecutter3-result-v1.yaml"
+PAID_PROVIDER_PATH = (
+    ROOT / "config" / "providers" / "siliconflow-cookiecutter3-first-closure-v1.yaml"
+)
 
 
 def _yaml(path: Path):
@@ -72,3 +77,45 @@ def test_cookiecutter3_real_model_candidate_is_ready_but_does_not_authorize_spen
     assert Decimal(preflight["planning_execution_reserved_cost_cny"]) <= Decimal(
         preflight["proposal_run_cap_cny"]
     )
+
+
+def test_cookiecutter3_paid_result_preserves_the_failed_run_and_budget_boundary():
+    pilot = RealModelPilotManifest.model_validate(_yaml(PAID_PILOT_PATH))
+    provider = load_provider_config(PAID_PROVIDER_PATH)
+    result = _yaml(PAID_RESULT_PATH)
+    preflight = result["preflight"]
+    run = result["run"]
+    quality = result["observed_quality"]
+    trace = result["trace"]
+
+    assert pilot.provider_policy_id == provider.policy_id
+    assert pilot.max_paid_cost == provider.run_budget.max_cost == Decimal("0.120")
+    assert provider.campaign.max_cost == Decimal("0.120")
+    assert provider.request.max_attempts == 1
+    assert provider.fallback_enabled is False
+
+    assert result["scope"]["included_in_original_smoke_aggregate"] is False
+    assert result["scope"]["retry_performed"] is False
+    assert result["scope"]["fallback_performed"] is False
+    assert preflight["ready"] is True
+    assert preflight["paid_model_called"] is False
+    assert run["status"] == "FAILED"
+    assert run["failure_reason"] == "campaign_cost_limit"
+    assert run["model_calls"] == 8
+    assert run["tool_calls"] == 9
+    assert run["settled_cost_cny"] == "0.0659172"
+    assert run["campaign_reserved_cost_cny"] == "0"
+    assert run["campaign_unknown_cost_cny"] == "0"
+    assert Decimal(run["budget_stop"]["required_cost_cny"]) > Decimal(
+        run["budget_stop"]["available_cost_cny"]
+    )
+    assert quality["correct_location_reached"] is True
+    assert quality["edit_intent_observed"] is False
+    assert quality["valid_edit_produced"] is False
+    assert quality["protected_validation_passed"] is None
+    assert quality["write_tool_calls"] == 0
+    assert quality["protected_check_calls"] == 0
+    assert trace["event_count"] == 85
+    assert trace["terminal_pack_verified"] is True
+    assert trace["open_effects_present"] is False
+    assert trace["unknown_effects_present"] is False

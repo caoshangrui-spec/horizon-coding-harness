@@ -91,10 +91,10 @@ flowchart LR
 | 多阶段任务能跨 Worker 继续 | youtube-dl、Luigi、FastAPI 各 3 个依赖 WorkItem、2 次持久重启，公开复跑 3/3 | 安全边界重启，不是任意指令点或跨主机容灾 |
 | effect-before-receipt 可保守对账 | Luigi `replace_text/accept_replace` 与 FastAPI `create_file/accept_create` 共 2/2；恢复模型重派 0、重复副作用 0、最终 open effect 0 | 两个固定、作者选择的故障窗口，不承诺 exactly-once |
 | 词法 Code RAG 有冻结定位基线 | 7 项目 24 案例中公开 16 个 development：Hit@1 `11/16`、Hit@5 `16/16`、MRR `0.817708`；8 个 holdout 保持密封 | 有 3 个 degraded；中文困难改写仅 `1/8`，没有 symbol/vector RAG 或端到端收益结论 |
-| 真实 Provider 路径和费用门禁实际运行过 | 14 个 SiliconFlow Pilot、70 个已结算调用，累计 `CNY 0.6280380`；费用、Trace 与 source isolation 可核对 | 14 个 Run 均未形成有效编辑和 protected validation，闭环为 `0/14`；第十四轮首次调用写工具，但 LF/CRLF 精确 preimage 不匹配导致零 effect，不能算修复成功 |
+| 真实 Provider 路径和费用门禁实际运行过 | 15 个 SiliconFlow Pilot、78 个已结算调用，累计 `CNY 0.6939552`；费用、Trace 与 source isolation 可核对 | 15 个 Run 均未形成有效编辑和 protected validation，闭环为 `0/15`；第十四轮首次调用写工具但零 effect，第十五轮正确位置已暴露却在压缩后重复读取，均不能算修复成功 |
 | 真实模型 Smoke 输入、失败与弃跑决策已冻结 | 5 个不同项目的低复杂度 development smoke；TheFuck-2、Luigi-2、Sanic-2 各运行唯一一次，当前 coverage `3/5`、success `0/3`、总费用 `CNY 0.1455048`。Luigi-2 命中目标后卡在旧读取合同；Sanic-2 的约 12K 单边读取在 8K Context Projection 压缩后丢失目标类及插入位置上下文。HTTPie-1 定位稳定但需 5 次协同替换；Tornado-2 补丁小但目标不在默认 rank 1，因此 v2 主动 `abstain` | 作者在已知 Scripted Model 修复后选题，不是盲测；三条真实失败均保留。后续回归与候选筛选是 post-run 零费用 Harness 证据，不是付费 Run 复跑、真实成功或 holdout 提升；HTTPie-1 与 Tornado-2 仍 unevaluated，preflight ready 也不是消费授权 |
-| Post-Smoke 候选选择与后续负结果可审计 | 从 10 条未付费、非 Smoke 的已揭示 development 任务逐条交叉验证 frozen RAG 与 full-checkout repair shape；Sanic-5/TheFuck-5 是仅有的两条全门通过者。Sanic-5 两次 Run 暴露证据转行动与调用上限缺口；TheFuck-5 第三次独立 Run 首次走到写工具，但被统一 CRLF 文件与 LF 片段的精确替换合同拒绝。修复后原始 arguments hash 的零费用 Scripted 回放成功写入并通过 protected validation | 三个真实 Run 都是 post-hoc development 负结果，不改写原 Smoke 统计、不打开 holdout、不代表成功预测；分别结算 `CNY 0.060561/0.083034/0.1215720`，均无有效编辑、validation、retry 或 fallback。回放证明 Harness 根因已覆盖，不是模型成功证据 |
-| 当前离线回归稳定 | `707 passed, 11 skipped`；显式使用本机锁定镜像后 11 个 Docker 合同另为 `11 passed`；标准 CI、外部检索证据和来源绑定 Docker workflow 都是提交级门禁 | 本机结果与公开 runner 结果必须分别报告；每个提交以对应 Actions run 为准，不能用本地通过代替 |
+| Post-Smoke 候选选择与后续负结果可审计 | Sanic-5 两次 Run 暴露证据转行动与调用上限缺口；TheFuck-5 首次走到写工具，但被 CRLF/LF 精确替换合同拒绝；Cookiecutter-3 首轮已读到正确函数，随后仍在 6 次压缩期间重复读取，精确 target rank 1 回执后由费用门停止 | 四个真实 Run 都是 post-hoc development 负结果，不改写原 Smoke 统计、不打开 holdout、不代表成功预测；均无有效编辑和 validation，且没有 retry 或 fallback。TheFuck-5 的零费用回放证明 Harness 根因已覆盖，不是模型成功证据 |
+| 当前离线回归稳定 | `710 passed, 11 skipped`；显式使用本机锁定镜像后 11 个 Docker 合同另为 `11 passed`；标准 CI、外部检索证据和来源绑定 Docker workflow 都是提交级门禁 | 本机结果与公开 runner 结果必须分别报告；每个提交以对应 Actions run 为准，不能用本地通过代替 |
 
 最新公开复核入口：
 
@@ -125,14 +125,14 @@ Python 3.12/3.13 · Pydantic · Typer · SQLite/FTS5 · Docker · Pytest · GitH
 - 构建确定性 Context Projection、run-scope Memory 与 revision-bound SQLite FTS5 Code RAG；
   必保上下文超限时在模型派发前持久暂停，并以新 Lease epoch 和消息不变的新 session 续跑。
 - 建立禁网 Docker A/B 与 EvidencePack 评测：23 个完整 checkout 案例、3 个多阶段恢复案例和
-  2 个硬崩溃案例公开通过；离线回归持续通过，同时保留 14 次真实模型未完成修复的负结果。
+  2 个硬崩溃案例公开通过；离线回归持续通过，同时保留 15 次真实模型未完成修复的负结果。
 
 ### 不建议写进简历的说法
 
 - “通过 SWE-bench”或“真实 Issue 修复成功率达到某个比例”。
 - “保证 exactly-once”或“支持分布式容灾”。
 - “实现了自动模型 fallback、向量 RAG、通用多 Agent 协作”。
-- “十四轮真实模型实验成功”。十四轮证明的是 Provider、预算、Trace 和失败诊断链，不是修复能力。
+- “十五轮真实模型实验成功”。十五轮证明的是 Provider、预算、Trace 和失败诊断链，不是修复能力。
 
 ## 7. English resume version
 
@@ -272,12 +272,13 @@ Luigi-2 的检索已正确覆盖目标行，但工具协议阻止了编辑；第
 它固定决策序列，让实验只改变 Harness 机制，可以重复注入同一个崩溃窗口并验证状态机不变量。
 它适合证明恢复、预算和权限合同，不适合证明模型会理解或修复未知 Issue。
 
-### 13. 十四轮真实模型为什么都失败，项目还有价值吗？
+### 13. 十五轮真实模型为什么都失败，项目还有价值吗？
 
 这说明真实修复能力尚未达到验收，而不是 Harness 证据无效。负结果分别暴露了规划反馈、大文件
 读取、范围参数、错误路径、费用预留和上下文容量问题；第十三轮还证明门禁确实阻止了重复取证，
 但不充分的反馈片段和隐藏 iteration cap 仍会让模型无法转入写入；第十四轮首次转入写工具，
-又暴露 LF/CRLF 精确替换兼容缺口。Trace 能定位这些停止原因。面试时应把
+又暴露 LF/CRLF 精确替换兼容缺口；第十五轮则证明“正确文件已经读到”仍不等于证据能跨压缩留在
+下一决策上下文中。Trace 能定位这些停止原因。面试时应把
 “可靠性控制层已验证”和“模型任务成功率仍未知”作为两个独立结论。三条 Smoke 后我们没有继续
 用预算碰运气：HTTPie-1 只通过定位门，Tornado-2 只通过补丁复杂度门，所以 Harness 冻结了
 `abstain`。这体现的是预算治理与证据门控，不是把失败包装成成功。
@@ -290,8 +291,8 @@ Luigi-2 的检索已正确覆盖目标行，但工具协议阻止了编辑；第
 ### 15. 如果继续生产化，优先做什么？
 
 第十三轮暴露的 repeated-read 反馈片段、TaskSpec 调用上限，以及第十四轮暴露的统一换行精确替换
-兼容已经由零费用回归固化；下一步应在新的独立任务上判断剩余失败是否仍来自 Harness，而不是继续
-针对 Sanic-5 或 TheFuck-5 调参；
+兼容已经由零费用回归固化；第十五轮把下一优先级收窄为“让最新、与目标函数直接相关的代码证据在
+压缩后可见”，而不是继续扩大预算或增加检索次数；
 只有出现可证伪的新假设且取得新授权，才运行其余 Smoke 任务。形成至少一个真实编辑—验证闭环后，
 再扩到 5 条和冻结的 20～30 个独立任务，建立成功率、成本和失败分类基线。之后再补 Provider receipt 查询、进程树/OS 故障恢复
 和跨主机 Lease。只有词法检索成为主要
@@ -314,7 +315,7 @@ Luigi-2 的检索已正确覆盖目标行，但工具协议阻止了编辑；第
 | 面试官问法 | 可以回答 | 不应回答 |
 |---|---|---|
 | “你做的是 Agent 吗？” | 做的是 Coding Agent 的 Harness/control plane，包含真实 Agent loop、模型和工具 adapter | “训练了一个 Coding LLM” |
-| “能自动修复真实 Issue 吗？” | Scripted Model 的来源绑定合同可执行；真实模型路径跑过但十四轮未成功。第十至十三轮逐步证明了定位、读取和重复取证门禁，第十四轮首次提出写工具但精确替换为零 effect，仍没有形成真实编辑—验证闭环 | “已经有真实修复成功率” |
+| “能自动修复真实 Issue 吗？” | Scripted Model 的来源绑定合同可执行；真实模型路径跑过但十五轮未成功。第十四轮首次提出写工具但精确替换为零 effect，第十五轮正确函数已暴露却在压缩后重复读取，仍没有形成真实编辑—验证闭环 | “已经有真实修复成功率” |
 | “崩溃后一定不会重复吗？” | 已覆盖窗口使用 intent/receipt、Lease、CAS 和对账，两个来源绑定案例零重复 | “任意外部副作用 exactly-once” |
 | “RAG 做得好吗？” | 有 24-case 冻结定位集、公开 development 指标和中文负结果 | “RAG 已显著提高端到端修复率” |
 | “支持分布式吗？” | 边界和接口可替换，目前验证的是本地直接子进程 | “支持跨主机高可用” |
@@ -323,7 +324,7 @@ Luigi-2 的检索已正确覆盖目标行，但工具协议阻止了编辑；第
 ## 13. 针对不同岗位的强调顺序
 
 - **Agent / LLM Infra 实习：** Context、Memory、RAG、Tool Calling、预算、Provider 边界，再讲
-  Trace 驱动的十四轮负结果诊断。
+  Trace 驱动的十五轮负结果诊断。
 - **后端工程实习：** 事件投影、幂等、Lease fencing、事务边界、副作用对账、故障注入和 CI。
 - **平台 / DevOps 实习：** 子进程生命周期、禁网 Docker 验收、EvidencePack、可重放审计和
   来源绑定 workflow。

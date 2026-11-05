@@ -1,10 +1,11 @@
-# 真实模型 Pilot：离线预检、十四轮负结果与付费边界
+# 真实模型 Pilot：离线预检、十五轮负结果与付费边界
 
 更新：2026-11-05。本 Pilot 的目标不是立即追求 benchmark 分数，而是在**完整真实仓库、
-模型自主计划、模型自主检索和编辑**的条件下观察 Harness 的真实失败分布。已执行十四个
+模型自主计划、模型自主检索和编辑**的条件下观察 Harness 的真实失败分布。已执行十五个
 付费 Agent Run：它们先后暴露计划/检索反馈、读取范围/上下文投影、路径假设/请求预留、
 Campaign 压力、Run Memory、evidence-to-action 反馈与运行时调用上限等问题；第十四轮首次调用
-写工具，又暴露统一 CRLF 文件与 LF 模型片段的精确 preimage 兼容缺口。十四轮均没有形成有效
+写工具，又暴露统一 CRLF 文件与 LF 模型片段的精确 preimage 兼容缺口；第十五轮在首轮已读到
+正确函数后仍进入压缩—重复读取循环。十五轮均没有形成有效
 代码编辑或 protected validation；结果可重放且
 费用可对账，但不是 Issue 成功证据，也不足以推出模型或 Harness 的总体能力结论。
 
@@ -956,3 +957,32 @@ Provider response 中原样提取的 LF `replace_text` 参数，arguments hash
 successful/evidence-backed/context-bound write 均为 1。冻结结果见
 [`real-model-post-smoke-thefuck5-payload-replay-v1.yaml`](../benchmarks/real-model-post-smoke-thefuck5-payload-replay-v1.yaml)。
 这是 Harness 根因回归，不是模型复跑或真实 Issue 成功；历史 Run 和 `0/14` 结论保持不变。
+
+## 28. Cookiecutter-3 first-closure follow-up：正确函数已暴露，压缩后仍重复读取
+
+用户只授权一个独立 `CNY 0.120` Run/Campaign，模型为
+`deepseek-ai/DeepSeek-V4-Flash`，Provider 单请求最多尝试一次，禁用 retry 与 fallback。专属 policy
+为 `siliconflow-deepseek-v4-flash-cookiecutter3-first-closure-012-v1`；fresh preflight ref
+`e6df4a883e6b0b8cc8980c91d1ddbaad5c119026cc2135674c805cb505320144` 已证明初始失败、完整
+216-file checkout、solution isolation、Docker image、buggy HEAD、Harness 源码指纹与累计预算容量。
+planning、bounded execution 和累计保守预留分别为 `CNY 0.034578/0.069528/0.104106`，预检不读取
+凭据、不调用模型或网络。
+
+唯一 Run `run_a5aeb38ad3e14bdc88bf0537fdabba8e` 的第一次 execution 同时调用 retrieval 与完整
+`cookiecutter/prompt.py` 读取；完整回执已经包含 `read_user_choice` 以及缺少 `show_choices=False` 的
+`click.prompt` 调用。模型没有进入编辑，而是继续读取同一文件：总工具序列为 3 次 retrieval、6 次
+read，其中第三次完全相同的整文件读取被 `NoProgressPolicy` 拒绝。6 个后续模型请求使用确定性
+context compaction；最后一次 retrieval 才把 `cookiecutter/prompt.py:71-110` 作为无截断 rank-1
+证据返回，但下一次模型请求没有获得派发机会。
+
+8 次模型调用结算 `CNY 0.0659172` 后，Campaign 剩余 `CNY 0.0540828`；下一次请求需要保守预留
+`CNY 0.076338`，因此在 Provider 派发前以 `campaign_cost_limit` 停止。全程没有 `replace_text`、
+`run_check`、workspace revision 变化或 protected validation，validation 保持 `UNKNOWN`；正确位置暴露
+不能外推为正确编辑意图。没有 retry、fallback、unknown 费用或悬空 effect。
+
+85-event terminal EvidencePack 已离线验证；Trace SHA-256 为
+`45d95fd4896a390b933d06e2c95f8c9ea23c43032d7f424b2644a85a0bea0ddd`，projection hash 为
+`f52b38ca1a7d2699216d3309994cbbb4aa6baa79a5bbd1c273e932ba724eeda2`。机器可读结果见
+[`real-model-first-closure-cookiecutter3-result-v1.yaml`](../benchmarks/real-model-first-closure-cookiecutter3-result-v1.yaml)。
+至此累计十五个真实 Run、78 个已结算调用与 `CNY 0.6939552`，真实编辑—验证闭环仍为 `0/15`。
+后续任何付费执行仍需新的任务级明确授权；本次剩余 Campaign 余额不是继续授权。
