@@ -1,0 +1,71 @@
+schema_version: 1
+pilot_id: thefuck-5-git-push-bitbucket-first-closure-v1
+source_path: fixture
+
+source:
+  benchmark: BugsInPy
+  project: thefuck
+  bug_id: "5"
+  repository_url: https://github.com/nvbn/thefuck
+  buggy_commit: 7c858fadb3458be829d3d43666ccb46c3ed5b8a0
+  fixed_commit: c205683a8df8a57e2db1e9816a5a7ce3255b08fc
+  fix_url: https://github.com/nvbn/thefuck/commit/c205683a8df8a57e2db1e9816a5a7ce3255b08fc
+  upstream_test: tests/rules/test_git_push.py::test_match_bitbucket
+  license_spdx: MIT
+  license_url: https://github.com/nvbn/thefuck/blob/7c858fadb3458be829d3d43666ccb46c3ed5b8a0/LICENSE.md
+  reduction: full_checkout
+  reduction_note: >-
+    The model receives the clean 359-file upstream checkout at the exact buggy commit.
+    Fixed-commit metadata and evaluator-only repair actions remain controller-only evidence.
+
+task:
+  schema_version: "1.0"
+  spec_version: 1
+  task_id: thefuck-git-push-bitbucket-first-closure-v1
+  title: Ignore Bitbucket output that only mentions set-upstream
+  objective: Match git push failures only when Git emits the actual upstream command suggestion.
+  repository:
+    source: local
+    path: /pilot-source
+    base_commit: 7c858fadb3458be829d3d43666ccb46c3ed5b8a0
+  constraints:
+    allowed_paths: [thefuck/**]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    allowed_tools: [read_file, retrieve_code, replace_text, run_check]
+    network: deny
+    requirements:
+      - Do not change tests, dependencies, or unrelated correction rules.
+      - Use revision-bound repository evidence before editing the production package.
+      - Preserve real git push upstream-suggestion matching and non-push rejection.
+  acceptance:
+    - id: thefuck-git-push-bitbucket-first-closure-v1
+      command: >-
+        python -B -c "import ast; from pathlib import Path; from types import SimpleNamespace; tree=ast.parse(Path('thefuck/rules/git_push.py').read_text(encoding='utf-8')); fn=next(x for x in tree.body if isinstance(x,ast.FunctionDef) and x.name=='match'); fn.decorator_list=[]; ns={}; exec(compile(ast.Module(body=[fn],type_ignores=[]),'thefuck/rules/git_push.py','exec'),ns); bitbucket='remote: Create pull request for feature/set-upstream:\nremote: https://bitbucket.org/set-upstream\nTo git@bitbucket.org:test.git'; suggestion='fatal: no upstream branch\n    git push --set-upstream origin main'; assert ns['match'](SimpleNamespace(script_parts=['git','push','origin'],output=bitbucket)) is False; assert ns['match'](SimpleNamespace(script_parts=['git','push'],output=suggestion)) is True; assert ns['match'](SimpleNamespace(script_parts=['git','pull'],output=suggestion)) is False"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 24
+    max_model_calls: 14
+    max_tool_calls: 24
+    max_wall_time_seconds: 900
+    max_cost_usd: "0.180"
+    max_input_tokens: 120000
+    max_output_tokens: 4096
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: siliconflow-deepseek-v4-flash-thefuck5-first-closure-018-v1
+  memory_scope: thefuck-5-git-push-bitbucket-first-closure-v1
+
+provider_policy_id: siliconflow-deepseek-v4-flash-thefuck5-first-closure-018-v1
+currency: CNY
+# Proposal-only ceiling; a real Provider request still requires fresh explicit authorization.
+max_paid_cost: "0.180"
+expected_initial_failed_checks: [thefuck-git-push-bitbucket-first-closure-v1]
+auto_plan: true
+
+solution_isolation:
+  acceptance_visibility: visible
+  forbidden_task_literals:
+    - "            and 'git push --set-upstream' in command.output)"

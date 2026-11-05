@@ -56,6 +56,17 @@ EVIDENCE_TRANSITION_PILOT_PATH = (
 EVIDENCE_TRANSITION_RESULT_PATH = (
     ROOT / "benchmarks" / "real-model-post-smoke-sanic5-result-v2.yaml"
 )
+FIRST_CLOSURE_PROVIDER_PATH = (
+    ROOT / "config" / "providers" / "siliconflow-thefuck5-first-closure-v1.yaml"
+)
+FIRST_CLOSURE_PILOT_PATH = (
+    ROOT
+    / "benchmarks"
+    / "run_ab"
+    / "full"
+    / "thefuck-5-git-push-bitbucket"
+    / "real-model-first-closure-pilot-v1.yaml"
+)
 CANDIDATE_MANIFESTS = {
     "sanic-5-root-logger-config": (
         ROOT
@@ -291,6 +302,48 @@ def test_sanic5_evidence_transition_follow_up_has_a_fresh_strict_budget_contract
     assert pilot.task.repository.base_commit == pilot.source.buggy_commit
     assert pilot.task.constraints.allowed_paths == ("sanic/**",)
     assert pilot.task.constraints.network == "deny"
+    assert pilot.source.fixed_commit not in visible
+    assert pilot.source.fix_url.casefold() not in visible
+    assert all(
+        literal.casefold() not in visible
+        for literal in pilot.solution_isolation.forbidden_task_literals
+    )
+
+
+def test_thefuck5_first_closure_proposal_has_a_fresh_strict_budget_contract():
+    selection = _yaml(SELECTION_PATH)
+    smoke = RealModelSmokeSuite.model_validate(_yaml(SMOKE_PATH))
+    provider = load_provider_config(FIRST_CLOSURE_PROVIDER_PATH)
+    pilot = RealModelPilotManifest.model_validate(_yaml(FIRST_CLOSURE_PILOT_PATH))
+    visible = canonical_json(pilot.task).casefold()
+
+    assert selection["original_smoke_suite_unchanged"] is True
+    assert selection["paid_execution_authorized"] is False
+    assert pilot.pilot_id == "thefuck-5-git-push-bitbucket-first-closure-v1"
+    assert pilot.task.task_id not in {task.task_id for task in smoke.tasks}
+    assert provider.policy_id == pilot.provider_policy_id == pilot.task.model_policy_id
+    assert provider.model.id == "deepseek-ai/DeepSeek-V4-Flash"
+    assert provider.request.max_attempts == 1
+    assert provider.fallback_enabled is False
+    assert provider.run_budget.max_cost == Decimal("0.180")
+    assert provider.campaign.max_cost == Decimal("0.180")
+    assert provider.campaign.max_cost_per_call == Decimal("0.180")
+    assert provider.campaign.campaign_id == ("siliconflow-thefuck5-first-closure-2026-11-v1")
+    assert provider.ledger_path.endswith(
+        ".horizon/siliconflow-thefuck5-first-closure-v1-campaign.sqlite3"
+    )
+    assert pilot.max_paid_cost == Decimal("0.180")
+    assert pilot.task.budgets.max_cost_usd == Decimal("0.180")
+    assert pilot.task.budgets.max_model_calls == 14
+    assert pilot.task.repository.base_commit == pilot.source.buggy_commit
+    assert pilot.task.constraints.allowed_paths == ("thefuck/**",)
+    assert pilot.task.constraints.network == "deny"
+    assert pilot.task.constraints.allowed_tools == (
+        "read_file",
+        "retrieve_code",
+        "replace_text",
+        "run_check",
+    )
     assert pilot.source.fixed_commit not in visible
     assert pilot.source.fix_url.casefold() not in visible
     assert all(

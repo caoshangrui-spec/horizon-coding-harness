@@ -1,10 +1,37 @@
 # 开发进度与验证记录
 
-更新：2026-11-03。已发布版本和主干包元数据均为 0.3.0；版本范围与发布证据见
+更新：2026-11-05。已发布版本和主干包元数据均为 0.3.0；版本范围与发布证据见
 [v0.3.0 release notes](release-v0.3.0.md)。2026-09-30 的
 可靠性内核证据保留，本次在其上增加 Provider 垂直切片和首个受控 Coding Agent 闭环。
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
+
+## 2026-11-05 首个真实编辑—验证闭环候选就绪
+
+- 当前 13 个真实模型 Run 仍全部没有形成代码编辑与 protected validation 闭环；只能报告样本内
+  闭环为 `0/13`，不能把它泛化成真实 Issue 修复成功率，也不能宣称已有真实 Issue 修复成功。
+  现阶段真实结果是 13 条负结果与 edit/validation 能力尚未被端到端证明。
+- 不再继续扩展通用架构或追加弱候选。零费用复核锁定尚未付费的 TheFuck-5：精确 buggy commit
+  `7c858fadb3458be829d3d43666ccb46c3ed5b8a0`、359-file full checkout，当前检索把
+  `thefuck/rules/git_push.py` 排在 rank 1，命中修改行所需的错误 predicate。
+- fresh Docker preflight 得到 `ready=true`；初始失败、source unchanged、solution isolation 和完整
+  checkout 均通过，credential/model/network 为 false。planning、bounded execution 与累计保守预留
+  分别为 `CNY 0.041730/0.069528/0.111258`，报告 ref 为
+  `56cd5b7f981996d5b9faf1bd40ad60cee39be76e09b56996ab1d7048a6732f79`；本次没有读取凭据、调用
+  Provider 或产生费用。
+- 同一 checkout 的 fresh Scripted A/B 也通过：Baseline 在重复检索后等待人工输入，Treatment 产生
+  1 次 revision-bound、evidence-backed `replace_text`，随后 protected validation 为 true，Trace replay
+  通过，`all_expectations_met=true`；报告 ref 为
+  `b0b7174a5752d5b3d5d556ad7e590f8ba311f915a903cdd623b98524110374e2`。这只证明 Harness 与任务合同
+  能完成闭环，不证明真实模型会选择同一动作。
+- 新增独立 proposal-only policy 与 Pilot manifest：`deepseek-ai/DeepSeek-V4-Flash`、`thefuck/**`、
+  14 次模型调用、Provider 单请求最多尝试 1 次、无 retry/fallback，Run/Campaign 上限均为
+  `CNY 0.180`。选择 0.180 而不是沿用 0.120，是因为 0.120 在保守 planning + 一轮 execution 预留后
+  仅剩 `CNY 0.008742`，不适合作为需要多轮“定位—编辑—验证”的闭环预算。
+- 配置文件本身不构成付费或外发授权；真正执行仍需新的明确授权和 CLI `--confirm-paid`。该任务是
+  evaluator-known 的 post-hoc development follow-up，不加入原五任务 Smoke，不是 blind/holdout
+  证据。执行前仍需再次运行同一精确 checkout preflight；只有 Trace 中出现有效写入且 protected
+  validation 通过，才记录首个真实闭环。
 
 ## 2026-11-03 Sanic-5 evidence-transition 唯一真实模型 follow-up
 
