@@ -30,6 +30,9 @@ TARGET_EVIDENCE_PROVIDER_PATH = (
 TARGET_EVIDENCE_CANDIDATE_PATH = (
     ROOT / "benchmarks" / "real-model-target-evidence-cookiecutter3-candidate-v2.yaml"
 )
+TARGET_EVIDENCE_RESULT_PATH = (
+    ROOT / "benchmarks" / "real-model-target-evidence-cookiecutter3-result-v2.yaml"
+)
 
 
 def _yaml(path: Path):
@@ -157,3 +160,52 @@ def test_cookiecutter3_post_fix_candidate_is_ready_but_still_requires_paid_autho
     assert preflight["paid_model_called"] is False
     assert preflight["network_called"] is False
     assert Decimal(preflight["planning_execution_reserved_cost_cny"]) <= Decimal("0.120")
+
+
+def test_cookiecutter3_target_evidence_result_preserves_the_negative_continuity_evidence():
+    pilot = RealModelPilotManifest.model_validate(_yaml(TARGET_EVIDENCE_PILOT_PATH))
+    provider = load_provider_config(TARGET_EVIDENCE_PROVIDER_PATH)
+    result = _yaml(TARGET_EVIDENCE_RESULT_PATH)
+    run = result["run"]
+    quality = result["observed_quality"]
+    continuity = result["target_evidence_continuity"]
+    trace = result["trace"]
+
+    assert pilot.provider_policy_id == provider.policy_id == run["provider_policy_id"]
+    assert provider.run_budget.max_cost == provider.campaign.max_cost == Decimal("0.120")
+    assert provider.request.max_attempts == 1
+    assert provider.fallback_enabled is False
+
+    assert result["scope"]["unique_paid_run_performed"] is True
+    assert result["scope"]["included_in_original_smoke_aggregate"] is False
+    assert result["scope"]["retry_performed"] is False
+    assert result["scope"]["fallback_performed"] is False
+    assert run["status"] == "FAILED"
+    assert run["failure_reason"] == "campaign_cost_limit"
+    assert run["model_calls"] == 7
+    assert run["tool_calls"] == 9
+    assert run["settled_cost_cny"] == "0.0584538"
+    assert run["campaign_reserved_cost_cny"] == "0"
+    assert run["campaign_unknown_cost_cny"] == "0"
+    assert Decimal(run["budget_stop"]["required_cost_cny"]) > Decimal(
+        run["budget_stop"]["available_cost_cny"]
+    )
+    assert quality["correct_location_reached_by_tools"] is True
+    assert quality["exact_target_call_visible_in_tool_evidence"] is True
+    assert quality["exact_target_call_visible_in_post_evidence_model_context"] is False
+    assert quality["valid_edit_produced"] is False
+    assert quality["protected_validation_passed"] is None
+    assert quality["write_tool_calls"] == 0
+    assert quality["protected_check_calls"] == 0
+    assert continuity["change_under_test_preserved_marker"] is True
+    assert continuity["change_under_test_preserved_exact_target"] is False
+    assert len(continuity["compacted_projection_checks"]) == 5
+    assert not any(
+        check["exact_target_visible"] for check in continuity["compacted_projection_checks"]
+    )
+    assert trace["event_count"] == 80
+    assert trace["terminal_pack_verified"] is True
+    assert trace["open_effects_present"] is False
+    assert trace["unknown_effects_present"] is False
+    assert result["aggregate_after_run"]["historical_real_model_runs"] == 16
+    assert result["aggregate_after_run"]["valid_edit_and_protected_validation_closures"] == 0

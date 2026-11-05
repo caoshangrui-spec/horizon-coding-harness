@@ -1,0 +1,152 @@
+schema_version: 1
+result_id: cookiecutter-3-target-evidence-post-fix-v2
+task_id: cookiecutter-3-read-user-choice-target-evidence-v2
+classification: post_hoc_development_follow_up
+
+scope:
+  original_smoke_suite_unchanged: true
+  included_in_original_smoke_aggregate: false
+  blind_or_holdout_evidence: false
+  unique_paid_run_performed: true
+  retry_performed: false
+  fallback_performed: false
+
+preflight:
+  ready: true
+  report_ref: 2adb7e4eecd3f46b30b13dc4a4a33a93733c7e1bb8dd544b406dd9c21787a8f5
+  prepared_task_ref: 92bb43442fadc76af956e964d1f32ce5563eed8b113a108e275c5d68650aa344
+  manifest_digest: ae513d7312e0e9cf35f16a031a43d695ff5b181802ff49177049fbacf335c341
+  provider_config_digest: 6a839cc4deda14f57fdb2d6d7131333a887e01e2cfe0fae3671435fab3fb25d4
+  harness_source_digest: fc4455e3e4af4b56a26788bedbba9ae5dd6c30d853a31064a280bfec361c507a
+  harness_commit: 986ab467744dae6fb66e6bd269e93834e0fbca8e
+  source_snapshot_revision: 41051c33c618a9672934a989db3ab026bb95b57a5d02b830e3c323fffe9a4638
+  source_git_head: 5c282f020a8db7e5e7c4e7b51b010556ca31fb7f
+  validation_backend_ref: sha256:0687a6bc9716edc2a6ee0fbfb0f87e7ee358b262b67c9215de91bc9b2d38ba71
+  initial_failure_matches: true
+  source_unchanged: true
+  solution_isolation_passed: true
+  credential_loaded: false
+  paid_model_called: false
+  network_called: false
+  planning_reserved_cost_cny: "0.034602"
+  bounded_execution_reserved_cost_cny: "0.069528"
+  planning_execution_reserved_cost_cny: "0.104130"
+
+run:
+  run_id: run_5d5492b956db4051b1e902165e9836df
+  status: FAILED
+  task_succeeded: false
+  failure_reason: campaign_cost_limit
+  provider_id: siliconflow
+  provider_policy_id: siliconflow-deepseek-v4-flash-cookiecutter3-target-evidence-012-v2
+  model_id: deepseek-ai/DeepSeek-V4-Flash
+  provider_max_attempts: 1
+  fallback_enabled: false
+  run_cost_cap_cny: "0.120"
+  campaign_id: siliconflow-cookiecutter3-target-evidence-2026-11-v2
+  campaign_cost_cap_cny: "0.120"
+  settled_cost_cny: "0.0584538"
+  campaign_remaining_cost_cny: "0.0615462"
+  campaign_reserved_cost_cny: "0"
+  campaign_unknown_cost_cny: "0"
+  budget_stop:
+    required_cost_cny: "0.075828"
+    available_cost_cny: "0.0615462"
+    shortfall_cost_cny: "0.0142818"
+  model_calls: 7
+  planning_calls: 1
+  execution_calls: 6
+  tool_calls: 9
+  input_tokens: 18476
+  output_tokens: 797
+  steps: 9
+  context_compaction_count: 5
+  source_workspace_unchanged: true
+  final_workspace_revision: 41051c33c618a9672934a989db3ab026bb95b57a5d02b830e3c323fffe9a4638
+  supervision:
+    mode: single_process
+    worker_slices: 1
+    worker_handoffs: 0
+    pending_reservation_ids: []
+
+observed_quality:
+  correct_location_reached_by_tools: true
+  exact_target_call_visible_in_tool_evidence: true
+  exact_target_call_visible_in_post_evidence_model_context: false
+  edit_intent_observed: false
+  valid_edit_produced: false
+  protected_validation_passed: null
+  acceptance_evidence_unknown: true
+  tool_sequence:
+    - {name: retrieve_code, status: success}
+    - {name: read_file, status: success}
+    - {name: read_file, status: success}
+    - {name: retrieve_code, status: success}
+    - {name: read_file, status: success}
+    - {name: retrieve_code, status: error, controller_policy: EvidenceTransitionPolicy}
+    - {name: read_file, status: error, controller_policy: EvidenceTransitionPolicy}
+    - {name: read_file, status: error, controller_policy: EvidenceTransitionPolicy}
+    - {name: read_file, status: error, controller_policy: NoProgressPolicy}
+  retrieval_calls: 3
+  read_calls: 6
+  write_tool_calls: 0
+  protected_check_calls: 0
+  evidence_transition_feedback_count: 3
+  no_progress_feedback_count: 1
+
+target_evidence_continuity:
+  change_under_test_preserved_marker: true
+  change_under_test_preserved_exact_target: false
+  exact_target_literal: "user_choice = click.prompt"
+  compacted_projection_checks:
+    - {projection_ref: 4ee937369feaddb4cfb9af856a2c0ee097ca9f29fa7f77642131a5eb52b861f6, exact_target_visible: false, selected_anchor: later_read_user_choice_call_site}
+    - {projection_ref: 7d4de788effa9511ff6cf6362b89eaff124691adfeeae8ed25090b26e6807d9d, exact_target_visible: false, selected_anchor: synthetic_read_range_header}
+    - {projection_ref: d230111041a3ec6a1e5ff042a03b256578199e2576b2d59a47478dc8173571b2, exact_target_visible: false, selected_anchor: synthetic_read_range_header}
+    - {projection_ref: d9c63974826535080e3fb2df937904e29d700c34f5bac0543dcd3ededd40a12d, exact_target_visible: false, selected_anchor: synthetic_read_range_header}
+    - {projection_ref: 6bd8c3cf4e00b48a55340ae90274e804d64f5eec2b94428fecb6cd94589036f8, exact_target_visible: false, selected_anchor: synthetic_read_range_header}
+  diagnosis: >-
+    The projector summed all lexical matches on one line. A later return read_user_choice call
+    gained extra generic-term weight, and bounded-read metadata gained a long path-term weight.
+    Both displaced the function definition and its click.prompt call from every compacted model
+    request, even though the underlying tool artifacts contained the exact target.
+
+trace:
+  event_count: 80
+  event_hash: 859060a30d180a067e0d928c3f2f8a2224a69a6b97c59cacf32107a205107071
+  trace_sha256: cb5c22f9a244b1b5f8187f6a2f40c2b00c4b1bc64ba4a106ef97049e23b8983d
+  projection_hash: ef9484b67734353bb463bd6db3b53492db08473249bc2842cbb74ef1ebd64156
+  final_state_sha256: 71c2c3e38c67727c68638568501d7a03edd26a4be45300b74c5704fa891e6eaa
+  evidence_pack_sha256: c31e35133fb49a6418a54afc391c5af14aa9a243329aeb2425300ac19f360e9f
+  terminal_pack_verified: true
+  open_effects_present: false
+  unknown_effects_present: false
+  open_reservations_present: false
+
+post_run_offline_repair:
+  external_model_called: false
+  paid_model_called: false
+  behavior: >-
+    The excerpt selector now ranks a line by its strongest code-like task anchor, ignores
+    path-shaped metadata when a code anchor exists, and resolves equal anchors to the earlier
+    source location. A realistic READ_RANGE plus later-call-site regression keeps the
+    read_user_choice definition and click.prompt call.
+  verification:
+    focused_tests: "38 passed"
+    full_tests: "715 passed, 11 skipped"
+    ruff: passed
+  boundary: >-
+    This deterministic repair has not been evaluated by another paid model Run and does not
+    change the frozen FAILED outcome.
+
+aggregate_after_run:
+  historical_real_model_runs: 16
+  settled_model_calls: 85
+  settled_cost_cny: "0.7524090"
+  valid_edit_and_protected_validation_closures: 0
+
+limitations:
+  - The same revealed development task was used; this is not task generalization.
+  - The settled cost is a frozen local price-card estimate, not a provider invoice.
+  - No write or protected validation ran, so validation remains unknown rather than false.
+  - The run proves the first continuity repair was incomplete; it does not isolate model quality from context quality.
+  - This post-hoc result is not part of the original five-task Smoke denominator.

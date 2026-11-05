@@ -137,7 +137,13 @@ def test_run_memory_pins_cookiecutter_target_from_a_long_full_file_read(
                 work_item_id="fix-choice",
                 title="Fix read_user_choice",
                 objective="Preserve the numbered prompt and selected return value",
-                expected_artifacts=("A bounded change in cookiecutter/prompt.py",),
+                expected_artifacts=(
+                    "Evidence from cookiecutter/prompt.py showing the numbered prompt "
+                    "rendering and the Click choice-list rendering path",
+                    "A source change in cookiecutter/prompt.py that preserves the numbered "
+                    "prompt text, default selection, and selected return value while preventing "
+                    "Click from appending its own choice list",
+                ),
                 acceptance_ids=("cookiecutter-read-user-choice-first-closure-v1",),
             ),
         )
@@ -150,12 +156,14 @@ def test_run_memory_pins_cookiecutter_target_from_a_long_full_file_read(
     artifacts = ArtifactStore(tmp_path / "cookiecutter-memory-artifacts")
     content = "\n".join(
         [
-            *(f"# unrelated header line {index}" for index in range(70)),
+            "READ_RANGE path=cookiecutter/prompt.py lines=1-100 total_lines=242",
+            *(f"# unrelated header line {index}" for index in range(55)),
             "def read_user_choice(var_name, options):",
             "    prompt = build_numbered_prompt(options)",
             "    user_choice = click.prompt(prompt, type=click.Choice(options))",
             "    return options[user_choice]",
-            *(f"# unrelated tail line {index}" for index in range(70)),
+            *(f"# unrelated tail line {index}" for index in range(55)),
+            "    return read_user_choice(key, rendered_options)",
         ]
     )
     run = settle_tool(
@@ -179,7 +187,9 @@ def test_run_memory_pins_cookiecutter_target_from_a_long_full_file_read(
     excerpt = snapshot.entries[0].excerpt
     assert excerpt.startswith(TASK_RELEVANT_CODE_PREFIX)
     assert "def read_user_choice" in excerpt
-    assert "click.prompt" in excerpt
+    assert "user_choice = click.prompt" in excerpt
+    assert "READ_RANGE path=" not in excerpt
+    assert "return read_user_choice(key" not in excerpt
     assert "unrelated header line 0" not in excerpt
     assert len(excerpt) <= 240
 

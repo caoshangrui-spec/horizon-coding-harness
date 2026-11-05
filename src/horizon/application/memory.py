@@ -98,9 +98,17 @@ def _task_relevant_code_excerpt(
     scored: list[tuple[int, int]] = []
     for index, line in enumerate(lines):
         lowered = line.lower()
-        score = sum(len(term) ** 2 for term in relevance_terms if term in lowered)
-        if score:
-            scored.append((score, index))
+        matches = tuple(term for term in relevance_terms if term in lowered)
+        if not matches:
+            continue
+        # Prefer the most specific code-like anchor on a line. Summing every match made
+        # generic words such as ``return`` outweigh an earlier function definition, while
+        # path-shaped terms made a synthetic ``READ_RANGE path=...`` header beat the code
+        # carried by that very read. Fall back to path terms only when a line has no
+        # code-like match at all.
+        code_matches = tuple(term for term in matches if "/" not in term and "." not in term)
+        strongest = max(code_matches or matches, key=len)
+        scored.append((len(strongest), index))
     if not scored:
         return None
     _, center = max(scored, key=lambda item: (item[0], -item[1]))

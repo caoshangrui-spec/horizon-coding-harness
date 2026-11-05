@@ -1,11 +1,12 @@
-# 真实模型 Pilot：离线预检、十五轮负结果与付费边界
+# 真实模型 Pilot：离线预检、十六轮负结果与付费边界
 
 更新：2026-11-05。本 Pilot 的目标不是立即追求 benchmark 分数，而是在**完整真实仓库、
-模型自主计划、模型自主检索和编辑**的条件下观察 Harness 的真实失败分布。已执行十五个
+模型自主计划、模型自主检索和编辑**的条件下观察 Harness 的真实失败分布。已执行十六个
 付费 Agent Run：它们先后暴露计划/检索反馈、读取范围/上下文投影、路径假设/请求预留、
 Campaign 压力、Run Memory、evidence-to-action 反馈与运行时调用上限等问题；第十四轮首次调用
 写工具，又暴露统一 CRLF 文件与 LF 模型片段的精确 preimage 兼容缺口；第十五轮在首轮已读到
-正确函数后仍进入压缩—重复读取循环。十五轮均没有形成有效
+正确函数后仍进入压缩—重复读取循环；第十六轮进一步证明首版目标证据修复只保住 marker，
+没有把精确目标代码带入压缩后的模型上下文。十六轮均没有形成有效
 代码编辑或 protected validation；结果可重放且
 费用可对账，但不是 Issue 成功证据，也不足以推出模型或 Harness 的总体能力结论。
 
@@ -989,7 +990,7 @@ context compaction；最后一次 retrieval 才把 `cookiecutter/prompt.py:71-11
 
 ## 29. Cookiecutter-3 target-evidence post-fix 候选：零费用预检通过
 
-提交 `fa8a8006cef9f9e2c456b757c82bfe2b0368b7c1` 修复了压缩后目标代码证据丢失：Run Memory
+提交 `fa8a8006cef9f9e2c456b757c82bfe2b0368b7c1` 首次尝试修复压缩后目标代码证据丢失：Run Memory
 从不可变 TaskSpec/WorkItem 派生有界目标代码窗口，压缩时至少保留一条 active target-code
 observation；无法容纳时在 Provider 派发前停止。为隔离这个 Harness 变化，候选继续使用同一公开
 Cookiecutter-3 buggy checkout、相同任务语义和 `CNY 0.120` cap，但绑定新的 policy 与独立 Campaign。
@@ -1001,5 +1002,32 @@ execution 保守预留为 `CNY 0.034602` 和 `CNY 0.069528`，累计 `CNY 0.1041
 `credential_loaded=false`、`paid_model_called=false`、`network_called=false`。机器可读候选为
 [`real-model-target-evidence-cookiecutter3-candidate-v2.yaml`](../benchmarks/real-model-target-evidence-cookiecutter3-candidate-v2.yaml)。
 
-这是 post-hoc 同任务对照，不是任务泛化；预检通过也不意味着模型会编辑或验证。新 Provider 调用仍
-需要独立明确授权，历史 `0/15` 不变。
+这是 post-hoc 同任务对照，不是任务泛化；预检通过也不意味着模型会编辑或验证。本节记录预检时点，
+后续唯一授权 Run 的实际结果见下一节。
+
+## 30. Cookiecutter-3 target-evidence post-fix Run：marker 保住但精确目标仍丢失
+
+唯一 Run `run_5d5492b956db4051b1e902165e9836df` 使用上述独立 policy/Campaign，Provider 每请求最多
+尝试 1 次，retry/fallback 均关闭。7 次模型调用（1 planning + 6 execution）和 9 次工具调用结算
+`CNY 0.0584538`；输入/输出 token 为 18,476/797。Campaign 剩余 `CNY 0.0615462`，而下一请求
+需要 `CNY 0.075828`，因此在派发前以 `campaign_cost_limit` 停止，reserved/unknown 均为 0。
+
+这次 Run 否定了“首版修复已保持精确目标”的推断。初始 retrieval 与完整 read artifact 都含
+`user_choice = click.prompt(...)`，但离线逐一检查 5 个 context projection 后发现：精确调用与
+`def read_user_choice` 在所有 post-evidence 模型请求中均不可见。第一个投影因同一行还含通用
+`return` 而选择了后方 `return read_user_choice(...)`；后四个投影则因长路径词权重选择了合成
+`READ_RANGE path=cookiecutter/prompt.py ...` 头。控制器随后三次给出 `EvidenceTransitionPolicy`
+写入提示，但提示不能替代缺失的代码 preimage；模型继续同参数读取，最后一次被 `NoProgressPolicy`
+拒绝。
+
+全程没有写工具、protected check 或 revision 变化，validation 为 `UNKNOWN`。80-event terminal
+EvidencePack 离线验证通过，Trace SHA-256 为
+`cb5c22f9a244b1b5f8187f6a2f40c2b00c4b1bc64ba4a106ef97049e23b8983d`，projection hash 为
+`ef9484b67734353bb463bd6db3b53492db08473249bc2842cbb74ef1ebd64156`；无 open/unknown effect 或
+悬空 reservation。机器可读冻结结果见
+[`real-model-target-evidence-cookiecutter3-result-v2.yaml`](../benchmarks/real-model-target-evidence-cookiecutter3-result-v2.yaml)。
+
+后续离线修复把“累加一行全部匹配”改为“最强 code-like anchor”，有代码锚点时排除路径元数据，
+相同锚点取更早源码位置；贴近真实 `READ_RANGE` 与后方调用点的回归可保留函数定义和
+`click.prompt`。这没有再次调用模型，因此不改变冻结结果。当前累计 16 个真实 Run、85 个已结算
+调用、`CNY 0.7524090`，真实编辑—验证闭环仍为 `0/16`；任何再次付费验证都需要新的明确授权。

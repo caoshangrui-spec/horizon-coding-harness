@@ -6,6 +6,29 @@
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
 
+## 2026-11-05 Cookiecutter-3 post-fix Run：首版连续性修复仍选错目标窗口
+
+- 按唯一授权执行 Run `run_5d5492b956db4051b1e902165e9836df`；独立 Run/Campaign 上限均为
+  `CNY 0.120`，Provider 单请求最多 1 次，retry/fallback 关闭。共结算 7 次模型调用、9 次工具调用、
+  18,476 input / 797 output tokens与 `CNY 0.0584538`；Campaign reserved/unknown 均为 0，最终因
+  下一请求需 `CNY 0.075828` 而只剩 `CNY 0.0615462`，在 Provider 派发前以
+  `campaign_cost_limit` 终止。
+- 工具层最初的 rank-1 retrieval 与完整读取都含精确 `user_choice = click.prompt(...)`，但取证确认
+  5 个压缩后的模型投影均不含该调用或 `def read_user_choice`。首个窗口被后方
+  `return read_user_choice(...)` 调用点抢走；其余窗口被合成 `READ_RANGE path=...` 头抢走。
+  `EvidenceTransitionPolicy` 随后虽提示应写入，实际模型上下文仍缺编辑目标，因此模型继续重复读取。
+- 全程没有 `replace_text`、`run_check` 或 workspace revision 变化，validation 保持 `UNKNOWN`，不能计为
+  修复成功。80-event EvidencePack 已离线验证；Trace SHA-256 为
+  `cb5c22f9a244b1b5f8187f6a2f40c2b00c4b1bc64ba4a106ef97049e23b8983d`，projection hash 为
+  `ef9484b67734353bb463bd6db3b53492db08473249bc2842cbb74ef1ebd64156`，无 open/unknown effect 或
+  悬空 reservation。机器可读结果见
+  [`real-model-target-evidence-cookiecutter3-result-v2.yaml`](../benchmarks/real-model-target-evidence-cookiecutter3-result-v2.yaml)。
+- 负结果驱动的离线修复不再累加一行全部词法匹配，而按最强 code-like anchor 选行；有代码锚点时
+  路径元数据不参与竞争，同 anchor 取更早源码位置。真实 `READ_RANGE` 元数据加后方调用点回归现在
+  保留函数定义和 `click.prompt`；focused 38 tests、完整 **715 passed，11 skipped** 与项目源码/测试
+  Ruff 均通过。没有再次调用模型，因此冻结 Run 不变，历史累计为 16 Runs、85 个已结算调用、
+  `CNY 0.7524090`，真实闭环仍为 `0/16`。
+
 ## 2026-11-05 Cookiecutter-3 post-fix 付费候选零费用预检
 
 - 为隔离验证目标证据连续性修复，准备了同一公开 Cookiecutter-3 development 任务的新 policy、独立
@@ -20,11 +43,11 @@
   长度错误失败；相同输入改用短状态路径后通过，该本机路径问题不计为任务或模型负结果。
 - 机器可读候选见
   [`real-model-target-evidence-cookiecutter3-candidate-v2.yaml`](../benchmarks/real-model-target-evidence-cookiecutter3-candidate-v2.yaml)。
-  付费执行仍未授权，历史真实闭环保持 `0/15`。
+  本节记录预检时点，当时付费执行尚未授权；后续唯一 Run 的实际负结果见上节。
 
 ## 2026-11-05 Cookiecutter-3 负结果驱动的目标证据连续性修复
 
-- Run Memory 现在从不可变 TaskSpec 与当前 WorkItem 派生确定性词法锚点；长文件读取不再只截取文件
+- 首版 Run Memory 修复从不可变 TaskSpec 与当前 WorkItem 派生确定性词法锚点；长文件读取不再只截取文件
   开头，而是保存命中最强任务锚点的有界代码窗口。Cookiecutter-3 形态的回归会从长
   `cookiecutter/prompt.py` 中保留 `read_user_choice` 与相邻 `click.prompt`，不读取 evaluator-only
   答案，也不调用外部模型。
@@ -34,8 +57,9 @@
 - 如果压缩后连这一条目标代码证据都无法容纳，投影会在 Provider 派发前类型化停止，不再降级为
   `recent_entries=[]` 后继续消耗模型调用。新增回归覆盖长文件中段目标、更新的重复尾部读取、固定证据
   选择和 fail-closed 容量边界。
-- 完整离线回归为 **714 passed，11 skipped**；Ruff 检查通过。没有付费复跑，历史 Cookiecutter-3
-  Run、累计费用与真实闭环 `0/15` 均未改写；这里只证明 Harness 的证据连续性缺陷已被确定性覆盖。
+- 当时完整离线回归为 **714 passed，11 skipped**；Ruff 检查通过。该批次没有付费复跑，批次结束时
+  Cookiecutter-3 Run、累计费用与真实闭环 `0/15` 均未改写；该简化回归只证明 marker、去重和
+  fail-closed 合同，后续付费 Run 证明真实 lexical anchor 仍可能选错，不能再表述为完整覆盖。
 
 ## 2026-11-05 Cookiecutter-3 唯一真实 Run：正确位置已暴露但未进入编辑
 
@@ -57,7 +81,7 @@
   `f52b38ca1a7d2699216d3309994cbbb4aa6baa79a5bbd1c273e932ba724eeda2`，无 open/unknown effect 或
   悬空 reservation。机器可读冻结结果在
   [`real-model-first-closure-cookiecutter3-result-v1.yaml`](../benchmarks/real-model-first-closure-cookiecutter3-result-v1.yaml)。
-  当前累计 15 个真实模型 Run、78 个已结算调用、`CNY 0.6939552`，真实闭环仍为 `0/15`。新增
+  截至该 Run 累计 15 个真实模型 Run、78 个已结算调用、`CNY 0.6939552`，真实闭环为 `0/15`。新增
   policy、Pilot manifest 与冻结结果纳入回归后，完整离线测试为 **710 passed，11 skipped**。
 
 ## 2026-11-05 Cookiecutter-3 完整 checkout 与首闭环候选恢复
@@ -1050,8 +1074,8 @@
 | 完整 checkout 多阶段/重启 A/B | [bugsinpy-multi-stage-pilot-v4.yaml](../benchmarks/run_ab/bugsinpy-multi-stage-pilot-v4.yaml) | youtube-dl 872 files、Luigi 382 files 与 FastAPI 629 files 上各有三个依赖 WorkItem；六条 arm 均跨两个持久边界到 epoch 3，合计 12 次重启，并覆盖跨 revision RAG、active/stale Run Memory、完成项保留 replan、最终三项 required checks 与 Trace replay。本地可信与公开禁网 Docker 均为 3/3，doctor 的 case/Docker 计数均为 3。v1 的 CRLF、60 秒 Lease 以及本轮 Tornado 歧义替换负结果继续保留 |
 | 源码绑定的写入硬崩溃 A/B | [bugsinpy-multi-stage-hard-crash-v2.yaml](../benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v2.yaml)、[设计与证据](source-bound-hard-crash-recovery.md) | v2 原样保留 Luigi 382-file `replace_text/accept_replace`，新增 FastAPI 629-file `create_file/accept_create`；4 条 arm 均由真实子进程在 effect 后、receipt 前退出，先 unknown、围栏旧 lease，再精确接纳且不重派模型，最终到 epoch 4。本地与公开禁网 Docker 均为 2/2、Trace replay/source unchanged 4/4、unknown/open 0；doctor 的 case/Docker 计数为 2 |
 | 公开仓库长程可靠性指标 | [run_evaluation.py](../src/horizon/domain/run_evaluation.py)、[run_ab_eval.py](../src/horizon/application/run_ab_eval.py)、[指标合同](long-horizon-reliability-metrics.md) | 新生成的每个 case 记录单调时钟观测耗时；suite typed aggregate 直接给出 scenario/arm、P95、Worker 重启、硬崩溃恢复率、恢复重派、重复副作用、Trace replay、source isolation 与最终 open effect。旧报告仍可读取，冻结 manifest digest 不变；公开 Docker workflow 将多阶段与硬崩溃关键指标设为失败门槛并写入 Job Summary。当前 suite 共 33 个 manifest 场景、66 条 arm，现均有公开统一验证。场景含重复 bug，完整 checkout 也是作者选择的 development 样本，仍无 20～30 个独立盲测/holdout 真实任务或真实模型成功率证据 |
-| 真实模型 Pilot | [pilot.py](../src/horizon/domain/pilot.py)、[pilot.py](../src/horizon/application/pilot.py)、[real-model-pilot.md](real-model-pilot.md) | 离线预检绑定完整干净 checkout、初始失败、source snapshot、Docker image、Provider policy、Harness 源码指纹、费用 cap、首次规划、一个有界 execution sizing case及二者累计 reservation。十五个付费 Run 均无有效编辑/验证、Trace 可重放且 source 未变；第十四轮 TheFuck-5 首次调用写工具但因 LF/CRLF 精确 preimage 不匹配而零 effect，第十五轮 Cookiecutter-3 首轮已暴露正确函数，却在 6 次压缩期间重复读取，精确 target rank 1 回执后由费用门停止。全部历史 Pilot 共 78 个已结算调用、实际累计 `CNY 0.6939552`；没有自动复跑、fallback 或真实 Issue 成功 |
-| 模型预留压力诊断 | [reservation_analysis.py](../src/horizon/application/reservation_analysis.py)、[reservation-diagnostics.md](reservation-diagnostics.md) | 历史九轮报告在 replay/hash-chain 校验后关联 reservation、settlement 和 BudgetStop 请求尺寸；26 次调用的聚合预留/结算比为 6.822406。候选 `request_bytes + 1024` 可回放 9 次，0 次观测低估；其中 6 次为当前 exact wire basis。第十至十五轮尚未并入该诊断，生产 estimator、费用门禁和付费预算均未改变 |
+| 真实模型 Pilot | [pilot.py](../src/horizon/domain/pilot.py)、[pilot.py](../src/horizon/application/pilot.py)、[real-model-pilot.md](real-model-pilot.md) | 离线预检绑定完整干净 checkout、初始失败、source snapshot、Docker image、Provider policy、Harness 源码指纹、费用 cap、首次规划、一个有界 execution sizing case及二者累计 reservation。十六个付费 Run 均无有效编辑/验证、Trace 可重放且 source 未变；第十四轮 TheFuck-5 首次调用写工具但零 effect，第十五轮 Cookiecutter-3 在精确 target 回执后由费用门停止，第十六轮证明首版目标证据连续性修复只保留 marker、没有把精确目标带入 5 个压缩模型投影。全部历史 Pilot 共 85 个已结算调用、实际累计 `CNY 0.7524090`；没有自动复跑、fallback 或真实 Issue 成功 |
+| 模型预留压力诊断 | [reservation_analysis.py](../src/horizon/application/reservation_analysis.py)、[reservation-diagnostics.md](reservation-diagnostics.md) | 历史九轮报告在 replay/hash-chain 校验后关联 reservation、settlement 和 BudgetStop 请求尺寸；26 次调用的聚合预留/结算比为 6.822406。候选 `request_bytes + 1024` 可回放 9 次，0 次观测低估；其中 6 次为当前 exact wire basis。第十至十六轮尚未并入该诊断，生产 estimator、费用门禁和付费预算均未改变 |
 | 安全轮次续跑 | [agent.py](../src/horizon/domain/agent.py)、[agent_loop.py](../src/horizon/application/agent_loop.py) | 消息 Artifact + event/revision 绑定；新 Worker 续跑；PLANNING/READY 也可恢复，任意崩溃窗口对账未完成 |
 | 悬空调用恢复与对账 | [recovery.py](../src/horizon/application/recovery.py)、[model_recovery.py](../src/horizon/application/model_recovery.py)、[tool_recovery.py](../src/horizon/application/tool_recovery.py) | Campaign-only 预留释放；response Artifact 跨 Worker 续跑；模型派发前持久化 client Trace ID，返回后普通落盘失败立即隔离，Artifact 前硬退出重启后保守 `unknown`；只读重试；精确 `replace_text` / `apply_patch` / 单文件 `create_file` accept/rollback；Docker `run_check` 自然退出且 request/workspace/隔离配置/完整小日志精确匹配时可恢复 success/error；created attempt 可在状态二次核验后删除并重取 revision，stopped/running 仍走原窄路径，missing 仍需人工确认；部分/漂移写入、transitional、信号/超时/OOM 验证仍阻塞 |
 | Docker `created` 窗口一键 EvidencePack | [docker_created_recovery.py](../src/horizon/application/docker_created_recovery.py)、[_docker_created_crash_worker.py](../src/horizon/application/_docker_created_crash_worker.py)、[领域合同](../src/horizon/domain/docker_created_recovery.py)、[文档](docker-created-recovery-evidence.md) | Docker effect-executor 子进程在生产 `docker create` 完成、`docker start` 调用前真实 `os._exit(34)`；Lease-owning 控制器存活，先保守标 unknown，再调用生产 `agent resolve-tool` 核验 `created`、删除精确 attempt、复核 revision、持久化 `cancelled / discard_check` receipt。7 文件包可无 Docker/数据库离线重放并拒绝重哈希语义篡改；未证明 Agent Worker 自身崩溃，不是任意崩溃或 exactly-once |
