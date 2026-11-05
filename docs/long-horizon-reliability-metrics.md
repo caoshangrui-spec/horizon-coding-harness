@@ -79,16 +79,16 @@ digest 没有被改写。
 | `bugsinpy-full-checkout-pilot-v9` | v8 十五例 + HTTPie-5、Tornado-2 | 17 | 9 个项目、4,806 tracked files；两个新增案例的本地 buggy/candidate 保护探针通过；公开 run `40794561712` 已通过 17/17 |
 | `bugsinpy-full-checkout-pilot-v10` | v9 十七例 + HTTPie-1、Tornado-4 | 19 | 9 个项目、5,177 tracked files；两个新增案例的本地完整 Harness 为 2/2；公开 run `40799174668` 已通过 19/19 |
 | `bugsinpy-full-checkout-pilot-v11` | v10 十九例 + Sanic-3、TheFuck-5、Luigi-7 | 22 | 9 个项目、6,062 tracked files；三个新增案例的本地完整 Harness 为 3/3；公开 run `40804131201` 已通过 22/22 |
-| `bugsinpy-full-checkout-pilot-v12` | v11 二十二例 + Cookiecutter-3 | 23 | 9 个项目、6,278 tracked files；新增案例本地完整 Harness 为 1/1；公开 23/23 统一门待当前提交 CI 复核 |
+| `bugsinpy-full-checkout-pilot-v12` | v11 二十二例 + Cookiecutter-3 | 23 | 9 个项目、6,278 tracked files；新增案例本地完整 Harness 为 1/1；公开 run `41997218285` 已通过 23/23 |
 | `bugsinpy-multi-stage-pilot-v4` | youtube-dl、Luigi、FastAPI | 3 | 每条 arm 为 3 WorkItem、2 次 Worker 重启；合计 6 条 Trace、12 次重启 |
 | `bugsinpy-multi-stage-hard-crash-v2` | Luigi、FastAPI | 2 | v1 的 `replace_text` 原样保留，新增 `create_file`；4 条 arm 均真实写入后、receipt 前退出并继续后续 WorkItem；合计 4 次恢复尝试、12 次重启 |
 
 同一 bug 在不同 suite 中用于不同实验变量，因此不能把当前 33 个场景宣传成 33 个独立真实任务。
-当前 suite 共 33 个 manifest 场景、66 条 arm；其中 v11 前缀的 32 个场景已有公开 Docker 统一验证，
-v12 新增一例待当前提交 CI 复核。历史 v1/v2/v3/v4/v5/v6/v7 版本不重复累加。
+当前 suite 共 33 个 manifest 场景、66 条 arm，已由公开 Docker 统一验证；历史
+v1/v2/v3/v4/v5/v6/v7 版本不重复累加。
 按 `(benchmark, project, bug_id, buggy_commit)` 去重后，完整 checkout 是 23 个作者选择、gold 揭示后
 制作端到端 manifest 的 development 案例；因此仍没有 20～30 个独立盲测/holdout 真实任务，也没有
-真实模型成功率。32 个场景和 64 条 arm 不能改写成泛化样本量。
+真实模型成功率。33 个场景和 66 条 arm 不能改写成泛化样本量。
 
 ## 4. 运行与读取
 
@@ -149,6 +149,15 @@ known check failure 0；同一 run 再次通过 dependency-reduced 5/5、multi-s
 `sha256:f49be3f5a38d75524fbf74ec0fd761081c42320a14b1b7ef4de49e7d54bf06b3`，保留至
 2026-11-28。此处同样不在未下载并复算该 artifact 的情况下追写 v11 精确 clean/flagged 与
 degradation 数值。
+
+2026-11-05 的 v12 公开复跑
+[`41997218285`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/41997218285)
+把 full-checkout 升至 23/23，并继续通过 dependency-reduced 5/5、multi-stage 3/3 与 hard-crash
+2/2；33 个 manifest 场景的 66 条 arm 均有 reliability evidence 与 retrieval lineage，23 个
+full-checkout case 均通过逐案例 retrieval-delivery 和 evidence-backed-write 门。统一 artifact ID
+`13400843388`，269,976,764 bytes，digest
+`sha256:7cbcfe2509efcac6bb7e1c64ea0445e0c9d5b845354b17bbcadca33b8bf89e85`，保留至
+2026-12-05。这里的公开通过证明来源绑定的 Scripted Harness 合同，不是 LLM 修复率。
 
 上述 v8 质量聚合中，三阶段与硬崩溃 suite 还分别记录 12/6 次 Worker restart；硬崩溃的 2 条 arm 均恢复，恢复率
 1.0、模型重派 0、重复副作用 0。统一 artifact ID `12813023460`，201,900,712 bytes，digest

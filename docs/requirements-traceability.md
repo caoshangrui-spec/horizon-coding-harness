@@ -126,6 +126,14 @@
 > 与 context-bound/evidence-backed write，旧报告仍兼容。该证据仍不是语义因果或真实模型能力；
 > 尚未把检索设为所有生产写工具的强制前置策略，生产脱敏也未完成。
 
+> 2026-11-05 FR-903 / FR-1305 当前增量：完整 checkout v12 在 v11 前缀上加入 Cookiecutter-3，
+> 公开禁网 Docker run `41997218285` 已统一通过 dependency-reduced 5/5、full-checkout 23/23、
+> multi-stage 3/3 与 hard-crash 2/2。最终四组 suite 为 33 个 manifest 场景、66 条 arm；workflow
+> 逐项门控全部 arm 的 reliability evidence 与 retrieval lineage，并要求 23 个 full-checkout case
+> 都产生 delivered retrieval 和 evidence-backed write。统一 artifact ID `13400843388`，digest
+> `sha256:7cbcfe2509efcac6bb7e1c64ea0445e0c9d5b845354b17bbcadca33b8bf89e85`。这些是 Scripted
+> Harness 合同，不是 33 个独立任务、真实模型修复率或 holdout 泛化证据；下方旧 run 保留为历史证据。
+
 > 2026-10-30 FR-1305 当前增量：hard-crash v2 原样保留 Luigi bug 1 的
 > `replace_text/accept_replace`，增加 FastAPI bug 5 完整 629-file checkout 的
 > `create_file/accept_create`。4 条 arm 都由真实 child 在 effect 后、receipt 前以 87 退出，先记录

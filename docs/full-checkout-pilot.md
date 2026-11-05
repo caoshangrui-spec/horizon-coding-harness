@@ -268,6 +268,14 @@ scalar 丢失候选补丁前导缩进，Treatment 因 `IndentationError` 失败�
 `sha256:f49be3f5a38d75524fbf74ec0fd761081c42320a14b1b7ef4de49e7d54bf06b3`，保留至 2026-11-28。
 该结果证明三条 Scripted Treatment 能在受保护验证下恢复，不是任何真实模型成功率。
 
+v12 的公开禁网 Docker run
+[`41997218285`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/41997218285)
+进一步把完整 checkout 门提升到 23/23，并继续通过 3/3 三阶段恢复、2/2 写入硬崩溃、Trace replay
+与最终证据上传。artifact ID `13400843388`，269,976,764 bytes，digest
+`sha256:7cbcfe2509efcac6bb7e1c64ea0445e0c9d5b845354b17bbcadca33b8bf89e85`，保留至 2026-12-05。
+该结果证明 Cookiecutter-3 的 Scripted Treatment 进入了与既有案例相同的公开生产验证路径；它不证明
+付费模型能产生该修改，也不改变真实模型闭环 `0/14`。
+
 ### 3.2 v10 两种失效模式的本地与公开证据
 
 HTTPie-1 与 Tornado-4 均来自 2026-10-24 在补丁揭示前冻结的 development 选择；holdout 保持密封。
@@ -636,7 +644,7 @@ Tornado-4，十九案例、九项目合计 5,177 files；两个新增案例的�
 生产路径均通过。v11 再加入 Sanic-3、TheFuck-5 与 Luigi-7，二十二案例、九项目合计 6,062 files；
 三个新增案例的本地完整 Harness 与公开 22/22 生产路径均通过。TheFuck、Sanic、PySnooper 及
 v12 再加入 Cookiecutter-3，二十三案例、九项目合计 6,278 files；新增案例本地完整 Harness 已通过，
-公开 23/23 统一门待当前提交 CI 复核。TheFuck、Sanic、PySnooper 及
+公开禁网 Docker 生产路径也已统一通过 23/23。TheFuck、Sanic、PySnooper 及
 v7/v8/v9/v10/v11/v12 新增案例来自预冻结检索集合，
 但端到端 manifest 是揭示 gold 后制作，不能称为新 holdout。第一次 Windows 六案例联合运行的 4/6、
 PySnooper YAML 缩进失败、v7 Luigi 非唯一锚点失败、Windows 十二案例联合运行的 CRLF/长路径失败，

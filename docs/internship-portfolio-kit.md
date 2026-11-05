@@ -87,7 +87,7 @@ flowchart LR
 | 可说的结论 | 当前证据 | 必须同时说出的边界 |
 |---|---|---|
 | 主作品集恢复链可一键复现 | `horizon demo run --human`：真实子进程在写入生效、receipt 前以 86 退出；恢复到 final epoch 3，Trace 与 EvidencePack 自检通过 | 冻结 Scripted Model、固定 `replace_text` 窗口；不是任意崩溃或真实模型能力 |
-| 来源绑定完整 checkout 合同可执行 | 9 个项目、22 个作者选择案例在禁网 Docker 中完成初始失败确认、Baseline 等待、Treatment 恢复，公开 workflow 为 22/22 | 使用 Scripted Model；不是官方 BugsInPy 或 SWE-bench 成绩 |
+| 来源绑定完整 checkout 合同可执行 | 9 个项目、23 个作者选择案例在禁网 Docker 中完成初始失败确认、Baseline 等待、Treatment 恢复，[公开 workflow](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/41997218285) 为 23/23 | 使用 Scripted Model；不是官方 BugsInPy 或 SWE-bench 成绩 |
 | 多阶段任务能跨 Worker 继续 | youtube-dl、Luigi、FastAPI 各 3 个依赖 WorkItem、2 次持久重启，公开复跑 3/3 | 安全边界重启，不是任意指令点或跨主机容灾 |
 | effect-before-receipt 可保守对账 | Luigi `replace_text/accept_replace` 与 FastAPI `create_file/accept_create` 共 2/2；恢复模型重派 0、重复副作用 0、最终 open effect 0 | 两个固定、作者选择的故障窗口，不承诺 exactly-once |
 | 词法 Code RAG 有冻结定位基线 | 7 项目 24 案例中公开 16 个 development：Hit@1 `11/16`、Hit@5 `16/16`、MRR `0.817708`；8 个 holdout 保持密封 | 有 3 个 degraded；中文困难改写仅 `1/8`，没有 symbol/vector RAG 或端到端收益结论 |
@@ -124,7 +124,7 @@ Python 3.12/3.13 · Pydantic · Typer · SQLite/FTS5 · Docker · Pytest · GitH
   2/2 恢复，模型重派、重复副作用和最终 open effect 均为 0。
 - 构建确定性 Context Projection、run-scope Memory 与 revision-bound SQLite FTS5 Code RAG；
   必保上下文超限时在模型派发前持久暂停，并以新 Lease epoch 和消息不变的新 session 续跑。
-- 建立禁网 Docker A/B 与 EvidencePack 评测：22 个完整 checkout 案例、3 个多阶段恢复案例和
+- 建立禁网 Docker A/B 与 EvidencePack 评测：23 个完整 checkout 案例、3 个多阶段恢复案例和
   2 个硬崩溃案例公开通过；离线回归持续通过，同时保留 14 次真实模型未完成修复的负结果。
 
 ### 不建议写进简历的说法
@@ -176,7 +176,7 @@ Lease epoch 做提交围栏，用内容寻址 Artifact 保存大对象；把模�
 
 ### Result
 
-本地一键演示能够在写入生效、receipt 前强制退出并安全恢复；公开 workflow 通过 22/22 完整
+本地一键演示能够在写入生效、receipt 前强制退出并安全恢复；公开 workflow 通过 23/23 完整
 checkout、3/3 多阶段和 2/2 hard-crash 合同，离线回归持续通过。真实模型十四轮没有完成修复，
 但失败被完整保留并驱动了上下文容量、检索缓存隔离、工具协议、evidence-to-action 回执和运行预算
 兑现方式的改进。

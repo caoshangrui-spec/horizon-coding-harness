@@ -84,7 +84,10 @@ EvidencePack 排 rank 2，primary-only excerpt 把它们丢掉。修复没有改
 lineage 还会解析 excerpt，要求目标 path 带非空 snippet 且属于原 EvidencePack，单纯路径名不算消费。
 修复后的[公开禁网 Docker run `40862188498`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40862188498)
 已通过 62/62 arm lineage coverage，并让 22/22 个 full-checkout 案例通过逐案例 retrieval-delivery
-与 evidence-backed-write 门；首轮 18/22 仍作为负结果保留。
+与 evidence-backed-write 门；首轮 18/22 仍作为负结果保留。随后 v12 的
+[公开 run `41997218285`](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/41997218285)
+把同一逐案例门扩展到 23/23 个 full-checkout 案例，并对四组 suite 的 66 条 arm 全量门控 lineage；
+它仍只证明结构化交付链，不证明检索在语义上导致了修复。
 
 对每个成功写入，`evidence_backed=true` 还要求：写入的 source model call 有已保存
 ContextProjection；至少一条成功 retrieval 确实在该投影可见；EvidencePack、写前 CAS revision
