@@ -1053,8 +1053,8 @@ EvidencePack 离线验证通过，Trace SHA-256 为
 悬空 reservation。机器可读冻结结果见
 [`real-model-closure-cookiecutter3-result-v3.yaml`](../benchmarks/real-model-closure-cookiecutter3-result-v3.yaml)。
 
-后续零费用修复没有扩大 240 字符预算：它对同一行的重叠词去重，优先选择包含多个独立任务概念的
-代码行，再从该中心向前后均衡扩展。贴近真实长 docstring 的回归现在保留
-`user_choice = click.prompt(` 与参数行。该离线回归不改写冻结 Run，也不是模型成功证据。当前累计
+当时的关键词计数修复只通过了简化回归；后续复核发现它在原始回执上仍选中其他函数。
+现已改为函数范围/检索位置约束、实际请求可见性判断，并用完整真实源码和负对照检验到 protected
+validation，详见[四项纠偏记录](development-progress.md)。这些离线检查不改写冻结 Run，也不是模型成功证据。当前累计
 17 个真实 Run、95 个已结算调用、`CNY 0.8379858`，真实编辑—protected validation 闭环仍为
 `0/17`；任何再次付费验证都需要新的明确授权。

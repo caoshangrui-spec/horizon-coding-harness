@@ -180,6 +180,7 @@ def visible_run_memory_entries(
             entry
             for entry in reversed(ordered)
             if entry.status == "active"
+            and entry.work_item_id == run_memory.work_item_id
             and entry.outcome == "success"
             and entry.excerpt.startswith(TASK_RELEVANT_CODE_PREFIX)
         ),
@@ -357,6 +358,7 @@ class ContextProjector:
             maximum = min(2, len(run_memory.entries))
             has_task_relevant_code = any(
                 entry.status == "active"
+                and entry.work_item_id == run_memory.work_item_id
                 and entry.outcome == "success"
                 and entry.excerpt.startswith(TASK_RELEVANT_CODE_PREFIX)
                 for entry in run_memory.entries

@@ -29,6 +29,7 @@ from horizon.application.retrieval_control import (
     RETRIEVAL_QUERY_POLICY,
     find_evidence_reacquisition,
     find_redundant_retrieval,
+    read_evidence_missing,
 )
 from horizon.application.services import HarnessService, LeaseToken
 from horizon.domain.agent import AgentSession, AgentSessionRecord
@@ -899,6 +900,7 @@ class CodingAgentRunner:
         source_model_call_id: str | None = None,
         expected_workspace_revision: str | None = None,
         controller_policy: tuple[str, str] | None = None,
+        missing_read_evidence: bool = False,
     ) -> tuple[ToolOutcome, NoProgressDecision | None]:
         local_id = f"tool_{uuid4().hex}"
         arguments_hash = digest(arguments)
@@ -928,6 +930,19 @@ class CodingAgentRunner:
                 workspace_revision=workspace_revision,
                 max_identical_actions=self.config.max_identical_no_progress_actions,
             )
+            # A compressed-away receipt is not model-visible knowledge. Permit bounded
+            # reacquisition, but keep the existing hard cycle/HITL stop and all budgets.
+            if missing_read_evidence and not decision.hard_stop:
+                decision = None
+            elif (
+                missing_read_evidence
+                and decision.hard_stop
+                and current.tool_calls
+                and current.tool_calls[-1].status != "error"
+            ):
+                # The guidance contract requires two denied receipts. Reacquisition used
+                # the former soft-denial slot; deny now, then escalate the next repeat.
+                decision = replace(decision, hard_stop=False)
         no_progress_pattern = decision.pattern if decision is not None else None
         hard_no_progress_decision = (
             decision if decision is not None and decision.hard_stop else None
@@ -1545,6 +1560,20 @@ class CodingAgentRunner:
                 )
             submitted = False
             source_model_call_id = run.model_calls[-1].call_id
+            source_reservation = next(
+                event.payload["reservation"]
+                for event in reversed(self.service.store.events(run_id))
+                if event.event_type == "MODEL_CALL_RESERVED"
+                and event.payload["reservation"]["call_id"] == source_model_call_id
+            )
+            projection_ref = source_reservation.get("context_projection_ref")
+            visible_messages = (
+                ContextProjection.model_validate_json(
+                    self.session_store.read(projection_ref)
+                ).messages
+                if projection_ref is not None
+                else ()
+            )
             for call in response.message.tool_calls:
                 evidence_transition = None
                 if call.function.name in {"read_file", "retrieve_code"} and any(
@@ -1555,6 +1584,7 @@ class CodingAgentRunner:
                         call.function.name,
                         call.function.arguments,
                         model_workspace_revision,
+                        visible_messages=visible_messages,
                     )
                 redundant_retrieval = None
                 if call.function.name == "retrieve_code" and evidence_transition is None:
@@ -1581,6 +1611,12 @@ class CodingAgentRunner:
                     source_model_call_id=source_model_call_id,
                     expected_workspace_revision=model_workspace_revision,
                     controller_policy=controller_policy,
+                    missing_read_evidence=(
+                        call.function.name == "read_file"
+                        and read_evidence_missing(
+                            messages, visible_messages, call.function.arguments
+                        )
+                    ),
                 )
                 run = self.service.store.get(run_id)
                 if run.terminal:

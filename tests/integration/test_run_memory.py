@@ -13,7 +13,7 @@ from horizon.application.retrieval_control import (
 from horizon.application.services import LeaseToken
 from horizon.domain.common import canonical_json, digest
 from horizon.domain.errors import IntegrityError
-from horizon.domain.plan import Plan, WorkItem
+from horizon.domain.plan import Plan
 from horizon.domain.retrieval import EvidenceChunk, EvidencePack
 from horizon.domain.states import RunStatus
 from horizon.domain.task import TaskSpec
@@ -126,101 +126,55 @@ def test_run_memory_pins_actionable_cookiecutter_target_from_a_realistic_long_fu
     store,
     service,
 ):
+    fixture_dir = Path(__file__).parents[1] / "fixtures" / "cookiecutter3"
+    frozen = json.loads((fixture_dir / "failure-inputs.json").read_text(encoding="utf-8"))
     data = deepcopy(task_dict)
-    data["title"] = "Prevent duplicate Cookiecutter choice rendering"
-    data["objective"] = "Keep the numbered prompt without Click appending its choice list"
-    data["acceptance"][0]["id"] = "cookiecutter-read-user-choice-first-closure-v1"
-    task = TaskSpec.model_validate(data)
-    plan = Plan(
-        items=(
-            WorkItem(
-                work_item_id="fix-choice",
-                title="Fix read_user_choice",
-                objective="Preserve the numbered prompt and selected return value",
-                expected_artifacts=(
-                    "Evidence from cookiecutter/prompt.py showing the numbered prompt "
-                    "rendering and the Click choice-list rendering path",
-                    "A source change in cookiecutter/prompt.py that preserves the numbered "
-                    "prompt text, default selection, and selected return value while preventing "
-                    "Click from appending its own choice list",
-                ),
-                acceptance_ids=("cookiecutter-read-user-choice-first-closure-v1",),
-            ),
-        )
+    data["title"] = "Avoid rendering choice values twice"
+    data["objective"] = (
+        "Keep Cookiecutter's numbered prompt while preventing Click "
+        "from appending its own choice list."
     )
+    data["acceptance"][0]["id"] = "cookiecutter-read-user-choice-closure-v3"
+    task = TaskSpec.model_validate(data)
+    plan = Plan.model_validate(frozen["plan"])
     run = store.create(task, "create-cookiecutter-memory")
     service.set_plan(run.run_id, plan, "plan-cookiecutter-memory")
     leased = service.acquire_lease(run.run_id, "worker-cookiecutter-memory", "lease-memory")
     token = LeaseToken.from_run(leased)
     run = service.transition(run.run_id, RunStatus.RUNNING, token, "start-memory")
     artifacts = ArtifactStore(tmp_path / "cookiecutter-memory-artifacts")
-    content = "\n".join(
-        [
-            "READ_RANGE path=cookiecutter/prompt.py lines=1-100 total_lines=242",
-            *(f"# unrelated header line {index}" for index in range(55)),
-            "def read_user_choice(var_name, options):",
-            '    """Prompt the user to choose from several options for the given variable.',
-            "",
-            "    The first item will be returned if no input happens.",
-            "",
-            "    :param str var_name: Variable as specified in the context",
-            "    :param list options: Sequence of options that are available to select from",
-            "    :return: Exactly one item of options that has been chosen by the user",
-            '    """',
-            "    # Please see the click.prompt API documentation",
-            "    if not isinstance(options, list):",
-            "        raise TypeError",
-            "",
-            "    if not options:",
-            "        raise ValueError",
-            "",
-            "    choice_map = OrderedDict(",
-            "        (str(i), value) for i, value in enumerate(options, 1)",
-            "    )",
-            "    choices = choice_map.keys()",
-            "    default = '1'",
-            "",
-            "    choice_lines = ['{} - {}'.format(*c) for c in choice_map.items()]",
-            "    prompt = '\\n'.join((",
-            "        'Select {}:'.format(var_name),",
-            "        '\\n'.join(choice_lines),",
-            "        'Choose from {}'.format(', '.join(choices))",
-            "    ))",
-            "",
-            "    user_choice = click.prompt(",
-            "        prompt, type=click.Choice(choices), default=default",
-            "    )",
-            "    return choice_map[user_choice]",
-            *(f"# unrelated tail line {index}" for index in range(55)),
-            "    return read_user_choice(key, rendered_options)",
-        ]
-    )
-    run = settle_tool(
-        service,
-        run.run_id,
-        token,
-        artifacts,
-        call_id="read-cookiecutter-prompt",
-        name="read_file",
-        status="success",
-        content=content,
-    )
-
+    revision = frozen["retrieval"]["workspace_revision"]
+    for call_id, name, content in (
+        ("retrieve-original", "retrieve_code", canonical_json(frozen["retrieval"])),
+        ("read-original", "read_file", frozen["read"]),
+        ("retrieve-truncated", "retrieve_code", canonical_json(frozen["later_retrieval"])),
+        ("read-again", "read_file", frozen["read"]),
+    ):
+        run = settle_tool(
+            service,
+            run.run_id,
+            token,
+            artifacts,
+            call_id=call_id,
+            name=name,
+            status="success",
+            content=content,
+            revision=revision,
+        )
     snapshot = RunMemoryProjector(artifacts, excerpt_chars=240).project(
         run,
         service.store.events(run.run_id),
-        current_revision=REVISION_A,
-        active_work_item_id="fix-choice",
+        current_revision=revision,
+        active_work_item_id="wi-1",
     )
-
-    excerpt = snapshot.entries[0].excerpt
-    assert excerpt.startswith(TASK_RELEVANT_CODE_PREFIX)
-    assert "user_choice = click.prompt(" in excerpt
-    assert "prompt, type=click.Choice(choices), default=default" in excerpt
-    assert "READ_RANGE path=" not in excerpt
-    assert "return read_user_choice(key" not in excerpt
-    assert "unrelated header line 0" not in excerpt
-    assert len(excerpt) <= 240
+    for entry in snapshot.entries:
+        if entry.tool_name != "read_file":
+            continue
+        assert entry.excerpt.startswith(TASK_RELEVANT_CODE_PREFIX)
+        assert "user_choice = click.prompt(" in entry.excerpt
+        assert "prompt, type=click.Choice(choices), default=default" in entry.excerpt
+        assert "return click.prompt(var_name" not in entry.excerpt
+        assert len(entry.excerpt) <= 240
 
 
 def test_run_memory_preserves_two_ranked_retrieval_chunks_for_replan_context(

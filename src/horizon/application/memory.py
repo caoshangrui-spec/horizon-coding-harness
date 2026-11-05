@@ -4,6 +4,7 @@ import re
 
 from pydantic import ValidationError
 
+from horizon.application.code_evidence import source_excerpt
 from horizon.application.retrieval_control import (
     EVIDENCE_TRANSITION_POLICY,
     RETRIEVAL_QUERY_POLICY,
@@ -15,7 +16,7 @@ from horizon.domain.events import Event
 from horizon.domain.memory import RunMemoryEntry, RunMemorySnapshot
 from horizon.domain.plan import Plan
 from horizon.domain.ports import ArtifactStorePort
-from horizon.domain.retrieval import EvidencePack
+from horizon.domain.retrieval import EvidenceChunk, EvidencePack
 from horizon.domain.run import Run
 from horizon.domain.tools import TOOL_ARGUMENT_POLICY, ToolCallRecord
 
@@ -87,69 +88,12 @@ def _task_relevant_code_excerpt(
     content: str,
     max_chars: int,
     relevance_terms: tuple[str, ...],
+    chunks: tuple[EvidenceChunk, ...] = (),
 ) -> str | None:
-    """Return a bounded line window around the most actionable task match."""
-
-    if max_chars <= len(TASK_RELEVANT_CODE_PREFIX) or not relevance_terms:
-        return None
-    lines = content.splitlines()
-    if not lines:
-        return None
-    scored: list[tuple[int, int, int, int]] = []
-    for index, line in enumerate(lines):
-        if line.lstrip().startswith("READ_RANGE "):
-            continue
-        lowered = line.lower()
-        matches = tuple(term for term in relevance_terms if term in lowered)
-        if not matches:
-            continue
-        # Count independent task concepts instead of every overlapping lexical variant.
-        # ``read_user_choice``, ``user_choice``, and ``choice`` describe one concept on a
-        # definition line, while ``user_choice = click.prompt`` carries three useful
-        # concepts for an edit. This keeps an actionable call site ahead of a distant
-        # symbol marker without increasing the context budget.
-        code_matches = tuple(term for term in matches if "/" not in term and "." not in term)
-        candidates = code_matches or matches
-        independent = tuple(
-            term
-            for term in candidates
-            if not any(term != other and term in other for other in candidates)
-        )
-        strongest = max(independent, key=len)
-        scored.append((len(independent), sum(map(len, independent)), len(strongest), index))
-    if not scored:
-        return None
-    *_, center = max(scored, key=lambda item: (*item[:-1], -item[-1]))
-    available = max_chars - len(TASK_RELEVANT_CODE_PREFIX)
-    start = end = center
-    before_blocked = after_blocked = False
-    while not (before_blocked and after_blocked):
-        progressed = False
-        if not after_blocked:
-            if end + 1 >= len(lines):
-                after_blocked = True
-            else:
-                rendered = "\n".join(lines[start : end + 2])
-                if len(rendered) <= available:
-                    end += 1
-                    progressed = True
-                else:
-                    after_blocked = True
-        if not before_blocked:
-            if start == 0:
-                before_blocked = True
-            else:
-                rendered = "\n".join(lines[start - 1 : end + 1])
-                if len(rendered) <= available:
-                    start -= 1
-                    progressed = True
-                else:
-                    before_blocked = True
-        if not progressed and before_blocked and after_blocked:
-            break
-    selected = lines[start : end + 1]
-    excerpt = TASK_RELEVANT_CODE_PREFIX + "\n".join(selected)
-    return excerpt[:max_chars]
+    selected = source_excerpt(
+        content, max_chars - len(TASK_RELEVANT_CODE_PREFIX), relevance_terms, chunks
+    )
+    return TASK_RELEVANT_CODE_PREFIX + selected[2] if selected is not None else None
 
 
 def _kind(tool_name: str) -> str:
@@ -178,11 +122,12 @@ def _bounded_evidence_excerpt(
     content: str,
     max_chars: int,
     relevance_terms: tuple[str, ...],
+    chunks: tuple[EvidenceChunk, ...] = (),
 ) -> str:
     if max_chars == 0:
         return ""
     if record.name == "read_file" and record.status == "success":
-        relevant = _task_relevant_code_excerpt(content, max_chars, relevance_terms)
+        relevant = _task_relevant_code_excerpt(content, max_chars, relevance_terms, chunks)
         if relevant is not None:
             return relevant
     if record.name != "retrieve_code" or record.status != "success":
@@ -241,6 +186,7 @@ class RunMemoryProjector:
         current_revision: str,
         work_item_id: str,
         relevance_terms: tuple[str, ...],
+        chunks: tuple[EvidenceChunk, ...] = (),
     ) -> RunMemoryEntry | None:
         if record.status == "unknown":
             raise IntegrityError("Unknown tool effects cannot be stored as settled observations")
@@ -282,6 +228,7 @@ class RunMemoryProjector:
                 content,
                 self.excerpt_chars,
                 relevance_terms,
+                chunks,
             ),
         )
 
@@ -343,6 +290,7 @@ class RunMemoryProjector:
         passed_items: set[str] = set()
         observed_unknown: set[str] = set()
         relevance_terms = _task_relevance_terms(run, active_work_item_id)
+        retrievals: dict[tuple[str, str], list[EvidenceChunk]] = {}
         for event in events:
             if event.event_type == "TASK_SPEC_AMENDED":
                 current_plan = None
@@ -351,6 +299,7 @@ class RunMemoryProjector:
                 entries.clear()
                 relevant_events.clear()
                 observed_unknown.clear()
+                retrievals.clear()
                 continue
             if event.event_type in {"PLAN_CREATED", "PLAN_REVISED"}:
                 candidate = Plan.model_validate(event.payload["plan"])
@@ -392,6 +341,17 @@ class RunMemoryProjector:
                     continue
                 if current_work_item_id is None:
                     raise IntegrityError("Tool memory has no active work item session")
+                revision = record.workspace_revision_after or record.workspace_revision_before
+                key = (current_work_item_id, revision or "")
+                if record.name == "retrieve_code" and record.status == "success":
+                    assert record.artifact_ref is not None
+                    pack = EvidencePack.model_validate_json(
+                        self.artifacts.read(
+                            record.artifact_ref, max_bytes=MAX_MEMORY_EVIDENCE_BYTES
+                        )
+                    )
+                    if pack.workspace_revision == revision and pack.status == "ok":
+                        retrievals.setdefault(key, []).extend(pack.chunks)
                 entry = self._settled_entry(
                     run,
                     event,
@@ -399,6 +359,7 @@ class RunMemoryProjector:
                     current_revision,
                     current_work_item_id,
                     relevance_terms,
+                    tuple(retrievals.get(key, ())),
                 )
                 if entry is not None:
                     relevant_events.append(event)

@@ -668,9 +668,10 @@ fallback、有效代码编辑或 protected validation。生产修复既保留零
 checkout 上以零费用 Scripted A/B 成功写入并通过 protected validation；这不是模型复跑，也不改写
 真实闭环 `0/17`。第十五轮驱动的首版目标证据修复确实固定了一条 active marker 并阻止空 memory
 派发，第十六轮证明其 lexical anchor 会选错，第十七轮又证明只固定定义仍不足以保留远处修改点。
-新的零费用修复按一行中的独立任务概念数选择修改附近代码，并从中心向前后均衡扩展；真实长 docstring
-回归在同一 240 字符预算下保留 `user_choice = click.prompt(...)` 及其参数行。这仍未获新的付费验证，
-不是模型成功证据。
+关键词计数修复后来被真实输入复核否定：其他函数仍会抢走目标。当前替代实现按函数范围与检索位置
+选择完整语句，防重复判断核对实际请求中的证据。冻结历史中原来丢失目标的 7 次压缩请求离线重建后
+全部保留完整调用；真实源码上的可见性门控测试走到实际写入和 protected validation，旧错误摘录的
+负对照则在写入前失败。详见[纠偏与证据边界](docs/development-progress.md)。这仍不是新真实模型成功证据。
 未来确定性费用拒绝不再留下无 Lease 的 `RUNNING`：控制器会持久化类型化 `BudgetStop`、进入
 `FAILED` 并在 CLI/status 中报告所需与可用金额。新停止还会相邻保存未派发请求的 call/request
 标识、purpose、估算器、请求字节、input cap/ceiling 和 output ceiling，便于零费用回放；unknown

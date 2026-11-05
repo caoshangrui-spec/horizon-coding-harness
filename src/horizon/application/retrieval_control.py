@@ -8,9 +8,10 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from horizon.application.code_evidence import READ_RANGE_HEADER, source_excerpt
 from horizon.domain.common import canonical_json
 from horizon.domain.model import ModelMessage
-from horizon.domain.retrieval import EvidencePack
+from horizon.domain.retrieval import EvidenceChunk, EvidencePack
 
 QUERY_TERM = re.compile(r"[A-Za-z0-9]+")
 STRUCTURED_TERM = re.compile(r"[A-Za-z][A-Za-z0-9_./\\-]*")
@@ -20,10 +21,6 @@ MIN_QUERY_CONTAINMENT = 0.75
 NEIGHBOR_CONTEXT_BEFORE = 20
 NEIGHBOR_CONTEXT_AFTER = 80
 MAX_READ_LINES = 400
-READ_RANGE_HEADER = re.compile(
-    r"\AREAD_RANGE path=(?P<path>.+?) lines=(?P<start>[1-9][0-9]*)-"
-    r"(?P<end>[1-9][0-9]*) total_lines=[1-9][0-9]*\n"
-)
 RETRIEVAL_QUERY_POLICY = "RetrievalQueryPolicy"
 EVIDENCE_TRANSITION_POLICY = "EvidenceTransitionPolicy"
 MIN_IDENTICAL_TARGET_READS = 2
@@ -202,8 +199,13 @@ def _read_excerpt(
     *,
     fallback_start_line: int,
     fallback_end_line: int,
+    terms: tuple[str, ...] = (),
+    chunks: tuple[EvidenceChunk, ...] = (),
 ) -> tuple[int, int, str]:
     content = _normalized_text(turn.content)
+    selected = source_excerpt(content, MAX_TRANSITION_SNIPPET_CHARS, terms, chunks)
+    if selected is not None:
+        return selected
     match = READ_RANGE_HEADER.match(content)
     if match is not None:
         body = content[match.end() :]
@@ -221,11 +223,45 @@ def _read_excerpt(
     return start_line, end_line, content[:MAX_TRANSITION_SNIPPET_CHARS]
 
 
+def evidence_is_visible(snippet: str, messages: Sequence[ModelMessage]) -> bool:
+    """Check the actual request, including JSON-encoded memory, not just artifact refs."""
+    if not snippet.strip():
+        return False
+    normalized = _normalized_text(snippet)
+    escaped = canonical_json(normalized)[1:-1]
+    return any(
+        normalized in _normalized_text(message.content or "") or escaped in (message.content or "")
+        for message in messages
+        if message.role in {"system", "tool"}
+    )
+
+
+def read_evidence_missing(
+    messages: Sequence[ModelMessage],
+    visible_messages: Sequence[ModelMessage],
+    arguments: dict[str, Any],
+) -> bool:
+    """A soft duplicate guard may not withhold a receipt absent from this request."""
+    prior = next(
+        (
+            turn
+            for turn in reversed(list(_settled_tool_turns(messages)))
+            if turn.name == "read_file"
+            and turn.arguments == arguments
+            and READ_RANGE_HEADER.match(_normalized_text(turn.content)) is not None
+        ),
+        None,
+    )
+    return prior is not None and not evidence_is_visible(prior.content, visible_messages)
+
+
 def find_evidence_reacquisition(
     messages: Sequence[ModelMessage],
     current_tool_name: str,
     current_arguments: dict[str, Any],
     workspace_revision: str,
+    *,
+    visible_messages: Sequence[ModelMessage] | None = None,
 ) -> EvidenceTransitionHint | None:
     """Block a third evidence acquisition after exact duplicate target reads.
 
@@ -240,6 +276,12 @@ def find_evidence_reacquisition(
     retrievals: list[tuple[int, dict[str, Any], EvidencePack]] = []
     reads: list[_SettledToolTurn] = []
     for turn in _settled_tool_turns(messages):
+        if turn.name in {"replace_text", "apply_patch", "create_file"}:
+            # A read has no embedded revision. Never carry it across a possible write,
+            # even when that write later reported an error.
+            retrievals.clear()
+            reads.clear()
+            continue
         if turn.name == "retrieve_code":
             try:
                 evidence = EvidencePack.model_validate_json(turn.content)
@@ -303,11 +345,37 @@ def find_evidence_reacquisition(
     repeated_read = next(
         turn for turn in reversed(matching_reads) if turn.content == repeated_content
     )
+    if current_tool_name == "read_file":
+        header = READ_RANGE_HEADER.match(_normalized_text(repeated_read.content))
+        if header is not None:
+            requested_start = current_arguments.get("start_line")
+            requested_end = current_arguments.get("end_line")
+            if requested_start is None and requested_end is None:
+                return None  # A whole-file request can extend the previous bounded read.
+            if requested_start is None and isinstance(requested_end, int):
+                requested_start = max(1, requested_end - 99)
+            if requested_end is None and isinstance(requested_start, int):
+                requested_end = requested_start + 99
+            if (
+                not isinstance(requested_start, int)
+                or isinstance(requested_start, bool)
+                or not isinstance(requested_end, int)
+                or isinstance(requested_end, bool)
+                or requested_start < int(header.group("start"))
+                or requested_end > int(header.group("end"))
+            ):
+                return None
     start_line, end_line, snippet = _read_excerpt(
         repeated_read,
         fallback_start_line=chunk.start_line,
         fallback_end_line=chunk.end_line,
+        terms=tuple(
+            sorted(_structured_terms(latest_evidence.query) | _query_terms(latest_evidence.query))
+        ),
+        chunks=tuple(chunk for _, _, pack in retrievals for chunk in pack.chunks),
     )
+    if not evidence_is_visible(snippet, messages if visible_messages is None else visible_messages):
+        return None
     return EvidenceTransitionHint(
         path=target_path,
         query=latest_evidence.query,

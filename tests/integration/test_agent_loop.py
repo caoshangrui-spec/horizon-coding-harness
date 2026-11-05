@@ -2,6 +2,7 @@ import hashlib
 import io
 import json
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -10,6 +11,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+import yaml
 
 from horizon.adapters.persistence.artifacts import ArtifactStore
 from horizon.adapters.persistence.campaign_budget import CampaignBudgetLedger
@@ -21,7 +23,7 @@ from horizon.application.human import ContextCapacityResumeService, OperatorGuid
 from horizon.application.local_process_supervision import LocalProcessAgentSupervisor
 from horizon.application.model_probe import conservative_input_estimate
 from horizon.application.recovery import RecoveryService
-from horizon.application.retrieval_control import EVIDENCE_TRANSITION_POLICY
+from horizon.application.retrieval_control import EVIDENCE_TRANSITION_POLICY, evidence_is_visible
 from horizon.application.services import HarnessService, LeaseToken
 from horizon.application.supervision import (
     ReapedWorkerBoundary,
@@ -414,6 +416,145 @@ def setup_loop(tmp_path: Path, task_dict, actions, *, plan=None, checker=None):
         config=AgentLoopConfig(max_model_iterations=8, max_output_tokens=256),
     )
     return runner, store, run.run_id, token, workspace, model
+
+
+@pytest.mark.parametrize("lose_target", [False, True], ids=["repaired", "negative-control"])
+def test_cookiecutter_real_source_visibility_gates_edit_and_protected_validation(
+    tmp_path,
+    monkeypatch,
+    lose_target,
+):
+    """A scripted patch is permitted only if its exact preimage reaches the request.
+
+    This tests the Harness path, not whether a real model can invent the patch.
+    The negative control recreates the old wrong-function projection.
+    """
+    fixtures = Path(__file__).parents[1] / "fixtures" / "cookiecutter3"
+    frozen = json.loads((fixtures / "failure-inputs.json").read_text(encoding="utf-8"))
+    manifest = Path(__file__).parents[2] / (
+        "benchmarks/run_ab/full/cookiecutter-3-read-user-choice/real-model-closure-pilot-v3.yaml"
+    )
+    task_data = yaml.safe_load(manifest.read_text(encoding="utf-8"))["task"]
+    preimage = (
+        "    user_choice = click.prompt(\n"
+        "        prompt, type=click.Choice(choices), default=default\n"
+        "    )"
+    )
+
+    class ProtectedSourceCheck:
+        def __init__(self):
+            self.results = []
+
+        def execute(self, workspace, check):
+            args = shlex.split(check.command)
+            # Execute the frozen evaluator outside the model's tool arguments.
+            completed = subprocess.run(
+                [sys.executable, *args[1:]],
+                cwd=workspace,
+                capture_output=True,
+                text=True,
+                timeout=check.timeout_seconds,
+                check=False,
+            )
+            output = completed.stdout + completed.stderr
+            result = AcceptanceResult(
+                check_id=check.id,
+                passed=completed.returncode == 0,
+                exit_code=completed.returncode,
+                timed_out=False,
+                output=output,
+                output_hash=hashlib.sha256(output.encode()).hexdigest(),
+            )
+            self.results.append(result)
+            return result
+
+    actions = [
+        ("retrieve_code", {"query": frozen["retrieval"]["query"]}),
+        ("read_file", {"path": "cookiecutter/prompt.py", "start_line": 1}),
+        (
+            "replace_text",
+            {
+                "path": "cookiecutter/prompt.py",
+                "old": preimage,
+                "new": preimage.replace("default=default", "default=default, show_choices=False"),
+            },
+        ),
+        ("submit", {"summary": "Candidate ready for protected validation"}),
+    ]
+    checker = ProtectedSourceCheck()
+    runner, store, run_id, token, workspace, _ = setup_loop(
+        tmp_path,
+        task_data,
+        actions,
+        plan=Plan.model_validate(frozen["plan"]),
+        checker=checker,
+    )
+    (workspace / "cookiecutter").mkdir()
+    source = (fixtures / "prompt.py.txt").read_text(encoding="utf-8")
+    target = workspace / "cookiecutter/prompt.py"
+    target.write_text(source, encoding="utf-8")
+    assert not checker.execute(workspace, store.get(run_id).task.acceptance[0]).passed
+
+    class VisibilityGatedModel(ScriptedModel):
+        def generate(self, request, trace_id):
+            assert all("show_choices=False" not in (m.content or "") for m in request.messages[:2])
+            if self.actions[0][0] == "replace_text":
+                assert evidence_is_visible(preimage, request.messages), "missing_edit_preimage"
+            return super().generate(request, trace_id)
+
+    model = VisibilityGatedModel(actions)
+    runner.model = model
+    runner.config = AgentLoopConfig(
+        max_model_iterations=9,
+        max_output_tokens=512,
+        max_context_chars=8_000,
+        max_input_tokens=120_000,
+        preserve_recent_context_units=2,
+    )
+    if lose_target:
+        monkeypatch.setattr(
+            "horizon.application.memory._task_relevant_code_excerpt",
+            lambda *args: (
+                "TASK_RELEVANT_CODE\nreturn click.prompt(var_name, default=default_value)"
+            ),
+        )
+        with pytest.raises(AssertionError, match="missing_edit_preimage"):
+            runner.run(run_id, token)
+        assert target.read_text(encoding="utf-8") == source
+        assert len(checker.results) == 1
+        return
+
+    result = runner.run(run_id, token)
+    assert result.status == RunStatus.SUCCEEDED
+    assert len(model.requests) == 4
+    assert [check.passed for check in checker.results] == [False, True]
+    assert [(call.name, call.status) for call in result.tool_calls][-3:] == [
+        ("replace_text", "success"),
+        ("submit", "success"),
+        ("run_check", "success"),
+    ]
+    assert target.read_text(encoding="utf-8") == source.replace(
+        preimage,
+        actions[2][1]["new"],
+        1,
+    )
+    reservations = [
+        e.payload["reservation"]
+        for e in store.events(run_id)
+        if e.event_type == "MODEL_CALL_RESERVED"
+    ]
+    for reservation, request in zip(reservations, model.requests, strict=True):
+        projection = ContextProjection.model_validate_json(
+            runner.session_store.read(reservation["context_projection_ref"])
+        )
+        assert projection.messages == request.messages
+        assert projection.projected_chars <= 8_000
+    edited_projection = ContextProjection.model_validate_json(
+        runner.session_store.read(reservations[2]["context_projection_ref"])
+    )
+    assert edited_projection.compacted
+    replayed = SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id))
+    assert projection_hash(replayed) == projection_hash(result)
 
 
 def test_agent_open_breaker_blocks_before_reservation_and_dispatch(tmp_path, task_dict):
@@ -1541,6 +1682,34 @@ def test_no_progress_guard_blocks_third_identical_action_then_allows_progress(
     assert "already settled 2 consecutive times" in denial
     assert "NoProgressPolicy" in (model.requests[3].messages[0].content or "")
     assert result.failure_reason is None
+
+
+def test_compacted_away_read_can_be_reacquired_but_hard_stop_remains(tmp_path, task_dict):
+    action = ("read_file", {"path": "src/parser.py", "start_line": 1, "end_line": 100})
+    runner, store, run_id, token, workspace, model = setup_loop(
+        tmp_path,
+        task_dict,
+        [action] * 5,
+    )
+    # Force a receipt larger than the request window with no pinned code memory.
+    (workspace / "src/parser.py").write_text(
+        "\n".join(f"# source {i} " + "x" * 90 for i in range(100)),
+        encoding="utf-8",
+    )
+    runner.config = AgentLoopConfig(
+        max_context_chars=8_000,
+        preserve_recent_context_units=2,
+        run_memory_excerpt_chars=0,
+    )
+    result = runner.run(run_id, token)
+    reads = [call for call in result.tool_calls if call.name == "read_file"]
+    assert [call.status for call in reads] == ["success", "success", "success", "error", "error"]
+    assert len(model.requests) == 5
+    assert result.status == RunStatus.WAITING_FOR_USER
+    assert result.pending_human_request.reason_code == "repeated_action_no_progress"
+    assert projection_hash(SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id))) == (
+        projection_hash(result)
+    )
 
 
 def test_near_duplicate_retrieval_reuses_rank_one_path_before_dispatch(

@@ -215,7 +215,8 @@ def test_evidence_transition_uses_repeated_read_when_rank_one_chunk_misses_edit_
     )
 
     assert hint is not None
-    assert (hint.start_line, hint.end_line) == (1, 58)
+    body = read_content.splitlines()[1:]
+    assert hint.snippet == "\n".join(body[hint.start_line - 1 : hint.end_line])
     assert '"root": {"level": "INFO"' in hint.snippet
     assert not hint.snippet.startswith('        "formatter": "access"')
     assert "Edit-ready repeated-read evidence" in hint.detail

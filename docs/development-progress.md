@@ -6,6 +6,28 @@
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
 
+## 2026-11-05 四项纠偏：以真实输入和请求可见性验收主链
+
+- 纠正先前结论：`2b33a6a` 的关键词计数修复仅通过了简化测试。在冻结的真实文件和真实 Plan 上，
+  它仍选中 `read_user_variable`，不能称为目标连续性已经修复。旧付费结果、Trace、预算均未修改。
+- 源码选择现在优先限制到明确命名的函数/类范围及经过逐行核对的检索位置；Python 语句按 AST
+  保留完整调用，非完整语法回退到整行窗口。检索锚点按 WorkItem/revision 隔离；过长语句不伪造完整片段。
+- 防重复判断读取该次模型请求已保存的 projection，而非仅凭完整历史。目标不在请求中时不强迫编辑；
+  更大读取范围允许取证。软防重复允许一次丢失回执的重新读取，随后保留两次拒绝回执与 HITL 硬停止；
+  不放宽路径、CAS、费用、总调用次数或 protected validation。
+- 回归保留上游完整 242 行文件（含其他 prompt 函数）、真实 Plan 和原始工具回执，附 BSD 许可证。
+  原始 read 回执 SHA-256 仍为 `f5c8c0cea0182437e26f83741a0d3815a423cde546e179e4cf1d77e2730fe9e0`。
+  离线重建冻结 Run 的 9 次执行上下文：第 1 次尚无代码，第 2 次保留目标；原来丢失目标的第 3–9 次
+  现在全部保留完整调用（7/7），大小 7,237–7,989 字符，未提高 8,000 字符上限。
+- 端到端验收不是盲放预设补丁：测试 Provider 先检查实际 ModelRequest 中存在完整修改前代码，
+  才能提交测试补丁。上游原文件的冻结验收命令先失败，实际写入后由控制器执行通过，Trace 重放一致。
+  故意注入旧的错误摘录时，同一测试会在编辑前失败。该检查在本地隔离测试目录执行，不是本轮 Docker 证据。
+- 推进重点收敛到上述主链。不扩充无关案例或多角色流程；测试成功仅表述为 Harness 离线证据，
+  不新增付费 Run、不把 scripted 结果加入真实成功率。真实闭环仍为 `0/17`，再次真实验证需新授权。
+
+核心回归：`tests/unit/test_code_evidence.py`、`tests/integration/test_run_memory.py`、
+`test_agent_loop.py` 中的 `cookiecutter_real_source` 与 `compacted_away_read`。
+
 ## 2026-11-05 Cookiecutter-3 real-closure Run：真实长函数再次暴露目标截断
 
 - 按唯一授权执行 Run `run_ce0776dae9024162a88d73a42b67fcb2`；独立 Run/Campaign 上限均为
@@ -19,10 +41,8 @@
 - 95-event Trace 与 terminal EvidencePack 离线重放/验证通过，无 open/unknown effect 或 reservation。
   冻结结果见
   [`real-model-closure-cookiecutter3-result-v3.yaml`](../benchmarks/real-model-closure-cookiecutter3-result-v3.yaml)。
-- 新的零费用修复不增加上下文预算：重叠 lexical term 只算一个概念，优先选择含多个独立任务概念的
-  代码行，并围绕中心前后均衡扩展。贴近真实长函数的 240 字符回归现在保留 `click.prompt` 调用与
-  参数行。该回归不是付费模型成功证据；当前累计 17 Runs、95 个已结算调用、`CNY 0.8379858`，
-  真实闭环仍为 `0/17`。
+- 当时的零费用关键词计数修复只在简化回归上保留调用与参数行；后续真实回执复核推翻了“已修复”的
+  推断，纠正与替代实现见上节。累计 17 Runs、95 个已结算调用、`CNY 0.8379858`，真实闭环仍为 `0/17`。
 
 ## 2026-11-05 Cookiecutter-3 post-fix Run：首版连续性修复仍选错目标窗口
 
