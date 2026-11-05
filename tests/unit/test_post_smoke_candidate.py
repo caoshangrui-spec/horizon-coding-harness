@@ -456,11 +456,6 @@ def test_thefuck5_failed_model_payload_replay_is_exact_and_zero_spend():
     assert "\r" not in edit.arguments["old"]
     assert "\r" not in edit.arguments["new"]
 
-    fixture = FIRST_CLOSURE_REPLAY_MANIFEST_PATH.parent / manifest.fixture_path
-    source_bytes = (fixture / "thefuck" / "rules" / "git_push.py").read_bytes()
-    assert b"\r\n" in source_bytes
-    assert b"\n" not in source_bytes.replace(b"\r\n", b"")
-
     assert result["classification"] == "zero_spend_post_hoc_harness_regression"
     assert result["scope"] == {
         "paid_model_called": False,
@@ -471,6 +466,9 @@ def test_thefuck5_failed_model_payload_replay_is_exact_and_zero_spend():
         "included_in_original_smoke_aggregate": False,
     }
     assert source["run_id"] == "run_9695db52a95740a5a71ef02bf2b9910d"
+    assert source["target_path"] == "thefuck/rules/git_push.py"
+    assert source["model_fragment_line_ending"] == "LF"
+    assert source["source_file_line_ending"] == "CRLF"
     assert source["original_tool_status"] == "error"
     assert source["original_workspace_effect"] is False
     assert replay["manifest_digest"] == manifest.sha256
