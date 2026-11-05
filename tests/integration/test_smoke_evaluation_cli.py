@@ -28,7 +28,7 @@ def test_smoke_preflight_cli_is_offline_and_persists_report(tmp_path):
     report = payload["report"]
     assert report["suite_id"] == "bugsinpy-real-model-smoke-v1"
     assert report["manifest_digest"] == (
-        "2c8ca4da9b88ab047944cdbce98537c8ab017f4a5a6236da1067c53759453554"
+        "c322219c15f7c0456f150ea120ff2e521efea83f1ee6f8de84fd94ebbd0f3d73"
     )
     assert report["task_count"] == 5
     assert report["unique_project_count"] == 5
@@ -40,7 +40,7 @@ def test_smoke_preflight_cli_is_offline_and_persists_report(tmp_path):
     assert report["external_cost_cny"] == 0
 
     report_ref = payload["report_ref"]
-    assert report_ref == "bc297aaaf85e8bd600198f333f6af23b03396f55dcbd5ee893cbd7c9133bc6e7"
+    assert report_ref == "ccbd7ab14f7eab3680ad592f3241b4c51e80efd4e278261d98ed701ea72fdc30"
     report_path = state / "artifacts" / report_ref[:2] / report_ref
     persisted = json.loads(report_path.read_text(encoding="utf-8"))
     assert persisted == report

@@ -1,10 +1,10 @@
-# 完整上游 Checkout Suite：BugsInPy 二十二案例、九项目
+# 完整上游 Checkout Suite：BugsInPy 二十三案例、九项目
 
-更新：2026-10-29。v11 原样保留已由公开禁网 Docker 统一通过的 v10 十九个完整 checkout，再加入
-Sanic bug 3、TheFuck bug 5 与 Luigi bug 7。当前共二十二个案例、九个不同项目、6,062 个
-tracked 文件；同一项目的不同 bug 分别计为不同案例，不冒充二十二个独立项目。三个新增案例已通过
-本地完整 Harness 与公开二十二案例统一门。v7 首次公开 run 的 Cookiecutter 符号链接
-拒绝与替换版 12/12 成功均继续保留。每个案例先执行
+更新：2026-11-05。v12 原样保留已由公开禁网 Docker 统一通过的 v11 二十二个完整 checkout，再加入
+Cookiecutter bug 3。当前共二十三个案例、九个不同项目、6,278 个 tracked 文件；同一项目的不同
+bug 分别计为不同案例，不冒充二十三个独立项目。新增案例已通过本地完整 Harness，公开二十三案例
+统一门待本提交 CI 复核。v7 首次公开 run 的 Cookiecutter-1 符号链接拒绝与替换版 12/12 成功均
+继续保留。每个案例先执行
 初始失败门，再运行 Baseline 与单次 replan Treatment。执行使用冻结脚本模型，验证的是 Harness、
 Code RAG、预算、可恢复等待和 Trace 合同，不是模型能力跑分。
 
@@ -43,6 +43,9 @@ Code RAG、预算、可恢复等待和 Trace 合同，不是模型能力跑分�
 - v11：[`bugsinpy-full-checkout-pilot-v11.yaml`](../benchmarks/run_ab/bugsinpy-full-checkout-pilot-v11.yaml)，
   原样保留 v10 十九个 case，再追加 Sanic-3、TheFuck-5 与 Luigi-7，digest
   `4056bd9cf49bf3373685acd0fd0732ea64f24eee4a39e88640d1728dbcf3fc98`。
+- v12：[`bugsinpy-full-checkout-pilot-v12.yaml`](../benchmarks/run_ab/bugsinpy-full-checkout-pilot-v12.yaml)，
+  原样保留 v11 二十二个 case，再追加 Cookiecutter-3，digest
+  `89a124b58e42dd37a36ef21bc19278d9871e8c525658a23a734ae20ab0a04731`。
 
 | Case | Buggy → fixed | 完整 checkout | 保护验收 |
 |---|---|---:|---|
@@ -68,6 +71,7 @@ Code RAG、预算、可恢复等待和 Trace 合同，不是模型能力跑分�
 | [`sanic-3-routes-with-host-full`](../benchmarks/run_ab/full/sanic-3-routes-with-host/manifest.yaml) | [`91f6aba`](https://github.com/sanic-org/sanic/commit/91f6abaa81248189fbcbdf685e8bdcbb7846609f) → [`861e873`](https://github.com/sanic-org/sanic/commit/861e87347a2d373d6ffa387965a6887c83af632c) | 188 files | 内部 URL 只保留 path，外部 URL 默认复用 route host 作为 netloc |
 | [`thefuck-5-git-push-bitbucket-full`](../benchmarks/run_ab/full/thefuck-5-git-push-bitbucket/manifest.yaml) | [`7c858fa`](https://github.com/nvbn/thefuck/commit/7c858fadb3458be829d3d43666ccb46c3ed5b8a0) → [`c205683`](https://github.com/nvbn/thefuck/commit/c205683a8df8a57e2db1e9816a5a7ce3255b08fc) | 359 files | Bitbucket 文本中仅出现 `set-upstream` 时不误触发；真实 `git push --set-upstream` 建议仍匹配 |
 | [`luigi-7-status-wont-override-full`](../benchmarks/run_ab/full/luigi-7-status-wont-override/manifest.yaml) | [`dd1f2ce`](https://github.com/spotify/luigi/commit/dd1f2ce0061e7787166522a3c75339ba4755dd2c) → [`daf9ce9`](https://github.com/spotify/luigi/commit/daf9ce99a3a7ed4227d1564570c5fce8848357e5) | 338 files | 运行中任务只接受 owning worker 的终态更新，其他 worker 不能覆盖状态 |
+| [`cookiecutter-3-read-user-choice-full`](../benchmarks/run_ab/full/cookiecutter-3-read-user-choice/manifest.yaml) | [`5c282f0`](https://github.com/cookiecutter/cookiecutter/commit/5c282f020a8db7e5e7c4e7b51b010556ca31fb7f) → [`7129d47`](https://github.com/cookiecutter/cookiecutter/commit/7129d474206761a6156925db78eee4b62a0e3944) | 216 files | 保留 Cookiecutter 自己的编号列表，同时禁止 Click 再追加一份 choices |
 
 缺陷元数据来自 [BugsInPy](https://github.com/soarsmu/BugsInPy)。执行前 CLI 会拒绝以下任一情况：
 
@@ -220,14 +224,18 @@ $luigiStatus = "benchmarks/run_ab/full/luigi-7-status-wont-override/fixture"
 git clone --filter=blob:none --no-checkout https://github.com/spotify/luigi.git $luigiStatus
 git -C $luigiStatus checkout --detach dd1f2ce0061e7787166522a3c75339ba4755dd2c
 
+$cookiecutterChoice = "benchmarks/run_ab/full/cookiecutter-3-read-user-choice/fixture"
+git clone --filter=blob:none --no-checkout https://github.com/cookiecutter/cookiecutter.git $cookiecutterChoice
+git -C $cookiecutterChoice checkout --detach 5c282f020a8db7e5e7c4e7b51b010556ca31fb7f
+
 uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
-  benchmarks/run_ab/bugsinpy-full-checkout-pilot-v11.yaml `
+  benchmarks/run_ab/bugsinpy-full-checkout-pilot-v12.yaml `
   --image python:3.12-alpine `
-  --state-dir .horizon/run-ab-suite-full-twenty-two-v11
+  --state-dir .horizon/run-ab-suite-full-twenty-three-v12
 ```
 
 前三个直接导入类案例（tqdm、youtube-dl、PySnooper）运行完整 checkout 中的真实生产代码；
-PySnooper 只为 Python 3.12 注入历史 `collections` 标准库别名，不修改被测逻辑。另外十九个案例为
+PySnooper 只为 Python 3.12 注入历史 `collections` 标准库别名，不修改被测逻辑。另外二十个案例为
 避免安装历史依赖栈，使用标准库 AST 从真实生产文件提取目标函数或类后执行：Luigi 验证 `MetricsHandler` 的 collector
 所有权；FastAPI 以最小 stdlib 假对象执行真实 `create_cloned_field`，验证嵌套字段不再复用原对象；
 Tornado 执行真实 handler/protocol 方法，验证抽象合同以及 handler → protocol → stream 的 nodelay
@@ -237,12 +245,13 @@ Tornado 执行真实 handler/protocol 方法，验证抽象合同以及 handler 
 logging config assignment、`get_all_executables` 与 `BeamDataflowJobTask.get_target_path`；v9 新增两例执行真实
 `KeyValueType` 与 client/server chunking predicate；v10 新增两例执行真实 filename helpers 与
 static range predicate/normalizer；v11 新增三例执行真实 `Sanic.url_for`、`git_push.match` 与
-`Scheduler.add_task` 状态谓词。它们不是文本 marker 检查，但也
+`Scheduler.add_task` 状态谓词；v12 执行真实 `read_user_choice` 并以 Click-compatible fake 观察调用
+参数。它们不是文本 marker 检查，但也
 不运行各项目原 Python 版本和完整依赖矩阵，不能替代官方 BugsInPy runner。
 
 ## 3. 当前 A/B 证据
 
-### 3.1 v11 三种失效模式的本地与公开证据
+### 3.1 v11 三种失效模式与 v12 Cookiecutter-3 证据
 
 Sanic-3、TheFuck-5 与 Luigi-7 均来自 2026-10-24 在补丁揭示前冻结的 development 选择；holdout
 保持密封。三个 exact buggy commit 的保护检查均失败，对应 fixed commit 均通过。本地完整 Harness
@@ -626,7 +635,9 @@ PySnooper bug 3 的 BugsInPy `requirements.txt` 为空，但真实源码导入
 Tornado-4，十九案例、九项目合计 5,177 files；两个新增案例的本地完整 Harness 与公开 19/19
 生产路径均通过。v11 再加入 Sanic-3、TheFuck-5 与 Luigi-7，二十二案例、九项目合计 6,062 files；
 三个新增案例的本地完整 Harness 与公开 22/22 生产路径均通过。TheFuck、Sanic、PySnooper 及
-v7/v8/v9/v10/v11 新增案例来自预冻结检索集合，
+v12 再加入 Cookiecutter-3，二十三案例、九项目合计 6,278 files；新增案例本地完整 Harness 已通过，
+公开 23/23 统一门待当前提交 CI 复核。TheFuck、Sanic、PySnooper 及
+v7/v8/v9/v10/v11/v12 新增案例来自预冻结检索集合，
 但端到端 manifest 是揭示 gold 后制作，不能称为新 holdout。第一次 Windows 六案例联合运行的 4/6、
 PySnooper YAML 缩进失败、v7 Luigi 非唯一锚点失败、Windows 十二案例联合运行的 CRLF/长路径失败，
 以及公开 Cookiecutter 符号链接拒绝均保留，不用后续成功覆盖负结果。
@@ -634,7 +645,7 @@ PySnooper YAML 缩进失败、v7 Luigi 非唯一锚点失败、Windows 十二案
 
 - 这是 BugsInPy 官方分数、原 Python 版本或完整依赖环境的测试结果；
 - 脚本模型证明真实模型能自主生成查询、定位缺陷或选择 replan；
-- 22 个作者选择案例足以估计泛化成功率、误触发率或成本收益。
+- 23 个作者选择案例足以估计泛化成功率、误触发率或成本收益。
 
 后续增量已把 youtube-dl、Luigi 与 FastAPI 扩展为[三阶段完整 checkout](multi-stage-full-checkout-pilot.md)，
 每条 arm 均跨两个持久边界到 epoch 3，联合观察上下文、Memory、检索、replan 与恢复；v4 本地可信

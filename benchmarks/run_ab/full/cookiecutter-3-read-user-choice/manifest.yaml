@@ -1,0 +1,104 @@
+schema_version: 1
+benchmark_id: cookiecutter-3-read-user-choice-full
+fixture_path: fixture
+
+task:
+  task_id: cookiecutter-read-user-choice-full
+  title: Avoid rendering choice values twice
+  objective: Keep Cookiecutter's numbered prompt while preventing Click from appending its own choice list
+  repository:
+    source: local
+    path: /fixture
+    base_commit: 5c282f020a8db7e5e7c4e7b51b010556ca31fb7f
+  constraints:
+    allowed_paths: [cookiecutter/**]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+  acceptance:
+    - id: cookiecutter-read-user-choice-full
+      command: >-
+        python -B -c "import ast; from pathlib import Path; from collections import OrderedDict; from types import SimpleNamespace; tree=ast.parse(Path('cookiecutter/prompt.py').read_text(encoding='utf-8')); fn=next(item for item in tree.body if isinstance(item,ast.FunctionDef) and item.name=='read_user_choice'); calls=[]; click=SimpleNamespace(Choice=lambda choices: tuple(choices),prompt=lambda prompt,**kwargs: (calls.append((prompt,kwargs)) or '1')); namespace={'OrderedDict':OrderedDict,'click':click}; exec(compile(ast.Module(body=[fn],type_ignores=[]),'cookiecutter/prompt.py','exec'),namespace); assert namespace['read_user_choice']('varname',['hello','world'])=='hello'; assert calls[-1][1].get('show_choices') is False,calls[-1]"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 16
+    max_model_calls: 12
+    max_tool_calls: 16
+    max_wall_time_seconds: 600
+    max_cost_usd: "1.00"
+    max_input_tokens: 100000
+    max_output_tokens: 5000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+
+initial_plan:
+  version: 1
+  items:
+    - work_item_id: locate-read-user-choice-full
+      title: Locate the duplicated choice rendering
+      objective: Retrieve revision-bound evidence before changing the Click prompt call
+      dependencies: []
+      expected_artifacts: [Code EvidencePack, cookiecutter-read-user-choice-full receipt]
+      acceptance_ids: [cookiecutter-read-user-choice-full]
+      allowed_tools: [retrieve_code]
+
+expected_initial_failed_checks: [cookiecutter-read-user-choice-full]
+
+arms:
+  - arm_id: no-replan
+    role: baseline
+    description: Continue the stalled source retrieval until deterministic guidance is required.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items: []
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 4
+    expected_tool_calls: 4
+    expected_steps: 4
+    actions:
+      - &retrieve_target
+        tool: retrieve_code
+        arguments:
+          query: read_user_choice click prompt show choices twice
+          max_chunks: 8
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+
+  - arm_id: single-replan
+    role: single_replan
+    description: Replace the stalled investigation with the bounded Click rendering repair.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items: [repair-read-user-choice-full]
+    expected_model_calls: 6
+    expected_tool_calls: 7
+    expected_steps: 7
+    actions:
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+      - tool: revise_plan
+        arguments:
+          reason: Repeated retrieval exposed the prompt call; preserve Cookiecutter's formatted list and suppress Click's duplicate list.
+          items:
+            - work_item_id: repair-read-user-choice-full
+              title: Suppress duplicate Click choices
+              objective: Pass show_choices=False without changing Cookiecutter's numbered prompt or selected value
+              dependencies: []
+              expected_artifacts: [cookiecutter/prompt.py, cookiecutter-read-user-choice-full receipt]
+              acceptance_ids: [cookiecutter-read-user-choice-full]
+              allowed_tools: [retrieve_code, replace_text, run_check]
+      - tool: replace_text
+        arguments:
+          path: cookiecutter/prompt.py
+          old: "        prompt, type=click.Choice(choices), default=default"
+          new: "        prompt, type=click.Choice(choices), default=default, show_choices=False"
+      - tool: submit
+        arguments:
+          summary: Suppressed Click's duplicate choice rendering and ran the protected prompt regression check.

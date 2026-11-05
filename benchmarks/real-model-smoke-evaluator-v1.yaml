@@ -1,7 +1,7 @@
 schema_version: 1
 evaluator_id: bugsinpy-real-model-smoke-evaluator-v1
 suite_id: bugsinpy-real-model-smoke-v1
-suite_digest: 2c8ca4da9b88ab047944cdbce98537c8ab017f4a5a6236da1067c53759453554
+suite_digest: c322219c15f7c0456f150ea120ff2e521efea83f1ee6f8de84fd94ebbd0f3d73
 model_visible: false
 
 # These regions are evaluator-only coordinates in each exact buggy checkout. They are never

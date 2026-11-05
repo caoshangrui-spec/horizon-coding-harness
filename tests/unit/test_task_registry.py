@@ -24,7 +24,7 @@ def test_frozen_independent_task_registry_has_honest_offline_readiness_baseline(
         registry_path=REGISTRY_PATH,
     )
 
-    assert registry.sha256 == "8779c1effc8dee794322c7530e171b78ab5df89995086fcf7d5c1e69a1b1acbe"
+    assert registry.sha256 == "17bbbed8db086bafffbaba700d5807d0afd2d954a5f31a78b424bbd1b14b5c04"
     assert report.preflight_passed is True
     assert report.task_count == 24
     assert report.unique_source_task_count == 24
@@ -34,10 +34,10 @@ def test_frozen_independent_task_registry_has_honest_offline_readiness_baseline(
     assert report.metadata_only_source_count == 8
     assert report.public_historical_initial_failure_count == 15
     assert report.benchmark_declared_initial_failure_count == 9
-    assert report.execution_manifest_count == 15
-    assert report.full_checkout_manifest_count == 14
+    assert report.execution_manifest_count == 16
+    assert report.full_checkout_manifest_count == 15
     assert report.dependency_reduced_manifest_count == 1
-    assert report.not_prepared_execution_count == 9
+    assert report.not_prepared_execution_count == 8
     assert report.historical_run_status_reverified_online is False
     assert report.paid_model_called is False
     assert report.network_called is False

@@ -77,6 +77,8 @@ tasks:
   selection_reason: Preserved from the pre-reveal 2026-10-24 development partition; distinct BugsInPy project+bug identity; no post-freeze filtering.
   evidence:
     source_recipe_manifest: retrieval/external-development-v3/source-materialization.yaml
+    execution_suite_manifest: run_ab/bugsinpy-full-checkout-pilot-v12.yaml
+    execution_case_id: cookiecutter-3-read-user-choice-full
 - partition: development
   project: httpie
   bug_id: '1'

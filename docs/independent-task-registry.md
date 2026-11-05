@@ -1,6 +1,6 @@
 # 24 条独立真实任务注册表与零费用预检
 
-更新：2026-10-29。
+更新：2026-11-05。
 
 本批把已经冻结的 BugsInPy 外部定位集合整理为一份可机读、可交叉验证的独立任务注册表：
 [`benchmarks/independent-tasks-v1.yaml`](../benchmarks/independent-tasks-v1.yaml)。注册表原样保留
@@ -64,15 +64,16 @@ uv run --locked --cache-dir .uv-cache horizon eval task-registry-preflight `
 | development / holdout | 16 / 8 |
 | 有源码物化配方 / 仅元数据 | 16 / 8 |
 | 绑定公开历史初始失败证据 / 仅 benchmark 声明 | 15 / 9 |
-| 完整 checkout manifest | 14 |
+| 完整 checkout manifest | 15 |
 | 依赖裁剪 manifest | 1 |
-| 尚未准备执行 manifest | 9 |
+| 尚未准备执行 manifest | 8 |
 | 本次模型调用 / 网络调用 / 仓库代码执行 | 0 / 0 / 0 |
 
-注册表 digest 为
-`8779c1effc8dee794322c7530e171b78ab5df89995086fcf7d5c1e69a1b1acbe`；预检 report ref 为
-`4749677f5f10551057c1701cc3a0bbfe90c86697e259b3ddf826f1bd6cd3fac0`。它绑定的原始选择
-digest 为 `7789f0c7e9cbd63afe23c523627a1c3921facc97dda4df74c19b140a3b20f9c7`。
+注册表 digest 现为
+`17bbbed8db086bafffbaba700d5807d0afd2d954a5f31a78b424bbd1b14b5c04`。它绑定的原始选择
+digest 仍为 `7789f0c7e9cbd63afe23c523627a1c3921facc97dda4df74c19b140a3b20f9c7`；新增的只是已冻结
+Cookiecutter-3 身份的执行证据，不改变任务选择。更新后的零费用预检 report ref 为
+`e155e5caf23e59e8cd1bb6a6077c074c775e26f6dabc9705845735475ef0e87e`。
 
 ## 4. 当前能说什么，不能说什么
 
@@ -80,7 +81,7 @@ digest 为 `7789f0c7e9cbd63afe23c523627a1c3921facc97dda4df74c19b140a3b20f9c7`。
 
 - 已固定 24 个不重复的公开 BugsInPy 缺陷身份；
 - 来源、commit、许可证、失败测试、分区和现有证据引用可以离线交叉验证；
-- 其中 15 条已有 Harness 执行 manifest，14 条为完整 checkout、1 条为依赖裁剪；
+- 其中 16 条已有 Harness 执行 manifest，15 条为完整 checkout、1 条为依赖裁剪；
 - 这份报告可以作为后续批量执行的确定性输入基线。
 
 不能说：
@@ -94,8 +95,7 @@ digest 为 `7789f0c7e9cbd63afe23c523627a1c3921facc97dda4df74c19b140a3b20f9c7`。
 
 ## 5. 下一批最短路径
 
-当前 development 已有 15/16 条执行 manifest。唯一剩余的 Cookiecutter-3 候选 checkout 含 7 个
-tracked 文档符号链接，生产快照安全门按既有合同拒绝 links/junctions；本批没有排除链接、改写上游
-内容或放宽安全门来凑齐 16/16。其余 8 条 `not_prepared` 全部属于仍密封的 holdout，不物化、不揭示
-patch 或 gold path。下一步应先决定是否为 Cookiecutter-3 设计不降低安全性的来源包装；真实模型
-预算仍需单独明确授权。
+development 现有 16/16 条执行 manifest。复核证明旧记录中的 7 个 tracked 文档符号链接属于
+Cookiecutter-1 的 `c156337...`，Cookiecutter-3 的 exact buggy tree 为 0 个 symlink；因此新增完整
+checkout 不需要排除文件、改写上游内容或放宽安全门。其余 8 条 `not_prepared` 全部属于仍密封的
+holdout，不物化、不揭示 patch 或 gold path。真实模型预算仍需单独明确授权。

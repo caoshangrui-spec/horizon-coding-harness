@@ -2,7 +2,7 @@ schema_version: 1
 suite_id: bugsinpy-real-model-smoke-v1
 frozen_at: '2026-10-30'
 registry_path: independent-tasks-v1.yaml
-registry_digest: 8779c1effc8dee794322c7530e171b78ab5df89995086fcf7d5c1e69a1b1acbe
+registry_digest: 17bbbed8db086bafffbaba700d5807d0afd2d954a5f31a78b424bbd1b14b5c04
 selection_scope: known_easy_development_smoke
 patch_content_included: false
 gold_paths_included: false

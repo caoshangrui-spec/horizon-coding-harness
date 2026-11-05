@@ -138,8 +138,9 @@ uv run --locked --cache-dir .uv-cache horizon eval smoke-preflight `
 | 外部费用 | CNY 0 |
 
 suite digest 为
-`2c8ca4da9b88ab047944cdbce98537c8ab017f4a5a6236da1067c53759453554`，内容寻址 report ref 为
-`bc297aaaf85e8bd600198f333f6af23b03396f55dcbd5ee893cbd7c9133bc6e7`。预检只读本仓库 YAML 并写入
+`c322219c15f7c0456f150ea120ff2e521efea83f1ee6f8de84fd94ebbd0f3d73`，内容寻址 report ref 为
+`ccbd7ab14f7eab3680ad592f3241b4c51e80efd4e278261d98ed701ea72fdc30`。该 digest 仅因
+Cookiecutter-3 执行证据回填而刷新，原五任务成员未变。预检只读本仓库 YAML 并写入
 ArtifactStore；不会物化或执行第三方仓库，也不会在线重验历史 GitHub Run。
 
 ## 7. 付费运行仍缺什么

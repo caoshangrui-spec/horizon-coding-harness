@@ -16,6 +16,7 @@ on:
       - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v9.yaml"
       - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v10.yaml"
       - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v11.yaml"
+      - "benchmarks/run_ab/bugsinpy-full-checkout-pilot-v12.yaml"
       - "benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v1.yaml"
       - "benchmarks/run_ab/bugsinpy-multi-stage-hard-crash-v2.yaml"
       - "benchmarks/run_ab/bugsinpy-multi-stage-pilot-v*.yaml"
@@ -30,11 +31,13 @@ on:
       - "benchmarks/run_ab/full/httpie-4-host-header-overwrite/real-model-pilot.yaml"
       - "benchmarks/run_ab/full/**/real-model-smoke-candidate-v1.yaml"
       - "benchmarks/run_ab/full/**/real-model-post-smoke-candidate-v1.yaml"
+      - "benchmarks/run_ab/full/**/real-model-first-closure-candidate-v1.yaml"
       - "benchmarks/run_ab/full/sanic-2-asyncio-start-serving/real-model-smoke-pilot-v1.yaml"
       - "benchmarks/run_ab/full/sanic-5-root-logger-config/real-model-evidence-transition-pilot-v2.yaml"
       - "benchmarks/run_ab/full/thefuck-5-git-push-bitbucket/real-model-failed-payload-replay-v1.yaml"
       - "benchmarks/real-model-post-smoke-sanic5-result-v2.yaml"
       - "benchmarks/real-model-post-smoke-thefuck5-payload-replay-v1.yaml"
+      - "benchmarks/real-model-first-closure-cookiecutter3-candidate-v1.yaml"
       - "benchmarks/real-model-smoke-evaluator-v1.yaml"
       - "benchmarks/real-model-smoke-candidate-selection-v1.yaml"
       - "benchmarks/real-model-smoke-candidate-selection-v2.yaml"
@@ -245,6 +248,11 @@ jobs:
             dd1f2ce0061e7787166522a3c75339ba4755dd2c \
             benchmarks/run_ab/full/luigi-7-status-wont-override/fixture \
             338
+          prepare_history_fixture \
+            https://github.com/cookiecutter/cookiecutter.git \
+            5c282f020a8db7e5e7c4e7b51b010556ca31fb7f \
+            benchmarks/run_ab/full/cookiecutter-3-read-user-choice/fixture \
+            216
 
       - name: Verify smoke evaluator regions against exact checkouts
         env:
@@ -442,6 +450,47 @@ jobs:
               json.dumps(evidence, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
               encoding="utf-8",
           )
+          PY
+
+      - name: Verify the Cookiecutter-3 first-closure candidate without spending
+        shell: bash
+        run: |
+          set -euo pipefail
+          state_dir=.horizon/cookiecutter3-first-closure-preflight-v1
+          mkdir -p "$state_dir"
+          uv run --locked horizon eval pilot-preflight \
+            benchmarks/run_ab/full/cookiecutter-3-read-user-choice/real-model-first-closure-candidate-v1.yaml \
+            --image python:3.12-alpine \
+            --config config/providers/siliconflow-smoke-candidate-preflight-v1.yaml \
+            --state-dir "$state_dir" \
+            | tee "$state_dir/cli-result.json"
+          uv run --locked python - <<'PY'
+          import json
+          from decimal import Decimal
+          from pathlib import Path
+
+          result = json.loads(
+              Path(
+                  ".horizon/cookiecutter3-first-closure-preflight-v1/cli-result.json"
+              ).read_text(encoding="utf-8")
+          )
+          report = result["report"]
+          if (
+              not report["ready"]
+              or not report["full_checkout_verified"]
+              or not report["initial_failure_matches"]
+              or not report["source_unchanged"]
+              or not report["solution_isolation_passed"]
+              or not report["planning_execution_fits_run_cap"]
+              or not report["planning_execution_fits_campaign"]
+              or Decimal(report["planning_execution_reserved_cost"])
+              > Decimal(report["run_cost_cap"])
+              or report["credential_loaded"]
+              or report["paid_model_called"]
+              or report["network_called"]
+              or not result["requires_paid_confirmation"]
+          ):
+              raise SystemExit("Cookiecutter-3 zero-spend preflight contract failed")
           PY
 
       - name: Verify the post-Smoke follow-up candidate without spending
@@ -687,16 +736,16 @@ jobs:
             --state-dir "$state_dir" \
             | tee "$state_dir/cli-result.json"
 
-      - name: Run the twenty-two-case full-checkout suite in network-disabled containers
+      - name: Run the twenty-three-case full-checkout suite in network-disabled containers
         shell: bash
         run: |
           set -euo pipefail
-          state_dir=.horizon/full-checkout-docker-v11
+          state_dir=.horizon/full-checkout-docker-v12
           mkdir -p "$state_dir"
           docker image inspect python:3.12-alpine --format '{{.Id}}'
           set +e
           uv run --locked horizon eval run-ab-suite \
-            benchmarks/run_ab/bugsinpy-full-checkout-pilot-v11.yaml \
+            benchmarks/run_ab/bugsinpy-full-checkout-pilot-v12.yaml \
             --image python:3.12-alpine \
             --state-dir "$state_dir" \
             2>&1 | tee "$state_dir/cli-result.json"
@@ -1019,7 +1068,7 @@ jobs:
             .horizon/docker-worker-crash-evidence
             .horizon/docker-worker-crash-cli.json
             .horizon/reduced-docker-v2
-            .horizon/full-checkout-docker-v11
+            .horizon/full-checkout-docker-v12
             .horizon/thefuck5-failed-payload-replay-v1
             .horizon/thefuck2-retrieval-reuse-v1
             .horizon/luigi2-one-sided-read-recovery-v1
@@ -1030,6 +1079,7 @@ jobs:
             .horizon/smoke-candidate-preflight-v1/selection-evidence.json
             .horizon/post-smoke-candidate-preflight-v1/*/cli-result.json
             .horizon/post-smoke-candidate-preflight-v1/selection-evidence.json
+            .horizon/cookiecutter3-first-closure-preflight-v1/cli-result.json
             .horizon/sanic5-evidence-transition-preflight-v2/cli-result.json
             .horizon/sanic5-evidence-transition-preflight-v2/public-evidence.json
           if-no-files-found: warn
@@ -1080,7 +1130,7 @@ jobs:
               Path(".horizon/reduced-docker-v2/cli-result.json").read_text(encoding="utf-8")
           )
           full = json.loads(
-              Path(".horizon/full-checkout-docker-v11/cli-result.json").read_text(
+              Path(".horizon/full-checkout-docker-v12/cli-result.json").read_text(
                   encoding="utf-8"
               )
           )
@@ -1237,10 +1287,10 @@ jobs:
                   == reliability["terminal_success_count"]
                   for reliability in suite_reliability
               )
-              and full_report["case_count"] == 22
-              and full_report["passed_case_count"] == 22
-              and full_report["initial_failure_confirmed_count"] == 22
-              and full_report["treatment_recovered_count"] == 22
+              and full_report["case_count"] == 23
+              and full_report["passed_case_count"] == 23
+              and full_report["initial_failure_confirmed_count"] == 23
+              and full_report["treatment_recovered_count"] == 23
               and hard_crash_report["case_count"] == 2
               and hard_crash_report["passed_case_count"] == 2
               and hard_crash_report["initial_failure_confirmed_count"] == 2
@@ -1251,7 +1301,7 @@ jobs:
               and reduced_reliability["quality_flagged_terminal_success_count"] == 0
               and reduced_reliability["retrieval_degraded_arm_count"] == 0
               and reduced_reliability["required_check_failure_arm_count"] == 0
-              and full_reliability["unknown_acceptance_arm_count"] == 22
+              and full_reliability["unknown_acceptance_arm_count"] == 23
               and full_reliability["retrieval_degraded_arm_count"] > 0
               and full_reliability["quality_flagged_terminal_success_count"] > 0
               and full_reliability["required_check_failure_arm_count"] == 0

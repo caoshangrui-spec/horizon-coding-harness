@@ -79,13 +79,14 @@ digest 没有被改写。
 | `bugsinpy-full-checkout-pilot-v9` | v8 十五例 + HTTPie-5、Tornado-2 | 17 | 9 个项目、4,806 tracked files；两个新增案例的本地 buggy/candidate 保护探针通过；公开 run `40794561712` 已通过 17/17 |
 | `bugsinpy-full-checkout-pilot-v10` | v9 十七例 + HTTPie-1、Tornado-4 | 19 | 9 个项目、5,177 tracked files；两个新增案例的本地完整 Harness 为 2/2；公开 run `40799174668` 已通过 19/19 |
 | `bugsinpy-full-checkout-pilot-v11` | v10 十九例 + Sanic-3、TheFuck-5、Luigi-7 | 22 | 9 个项目、6,062 tracked files；三个新增案例的本地完整 Harness 为 3/3；公开 run `40804131201` 已通过 22/22 |
+| `bugsinpy-full-checkout-pilot-v12` | v11 二十二例 + Cookiecutter-3 | 23 | 9 个项目、6,278 tracked files；新增案例本地完整 Harness 为 1/1；公开 23/23 统一门待当前提交 CI 复核 |
 | `bugsinpy-multi-stage-pilot-v4` | youtube-dl、Luigi、FastAPI | 3 | 每条 arm 为 3 WorkItem、2 次 Worker 重启；合计 6 条 Trace、12 次重启 |
 | `bugsinpy-multi-stage-hard-crash-v2` | Luigi、FastAPI | 2 | v1 的 `replace_text` 原样保留，新增 `create_file`；4 条 arm 均真实写入后、receipt 前退出并继续后续 WorkItem；合计 4 次恢复尝试、12 次重启 |
 
-同一 bug 在不同 suite 中用于不同实验变量，因此不能把当前 32 个场景宣传成 32 个独立真实任务。
-当前 suite 共 32 个 manifest 场景、64 条 arm，现均有公开 Docker 统一验证；历史
-v1/v2/v3/v4/v5/v6/v7 版本不重复累加。
-按 `(benchmark, project, bug_id, buggy_commit)` 去重后，完整 checkout 是 22 个作者选择、gold 揭示后
+同一 bug 在不同 suite 中用于不同实验变量，因此不能把当前 33 个场景宣传成 33 个独立真实任务。
+当前 suite 共 33 个 manifest 场景、66 条 arm；其中 v11 前缀的 32 个场景已有公开 Docker 统一验证，
+v12 新增一例待当前提交 CI 复核。历史 v1/v2/v3/v4/v5/v6/v7 版本不重复累加。
+按 `(benchmark, project, bug_id, buggy_commit)` 去重后，完整 checkout 是 23 个作者选择、gold 揭示后
 制作端到端 manifest 的 development 案例；因此仍没有 20～30 个独立盲测/holdout 真实任务，也没有
 真实模型成功率。32 个场景和 64 条 arm 不能改写成泛化样本量。
 

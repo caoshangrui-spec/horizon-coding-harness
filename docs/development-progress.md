@@ -6,6 +6,28 @@
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
 
+## 2026-11-05 Cookiecutter-3 完整 checkout 与首闭环候选恢复
+
+- 重新核对 exact buggy commit `5c282f020a8db7e5e7c4e7b51b010556ca31fb7f` 的 Git tree 后确认：
+  Cookiecutter-3 有 216 个 tracked files、0 个 mode-120000 条目。旧记录把 Cookiecutter-1
+  `c156337...` 的 7 个文档 symlink 误归到了 Cookiecutter-3；本次保留原负结果，但修正任务归属，
+  没有放宽 link/junction 安全门或排除上游文件。
+- 新增 v12 第 23 个完整 checkout case。初始受保护检查真实失败；Scripted Treatment 在一次
+  evidence-backed/context-bound `replace_text` 后通过 Docker 验证，Trace replay 与 source unchanged
+  均为 true。report ref 为 `5b5c81d8869cc96d23e158cf55fd9bd55a11f64149affa628c31c19992e97d8d`，
+  Treatment Trace ref 为 `b5e6a935bce221724a63baf3adb7214e833ee4b467ad7fb993387a5f88c26746`。
+- 真实模型候选预检使用完整 checkout、`cookiecutter/**` 写边界、禁网 Docker、单请求最多一次且无
+  fallback；初始失败、source unchanged、solution isolation 与累计预算门均通过。planning/execution
+  保守预留为 `CNY 0.034662/0.069528`，累计 `CNY 0.104190 <= 0.120`，report ref 为
+  `52f35d0bf06353176d01a54a8c21f5287352862e7eb403bc3849f554b32c37b9`。本轮未加载凭据、未调用模型；
+  它只是下一候选，不改变真实模型闭环 `0/14`，付费执行仍需新的任务级明确授权。
+- 独立任务注册表只刷新 Cookiecutter-3 的执行证据引用，24 条任务身份与原五任务 Smoke 成员均未
+  改变。对应 registry digest 更新为 `17bbbed8...5c04`，Smoke suite digest 更新为
+  `c322219c...3d73`，零费用 Smoke 结构预检 report ref 更新为 `ccbd7ab1...dc30`；这不是重选题或
+  重算历史付费结果。
+- 本批完整离线回归为 **709 passed，11 skipped**；新增候选的本机 Docker A/B 与零费用 Pilot
+  preflight 均已真实执行。公开 23/23 suite 仍需以本提交触发的 Linux workflow 为准。
+
 ## 2026-11-05 TheFuck-5 真实失败载荷零费用回放闭环
 
 - 从第十四轮付费 Run 的内容寻址 Provider response
@@ -340,8 +362,8 @@
 - 新增 typed `RealModelSmokeSuite`、结构预检服务和 `horizon eval smoke-preflight`。预检拒绝 registry
   digest 漂移、holdout 替换、历史付费任务混入及未授权费用字段；实际报告 5/5 项目与证据通过，
   `paid_launch_ready=false`、模型/网络/仓库执行均为 0、外部费用 CNY 0。suite digest
-  `2c8ca4da9b88ab047944cdbce98537c8ab017f4a5a6236da1067c53759453554`，report ref
-  `bc297aaaf85e8bd600198f333f6af23b03396f55dcbd5ee893cbd7c9133bc6e7`。
+  `c322219c15f7c0456f150ea120ff2e521efea83f1ee6f8de84fd94ebbd0f3d73`，report ref
+  `ccbd7ab14f7eab3680ad592f3241b4c51e80efd4e278261d98ed701ea72fdc30`。
 - 新增 7 项 suite/Pilot unit/CLI 回归均通过，整仓离线回归为 **660 passed，11 skipped**。下一步付费前仍必须
   逐任务绑定 exact Provider/model，并由用户另行授权单 Run 与累计 Campaign CNY 上限；本批没有
   读取 API Key、联网或调用真实模型。

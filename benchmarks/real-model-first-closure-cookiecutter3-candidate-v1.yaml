@@ -1,0 +1,73 @@
+schema_version: 1
+candidate_id: cookiecutter-3-first-closure-candidate-v1
+classification: zero_spend_development_candidate_recovery
+evaluated_at: "2026-11-05"
+
+scope:
+  task_id: cookiecutter-3-read-user-choice
+  paid_model_called: false
+  network_called_by_evaluator: true
+  public_source_metadata_reviewed_online: true
+  retry_or_fallback: false
+  included_in_original_smoke_aggregate: false
+  paid_execution_authorized: false
+
+corrected_evidence:
+  prior_selection_path: real-model-post-smoke-candidate-selection-v1.yaml
+  prior_disposition: rejected_no_full_checkout_manifest
+  buggy_commit: 5c282f020a8db7e5e7c4e7b51b010556ca31fb7f
+  tracked_file_count: 216
+  tracked_symlink_count: 0
+  distinct_cookiecutter_1_symlink_count: 7
+  correction: >-
+    The earlier project note attributed Cookiecutter-1's seven documentation symlinks to the
+    remaining Cookiecutter-3 task. Git tree inspection at Cookiecutter-3's exact buggy commit
+    contains no mode-120000 entries, so its full checkout can be evaluated without weakening
+    the symlink or junction safety boundary.
+
+scripted_ab:
+  suite_path: run_ab/bugsinpy-full-checkout-pilot-v12.yaml
+  manifest_path: run_ab/full/cookiecutter-3-read-user-choice/manifest.yaml
+  manifest_digest: 663c8d28b1e538813fb04a58bc94885df333b0abc131263fbf94bedb109c34cb
+  report_ref: 5b5c81d8869cc96d23e158cf55fd9bd55a11f64149affa628c31c19992e97d8d
+  validation_backend: docker
+  validation_backend_ref: sha256:0687a6bc9716edc2a6ee0fbfb0f87e7ee358b262b67c9215de91bc9b2d38ba71
+  initial_failure_confirmed: true
+  all_expectations_met: true
+  treatment_recovered: true
+  treatment_run_id: run_97651fbea68a4600a225da56eaf5e443
+  treatment_status: SUCCEEDED
+  protected_validation_passed: true
+  successful_write_count: 1
+  evidence_backed_write_count: 1
+  context_bound_write_count: 1
+  trace_replay_verified: true
+  trace_ref: b5e6a935bce221724a63baf3adb7214e833ee4b467ad7fb993387a5f88c26746
+  source_workspace_unchanged: true
+  paid_model_called: false
+  network_called: false
+
+real_model_preflight:
+  manifest_path: run_ab/full/cookiecutter-3-read-user-choice/real-model-first-closure-candidate-v1.yaml
+  provider_policy_path: ../config/providers/siliconflow-smoke-candidate-preflight-v1.yaml
+  report_ref: 52f35d0bf06353176d01a54a8c21f5287352862e7eb403bc3849f554b32c37b9
+  ready: true
+  full_checkout_verified: true
+  initial_failure_observed: true
+  source_unchanged: true
+  solution_isolation_passed: true
+  planning_reserved_cost_cny: "0.034662"
+  bounded_execution_reserved_cost_cny: "0.069528"
+  planning_execution_reserved_cost_cny: "0.104190"
+  proposal_run_cap_cny: "0.120"
+  provider_max_attempts: 1
+  fallback_enabled: false
+  credential_loaded: false
+  paid_model_called: false
+  network_called: false
+
+claim_boundary:
+  - The Scripted A/B proves that the Harness can localize, edit, validate, and replay this exact full-checkout task at zero provider cost.
+  - The real-model preflight proves checkout integrity, initial failure, solution isolation, context sizing, and conservative budget capacity only.
+  - This does not add a real-model success; the historical real-model closure rate remains 0/14.
+  - Any SiliconFlow request requires new explicit task-specific authorization.

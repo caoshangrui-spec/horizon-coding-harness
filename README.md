@@ -145,11 +145,11 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 一键崩溃恢复演示 | 子进程在 `replace_text` 生效后、receipt 前以退出码 86 硬退出；悬空调用先标 unknown，再按精确 manifest 接纳一次并恢复到 epoch 3 | 固定离线脚本与单一写入窗口，不代表任意进程/主机故障恢复 |
 | 有界恢复矩阵 v3 | 21/21；自动恢复 11/11、安全阻塞 10/10、incorrect resume 0、恢复重派/重复副作用 0；含 3 个真实硬退出和 Trace replay | 其余 18 例是生成 fixture 的状态/决策矩阵，不是完整 8 故障点或主机故障验收 |
 | [外部 RAG 定位集 v3](docs/retrieval-evaluation.md#10-24-案例外部定位集与-v030-development-基线) | 先冻结 7 项目 24 个 BugsInPy 案例；当前只揭示 16 个 development，8 个 holdout 仍密封。4 个门控设计案例上，选择性策略把 Hit@8 13/16→16/16、路径 Recall 23/32→30/32；其余 12 个案例的 48 条扩展查询则只有两条 identifier rank 3→2，中文仍为 3/12。新的保守 CJK 候选在 4 条高覆盖查询保持 4/4 Hit、7/8 路径召回，并对 12 条低覆盖中文精确旁路；[历史真实模型查询审计](docs/retrieval-evaluation.md#16-历史真实模型查询形态审计)又从 7 份 Trace 的 10 次检索中哈希确认 6 次、3 种公开查询，均为原样旁路 | 保留原文与直接替换在四例排名完全相同，且这四例参与过词表设计；低覆盖旁路复用旧 baseline 而非新运行。真实模型审计仍有 4/10 原文为 `UNKNOWN`，只覆盖两个任务和单一模型。默认 runtime 不变，全部证据仍不代表查询分布泛化或端到端修复成功率 |
-| [24 条独立任务注册表](docs/independent-task-registry.md) | 原样绑定预冻结的 16 development / 8 holdout，按仓库 URL + BugsInPy bug ID 得到 24/24 唯一身份；零费用预检交叉验证 commit、license 元数据、失败测试及现有证据。当前 16 条有源码物化配方，15 条有执行 manifest，其中 14 条为完整 checkout | 预检不联网、不执行仓库代码；仍有 9 条无执行 manifest，其中 8 条是密封 holdout，另 1 条 development 因上游符号链接被安全快照门拒绝；这不是 24 条真实模型成功率 |
+| [24 条独立任务注册表](docs/independent-task-registry.md) | 原样绑定预冻结的 16 development / 8 holdout，按仓库 URL + BugsInPy bug ID 得到 24/24 唯一身份；零费用预检交叉验证 commit、license 元数据、失败测试及现有证据。当前 16 条 development 均有执行 manifest，其中 15 条为完整 checkout、1 条为依赖裁剪 | 预检不联网、不执行仓库代码；仍有 8 条密封 holdout 无执行 manifest。Cookiecutter-3 复核纠正了旧 symlink 任务归属，但这仍不是 24 条真实模型成功率 |
 | [5 条真实模型 Smoke 合同](docs/real-model-smoke-evaluation.md) | 从冻结注册表选定 HTTPie、Luigi、Sanic、TheFuck、Tornado 五个不同项目的低复杂度 development 任务；`smoke-result` 把 preflight、Task、模型策略、source snapshot、终态包及模型/工具工件绑定为七指标。TheFuck-2 为 `false/false/false/unknown/CNY 0.013263/2/budget_gate`；Luigi-2 为 `false/true/false/unknown/CNY 0.064902/7/budget_gate`；Sanic-2 为 `false/unknown/false/unknown/CNY 0.0673398/8/budget_gate`。当前聚合 coverage `3/5`、success `0/3`、总费用 `CNY 0.1455048`。HTTPie-1 与 Tornado-2 的最新禁网 preflight 均 capacity-ready，但前者需要 5 次协同替换，后者的冻结目标排名为 baseline 3、困难变体 7/2/8/4；v2 因没有同时满足默认定位与单次替换的候选而主动 `abstain` | 作者在已知 Scripted Model 修复后选题，不是盲测或泛化成绩；location 区域不进入模型上下文，但仍是作者已知答案；费用是 Trace price-card estimate，不是账单。Luigi-2 命中目标行但因旧读取合同未编辑；Sanic-2 找到并读取目标文件，但过大的单边窗口在 8K 投影压缩后丢失 `AsyncioServer` 类及插入位置上下文。后续零费用回归和候选弃跑不改写真实 Run，也不代表剩余两题失败或获得新的付费授权 |
 | Post-Smoke development follow-up | 不改动原五任务，另从 10 条未付费、非 Smoke 的已揭示 development 任务做完整 census。Sanic-5 两次独立 Run 分别结算 `CNY 0.060561/0.083034`，均未写入；TheFuck-5 唯一 Run 结算 `CNY 0.1215720`，首次调用真实写工具，但模型 LF 片段与目标 CRLF 文件的精确 preimage 不匹配，写入为零 effect。修复后以 arguments hash 完全相同的 Scripted 载荷零费用回放，成功写入并通过 protected validation | 三次付费 Run 都是后验 development 负结果，不加入原 Smoke 分母，不是 blind/holdout 或成功预测；真实 validation 均为 unknown。回放只证明 Harness 能处理已知载荷，不改写历史 Run 或 `0/14` 结论 |
 | 外部来源裁剪 A/B v2 | 5 个来源绑定案例的初始失败、Baseline 等待和 Treatment 修复均由本地可信与公开禁网 Docker 执行，证据已上传 | 使用 Scripted Model 和 dependency-reduced fixture，不是 BugsInPy 官方成绩 |
-| [完整 checkout A/B v11](docs/full-checkout-pilot.md) | v10 十九例原样保留，再加入 Sanic route host、TheFuck Bitbucket suggestion 与 Luigi running-task ownership；共 22 案例、9 个项目、6,062 files。三例均由本地完整 Harness 确认 buggy 失败、Baseline 等待、Treatment 恢复；[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40804131201)进一步通过 22/22 初始失败与 Treatment 恢复，并保持 Trace replay、source isolation 和零付费模型调用门 | 使用 Scripted Model 和作者选择的 development 案例；不是模型能力、泛化率或官方 BugsInPy 成绩 |
+| [完整 checkout A/B v12](docs/full-checkout-pilot.md) | v11 二十二例原样保留，再加入无 tracked symlink 的 Cookiecutter-3；共 23 案例、9 个项目、6,278 files。新增案例由本地完整 Harness 确认 buggy 失败、Baseline 等待、Treatment 恢复；v11 的[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40804131201)已通过 22/22，v12 公开统一门待当前提交复核 | 使用 Scripted Model 和作者选择的 development 案例；不是模型能力、泛化率或官方 BugsInPy 成绩 |
 | [三阶段恢复 A/B v4](docs/multi-stage-full-checkout-pilot.md) | youtube-dl 872 files + Luigi 382 files + FastAPI 629 files；三例均含 3 个依赖 WorkItem、2 次持久化 Worker 重启、final epoch 3 和一次只改未完成项的 replan；本地可信与[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40082814779)均为 3/3 | 作者选择的三个案例与 Scripted Model；边界重启不等于任意指令处崩溃，不是模型能力或官方成绩 |
 | [源码绑定写入硬崩溃 A/B v2](docs/source-bound-hard-crash-recovery.md) | Luigi 382 files 的 `replace_text` 与 FastAPI 629 files 的 `create_file`；4 条 arm 都在 effect 后、receipt 前真实退出，先标 unknown，再由新 epoch 精确 `accept_replace` / `accept_create`，不重派模型并继续到 final epoch 4；本地可信与[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/41027080498)均为 2/2 | 固定第 2/5 次调用、两个作者选择任务与 Scripted Model；不是任意崩溃、自动恢复策略或官方成绩 |
 | [长程任务可靠性指标](docs/long-horizon-reliability-metrics.md) | 每个来源绑定 suite 的 typed report 直接聚合观测耗时/P95、Worker 重启、硬崩溃恢复率、恢复重派、重复副作用、Trace replay、source isolation 和最终 open effects；arm 级 facts 分列 unknown/failed acceptance、clean/quality-flagged success、fallback 与 degradation，并新增 retrieval 实际进入保存模型投影、post-replan RunMemory 以及 same-revision/target-path 对齐写入的 lineage；[公开禁网 Docker 复跑](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/41027080498)已对 32 个场景、64 条 arm 门控全部可靠性事实，并让 22/22 个 full-checkout 与 2/2 个 hard-crash 案例通过逐案例门 | 成功、质量标记与检索交付是不同维度；lineage 证明结构化 provenance，不证明检索导致修改；场景含重复上游 bug，不能宣传为 32 个独立任务或 LLM 成功率 |
@@ -449,9 +449,9 @@ uv run --locked --cache-dir .uv-cache horizon eval run-ab `
 uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
   benchmarks/run_ab/bugsinpy-reduced-v2.yaml --image python:3.12-alpine
 
-# 二十二个完整 checkout 需先按 docs/full-checkout-pilot.md 固定源码；专用 CI 会自动重建精确 commit。
+# 二十三个完整 checkout 需先按 docs/full-checkout-pilot.md 固定源码；专用 CI 会自动重建精确 commit。
 uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
-  benchmarks/run_ab/bugsinpy-full-checkout-pilot-v11.yaml --image python:3.12-alpine
+  benchmarks/run_ab/bugsinpy-full-checkout-pilot-v12.yaml --image python:3.12-alpine
 
 # 三个完整 checkout 上的三阶段 A/B；每条 arm 均跨两个持久化 Worker 边界。
 uv run --locked --cache-dir .uv-cache horizon eval run-ab-suite `
@@ -618,7 +618,7 @@ uv run --locked ruff format --check src tests
 uv build
 ```
 
-当前离线全量回归为 **707 passed，11 skipped**；显式指定本机锁定镜像后，11 个 Docker 合同为
+当前离线全量回归为 **709 passed，11 skipped**；显式指定本机锁定镜像后，11 个 Docker 合同为
 **11 passed**。v11 新增的
 Sanic-3、TheFuck-5 与 Luigi-7 已由本地完整 Harness 确认 buggy 失败、Baseline 等待、Treatment 恢复；
 二十二案例又由[公开 workflow](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40804131201)
@@ -718,7 +718,7 @@ Horizon 原创代码和文档使用 [MIT License](LICENSE)。依赖裁剪的外�
 - [有界恢复矩阵评测](docs/recovery-matrix-evaluation.md)
 - [完整 Run A/B：停滞等待与单次 Replan](docs/run-ab-evaluation.md)
 - [外部来源 Run A/B Suite：BugsInPy 依赖裁剪复现](docs/external-run-ab-suite.md)
-- [完整上游 Checkout Suite：BugsInPy 二十二案例、九项目](docs/full-checkout-pilot.md)
+- [完整上游 Checkout Suite：BugsInPy 二十三案例、九项目](docs/full-checkout-pilot.md)
 - [完整 Checkout 多阶段 Pilot：youtube-dl、Luigi 与 FastAPI](docs/multi-stage-full-checkout-pilot.md)
 - [源码绑定的多阶段写入硬崩溃恢复](docs/source-bound-hard-crash-recovery.md)
 - [真实模型 Pilot：预检、首轮负结果与付费边界](docs/real-model-pilot.md)
