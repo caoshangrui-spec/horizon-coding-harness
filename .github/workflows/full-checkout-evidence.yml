@@ -32,7 +32,9 @@ on:
       - "benchmarks/run_ab/full/**/real-model-post-smoke-candidate-v1.yaml"
       - "benchmarks/run_ab/full/sanic-2-asyncio-start-serving/real-model-smoke-pilot-v1.yaml"
       - "benchmarks/run_ab/full/sanic-5-root-logger-config/real-model-evidence-transition-pilot-v2.yaml"
+      - "benchmarks/run_ab/full/thefuck-5-git-push-bitbucket/real-model-failed-payload-replay-v1.yaml"
       - "benchmarks/real-model-post-smoke-sanic5-result-v2.yaml"
+      - "benchmarks/real-model-post-smoke-thefuck5-payload-replay-v1.yaml"
       - "benchmarks/real-model-smoke-evaluator-v1.yaml"
       - "benchmarks/real-model-smoke-candidate-selection-v1.yaml"
       - "benchmarks/real-model-smoke-candidate-selection-v2.yaml"
@@ -706,6 +708,46 @@ jobs:
             exit "$suite_status"
           fi
 
+      - name: Replay the frozen TheFuck-5 real-model payload without spending
+        shell: bash
+        run: |
+          set -euo pipefail
+          state_dir=.horizon/thefuck5-failed-payload-replay-v1
+          mkdir -p "$state_dir"
+          uv run --locked horizon eval run-ab \
+            benchmarks/run_ab/full/thefuck-5-git-push-bitbucket/real-model-failed-payload-replay-v1.yaml \
+            --image python:3.12-alpine \
+            --state-dir "$state_dir" \
+            | tee "$state_dir/cli-result.json"
+          uv run --locked python - <<'PY'
+          import json
+          from pathlib import Path
+
+          result = json.loads(
+              Path(".horizon/thefuck5-failed-payload-replay-v1/cli-result.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          report = result["report"]
+          treatment = report["single_replan"]
+          lineage = treatment["reliability"]["retrieval_lineage"]
+          if (
+              not report["all_expectations_met"]
+              or not report["initial_validation_matches_expectation"]
+              or not report["treatment_recovered"]
+              or report["paid_model_called"]
+              or report["network_called"]
+              or treatment["status"] != "SUCCEEDED"
+              or treatment["final_validation_passed"] is not True
+              or lineage["successful_write_count"] != 1
+              or lineage["evidence_backed_write_count"] != 1
+              or lineage["write_context_bound_count"] != 1
+              or not treatment["trace_replay_verified"]
+              or not treatment["source_workspace_unchanged"]
+          ):
+              raise SystemExit("TheFuck-5 frozen real-model payload replay failed")
+          PY
+
       - name: Run the observed TheFuck-2 retrieval-reuse scenario
         shell: bash
         run: |
@@ -978,6 +1020,7 @@ jobs:
             .horizon/docker-worker-crash-cli.json
             .horizon/reduced-docker-v2
             .horizon/full-checkout-docker-v11
+            .horizon/thefuck5-failed-payload-replay-v1
             .horizon/thefuck2-retrieval-reuse-v1
             .horizon/luigi2-one-sided-read-recovery-v1
             .horizon/multi-stage-docker-v4
@@ -1041,6 +1084,11 @@ jobs:
                   encoding="utf-8"
               )
           )
+          thefuck5_replay = json.loads(
+              Path(
+                  ".horizon/thefuck5-failed-payload-replay-v1/cli-result.json"
+              ).read_text(encoding="utf-8")
+          )["report"]
           retrieval_reuse = json.loads(
               Path(
                   ".horizon/thefuck2-retrieval-reuse-v1/trace-reuse-evidence.json"
@@ -1470,6 +1518,14 @@ jobs:
                   f"{smoke_candidates['selected_task_id']}`; paid authorization `"
                   f"{smoke_candidates['paid_execution_authorized']}`; post-run triage `"
                   f"{smoke_candidates['post_triage_decision']}`"
+              ),
+              (
+                  "- TheFuck-5 frozen payload replay: paid/network `"
+                  f"{thefuck5_replay['paid_model_called']}/"
+                  f"{thefuck5_replay['network_called']}`; recovered `"
+                  f"{thefuck5_replay['treatment_recovered']}`; protected validation `"
+                  f"{thefuck5_replay['single_replan']['final_validation_passed']}`; "
+                  f"manifest `{thefuck5_replay['manifest_digest']}`"
               ),
               (
                   "- Post-Smoke follow-up candidates: exact preflight `"

@@ -6,6 +6,25 @@
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
 
+## 2026-11-05 TheFuck-5 真实失败载荷零费用回放闭环
+
+- 从第十四轮付费 Run 的内容寻址 Provider response
+  `ea6d41f4f0086f3666db66180bc570ae9232a91bc8e8e38831ec6e6539847564` 提取原始
+  `replace_text` 参数；其 arguments hash
+  `a0c2c9c7ab3bce98e1d6ecec21ce362e294480107d63d8c5f1fd7b79c592d47b` 与历史失败工具调用完全
+  相同，不把人工缩短的单行替换冒充真实载荷。
+- 新的独立 Scripted A/B 在固定 359-file buggy checkout 和同一不可变 Docker image 上执行。初始
+  protected check 确认失败；Treatment 把原始 LF old/new 片段交给修复后的 Tool Gateway，成功修改
+  统一 CRLF 的 `thefuck/rules/git_push.py`，随后 protected validation 通过。
+- 报告 `all_expectations_met=true`、`treatment_recovered=true`、successful/evidence-backed/
+  context-bound write 均为 1、Trace replay 通过、source workspace unchanged；内容寻址 report ref 为
+  `a4ff6154c6135da354026656855d0cddcb676c648049eea37d85d8c117d18e90`，Treatment Trace ref 为
+  `95de7136c8bfe63eeee3e01235ff7e585eb529ffdf48a5e34b4053c9570d6c45`。
+- 这是零网络、零付费的 post-hoc Harness 回归，只证明“当前 Gateway 能执行当时那份已知载荷并完成
+  验证”。它不证明真实模型会再次生成相同动作，不改写历史 Run 的 `FAILED`、零有效写入和
+  validation `UNKNOWN`，真实模型闭环仍为 `0/14`。机器可读结果在
+  `benchmarks/real-model-post-smoke-thefuck5-payload-replay-v1.yaml`。
+
 ## 2026-11-05 TheFuck-5 唯一真实模型 Run：首次写意图被换行合同拒绝
 
 - 按独立 `CNY 0.180` Run/Campaign、Provider `max_attempts=1`、无 retry/fallback 的授权只执行一次。
@@ -1974,7 +1993,7 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 十四轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干将重点收敛到 evidence-to-action 主链；最新全量入口为 706 passed、11 个显式 Docker skip，
+当前主干将重点收敛到 evidence-to-action 主链；最新全量入口为 707 passed、11 个显式 Docker skip，
 同一版本的 11 个 Docker 合同也已用锁定镜像单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以

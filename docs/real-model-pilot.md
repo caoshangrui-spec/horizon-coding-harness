@@ -947,3 +947,12 @@ isolation、镜像、buggy HEAD 与 Harness 源码指纹均通过，预检不读
 到文件风格，再执行原有精确 occurrence 与 CAS 约束；混合换行仍拒绝猜测，错误回执会携带预期、
 实际命中数和文件换行风格。CRLF 回归验证替换后不引入 lone LF。没有付费复跑，也没有把剩余
 Campaign 余额视为继续授权。
+
+修复后又执行了一次零网络、零付费的 Scripted A/B，但没有重新调用模型。Treatment 使用第十四轮
+Provider response 中原样提取的 LF `replace_text` 参数，arguments hash
+`a0c2c9c7ab3bce98e1d6ecec21ce362e294480107d63d8c5f1fd7b79c592d47b` 与历史失败调用一致；它在
+同一 359-file CRLF checkout 上成功写入并通过 protected validation。报告 ref 为
+`a4ff6154c6135da354026656855d0cddcb676c648049eea37d85d8c117d18e90`，Trace replay 通过，
+successful/evidence-backed/context-bound write 均为 1。冻结结果见
+[`real-model-post-smoke-thefuck5-payload-replay-v1.yaml`](../benchmarks/real-model-post-smoke-thefuck5-payload-replay-v1.yaml)。
+这是 Harness 根因回归，不是模型复跑或真实 Issue 成功；历史 Run 和 `0/14` 结论保持不变。

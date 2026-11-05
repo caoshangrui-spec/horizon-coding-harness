@@ -93,8 +93,8 @@ flowchart LR
 | 词法 Code RAG 有冻结定位基线 | 7 项目 24 案例中公开 16 个 development：Hit@1 `11/16`、Hit@5 `16/16`、MRR `0.817708`；8 个 holdout 保持密封 | 有 3 个 degraded；中文困难改写仅 `1/8`，没有 symbol/vector RAG 或端到端收益结论 |
 | 真实 Provider 路径和费用门禁实际运行过 | 14 个 SiliconFlow Pilot、70 个已结算调用，累计 `CNY 0.6280380`；费用、Trace 与 source isolation 可核对 | 14 个 Run 均未形成有效编辑和 protected validation，闭环为 `0/14`；第十四轮首次调用写工具，但 LF/CRLF 精确 preimage 不匹配导致零 effect，不能算修复成功 |
 | 真实模型 Smoke 输入、失败与弃跑决策已冻结 | 5 个不同项目的低复杂度 development smoke；TheFuck-2、Luigi-2、Sanic-2 各运行唯一一次，当前 coverage `3/5`、success `0/3`、总费用 `CNY 0.1455048`。Luigi-2 命中目标后卡在旧读取合同；Sanic-2 的约 12K 单边读取在 8K Context Projection 压缩后丢失目标类及插入位置上下文。HTTPie-1 定位稳定但需 5 次协同替换；Tornado-2 补丁小但目标不在默认 rank 1，因此 v2 主动 `abstain` | 作者在已知 Scripted Model 修复后选题，不是盲测；三条真实失败均保留。后续回归与候选筛选是 post-run 零费用 Harness 证据，不是付费 Run 复跑、真实成功或 holdout 提升；HTTPie-1 与 Tornado-2 仍 unevaluated，preflight ready 也不是消费授权 |
-| Post-Smoke 候选选择与后续负结果可审计 | 从 10 条未付费、非 Smoke 的已揭示 development 任务逐条交叉验证 frozen RAG 与 full-checkout repair shape；Sanic-5/TheFuck-5 是仅有的两条全门通过者。Sanic-5 两次 Run 暴露证据转行动与调用上限缺口；TheFuck-5 第三次独立 Run 首次走到写工具，但被统一 CRLF 文件与 LF 片段的精确替换合同拒绝 | 三个真实 Run 都是 post-hoc development 负结果，不改写原 Smoke 统计、不打开 holdout、不代表成功预测；分别结算 `CNY 0.060561/0.083034/0.1215720`，均无有效编辑、validation、retry 或 fallback。每次后的修复只有离线证据 |
-| 当前离线回归稳定 | `706 passed, 11 skipped`；显式使用本机锁定镜像后 11 个 Docker 合同另为 `11 passed`；标准 CI、外部检索证据和来源绑定 Docker workflow 都是提交级门禁 | 本机结果与公开 runner 结果必须分别报告；每个提交以对应 Actions run 为准，不能用本地通过代替 |
+| Post-Smoke 候选选择与后续负结果可审计 | 从 10 条未付费、非 Smoke 的已揭示 development 任务逐条交叉验证 frozen RAG 与 full-checkout repair shape；Sanic-5/TheFuck-5 是仅有的两条全门通过者。Sanic-5 两次 Run 暴露证据转行动与调用上限缺口；TheFuck-5 第三次独立 Run 首次走到写工具，但被统一 CRLF 文件与 LF 片段的精确替换合同拒绝。修复后原始 arguments hash 的零费用 Scripted 回放成功写入并通过 protected validation | 三个真实 Run 都是 post-hoc development 负结果，不改写原 Smoke 统计、不打开 holdout、不代表成功预测；分别结算 `CNY 0.060561/0.083034/0.1215720`，均无有效编辑、validation、retry 或 fallback。回放证明 Harness 根因已覆盖，不是模型成功证据 |
+| 当前离线回归稳定 | `707 passed, 11 skipped`；显式使用本机锁定镜像后 11 个 Docker 合同另为 `11 passed`；标准 CI、外部检索证据和来源绑定 Docker workflow 都是提交级门禁 | 本机结果与公开 runner 结果必须分别报告；每个提交以对应 Actions run 为准，不能用本地通过代替 |
 
 最新公开复核入口：
 
@@ -151,7 +151,7 @@ Python 3.12/3.13 · Pydantic · Typer · SQLite/FTS5 · Docker · Pytest · GitH
   FTS5 code retrieval, typed tool authorization, protected Docker validation, and offline EvidencePack
   verification.
 - Evaluated the harness on 22 full-checkout scripted cases, three multi-stage recovery cases, and two
-  hard-crash cases in network-disabled Docker workflows; maintained 706 passing offline tests while
+  hard-crash cases in network-disabled Docker workflows; maintained 707 passing offline tests while
   explicitly preserving fourteen unsuccessful real-model pilot runs as negative evidence; the
   fourteenth reached a write attempt that an exact CRLF/LF preimage check rejected before any effect.
 

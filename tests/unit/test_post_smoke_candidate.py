@@ -4,8 +4,9 @@ from pathlib import Path
 import yaml
 
 from horizon.adapters.model.config import load_provider_config
-from horizon.domain.common import canonical_json
+from horizon.domain.common import canonical_json, digest
 from horizon.domain.pilot import RealModelPilotManifest
+from horizon.domain.run_evaluation import RunABEvalManifest
 from horizon.domain.smoke_evaluation import RealModelSmokeSuite
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -68,6 +69,17 @@ FIRST_CLOSURE_PILOT_PATH = (
     / "real-model-first-closure-pilot-v1.yaml"
 )
 FIRST_CLOSURE_RESULT_PATH = ROOT / "benchmarks" / "real-model-post-smoke-thefuck5-result-v1.yaml"
+FIRST_CLOSURE_REPLAY_MANIFEST_PATH = (
+    ROOT
+    / "benchmarks"
+    / "run_ab"
+    / "full"
+    / "thefuck-5-git-push-bitbucket"
+    / "real-model-failed-payload-replay-v1.yaml"
+)
+FIRST_CLOSURE_REPLAY_RESULT_PATH = (
+    ROOT / "benchmarks" / "real-model-post-smoke-thefuck5-payload-replay-v1.yaml"
+)
 CANDIDATE_MANIFESTS = {
     "sanic-5-root-logger-config": (
         ROOT
@@ -414,6 +426,62 @@ def test_thefuck5_first_closure_result_freezes_the_failed_single_run():
     assert trace["open_reservations_present"] is False
     assert len(trace["trace_sha256"]) == 64
     assert len(trace["projection_hash"]) == 64
+
+
+def test_thefuck5_failed_model_payload_replay_is_exact_and_zero_spend():
+    manifest = RunABEvalManifest.model_validate(_yaml(FIRST_CLOSURE_REPLAY_MANIFEST_PATH))
+    result = _yaml(FIRST_CLOSURE_REPLAY_RESULT_PATH)
+    source = result["source_failure"]
+    replay = result["replay"]
+
+    treatment = next(arm for arm in manifest.arms if arm.role == "single_replan")
+    edit = next(action for action in treatment.actions if action.tool == "replace_text")
+    assert digest(edit.arguments) == source["arguments_hash"]
+    assert edit.arguments == {
+        "path": "thefuck/rules/git_push.py",
+        "old": (
+            "@git_support\n"
+            "def match(command):\n"
+            "    return ('push' in command.script_parts\n"
+            "            and 'set-upstream' in command.output)"
+        ),
+        "new": (
+            "@git_support\n"
+            "def match(command):\n"
+            "    return ('push' in command.script_parts\n"
+            "            and re.search(r'git push --set-upstream', command.output) "
+            "is not None)"
+        ),
+    }
+    assert "\r" not in edit.arguments["old"]
+    assert "\r" not in edit.arguments["new"]
+
+    fixture = FIRST_CLOSURE_REPLAY_MANIFEST_PATH.parent / manifest.fixture_path
+    source_bytes = (fixture / "thefuck" / "rules" / "git_push.py").read_bytes()
+    assert b"\r\n" in source_bytes
+    assert b"\n" not in source_bytes.replace(b"\r\n", b"")
+
+    assert result["classification"] == "zero_spend_post_hoc_harness_regression"
+    assert result["scope"] == {
+        "paid_model_called": False,
+        "network_called": False,
+        "original_run_unchanged": True,
+        "retry_or_fallback": False,
+        "counts_as_real_model_success": False,
+        "included_in_original_smoke_aggregate": False,
+    }
+    assert source["run_id"] == "run_9695db52a95740a5a71ef02bf2b9910d"
+    assert source["original_tool_status"] == "error"
+    assert source["original_workspace_effect"] is False
+    assert replay["manifest_digest"] == manifest.sha256
+    assert replay["all_expectations_met"] is True
+    assert replay["treatment_recovered"] is True
+    assert replay["protected_validation_passed"] is True
+    assert replay["successful_write_count"] == 1
+    assert replay["evidence_backed_write_count"] == 1
+    assert replay["context_bound_write_count"] == 1
+    assert replay["trace_replay_verified"] is True
+    assert replay["source_workspace_unchanged"] is True
 
 
 def test_sanic5_paid_follow_up_freezes_the_negative_without_changing_smoke():

@@ -1,0 +1,112 @@
+schema_version: 1
+benchmark_id: thefuck-5-real-model-failed-payload-replay-v1
+fixture_path: fixture
+
+task:
+  task_id: thefuck-5-real-model-failed-payload-replay-v1
+  title: Replay the rejected real-model Bitbucket predicate edit
+  objective: Verify that the exact LF model payload can edit the uniform-CRLF checkout and pass protected validation
+  repository:
+    source: local
+    path: /fixture
+    base_commit: 7c858fadb3458be829d3d43666ccb46c3ed5b8a0
+  constraints:
+    allowed_paths: [thefuck/**]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    network: deny
+  acceptance:
+    - id: thefuck-5-real-model-failed-payload-replay-v1
+      command: >-
+        python -B -c "import ast; from pathlib import Path; from types import SimpleNamespace; tree=ast.parse(Path('thefuck/rules/git_push.py').read_text(encoding='utf-8')); fn=next(x for x in tree.body if isinstance(x,ast.FunctionDef) and x.name=='match'); fn.decorator_list=[]; ns={'re':__import__('re')}; exec(compile(ast.Module(body=[fn],type_ignores=[]),'thefuck/rules/git_push.py','exec'),ns); bitbucket='remote: Create pull request for feature/set-upstream:\nremote: https://bitbucket.org/set-upstream\nTo git@bitbucket.org:test.git'; suggestion='fatal: no upstream branch\n    git push --set-upstream origin main'; assert ns['match'](SimpleNamespace(script_parts=['git','push','origin'],output=bitbucket)) is False; assert ns['match'](SimpleNamespace(script_parts=['git','push'],output=suggestion)) is True; assert ns['match'](SimpleNamespace(script_parts=['git','pull'],output=suggestion)) is False"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 16
+    max_model_calls: 12
+    max_tool_calls: 16
+    max_wall_time_seconds: 600
+    max_cost_usd: "1.00"
+    max_input_tokens: 100000
+    max_output_tokens: 5000
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: offline-scripted-v1
+
+initial_plan:
+  version: 1
+  items:
+    - work_item_id: locate-thefuck-5-real-model-payload
+      title: Locate the Bitbucket false-positive predicate
+      objective: Retrieve revision-bound evidence before replaying the frozen model edit
+      dependencies: []
+      expected_artifacts: [Code EvidencePack, thefuck-5-real-model-failed-payload-replay-v1 receipt]
+      acceptance_ids: [thefuck-5-real-model-failed-payload-replay-v1]
+      allowed_tools: [retrieve_code]
+
+expected_initial_failed_checks: [thefuck-5-real-model-failed-payload-replay-v1]
+
+arms:
+  - arm_id: no-replan
+    role: baseline
+    description: Continue the stalled source retrieval until deterministic guidance is required.
+    expected_status: WAITING_FOR_USER
+    expected_plan_version: 1
+    expected_execution_replans: 0
+    expected_passed_items: []
+    expected_human_request_pattern: identical_action
+    expected_model_calls: 4
+    expected_tool_calls: 4
+    expected_steps: 4
+    actions:
+      - &retrieve_target
+        tool: retrieve_code
+        arguments:
+          query: git push match set-upstream Bitbucket output
+          max_chunks: 8
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+
+  - arm_id: exact-real-model-payload
+    role: single_replan
+    description: Replay the exact LF old/new fragments rejected by the paid Run against the uniform-CRLF source file.
+    expected_status: SUCCEEDED
+    expected_plan_version: 2
+    expected_execution_replans: 1
+    expected_passed_items: [repair-thefuck-5-real-model-payload]
+    expected_model_calls: 6
+    expected_tool_calls: 7
+    expected_steps: 7
+    actions:
+      - *retrieve_target
+      - *retrieve_target
+      - *retrieve_target
+      - tool: revise_plan
+        arguments:
+          reason: Repeated retrieval exposed the target predicate; replay the frozen real-model edit and validate it.
+          items:
+            - work_item_id: repair-thefuck-5-real-model-payload
+              title: Replay the frozen real-model predicate edit
+              objective: Apply the exact LF payload to the CRLF file without weakening exact replacement checks
+              dependencies: []
+              expected_artifacts: [thefuck/rules/git_push.py, thefuck-5-real-model-failed-payload-replay-v1 receipt]
+              acceptance_ids: [thefuck-5-real-model-failed-payload-replay-v1]
+              allowed_tools: [retrieve_code, replace_text, run_check]
+      - tool: replace_text
+        arguments:
+          path: thefuck/rules/git_push.py
+          old: |-
+            @git_support
+            def match(command):
+                return ('push' in command.script_parts
+                        and 'set-upstream' in command.output)
+          new: |-
+            @git_support
+            def match(command):
+                return ('push' in command.script_parts
+                        and re.search(r'git push --set-upstream', command.output) is not None)
+      - tool: submit
+        arguments:
+          summary: Replayed the frozen real-model payload and ran the protected Bitbucket regression check.

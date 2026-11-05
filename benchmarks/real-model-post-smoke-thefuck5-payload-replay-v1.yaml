@@ -1,0 +1,51 @@
+schema_version: 1
+replay_id: thefuck-5-failed-real-model-payload-replay-v1
+classification: zero_spend_post_hoc_harness_regression
+
+scope:
+  paid_model_called: false
+  network_called: false
+  original_run_unchanged: true
+  retry_or_fallback: false
+  counts_as_real_model_success: false
+  included_in_original_smoke_aggregate: false
+
+source_failure:
+  run_id: run_9695db52a95740a5a71ef02bf2b9910d
+  model_call_id: model_run_9695db52a95740a5a71ef02bf2b9910d_2_da565e1497f74c0f975b7af083f74849
+  response_artifact_ref: ea6d41f4f0086f3666db66180bc570ae9232a91bc8e8e38831ec6e6539847564
+  provider_trace_id: ti_fb78u4axdod4yqepgt
+  tool_call_id: tool_2e875dba818e4203b20b15aa1964e28b
+  tool: replace_text
+  arguments_hash: a0c2c9c7ab3bce98e1d6ecec21ce362e294480107d63d8c5f1fd7b79c592d47b
+  target_path: thefuck/rules/git_push.py
+  model_fragment_line_ending: LF
+  source_file_line_ending: CRLF
+  original_tool_status: error
+  original_workspace_effect: false
+
+replay:
+  manifest_path: run_ab/full/thefuck-5-git-push-bitbucket/real-model-failed-payload-replay-v1.yaml
+  manifest_digest: 40c4cabebeec5cbb1682ccde63258ba643a1a5dddba295b292b02aca947efc94
+  report_ref: a4ff6154c6135da354026656855d0cddcb676c648049eea37d85d8c117d18e90
+  validation_backend: docker
+  validation_backend_ref: sha256:0687a6bc9716edc2a6ee0fbfb0f87e7ee358b262b67c9215de91bc9b2d38ba71
+  initial_failure_confirmed: true
+  all_expectations_met: true
+  treatment_recovered: true
+  treatment_run_id: run_030e24a55bd549cca61b5803285ce823
+  treatment_status: SUCCEEDED
+  protected_validation_passed: true
+  successful_write_count: 1
+  evidence_backed_write_count: 1
+  context_bound_write_count: 1
+  trace_replay_verified: true
+  trace_ref: 95de7136c8bfe63eeee3e01235ff7e585eb529ffdf48a5e34b4053c9570d6c45
+  projection_hash: a6faac4a131ac68ad57ac57c22a7ba1a9fb5ff38cf5c72cabc6ef1744e9d051a
+  source_workspace_unchanged: true
+
+claim_boundary:
+  - The replay used a Scripted Model and the exact frozen tool arguments from the failed paid Run.
+  - It proves the repaired Tool Gateway can apply that payload to the CRLF checkout and reach protected validation.
+  - It does not prove that the real model would issue the same action again or complete the task autonomously.
+  - The historical paid Run remains FAILED with zero effective writes and unknown validation.
