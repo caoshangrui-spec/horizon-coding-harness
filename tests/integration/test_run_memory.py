@@ -120,7 +120,7 @@ def test_run_memory_preserves_observed_success_failure_and_staleness(
     assert all(entry.confidence == "observed" for entry in stale.entries)
 
 
-def test_run_memory_pins_cookiecutter_target_from_a_long_full_file_read(
+def test_run_memory_pins_actionable_cookiecutter_target_from_a_realistic_long_function(
     tmp_path: Path,
     task_dict,
     store,
@@ -159,9 +159,38 @@ def test_run_memory_pins_cookiecutter_target_from_a_long_full_file_read(
             "READ_RANGE path=cookiecutter/prompt.py lines=1-100 total_lines=242",
             *(f"# unrelated header line {index}" for index in range(55)),
             "def read_user_choice(var_name, options):",
-            "    prompt = build_numbered_prompt(options)",
-            "    user_choice = click.prompt(prompt, type=click.Choice(options))",
-            "    return options[user_choice]",
+            '    """Prompt the user to choose from several options for the given variable.',
+            "",
+            "    The first item will be returned if no input happens.",
+            "",
+            "    :param str var_name: Variable as specified in the context",
+            "    :param list options: Sequence of options that are available to select from",
+            "    :return: Exactly one item of options that has been chosen by the user",
+            '    """',
+            "    # Please see the click.prompt API documentation",
+            "    if not isinstance(options, list):",
+            "        raise TypeError",
+            "",
+            "    if not options:",
+            "        raise ValueError",
+            "",
+            "    choice_map = OrderedDict(",
+            "        (str(i), value) for i, value in enumerate(options, 1)",
+            "    )",
+            "    choices = choice_map.keys()",
+            "    default = '1'",
+            "",
+            "    choice_lines = ['{} - {}'.format(*c) for c in choice_map.items()]",
+            "    prompt = '\\n'.join((",
+            "        'Select {}:'.format(var_name),",
+            "        '\\n'.join(choice_lines),",
+            "        'Choose from {}'.format(', '.join(choices))",
+            "    ))",
+            "",
+            "    user_choice = click.prompt(",
+            "        prompt, type=click.Choice(choices), default=default",
+            "    )",
+            "    return choice_map[user_choice]",
             *(f"# unrelated tail line {index}" for index in range(55)),
             "    return read_user_choice(key, rendered_options)",
         ]
@@ -186,8 +215,8 @@ def test_run_memory_pins_cookiecutter_target_from_a_long_full_file_read(
 
     excerpt = snapshot.entries[0].excerpt
     assert excerpt.startswith(TASK_RELEVANT_CODE_PREFIX)
-    assert "def read_user_choice" in excerpt
-    assert "user_choice = click.prompt" in excerpt
+    assert "user_choice = click.prompt(" in excerpt
+    assert "prompt, type=click.Choice(choices), default=default" in excerpt
     assert "READ_RANGE path=" not in excerpt
     assert "return read_user_choice(key" not in excerpt
     assert "unrelated header line 0" not in excerpt

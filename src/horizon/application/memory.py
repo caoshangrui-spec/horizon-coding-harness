@@ -88,46 +88,66 @@ def _task_relevant_code_excerpt(
     max_chars: int,
     relevance_terms: tuple[str, ...],
 ) -> str | None:
-    """Return a bounded line window around the strongest immutable-task lexical match."""
+    """Return a bounded line window around the most actionable task match."""
 
     if max_chars <= len(TASK_RELEVANT_CODE_PREFIX) or not relevance_terms:
         return None
     lines = content.splitlines()
     if not lines:
         return None
-    scored: list[tuple[int, int]] = []
+    scored: list[tuple[int, int, int, int]] = []
     for index, line in enumerate(lines):
+        if line.lstrip().startswith("READ_RANGE "):
+            continue
         lowered = line.lower()
         matches = tuple(term for term in relevance_terms if term in lowered)
         if not matches:
             continue
-        # Prefer the most specific code-like anchor on a line. Summing every match made
-        # generic words such as ``return`` outweigh an earlier function definition, while
-        # path-shaped terms made a synthetic ``READ_RANGE path=...`` header beat the code
-        # carried by that very read. Fall back to path terms only when a line has no
-        # code-like match at all.
+        # Count independent task concepts instead of every overlapping lexical variant.
+        # ``read_user_choice``, ``user_choice``, and ``choice`` describe one concept on a
+        # definition line, while ``user_choice = click.prompt`` carries three useful
+        # concepts for an edit. This keeps an actionable call site ahead of a distant
+        # symbol marker without increasing the context budget.
         code_matches = tuple(term for term in matches if "/" not in term and "." not in term)
-        strongest = max(code_matches or matches, key=len)
-        scored.append((len(strongest), index))
+        candidates = code_matches or matches
+        independent = tuple(
+            term
+            for term in candidates
+            if not any(term != other and term in other for other in candidates)
+        )
+        strongest = max(independent, key=len)
+        scored.append((len(independent), sum(map(len, independent)), len(strongest), index))
     if not scored:
         return None
-    _, center = max(scored, key=lambda item: (item[0], -item[1]))
+    *_, center = max(scored, key=lambda item: (*item[:-1], -item[-1]))
     available = max_chars - len(TASK_RELEVANT_CODE_PREFIX)
-    selected = [lines[center]]
-    after = center + 1
-    while after < len(lines):
-        rendered = "\n".join([*selected, lines[after]])
-        if len(rendered) > available:
+    start = end = center
+    before_blocked = after_blocked = False
+    while not (before_blocked and after_blocked):
+        progressed = False
+        if not after_blocked:
+            if end + 1 >= len(lines):
+                after_blocked = True
+            else:
+                rendered = "\n".join(lines[start : end + 2])
+                if len(rendered) <= available:
+                    end += 1
+                    progressed = True
+                else:
+                    after_blocked = True
+        if not before_blocked:
+            if start == 0:
+                before_blocked = True
+            else:
+                rendered = "\n".join(lines[start - 1 : end + 1])
+                if len(rendered) <= available:
+                    start -= 1
+                    progressed = True
+                else:
+                    before_blocked = True
+        if not progressed and before_blocked and after_blocked:
             break
-        selected = rendered.splitlines()
-        after += 1
-    before = center - 1
-    while before >= 0:
-        rendered = "\n".join([lines[before], *selected])
-        if len(rendered) > available:
-            break
-        selected = rendered.splitlines()
-        before -= 1
+    selected = lines[start : end + 1]
     excerpt = TASK_RELEVANT_CODE_PREFIX + "\n".join(selected)
     return excerpt[:max_chars]
 

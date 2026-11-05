@@ -131,7 +131,7 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | 证据面 | 当前结果 | 严格边界 |
 |---|---|---|
 | 公共 CI | main 的[标准 CI](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/ci.yml)运行离线回归和三条演示；主作品集、直接子进程 timeout 与上下文容量恢复分别递归复核并发布 14 天 EvidencePack；[禁网 Docker Evidence](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/workflows/full-checkout-evidence.yml)独立运行 | CI 不读取 API Key、不运行付费模型；workflow artifact 通常需要登录 GitHub 下载，不是永久发布资产 |
-| 离线回归 | `714 passed, 11 skipped`；显式指定锁定镜像后，11 个 Docker 合同另为 `11 passed` | Sanic-5/TheFuck-5/Cookiecutter-3 真实负结果、repeated-read transition 回执、只读/候选扩展旁路、控制反馈压缩、TaskSpec 模型调用上限、统一换行精确替换、目标代码证据固定与 Run Memory 回归均已纳入；历史付费结果保持追加而非覆盖 |
+| 离线回归 | `717 passed, 11 skipped`；显式指定锁定镜像后，11 个 Docker 合同另为 `11 passed` | Sanic-5/TheFuck-5/Cookiecutter-3 真实负结果、repeated-read transition 回执、只读/候选扩展旁路、控制反馈压缩、TaskSpec 模型调用上限、统一换行精确替换、目标代码证据固定与 Run Memory 回归均已纳入；历史付费结果保持追加而非覆盖 |
 | [通用终态 EvidencePack](docs/terminal-evidence-pack.md) | `SUCCEEDED`、`FAILED`、`CANCELLED` 均可导出并离线复核 Trace、最终投影和 schema v2 可靠性摘要；区分 unknown 验收、已知 check 失败与 unknown/open effect，真实检索降级与工具回执原子绑定，确定性上下文折叠以 `context_compacted` 单独标记，兼容验证 schema v1 | model fallback、语义摘要和 model degradation 尚无 Trace history；自洽哈希不是来源签名，也不证明外部 Provider 或副作用已结清 |
 | [终态 Run 顺序汇总](docs/terminal-suite-evaluation.md) | 有序聚合已有终态 Run；递归验证每个子 EvidencePack，分列结果、验收未知/失败、clean/quality-flagged success、检索降级与 unknown/open effect | 不执行任务，不是 batch scheduler，也没有并发性能声明 |
 | [可恢复的顺序 Agent 任务批次](docs/sequential-agent-batch.md) | `agent batch` 按 1～100 条 TaskSpec manifest 顺序执行；任务间原子保存 checkpoint，确定性 invocation/Run receipt 支持重启识别，终态失败原样记录后继续，非终态/不确定 case 阻塞后项；全部闭合后复用 terminal-suite | 单机并发度 1；不自动越过人工/悬空 effect/旧 Worker 边界，不是 20～30 个真实模型任务成绩或吞吐声明 |
@@ -147,14 +147,14 @@ uv run --locked --cache-dir .uv-cache horizon eval recovery `
 | [外部 RAG 定位集 v3](docs/retrieval-evaluation.md#10-24-案例外部定位集与-v030-development-基线) | 先冻结 7 项目 24 个 BugsInPy 案例；当前只揭示 16 个 development，8 个 holdout 仍密封。4 个门控设计案例上，选择性策略把 Hit@8 13/16→16/16、路径 Recall 23/32→30/32；其余 12 个案例的 48 条扩展查询则只有两条 identifier rank 3→2，中文仍为 3/12。新的保守 CJK 候选在 4 条高覆盖查询保持 4/4 Hit、7/8 路径召回，并对 12 条低覆盖中文精确旁路；[历史真实模型查询审计](docs/retrieval-evaluation.md#16-历史真实模型查询形态审计)又从 7 份 Trace 的 10 次检索中哈希确认 6 次、3 种公开查询，均为原样旁路 | 保留原文与直接替换在四例排名完全相同，且这四例参与过词表设计；低覆盖旁路复用旧 baseline 而非新运行。真实模型审计仍有 4/10 原文为 `UNKNOWN`，只覆盖两个任务和单一模型。默认 runtime 不变，全部证据仍不代表查询分布泛化或端到端修复成功率 |
 | [24 条独立任务注册表](docs/independent-task-registry.md) | 原样绑定预冻结的 16 development / 8 holdout，按仓库 URL + BugsInPy bug ID 得到 24/24 唯一身份；零费用预检交叉验证 commit、license 元数据、失败测试及现有证据。当前 16 条 development 均有执行 manifest，其中 15 条为完整 checkout、1 条为依赖裁剪 | 预检不联网、不执行仓库代码；仍有 8 条密封 holdout 无执行 manifest。Cookiecutter-3 复核纠正了旧 symlink 任务归属，但这仍不是 24 条真实模型成功率 |
 | [5 条真实模型 Smoke 合同](docs/real-model-smoke-evaluation.md) | 从冻结注册表选定 HTTPie、Luigi、Sanic、TheFuck、Tornado 五个不同项目的低复杂度 development 任务；`smoke-result` 把 preflight、Task、模型策略、source snapshot、终态包及模型/工具工件绑定为七指标。TheFuck-2 为 `false/false/false/unknown/CNY 0.013263/2/budget_gate`；Luigi-2 为 `false/true/false/unknown/CNY 0.064902/7/budget_gate`；Sanic-2 为 `false/unknown/false/unknown/CNY 0.0673398/8/budget_gate`。当前聚合 coverage `3/5`、success `0/3`、总费用 `CNY 0.1455048`。HTTPie-1 与 Tornado-2 的最新禁网 preflight 均 capacity-ready，但前者需要 5 次协同替换，后者的冻结目标排名为 baseline 3、困难变体 7/2/8/4；v2 因没有同时满足默认定位与单次替换的候选而主动 `abstain` | 作者在已知 Scripted Model 修复后选题，不是盲测或泛化成绩；location 区域不进入模型上下文，但仍是作者已知答案；费用是 Trace price-card estimate，不是账单。Luigi-2 命中目标行但因旧读取合同未编辑；Sanic-2 找到并读取目标文件，但过大的单边窗口在 8K 投影压缩后丢失 `AsyncioServer` 类及插入位置上下文。后续零费用回归和候选弃跑不改写真实 Run，也不代表剩余两题失败或获得新的付费授权 |
-| Post-Smoke development follow-up | 不改动原五任务。Sanic-5 两次独立 Run 均未写入；TheFuck-5 首次调用真实写工具但精确 preimage 换行不匹配；Cookiecutter-3 第一轮在压缩后重复读取，第二轮又证明首版目标证据修复只保住 marker：底层工具回执含精确目标，但 5 个压缩后的模型投影均未保留 `click.prompt` 调用。TheFuck-5 的历史载荷已用 Scripted Model 零费用回放通过 | 五次付费 Run 都是后验 development 负结果，不加入原 Smoke 分母，不是 blind/holdout 或成功预测；真实 validation 均为 unknown。回放和后续离线修复不改写历史 Run 或当前 `0/16` 结论 |
+| Post-Smoke development follow-up | 不改动原五任务。Sanic-5 两次独立 Run 均未写入；TheFuck-5 首次调用真实写工具但精确 preimage 换行不匹配；Cookiecutter-3 三轮均未写入：第一轮压缩后重复读取，第二轮暴露 lexical anchor 误选，第三轮又证明只保留函数定义仍会因 240 字符窗口丢失实际 `click.prompt` 修改点。TheFuck-5 的历史载荷已用 Scripted Model 零费用回放通过 | 六次付费 Run 都是后验 development 负结果，不加入原 Smoke 分母，不是 blind/holdout 或成功预测；真实 validation 均为 unknown。回放和后续离线修复不改写历史 Run 或当前 `0/17` 结论 |
 | 外部来源裁剪 A/B v2 | 5 个来源绑定案例的初始失败、Baseline 等待和 Treatment 修复均由本地可信与公开禁网 Docker 执行，证据已上传 | 使用 Scripted Model 和 dependency-reduced fixture，不是 BugsInPy 官方成绩 |
 | [完整 checkout A/B v12](docs/full-checkout-pilot.md) | v11 二十二例原样保留，再加入无 tracked symlink 的 Cookiecutter-3；共 23 案例、9 个项目、6,278 files。新增案例由本地完整 Harness 确认 buggy 失败、Baseline 等待、Treatment 恢复；[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/41997218285)已统一通过 23/23，并继续通过 3/3 三阶段恢复与 2/2 写入硬崩溃套件 | 使用 Scripted Model 和作者选择的 development 案例；不是模型能力、泛化率或官方 BugsInPy 成绩 |
 | [三阶段恢复 A/B v4](docs/multi-stage-full-checkout-pilot.md) | youtube-dl 872 files + Luigi 382 files + FastAPI 629 files；三例均含 3 个依赖 WorkItem、2 次持久化 Worker 重启、final epoch 3 和一次只改未完成项的 replan；本地可信与[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/40082814779)均为 3/3 | 作者选择的三个案例与 Scripted Model；边界重启不等于任意指令处崩溃，不是模型能力或官方成绩 |
 | [源码绑定写入硬崩溃 A/B v2](docs/source-bound-hard-crash-recovery.md) | Luigi 382 files 的 `replace_text` 与 FastAPI 629 files 的 `create_file`；4 条 arm 都在 effect 后、receipt 前真实退出，先标 unknown，再由新 epoch 精确 `accept_replace` / `accept_create`，不重派模型并继续到 final epoch 4；本地可信与[公开禁网 Docker](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/41027080498)均为 2/2 | 固定第 2/5 次调用、两个作者选择任务与 Scripted Model；不是任意崩溃、自动恢复策略或官方成绩 |
 | [长程任务可靠性指标](docs/long-horizon-reliability-metrics.md) | 每个来源绑定 suite 的 typed report 直接聚合观测耗时/P95、Worker 重启、硬崩溃恢复率、恢复重派、重复副作用、Trace replay、source isolation 和最终 open effects；arm 级 facts 分列 unknown/failed acceptance、clean/quality-flagged success、fallback 与 degradation，并新增 retrieval 实际进入保存模型投影、post-replan RunMemory 以及 same-revision/target-path 对齐写入的 lineage；[公开禁网 Docker 复跑](https://github.com/caoshangrui-spec/horizon-coding-harness/actions/runs/41997218285)已对 33 个场景、66 条 arm 门控全部可靠性事实，并让 23/23 个 full-checkout 与 2/2 个 hard-crash 案例通过逐案例门 | 成功、质量标记与检索交付是不同维度；lineage 证明结构化 provenance，不证明检索导致修改；场景含重复上游 bug，不能宣传为 33 个独立任务或 LLM 成功率 |
-| 真实模型 Pilot | 十六轮均可重放、费用可核对且 source 未变；共 85 个已结算调用、累计 `CNY 0.7524090`。第十四轮 TheFuck-5 首次调用写工具但零 effect；第十五轮 Cookiecutter-3 在精确 target 回执后被费用门停止；第十六轮进一步证实首版压缩修复选错 lexical anchor，所有 post-evidence 模型投影仍缺精确目标代码 | 十六轮均未形成有效编辑或 protected validation，真实闭环仍为 `0/16`；没有自动 retry/fallback，离线回归不改写历史 Run，也不是成功证据 |
-| 预算预留诊断 | 历史九轮样本含 9 Trace、26 个已结算调用；聚合预留/结算比 6.822406；Sanic-5 首个 Run 的 7 次调用聚合预留/结算比为 7.199782，候选 `request_bytes + 1024` 在这 7 次中也没有低估 | 尚未把第十至十六轮并入统一冻结诊断；单个新增 Run 不能授权降低生产费用安全门槛 |
+| 真实模型 Pilot | 十七轮均可重放、费用可核对且 source 未变；共 95 个已结算调用、累计 `CNY 0.8379858`。第十四轮 TheFuck-5 首次调用写工具但零 effect；第十五至十七轮 Cookiecutter-3 依次暴露压缩后重复读取、lexical anchor 误选，以及真实长函数中定义锚点与修改点相距过远 | 十七轮均未形成有效编辑或 protected validation，真实闭环仍为 `0/17`；没有自动 retry/fallback，离线回归不改写历史 Run，也不是成功证据 |
+| 预算预留诊断 | 历史九轮样本含 9 Trace、26 个已结算调用；聚合预留/结算比 6.822406；Sanic-5 首个 Run 的 7 次调用聚合预留/结算比为 7.199782，候选 `request_bytes + 1024` 在这 7 次中也没有低估 | 尚未把第十至十七轮并入统一冻结诊断；单个新增 Run 不能授权降低生产费用安全门槛 |
 | 出站请求尺寸 | 6 类离线边界请求均复用 Adapter 的精确 wire encoder；167～9,061 bytes，含真实四工具 Schema 的检索轮次 | 无 Provider usage，不证明候选公式安全或模型效果 |
 | 模型响应提交窗 | 普通落盘/receipt 失败立即双账 `unknown`；真实子进程在模型返回后、Artifact 前硬退出，重启后 Trace 可重放且不重派 | 无 Provider 查询接口时不能恢复丢失响应，仍需人工对账 |
 
@@ -629,7 +629,7 @@ v12 再加入 Cookiecutter-3，二十三案例已由[公开 workflow](https://gi
 SiliconFlow + Docker 的受控 fixture Run 通过；这是历史联调证据，不是 benchmark 或真实
 Issue 效果。新增真实模型 Pilot 单元测试覆盖私有答案拒绝、初始失败证据、内容寻址报告和
 启动时任务/源码/镜像/Provider/Harness 源码漂移拒绝；真实 checkout 的离线 Docker preflight
-已通过，tqdm 候选还把首次规划保守预留纳入 `ready` 门。十六轮真实模型负结果均已导出并可重放，分别驱动 Plan/搜索反馈、有界行读取/
+已通过，tqdm 候选还把首次规划保守预留纳入 `ready` 门。十七轮真实模型负结果均已导出并可重放，分别驱动 Plan/搜索反馈、有界行读取/
 近期完整单元应急压缩/异常租约释放、“不猜路径、优先 revision-bound 证据、默认 rank 1”，
 范围参数成对约束/规划输入收窄，以及完整 inventory 下的不存在路径准入。第五轮只完成规划，
 第一条执行请求在派发前因 Run 余额短缺 `CNY 0.000096` 被硬门禁终止。第六轮完成规划、一次
@@ -657,15 +657,20 @@ preimage、目标文件统一使用 CRLF，精确替换观察到零命中；随�
 门阻断，新增 `CNY 0.0659172`。第十六轮在首版目标证据连续性修复后复跑同一 development 任务；工具
 回执仍含精确 `click.prompt` 目标，但首个压缩窗口选择了后方调用点，后续窗口又选择了合成的
 `READ_RANGE path=...` 头。5 个 post-evidence 模型投影都缺少精确目标，模型继续重复读取，最终由 Campaign
-门阻断，新增 `CNY 0.0584538`。全部历史 Pilot 为 85 个已结算调用、累计 `CNY 0.7524090`，没有自动重试、
+门阻断，新增 `CNY 0.0584538`。第十七轮使用修复后的 lexical anchor 选择器再次执行同一 development
+任务；完整读取回执含精确目标，但 240 字符 Run Memory 窗口以函数定义为中心，真实函数的长 docstring
+和函数体把 `click.prompt` 挤出窗口，7 个压缩模型投影全部缺失修改点。模型继续重复读取/检索，并在
+1 次 planning + 9 次 execution 后以 `model_iteration_limit` 终止，新增 `CNY 0.0855768`。全部历史
+Pilot 为 95 个已结算调用、累计 `CNY 0.8379858`，没有自动重试、
 fallback、有效代码编辑或 protected validation。生产修复既保留零费用 8K-context 单边读取回归，
 又以 `EvidenceTransitionPolicy` 阻断 Sanic-5 形态的同 revision 重复取证，并让统一换行文件在不放松
 精确 occurrence/CAS 约束的前提下适配模型片段。第十四轮原始 arguments hash 随后在同一 CRLF
 checkout 上以零费用 Scripted A/B 成功写入并通过 protected validation；这不是模型复跑，也不改写
-真实闭环 `0/16`。第十五轮驱动的首版目标证据修复确实固定了一条 active marker 并阻止空 memory
-派发，但第十六轮证明其 lexical anchor 仍会选错。后续离线修复改为按最强 code-like anchor 选择、
-在 code anchor 存在时排除路径元数据，并以更早源码位置打破同 anchor 平局；真实 `READ_RANGE` 加后方
-调用点回归现在保留 `read_user_choice` 定义及 `click.prompt`。这仍未获新的付费验证，不是模型成功证据。
+真实闭环 `0/17`。第十五轮驱动的首版目标证据修复确实固定了一条 active marker 并阻止空 memory
+派发，第十六轮证明其 lexical anchor 会选错，第十七轮又证明只固定定义仍不足以保留远处修改点。
+新的零费用修复按一行中的独立任务概念数选择修改附近代码，并从中心向前后均衡扩展；真实长 docstring
+回归在同一 240 字符预算下保留 `user_choice = click.prompt(...)` 及其参数行。这仍未获新的付费验证，
+不是模型成功证据。
 未来确定性费用拒绝不再留下无 Lease 的 `RUNNING`：控制器会持久化类型化 `BudgetStop`、进入
 `FAILED` 并在 CLI/status 中报告所需与可用金额。新停止还会相邻保存未派发请求的 call/request
 标识、purpose、估算器、请求字节、input cap/ceiling 和 output ceiling，便于零费用回放；unknown

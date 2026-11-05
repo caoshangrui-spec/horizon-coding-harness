@@ -1,12 +1,13 @@
-# 真实模型 Pilot：离线预检、十六轮负结果与付费边界
+# 真实模型 Pilot：离线预检、十七轮负结果与付费边界
 
 更新：2026-11-05。本 Pilot 的目标不是立即追求 benchmark 分数，而是在**完整真实仓库、
-模型自主计划、模型自主检索和编辑**的条件下观察 Harness 的真实失败分布。已执行十六个
+模型自主计划、模型自主检索和编辑**的条件下观察 Harness 的真实失败分布。已执行十七个
 付费 Agent Run：它们先后暴露计划/检索反馈、读取范围/上下文投影、路径假设/请求预留、
 Campaign 压力、Run Memory、evidence-to-action 反馈与运行时调用上限等问题；第十四轮首次调用
 写工具，又暴露统一 CRLF 文件与 LF 模型片段的精确 preimage 兼容缺口；第十五轮在首轮已读到
 正确函数后仍进入压缩—重复读取循环；第十六轮进一步证明首版目标证据修复只保住 marker，
-没有把精确目标代码带入压缩后的模型上下文。十六轮均没有形成有效
+没有把精确目标代码带入压缩后的模型上下文；第十七轮则证明定义 marker 即使稳定保留，真实长函数
+仍会让 240 字符窗口截断远处修改点。十七轮均没有形成有效
 代码编辑或 protected validation；结果可重放且
 费用可对账，但不是 Issue 成功证据，也不足以推出模型或 Harness 的总体能力结论。
 
@@ -1029,5 +1030,31 @@ EvidencePack 离线验证通过，Trace SHA-256 为
 
 后续离线修复把“累加一行全部匹配”改为“最强 code-like anchor”，有代码锚点时排除路径元数据，
 相同锚点取更早源码位置；贴近真实 `READ_RANGE` 与后方调用点的回归可保留函数定义和
-`click.prompt`。这没有再次调用模型，因此不改变冻结结果。当前累计 16 个真实 Run、85 个已结算
-调用、`CNY 0.7524090`，真实编辑—验证闭环仍为 `0/16`；任何再次付费验证都需要新的明确授权。
+`click.prompt`。这没有再次调用模型，因此不改变冻结结果。截至该 Run 累计 16 个真实 Run、85 个已结算
+调用、`CNY 0.7524090`，真实编辑—验证闭环为 `0/16`。
+
+## 31. Cookiecutter-3 real-closure Run：定义保留但真实修改点仍被截断
+
+唯一 Run `run_ce0776dae9024162a88d73a42b67fcb2` 使用独立 `CNY 0.180` Run/Campaign，Provider
+每请求最多尝试 1 次，retry/fallback 均关闭。10 次模型调用（1 planning + 9 execution）和 9 次
+工具调用结算 `CNY 0.0855768`；输入/输出 token 为 28,354/902，Campaign reserved/unknown 均为 0，
+剩余 `CNY 0.0944232`。运行不是费用门停止，而是在 TaskSpec 的 10 次模型调用上限处以
+`model_iteration_limit` 终止。
+
+首个完整 `read_file` artifact 确实包含第 90 行 `user_choice = click.prompt(`。但是 7 个压缩后的
+模型投影全部只保留 `def read_user_choice`，没有精确修改点：240 字符 Run Memory 窗口从函数定义开始，
+真实 docstring 和前半段函数体已经耗尽窗口。模型在两次成功读取后继续重复读取/检索；
+`NoProgressPolicy` 和 `EvidenceTransitionPolicy` 共拒绝五次重复取证，但反馈片段同样没有携带目标代码，
+最终没有调用写工具或 protected check。validation 因此仍为 `UNKNOWN`，source revision 未变。
+
+95-event Trace 可离线重放，terminal EvidencePack 验证通过；Trace SHA-256 为
+`cc2d2ffe59fde2fe5048cbc0f0dd36ba72aec3f812425a748e7b5ad83cf58524`，projection hash 为
+`1a86d250cacaac1e79487a4c313cdffa1b0d4e9a43ff8845658becf498aac3c3`，无 open/unknown effect 或
+悬空 reservation。机器可读冻结结果见
+[`real-model-closure-cookiecutter3-result-v3.yaml`](../benchmarks/real-model-closure-cookiecutter3-result-v3.yaml)。
+
+后续零费用修复没有扩大 240 字符预算：它对同一行的重叠词去重，优先选择包含多个独立任务概念的
+代码行，再从该中心向前后均衡扩展。贴近真实长 docstring 的回归现在保留
+`user_choice = click.prompt(` 与参数行。该离线回归不改写冻结 Run，也不是模型成功证据。当前累计
+17 个真实 Run、95 个已结算调用、`CNY 0.8379858`，真实编辑—protected validation 闭环仍为
+`0/17`；任何再次付费验证都需要新的明确授权。

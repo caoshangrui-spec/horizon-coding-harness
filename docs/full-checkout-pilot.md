@@ -274,10 +274,10 @@ v12 的公开禁网 Docker run
 与最终证据上传。artifact ID `13400843388`，269,976,764 bytes，digest
 `sha256:7cbcfe2509efcac6bb7e1c64ea0445e0c9d5b845354b17bbcadca33b8bf89e85`，保留至 2026-12-05。
 该结果证明 Cookiecutter-3 的 Scripted Treatment 进入了与既有案例相同的公开生产验证路径；它不证明
-付费模型能产生该修改。随后唯一一次 Cookiecutter-3 真实 Run 虽暴露了正确函数和最终 rank-1
-精确目标块，但没有调用写工具或 protected check。后续同任务 post-fix Run 又证明首版压缩修复选错
-lexical anchor；工具回执虽含目标代码，5 个 post-evidence 模型投影均未包含精确调用。当前真实模型
-闭环仍为 `0/16`。
+付费模型能产生该修改。随后三次 Cookiecutter-3 真实 Run 虽都暴露了正确函数或精确目标块，却没有
+调用写工具或 protected check：第二次证明首版压缩修复选错 lexical anchor，第三次进一步证明固定
+函数定义仍会在真实长 docstring 下截断远处修改点，7 个压缩投影均缺精确调用。当前真实模型闭环
+仍为 `0/17`。
 
 ### 3.2 v10 两种失效模式的本地与公开证据
 

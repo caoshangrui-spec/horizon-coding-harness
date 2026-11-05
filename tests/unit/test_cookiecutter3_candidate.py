@@ -36,6 +36,7 @@ TARGET_EVIDENCE_RESULT_PATH = (
 CLOSURE_PILOT_PATH = FULL_MANIFEST_PATH.with_name("real-model-closure-pilot-v3.yaml")
 CLOSURE_PROVIDER_PATH = ROOT / "config" / "providers" / "siliconflow-cookiecutter3-closure-v3.yaml"
 CLOSURE_CANDIDATE_PATH = ROOT / "benchmarks" / "real-model-closure-cookiecutter3-candidate-v3.yaml"
+CLOSURE_RESULT_PATH = ROOT / "benchmarks" / "real-model-closure-cookiecutter3-result-v3.yaml"
 
 
 def _yaml(path: Path):
@@ -240,3 +241,63 @@ def test_cookiecutter3_closure_candidate_is_ready_but_does_not_authorize_spend()
     assert preflight["paid_model_called"] is False
     assert preflight["network_called"] is False
     assert Decimal(preflight["planning_execution_reserved_cost_cny"]) <= Decimal("0.180")
+
+
+def test_cookiecutter3_closure_result_freezes_failed_run_and_missing_target_context():
+    pilot = RealModelPilotManifest.model_validate(_yaml(CLOSURE_PILOT_PATH))
+    provider = load_provider_config(CLOSURE_PROVIDER_PATH)
+    result = _yaml(CLOSURE_RESULT_PATH)
+    run = result["run"]
+    quality = result["observed_quality"]
+    continuity = result["target_evidence_continuity"]
+    trace = result["trace"]
+    repair = result["post_run_offline_repair"]
+
+    assert pilot.provider_policy_id == provider.policy_id == run["provider_policy_id"]
+    assert provider.run_budget.max_cost == provider.campaign.max_cost == Decimal("0.180")
+    assert provider.request.max_attempts == 1
+    assert provider.fallback_enabled is False
+
+    assert result["scope"]["unique_paid_run_performed"] is True
+    assert result["scope"]["included_in_original_smoke_aggregate"] is False
+    assert result["scope"]["retry_performed"] is False
+    assert result["scope"]["fallback_performed"] is False
+    assert result["scope"]["frozen_success_or_failure"] is True
+    assert run["status"] == "FAILED"
+    assert run["failure_reason"] == "model_iteration_limit"
+    assert run["model_calls"] == 10
+    assert run["tool_calls"] == 9
+    assert run["settled_cost_cny"] == "0.0855768"
+    assert run["campaign_reserved_cost_cny"] == "0"
+    assert run["campaign_unknown_cost_cny"] == "0"
+    assert run["budget_stop"] is None
+    assert run["checkpoint_created"] is False
+    assert quality["correct_location_reached_by_tools"] is True
+    assert quality["exact_target_call_visible_in_tool_evidence"] is True
+    assert quality["exact_target_call_visible_in_compacted_model_context"] is False
+    assert quality["valid_edit_produced"] is False
+    assert quality["protected_validation_passed"] is None
+    assert quality["write_tool_calls"] == 0
+    assert quality["protected_check_calls"] == 0
+    assert continuity["change_under_test_preserved_definition"] is True
+    assert continuity["change_under_test_preserved_exact_target"] is False
+    assert len(continuity["compacted_projection_checks"]) == 7
+    assert all(
+        check["definition_visible"] and not check["exact_target_visible"]
+        for check in continuity["compacted_projection_checks"]
+    )
+    assert trace["event_count"] == 95
+    assert trace["terminal_pack_verified"] is True
+    assert trace["replay_verified"] is True
+    assert trace["open_effects_present"] is False
+    assert trace["unknown_effects_present"] is False
+    assert repair["external_model_called"] is False
+    assert repair["paid_model_called"] is False
+    assert repair["excerpt_budget_changed"] is False
+    assert repair["verification"]["full_tests"] == "717 passed, 11 skipped"
+    assert repair["verification"]["mypy"] == "115 source files, 0 errors"
+    assert repair["verification"]["ruff"] == "passed"
+    assert result["aggregate_after_run"]["historical_real_model_runs"] == 17
+    assert result["aggregate_after_run"]["settled_model_calls"] == 95
+    assert result["aggregate_after_run"]["settled_cost_cny"] == "0.8379858"
+    assert result["aggregate_after_run"]["valid_edit_and_protected_validation_closures"] == 0

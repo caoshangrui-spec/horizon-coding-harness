@@ -5,6 +5,18 @@ for public releases; unreleased work must not be presented as a published releas
 
 ## Unreleased
 
+- Ran the separately authorized Cookiecutter-3 real-closure follow-up once under an independent
+  CNY 0.180 Run/Campaign, one Provider attempt per request, and no retry or fallback. The Run
+  settled ten model calls and nine read-only tool calls for CNY 0.0855768, then stopped at the
+  TaskSpec model-iteration limit with no edit or protected validation. The first full-file receipt
+  contained the exact `click.prompt` target, but all seven compacted model projections retained
+  only the function definition: the realistic docstring and function body exhausted the
+  240-character excerpt before the edit site. The 95-event Trace and terminal EvidencePack replay
+  and verify with no open or unknown effect. A narrow zero-cost regression now uses the realistic
+  long-function shape; Run Memory deduplicates overlapping task concepts, selects the line with
+  the strongest independent concept coverage, and expands around it in both directions without
+  increasing the excerpt budget. The frozen real-model aggregate remains 0/17.
+
 - Ran the separately authorized Sanic-5 post-Smoke development follow-up without changing the
   original five-task Smoke denominator. Its fresh exact-checkout preflight was ready at a
   cumulative CNY 0.103572 reservation. The only paid Run settled seven model calls and six
