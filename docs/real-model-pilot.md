@@ -986,3 +986,20 @@ context compaction；最后一次 retrieval 才把 `cookiecutter/prompt.py:71-11
 [`real-model-first-closure-cookiecutter3-result-v1.yaml`](../benchmarks/real-model-first-closure-cookiecutter3-result-v1.yaml)。
 至此累计十五个真实 Run、78 个已结算调用与 `CNY 0.6939552`，真实编辑—验证闭环仍为 `0/15`。
 后续任何付费执行仍需新的任务级明确授权；本次剩余 Campaign 余额不是继续授权。
+
+## 29. Cookiecutter-3 target-evidence post-fix 候选：零费用预检通过
+
+提交 `fa8a8006cef9f9e2c456b757c82bfe2b0368b7c1` 修复了压缩后目标代码证据丢失：Run Memory
+从不可变 TaskSpec/WorkItem 派生有界目标代码窗口，压缩时至少保留一条 active target-code
+observation；无法容纳时在 Provider 派发前停止。为隔离这个 Harness 变化，候选继续使用同一公开
+Cookiecutter-3 buggy checkout、相同任务语义和 `CNY 0.120` cap，但绑定新的 policy 与独立 Campaign。
+
+禁网 Docker 预检 ref 为
+`2adb7e4eecd3f46b30b13dc4a4a33a93733c7e1bb8dd544b406dd9c21787a8f5`；完整 checkout、初始失败、
+source unchanged、solution isolation、模型策略、Harness 源码与输入容量全部通过。planning 与 bounded
+execution 保守预留为 `CNY 0.034602` 和 `CNY 0.069528`，累计 `CNY 0.104130 <= 0.120`。
+`credential_loaded=false`、`paid_model_called=false`、`network_called=false`。机器可读候选为
+[`real-model-target-evidence-cookiecutter3-candidate-v2.yaml`](../benchmarks/real-model-target-evidence-cookiecutter3-candidate-v2.yaml)。
+
+这是 post-hoc 同任务对照，不是任务泛化；预检通过也不意味着模型会编辑或验证。新 Provider 调用仍
+需要独立明确授权，历史 `0/15` 不变。

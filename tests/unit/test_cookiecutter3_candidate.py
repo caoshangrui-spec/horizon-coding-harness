@@ -21,6 +21,15 @@ PAID_RESULT_PATH = ROOT / "benchmarks" / "real-model-first-closure-cookiecutter3
 PAID_PROVIDER_PATH = (
     ROOT / "config" / "providers" / "siliconflow-cookiecutter3-first-closure-v1.yaml"
 )
+TARGET_EVIDENCE_PILOT_PATH = FULL_MANIFEST_PATH.with_name(
+    "real-model-target-evidence-pilot-v2.yaml"
+)
+TARGET_EVIDENCE_PROVIDER_PATH = (
+    ROOT / "config" / "providers" / "siliconflow-cookiecutter3-target-evidence-v2.yaml"
+)
+TARGET_EVIDENCE_CANDIDATE_PATH = (
+    ROOT / "benchmarks" / "real-model-target-evidence-cookiecutter3-candidate-v2.yaml"
+)
 
 
 def _yaml(path: Path):
@@ -119,3 +128,32 @@ def test_cookiecutter3_paid_result_preserves_the_failed_run_and_budget_boundary(
     assert trace["terminal_pack_verified"] is True
     assert trace["open_effects_present"] is False
     assert trace["unknown_effects_present"] is False
+
+
+def test_cookiecutter3_post_fix_candidate_is_ready_but_still_requires_paid_authorization():
+    pilot = RealModelPilotManifest.model_validate(_yaml(TARGET_EVIDENCE_PILOT_PATH))
+    provider = load_provider_config(TARGET_EVIDENCE_PROVIDER_PATH)
+    candidate = _yaml(TARGET_EVIDENCE_CANDIDATE_PATH)
+    preflight = candidate["zero_spend_preflight"]
+
+    assert pilot.provider_policy_id == provider.policy_id
+    assert pilot.task.model_policy_id == provider.policy_id
+    assert pilot.task.repository.base_commit == pilot.source.buggy_commit
+    assert pilot.task.constraints.allowed_paths == ("cookiecutter/**",)
+    assert pilot.task.constraints.network == "deny"
+    assert pilot.max_paid_cost == provider.run_budget.max_cost == Decimal("0.120")
+    assert provider.campaign.max_cost == Decimal("0.120")
+    assert provider.request.max_attempts == 1
+    assert provider.fallback_enabled is False
+
+    assert candidate["scope"]["paid_execution_authorized"] is False
+    assert candidate["scope"]["external_model_called"] is False
+    assert candidate["change_under_test"]["historical_valid_edit"] is False
+    assert preflight["ready"] is True
+    assert preflight["initial_failure_observed"] is True
+    assert preflight["source_unchanged"] is True
+    assert preflight["solution_isolation_passed"] is True
+    assert preflight["credential_loaded"] is False
+    assert preflight["paid_model_called"] is False
+    assert preflight["network_called"] is False
+    assert Decimal(preflight["planning_execution_reserved_cost_cny"]) <= Decimal("0.120")

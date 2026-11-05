@@ -6,6 +6,22 @@
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
 
+## 2026-11-05 Cookiecutter-3 post-fix 付费候选零费用预检
+
+- 为隔离验证目标证据连续性修复，准备了同一公开 Cookiecutter-3 development 任务的新 policy、独立
+  `CNY 0.120` Campaign 和最多一次 Provider attempt；retry、fallback 均关闭。它是 post-hoc 同任务
+  对照，不是 holdout、盲测或跨任务泛化证据。
+- 禁网 Docker 预检 ref 为
+  `2adb7e4eecd3f46b30b13dc4a4a33a93733c7e1bb8dd544b406dd9c21787a8f5`，确认完整 checkout、初始
+  失败、source unchanged、solution isolation、Provider/Task/Harness 绑定和输入容量均通过；prepared
+  Task ref 为 `92bb43442fadc76af956e964d1f32ce5563eed8b113a108e275c5d68650aa344`。
+- planning、bounded execution 与累计保守预留分别为 `CNY 0.034602/0.069528/0.104130`，低于
+  `CNY 0.120` cap。预检没有读取凭据、调用模型或访问网络。第一次长状态路径因 Windows 206 路径
+  长度错误失败；相同输入改用短状态路径后通过，该本机路径问题不计为任务或模型负结果。
+- 机器可读候选见
+  [`real-model-target-evidence-cookiecutter3-candidate-v2.yaml`](../benchmarks/real-model-target-evidence-cookiecutter3-candidate-v2.yaml)。
+  付费执行仍未授权，历史真实闭环保持 `0/15`。
+
 ## 2026-11-05 Cookiecutter-3 负结果驱动的目标证据连续性修复
 
 - Run Memory 现在从不可变 TaskSpec 与当前 WorkItem 派生确定性词法锚点；长文件读取不再只截取文件
@@ -18,7 +34,7 @@
 - 如果压缩后连这一条目标代码证据都无法容纳，投影会在 Provider 派发前类型化停止，不再降级为
   `recent_entries=[]` 后继续消耗模型调用。新增回归覆盖长文件中段目标、更新的重复尾部读取、固定证据
   选择和 fail-closed 容量边界。
-- 完整离线回归为 **713 passed，11 skipped**；Ruff 检查通过。没有付费复跑，历史 Cookiecutter-3
+- 完整离线回归为 **714 passed，11 skipped**；Ruff 检查通过。没有付费复跑，历史 Cookiecutter-3
   Run、累计费用与真实闭环 `0/15` 均未改写；这里只证明 Harness 的证据连续性缺陷已被确定性覆盖。
 
 ## 2026-11-05 Cookiecutter-3 唯一真实 Run：正确位置已暴露但未进入编辑
@@ -2058,7 +2074,7 @@ Docker 限制参数按[官方运行文档](https://docs.docker.com/reference/cli
 
 十四轮负证据驱动修复、后续作品集演示、input-token 门禁、同名符号诊断、外部定位盲测和
 BudgetStop 请求证据回放、精确 wire payload 尺寸、Provider-return 崩溃窗和有界恢复矩阵接入后，
-当前主干将重点收敛到 evidence-to-action 主链；最新全量入口为 713 passed、11 个显式 Docker skip，
+当前主干将重点收敛到 evidence-to-action 主链；最新全量入口为 714 passed、11 个显式 Docker skip，
 同一版本的 11 个 Docker 合同也已用锁定镜像单独通过。
 第五轮 Run `run_fec07b6bf28d45d5bc428cda120959a3` 只完成一次规划调用，费用 `CNY 0.005574`；
 第一条执行请求需 `CNY 0.054522`，比 Run 余额多 `CNY 0.000096`，因此在 Provider 派发前以
