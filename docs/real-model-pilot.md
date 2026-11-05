@@ -1058,3 +1058,22 @@ EvidencePack 离线验证通过，Trace SHA-256 为
 validation，详见[四项纠偏记录](development-progress.md)。这些离线检查不改写冻结 Run，也不是模型成功证据。当前累计
 17 个真实 Run、95 个已结算调用、`CNY 0.8379858`，真实编辑—protected validation 闭环仍为
 `0/17`；任何再次付费验证都需要新的明确授权。
+
+## 32. Cookiecutter-3 structural-evidence follow-up：看到目标仍未编辑
+
+经新的唯一授权，在 `dc1ae992` 上执行独立 v4 Campaign，Run 为
+`run_34c83174774a4e6da8b9ac25d90fdd73`。预检确认原始缺陷失败、完整 checkout 未改变及验收信息隔离。
+Run/Campaign 均上限 `CNY 0.180`，单请求最多尝试 1 次，无 retry/fallback。
+
+最终 `FAILED/model_iteration_limit`：1 planning + 9 execution，2 retrieve + 8 read，其中一次重复
+读取被拒绝；0 写入、0 protected check。结算 `CNY 0.0886788`，剩余 `CNY 0.0913212`，
+reserved/unknown 均为 0，源码 revision 未变。验收未执行，结果为 `UNKNOWN`。
+
+9 个实际请求的逐项检查表明：执行第 2–7 次保留精确调用及参数，模型仍只取证；第 8–9 次因读取
+邻近函数，最新合格代码摘录挤掉旧目标。这同时暴露行动循环和证据保留不足，不能继续将所有失败
+归因于不可见代码。尚未隔离模型能力、提示方式和工具回执表达的因果贡献。
+
+99-event Trace 与 terminal EvidencePack 离线验证通过；完整引用和逐请求可见性保存在
+[`real-model-closure-cookiecutter3-result-v4.yaml`](../benchmarks/real-model-closure-cookiecutter3-result-v4.yaml)。
+累计 18 Runs、105 次已结算调用、`CNY 0.9266646`，真实闭环 `0/18`，不加入原五任务 Smoke 或 holdout。
+保留失败，不重跑、不自动续用余额；下一步优先离线简化请求表达，而非扩展外围测试。

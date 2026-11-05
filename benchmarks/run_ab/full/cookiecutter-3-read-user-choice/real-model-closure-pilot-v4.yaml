@@ -1,0 +1,71 @@
+schema_version: 1
+pilot_id: cookiecutter-3-read-user-choice-closure-v4
+source_path: fixture
+
+source:
+  benchmark: BugsInPy
+  project: cookiecutter
+  bug_id: "3"
+  repository_url: https://github.com/cookiecutter/cookiecutter
+  buggy_commit: 5c282f020a8db7e5e7c4e7b51b010556ca31fb7f
+  fixed_commit: 7129d474206761a6156925db78eee4b62a0e3944
+  fix_url: https://github.com/cookiecutter/cookiecutter/commit/7129d474206761a6156925db78eee4b62a0e3944
+  upstream_test: tests/test_read_user_choice.py::test_click_invocation
+  license_spdx: BSD-3-Clause
+  license_url: https://github.com/cookiecutter/cookiecutter/blob/5c282f020a8db7e5e7c4e7b51b010556ca31fb7f/LICENSE
+  reduction: full_checkout
+  reduction_note: >-
+    Post-structural-evidence-fix follow-up using the same clean 216-file buggy checkout. The model receives no
+    fixed-commit patch or evaluator-only repair action; this is development evidence, not holdout.
+
+task:
+  schema_version: "1.0"
+  spec_version: 1
+  task_id: cookiecutter-read-user-choice-closure-v4
+  title: Avoid rendering choice values twice
+  objective: Keep Cookiecutter's numbered prompt while preventing Click from appending its own choice list.
+  repository:
+    source: local
+    path: /pilot-source
+    base_commit: 5c282f020a8db7e5e7c4e7b51b010556ca31fb7f
+  constraints:
+    allowed_paths: [cookiecutter/**]
+    denied_paths: [.git/**, .env, .env.*, secrets/**]
+    allowed_tools: [read_file, retrieve_code, replace_text, run_check]
+    network: deny
+    requirements:
+      - Do not change tests, dependencies, or unrelated prompt functions.
+      - Use revision-bound repository evidence before editing the production package.
+      - Preserve Cookiecutter's numbered prompt text, default selection, and selected return value.
+  acceptance:
+    - id: cookiecutter-read-user-choice-closure-v4
+      command: >-
+        python -B -c "import ast; from pathlib import Path; from collections import OrderedDict; from types import SimpleNamespace; tree=ast.parse(Path('cookiecutter/prompt.py').read_text(encoding='utf-8')); fn=next(item for item in tree.body if isinstance(item,ast.FunctionDef) and item.name=='read_user_choice'); calls=[]; click=SimpleNamespace(Choice=lambda choices: tuple(choices),prompt=lambda prompt,**kwargs: (calls.append((prompt,kwargs)) or '1')); namespace={'OrderedDict':OrderedDict,'click':click}; exec(compile(ast.Module(body=[fn],type_ignores=[]),'cookiecutter/prompt.py','exec'),namespace); assert namespace['read_user_choice']('varname',['hello','world'])=='hello'; assert calls[-1][1].get('show_choices') is False,calls[-1]"
+      timeout_seconds: 30
+      required: true
+  budgets:
+    max_steps: 20
+    max_model_calls: 10
+    max_tool_calls: 20
+    max_wall_time_seconds: 900
+    max_cost_usd: "0.180"
+    max_input_tokens: 120000
+    max_output_tokens: 4096
+    max_repair_cycles: 2
+  task_kind: bugfix
+  execution_mode: workspace_write
+  authority_scope: workspace_write
+  model_policy_id: siliconflow-deepseek-v4-flash-cookiecutter3-closure-018-v4
+  memory_scope: cookiecutter-3-read-user-choice-closure-v4
+
+provider_policy_id: siliconflow-deepseek-v4-flash-cookiecutter3-closure-018-v4
+currency: CNY
+# One development Run authorized on 2026-11-05; no retries or fallback.
+max_paid_cost: "0.180"
+expected_initial_failed_checks: [cookiecutter-read-user-choice-closure-v4]
+auto_plan: true
+
+solution_isolation:
+  acceptance_visibility: visible
+  forbidden_task_literals:
+    - "        prompt, type=click.Choice(choices), default=default, show_choices=False"

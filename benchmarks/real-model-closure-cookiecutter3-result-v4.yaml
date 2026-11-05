@@ -1,0 +1,135 @@
+schema_version: 1
+result_id: cookiecutter-3-real-closure-structural-evidence-v4
+task_id: cookiecutter-read-user-choice-closure-v4-bd920144
+classification: post_hoc_development_follow_up
+
+scope:
+  original_smoke_suite_unchanged: true
+  included_in_original_smoke_aggregate: false
+  blind_or_holdout_evidence: false
+  unique_paid_run_performed: true
+  retry_performed: false
+  fallback_performed: false
+  frozen_success_or_failure: true
+
+preflight:
+  ready: true
+  report_ref: be457602bc66e50ac86fc33d4825c22d341cef9a5b41e1ab48b6ed7891681d4a
+  prepared_task_ref: a697b84cb33474ac14054c0ffe1c3d3f7e0188f39c8010559ae665b9f026ea00
+  harness_commit: dc1ae99269f2c0679409d5be88cf879a5716e13c
+  harness_source_digest: 49ec65a1380b748110846eb155da3a26f127cdc7ccecc125bf1b2c1e0537afcc
+  manifest_digest: 6af86391cac6940259fb7ca56058dd69e83feb232c9d65fe483d44328526b58f
+  provider_config_digest: 0443b707462b84d3ca51aa9884cd49ad953f9a2537e91c8a6950f17222ef528e
+  source_snapshot_revision: 41051c33c618a9672934a989db3ab026bb95b57a5d02b830e3c323fffe9a4638
+  source_git_head: 5c282f020a8db7e5e7c4e7b51b010556ca31fb7f
+  validation_backend_ref: sha256:0687a6bc9716edc2a6ee0fbfb0f87e7ee358b262b67c9215de91bc9b2d38ba71
+  initial_failure_observed: true
+  source_unchanged: true
+  solution_isolation_passed: true
+  credential_loaded: false
+  paid_model_called: false
+  network_called: false
+
+run:
+  run_id: run_34c83174774a4e6da8b9ac25d90fdd73
+  status: FAILED
+  task_succeeded: false
+  failure_reason: model_iteration_limit
+  provider_id: siliconflow
+  provider_policy_id: siliconflow-deepseek-v4-flash-cookiecutter3-closure-018-v4
+  model_id: deepseek-ai/DeepSeek-V4-Flash
+  provider_max_attempts: 1
+  fallback_enabled: false
+  run_cost_cap_cny: "0.180"
+  campaign_id: siliconflow-cookiecutter3-closure-2026-11-v4
+  campaign_cost_cap_cny: "0.180"
+  settled_cost_cny: "0.0886788"
+  campaign_remaining_cost_cny: "0.0913212"
+  campaign_reserved_cost_cny: "0"
+  campaign_unknown_cost_cny: "0"
+  budget_stop: null
+  model_calls: 10
+  planning_calls: 1
+  execution_calls: 9
+  tool_calls: 10
+  input_tokens: 28158
+  output_tokens: 928
+  steps: 10
+  context_compaction_count: 8
+  checkpoint_created: false
+  source_workspace_unchanged: true
+  final_workspace_revision: 41051c33c618a9672934a989db3ab026bb95b57a5d02b830e3c323fffe9a4638
+
+observed_quality:
+  correct_location_reached_by_tools: true
+  exact_target_call_visible_in_tool_evidence: true
+  edit_intent_observed: false
+  valid_edit_produced: false
+  protected_validation_passed: null
+  acceptance_evidence_unknown: true
+  retrieval_calls: 2
+  read_calls: 8
+  write_tool_calls: 0
+  protected_check_calls: 0
+  evidence_transition_feedback_count: 0
+  no_progress_feedback_count: 1
+  tool_sequence:
+    - {name: retrieve_code, status: success}
+    - {name: read_file, status: success}
+    - {name: read_file, status: success, start_line: 1}
+    - {name: read_file, status: success, start_line: 1}
+    - {name: read_file, status: success, start_line: 1}
+    - {name: read_file, status: error, start_line: 1, controller_policy: NoProgressPolicy}
+    - {name: retrieve_code, status: success}
+    - {name: read_file, status: success, start_line: 180}
+    - {name: read_file, status: success, start_line: 180}
+    - {name: read_file, status: success, start_line: 180}
+
+target_evidence_continuity:
+  exact_target_literal: "user_choice = click.prompt("
+  argument_literal: "prompt, type=click.Choice(choices), default=default"
+  projection_checks:
+    - {iteration: 1, projection_ref: 94fbff11aa8fa364344f3f5bd0888d73a6439602498fae2e394f809431cad110, projected_chars: 4295, exact_target_visible: false}
+    - {iteration: 2, projection_ref: 08632e6d2ad634d050a9ae196567def7cf1832236e96eb771096d077d5815714, projected_chars: 7282, exact_target_visible: true}
+    - {iteration: 3, projection_ref: 84f639f121d8f9b436ebb254b51588d13415b59d40622da0253aa1a2428b2b9d, projected_chars: 6681, exact_target_visible: true}
+    - {iteration: 4, projection_ref: c6bf9fe15faef4f92bb64319301019eacef02d63be8f2ae1af07f33f6334a508, projected_chars: 7433, exact_target_visible: true}
+    - {iteration: 5, projection_ref: 1695678a68c16c065f8a9a57987347ae0e544ddadd05412e8d4843900d4e1e3b, projected_chars: 7433, exact_target_visible: true}
+    - {iteration: 6, projection_ref: faa65826b4332ed6aab867159e9c185a64bf90905a814ae0ee1d17f5f71ba9a1, projected_chars: 7973, exact_target_visible: true}
+    - {iteration: 7, projection_ref: e789310b9b3d443919f123a920cfa71b625cebe0c8eaf495dcc26b5a16cb2956, projected_chars: 7368, exact_target_visible: true}
+    - {iteration: 8, projection_ref: 8c7a224b599f42ff9100b000e6761e354156e9bb1f897946f35b38c8c9406c51, projected_chars: 7307, exact_target_visible: false}
+    - {iteration: 9, projection_ref: 104a8be2d5361366b7a22a0c0d6c24744270a7ee6577b643ab3c9fd62d485768, projected_chars: 7307, exact_target_visible: false}
+  observations:
+    - Both target and argument literals were visible in execution requests 2 through 7, but each response requested only reading or retrieval.
+    - After reading lines 180-242, the latest TASK_RELEVANT_CODE entry displaced the earlier exact target from requests 8 and 9.
+    - The memory selector pins the latest eligible code entry, not necessarily the strongest task evidence.
+  causal_boundary: >-
+    Missing target evidence cannot explain all non-editing responses in this Run. Visibility
+    does not prove the model used the evidence. The contribution of prompt design, compressed
+    receipt presentation and model behavior is not isolated by this one development Run.
+
+trace:
+  event_count: 99
+  event_hash: fc670dfc5489d5af01a718829256a9c10c950e3b31f462d0823af3d6518a1116
+  trace_sha256: c10e4b0645fbfe3c50b0cf952ba28b608de2b3cbe6c48a429ee3fbc682890c85
+  projection_hash: 7251ace8f6393a03534112b471cfb20bd1eeadbdc4a1db8f6b6b5da1edb1bd20
+  final_state_sha256: d0cac2ff54f92457592d44ed38c6b6546cf2c5d602a00f8b80c163d22ca7eb64
+  evidence_pack_sha256: 5f3fc5a33cce442352ac8639030175e00e7ee40916bd050e65b27c5a8728dd34
+  terminal_pack_verified: true
+  replay_verified: true
+  open_effects_present: false
+  unknown_effects_present: false
+  open_reservations_present: false
+
+aggregate_after_run:
+  historical_real_model_runs: 18
+  settled_model_calls: 105
+  settled_cost_cny: "0.9266646"
+  valid_edit_and_protected_validation_closures: 0
+
+limitations:
+  - This is a repeated revealed development task, not an independent task success-rate sample.
+  - Costs are local price-card estimates, not provider invoices.
+  - No protected validation ran; its result remains unknown rather than false.
+  - The protected probe isolates read_user_choice with fake Click; it is not the full upstream test suite.
+  - The previous offline evidence-visibility regression does not establish autonomous model editing ability.
+  - No new paid call, retry, fallback or automatic continuation is authorized by the remaining balance.

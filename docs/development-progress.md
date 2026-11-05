@@ -6,6 +6,25 @@
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
 
+## 2026-11-05 修复后唯一付费验证：有证据仍未进入编辑
+
+- 唯一 Run `run_34c83174774a4e6da8b9ac25d90fdd73` 在 `dc1ae992` 上执行；独立 Run/Campaign
+  上限均为 `CNY 0.180`，单请求尝试 1 次，无 retry/fallback。最终 `FAILED/model_iteration_limit`，
+  结算 10 次模型调用、10 次工具调用、`CNY 0.0886788`，余额 `CNY 0.0913212`，reserved/unknown 均为 0。
+- 逐一检查保存的实际请求：执行第 2–7 次均包含完整 `click.prompt` 调用及参数行，但模型仍选择
+  read/retrieve；第 8–9 次被较新的邻近函数片段替换，目标再次丢失。第 1 次尚无源码证据，符合预期。
+  `visible_run_memory_entries` 固定的是最新合格摘录，并不保证它是最有用的历史目标证据。
+- 因而不能把本次失败全归因于目标不可见，也不能声称连续性彻底修好。提示方式、压缩回执的表达与
+  模型行为各自贡献尚未隔离；离线 scripted Provider 看到目标后写入，不代表真实模型会这样决策。
+- 全程 0 写入、0 protected check、0 checkpoint，source 未变，validation 为 `UNKNOWN`。
+  99-event terminal EvidencePack 与 Trace 重放验证通过。冻结结果见
+  [`real-model-closure-cookiecutter3-result-v4.yaml`](../benchmarks/real-model-closure-cookiecutter3-result-v4.yaml)。
+- 历史累计 18 Runs、105 个已结算调用、`CNY 0.9266646`，真实闭环 `0/18`；这是包含重复已知任务的
+  development 运行记录，不是独立 Issue 成功率。原五任务 Smoke/holdout 不变，未使用余额继续付费。
+- 下一步应先离线核对“模型实际收到的任务、最近工具结果和可执行动作”是否清晰，建立尽量少摘要、
+  保留最近原始回执的对照输入；不继续扩展 RAG 案例或仅凭 scripted 通过就申请同配置复跑。
+  该对照尚未实施，也没有新增模型实验授权。
+
 ## 2026-11-05 四项纠偏：以真实输入和请求可见性验收主链
 
 - 纠正先前结论：`2b33a6a` 的关键词计数修复仅通过了简化测试。在冻结的真实文件和真实 Plan 上，
