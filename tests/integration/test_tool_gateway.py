@@ -110,6 +110,40 @@ def test_search_read_and_exact_replace_are_bounded_and_snapshotted(tmp_path, tas
     assert replaced.workspace_manifest_ref is not None
 
 
+def test_exact_replace_adapts_model_lf_fragments_to_uniform_crlf_file(tmp_path, task):
+    gateway, workspace, _ = make_gateway(tmp_path, task)
+    target = workspace / "src/parser.py"
+    target.write_bytes(
+        b"def match(command):\r\n"
+        b"    return ('push' in command.script_parts\r\n"
+        b"            and 'set-upstream' in command.output)\r\n"
+    )
+
+    outcome = gateway.dispatch(
+        "replace_text",
+        {
+            "path": "src/parser.py",
+            "old": (
+                "def match(command):\n"
+                "    return ('push' in command.script_parts\n"
+                "            and 'set-upstream' in command.output)"
+            ),
+            "new": (
+                "def match(command):\n"
+                "    return ('push' in command.script_parts\n"
+                "            and re.search(r'git push --set-upstream', command.output) "
+                "is not None)"
+            ),
+        },
+    )
+
+    updated = target.read_bytes()
+    assert outcome.status == "success"
+    assert b"re.search(r'git push --set-upstream'" in updated
+    assert b"\n" not in updated.replace(b"\r\n", b"")
+    assert updated.endswith(b"\r\n")
+
+
 def test_large_read_requires_a_bounded_line_range(tmp_path, task):
     gateway, workspace, _ = make_gateway(tmp_path, task)
     target = workspace / "src/large.py"

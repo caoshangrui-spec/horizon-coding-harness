@@ -1,12 +1,11 @@
-# 真实模型 Pilot：离线预检、十一轮负结果与付费边界
+# 真实模型 Pilot：离线预检、十四轮负结果与付费边界
 
-更新：2026-11-02。本 Pilot 的目标不是立即追求 benchmark 分数，而是在**完整真实仓库、
-模型自主计划、模型自主检索和编辑**的条件下观察 Harness 的真实失败分布。已执行十一个
-付费 Agent Run：分别暴露计划结构/检索反馈、无界读取/上下文投影、Plan 路径假设/请求预留
-过大、单边范围读取/单 Run 预留、路径存在与语义定位的区别、Campaign 预留压力，以及真实查询
-失焦/Run Memory 使 protected prefix 越过字符硬门限、工具回执进入上下文后的单调用预留压力，
-以及正确定位后连续单边读取被旧参数合同拒绝、成功读取后目标类上下文被 8K 上下文压缩丢失。十一轮
-均没有修改代码或进入验收；结果可重放且
+更新：2026-11-05。本 Pilot 的目标不是立即追求 benchmark 分数，而是在**完整真实仓库、
+模型自主计划、模型自主检索和编辑**的条件下观察 Harness 的真实失败分布。已执行十四个
+付费 Agent Run：它们先后暴露计划/检索反馈、读取范围/上下文投影、路径假设/请求预留、
+Campaign 压力、Run Memory、evidence-to-action 反馈与运行时调用上限等问题；第十四轮首次调用
+写工具，又暴露统一 CRLF 文件与 LF 模型片段的精确 preimage 兼容缺口。十四轮均没有形成有效
+代码编辑或 protected validation；结果可重放且
 费用可对账，但不是 Issue 成功证据，也不足以推出模型或 Harness 的总体能力结论。
 
 ## 1. 为什么复用现有主循环
@@ -914,3 +913,37 @@ preflight ref 为 `7043711bb656a2755a3b2ff614712451b6d47113f56d7b70863da034d0a38
 v1 的费用门失败和原五任务 Smoke 聚合均未改写。128-event terminal EvidencePack 已离线验证，Trace
 SHA-256 为 `eadbf2b3331fba6d2f6f559c966c3c6c82a465fcf21431f7fd133cfdfa4a2566`，projection hash
 为 `9b199d3650e0d205e0336d172c36987efbbe8a5a5f30b2c1f88592f5c4a4a8c8`，无 open/unknown effect。
+
+## 27. TheFuck-5 first-closure follow-up：首次写工具调用被 CRLF/LF 精确匹配拒绝
+
+用户只授权一个独立 `CNY 0.180` Run/Campaign，模型为
+`deepseek-ai/DeepSeek-V4-Flash`，Provider 单请求最多尝试一次，禁用 retry 与 fallback。fresh
+preflight ref 为 `56cd5b7f981996d5b9faf1bd40ad60cee39be76e09b56996ab1d7048a6732f79`，planning、
+bounded execution 和累计预留分别为 `CNY 0.041730/0.069528/0.111258`；初始失败、source
+isolation、镜像、buggy HEAD 与 Harness 源码指纹均通过，预检不读取凭据、不调用模型或网络。
+
+唯一 Run `run_9695db52a95740a5a71ef02bf2b9910d` 结算 13 次模型调用、12 次工具调用、
+37,854 input / 1,274 output tokens 与 `CNY 0.1215720`。第一次 execution 读取正确的
+`thefuck/rules/git_push.py` 并看见错误 predicate；紧接着模型首次在真实 Pilot 中调用
+`replace_text`，目标也是正确的 `match` 函数。但 old/new 多行片段使用 LF，而固定 checkout 文件
+统一使用 CRLF，精确 occurrence 检查观察到 0 次命中并以零 effect 拒绝。模型随后回到重复读取和
+检索；`NoProgressPolicy` 拒绝 2 次读取，`EvidenceTransitionPolicy` 拒绝 1 次检索和 2 次读取，
+未再提出写入或 protected check。
+
+第 13 次模型调用结算后 Campaign 剩余 `CNY 0.0584280`；下一调用需要保守预留
+`CNY 0.076038`，因此在 Provider 派发前以 `campaign_cost_limit` 停止。reserved/unknown 均为
+0，源码 revision 未变，validation 为 `UNKNOWN`。模型提出的 predicate 方向看起来针对正确行为，
+但候选没有落盘、没有验证，不能记为有效编辑或修复成功。至此累计十四个真实 Run、70 个已结算
+调用与 `CNY 0.6280380`，真实编辑—验证闭环仍为 `0/14`。
+
+185-event terminal EvidencePack 已离线验证；Trace SHA-256 为
+`74b1662c219c4042cc124d0e59046bd4602bf55eb6255fb020b3fad1040ad7a2`，projection hash 为
+`b503e6b9e5913a07904b40981998f1970228288d60c6bd4d845f939bd28db7f4`，无 open/unknown effect
+或悬空 reservation。机器可读冻结结果见
+[`real-model-post-smoke-thefuck5-result-v1.yaml`](../benchmarks/real-model-post-smoke-thefuck5-result-v1.yaml)，
+不进入原五任务 Smoke 聚合。
+
+后续只做零费用、窄范围的 Tool Gateway 修复：统一 CRLF/LF/CR 文件会先把模型 old/new 片段适配
+到文件风格，再执行原有精确 occurrence 与 CAS 约束；混合换行仍拒绝猜测，错误回执会携带预期、
+实际命中数和文件换行风格。CRLF 回归验证替换后不引入 lone LF。没有付费复跑，也没有把剩余
+Campaign 余额视为继续授权。

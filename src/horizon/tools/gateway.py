@@ -741,16 +741,43 @@ class WorkspaceToolGateway:
         )
 
     @staticmethod
-    def _replacement_bytes(original: bytes, args: ReplaceArgs) -> bytes:
+    def _uniform_line_ending(text: str) -> str | None:
+        without_crlf = text.replace("\r\n", "")
+        styles = []
+        if "\r\n" in text:
+            styles.append("\r\n")
+        if "\n" in without_crlf:
+            styles.append("\n")
+        if "\r" in without_crlf:
+            styles.append("\r")
+        return styles[0] if len(styles) == 1 else None
+
+    @staticmethod
+    def _use_line_ending(fragment: str, line_ending: str | None) -> str:
+        if line_ending is None or ("\r" not in fragment and "\n" not in fragment):
+            return fragment
+        return fragment.replace("\r\n", "\n").replace("\r", "\n").replace("\n", line_ending)
+
+    @classmethod
+    def _replacement_bytes(cls, original: bytes, args: ReplaceArgs) -> bytes:
         if len(original) > MAX_FILE_BYTES:
             raise PolicyDenied("File exceeds the bounded write limit")
         try:
             text = original.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise PolicyDenied("Only UTF-8 text files are supported") from exc
-        if text.count(args.old) != args.expected_occurrences:
-            raise ValueError("Exact replacement occurrence count did not match")
-        updated = text.replace(args.old, args.new)
+        line_ending = cls._uniform_line_ending(text)
+        old = cls._use_line_ending(args.old, line_ending)
+        new = cls._use_line_ending(args.new, line_ending)
+        observed_occurrences = text.count(old)
+        if observed_occurrences != args.expected_occurrences:
+            style = {"\r\n": "CRLF", "\n": "LF", "\r": "CR"}.get(line_ending, "mixed-or-none")
+            raise ValueError(
+                "Exact replacement occurrence count did not match: "
+                f"expected={args.expected_occurrences}, observed={observed_occurrences}, "
+                f"file_line_ending={style}"
+            )
+        updated = text.replace(old, new)
         encoded = updated.encode("utf-8")
         if len(encoded) > MAX_FILE_BYTES:
             raise PolicyDenied("Updated file exceeds the bounded write limit")

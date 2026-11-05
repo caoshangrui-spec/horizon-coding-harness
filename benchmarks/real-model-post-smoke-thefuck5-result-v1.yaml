@@ -1,0 +1,123 @@
+schema_version: 1
+result_id: thefuck-5-git-push-bitbucket-first-closure-v1
+task_id: thefuck-5-git-push-bitbucket
+classification: post_hoc_development_follow_up
+
+scope:
+  original_smoke_suite_unchanged: true
+  included_in_original_smoke_aggregate: false
+  blind_or_holdout_evidence: false
+  retry_performed: false
+  fallback_performed: false
+
+preflight:
+  ready: true
+  report_ref: 56cd5b7f981996d5b9faf1bd40ad60cee39be76e09b56996ab1d7048a6732f79
+  prepared_task_ref: 848da4f36ed1ab90c178d26342ec225ac53553764b23ac85c1a76d9019a0939c
+  manifest_digest: 288e6b64fe7a8a954897bbede45c42a5eb544865a278ef57ea1ff1b4dd324635
+  provider_config_digest: 50ad6d013c81aeecb3074e23614dea23d5d88900a37dfa3bb140b1fb45bb9810
+  harness_source_digest: 2406650080395af3354c6dfba5103725250ccf05309037eaa15819865392c2a1
+  source_snapshot_revision: bdeca71be985136d8c50c2f2a7acaf24996b6c39c474893eea4a1fafddbf199e
+  source_git_head: 7c858fadb3458be829d3d43666ccb46c3ed5b8a0
+  validation_backend_ref: sha256:0687a6bc9716edc2a6ee0fbfb0f87e7ee358b262b67c9215de91bc9b2d38ba71
+  initial_failure_matches: true
+  source_unchanged: true
+  solution_isolation_passed: true
+  credential_loaded: false
+  paid_model_called: false
+  network_called: false
+  planning_reserved_cost_cny: "0.041730"
+  bounded_execution_reserved_cost_cny: "0.069528"
+  planning_execution_reserved_cost_cny: "0.111258"
+
+run:
+  run_id: run_9695db52a95740a5a71ef02bf2b9910d
+  status: FAILED
+  task_succeeded: false
+  failure_reason: campaign_cost_limit
+  provider_id: siliconflow
+  provider_policy_id: siliconflow-deepseek-v4-flash-thefuck5-first-closure-018-v1
+  model_id: deepseek-ai/DeepSeek-V4-Flash
+  provider_max_attempts: 1
+  fallback_enabled: false
+  run_cost_cap_cny: "0.180"
+  campaign_id: siliconflow-thefuck5-first-closure-2026-11-v1
+  campaign_cost_cap_cny: "0.180"
+  settled_cost_cny: "0.1215720"
+  campaign_remaining_cost_cny: "0.0584280"
+  campaign_reserved_cost_cny: "0"
+  campaign_unknown_cost_cny: "0"
+  budget_stop:
+    required_cost_cny: "0.076038"
+    available_cost_cny: "0.0584280"
+  model_calls: 13
+  planning_calls: 1
+  execution_calls: 12
+  tool_calls: 12
+  input_tokens: 37854
+  output_tokens: 1274
+  steps: 12
+  context_compaction_count: 10
+  source_workspace_unchanged: true
+  final_workspace_revision: bdeca71be985136d8c50c2f2a7acaf24996b6c39c474893eea4a1fafddbf199e
+  supervision:
+    mode: local_process
+    worker_slices: 13
+    worker_handoffs: 12
+    all_worker_exit_codes_zero: true
+    pending_reservation_ids: []
+
+observed_quality:
+  correct_location_reached: true
+  correct_location_evidence:
+    first_execution_tool: read_file
+    path: thefuck/rules/git_push.py
+    faulty_predicate_visible: true
+    later_retrieval_rank: 1
+  edit_intent_observed: true
+  valid_edit_produced: false
+  protected_validation_passed: null
+  acceptance_evidence_unknown: true
+  tool_sequence:
+    - {name: read_file, status: success}
+    - {name: replace_text, status: error, error: exact_replacement_occurrence_mismatch}
+    - {name: read_file, status: success}
+    - {name: read_file, status: success}
+    - {name: read_file, status: error, controller_policy: NoProgressPolicy}
+    - {name: retrieve_code, status: success}
+    - {name: read_file, status: success}
+    - {name: read_file, status: success}
+    - {name: read_file, status: error, controller_policy: NoProgressPolicy}
+    - {name: retrieve_code, status: error, controller_policy: EvidenceTransitionPolicy}
+    - {name: read_file, status: error, controller_policy: EvidenceTransitionPolicy}
+    - {name: read_file, status: error, controller_policy: EvidenceTransitionPolicy}
+  write_tool_calls: 1
+  successful_write_tool_calls: 0
+  protected_check_calls: 0
+  no_progress_feedback_count: 2
+  evidence_transition_feedback_count: 3
+
+trace:
+  event_count: 185
+  event_hash: a54282e1dd33b30d2023d5ed40958970d3361e0ca1e6e7d67b0cdb1ac09c1f19
+  trace_sha256: 74b1662c219c4042cc124d0e59046bd4602bf55eb6255fb020b3fad1040ad7a2
+  projection_hash: b503e6b9e5913a07904b40981998f1970228288d60c6bd4d845f939bd28db7f4
+  final_state_sha256: a3aad3c4b1518332bece46c00556339e99fde00d8dbb3387b6fcb18468ec7710
+  terminal_pack_verified: true
+  open_effects_present: false
+  unknown_effects_present: false
+  open_reservations_present: false
+
+diagnosis:
+  failure_class: line_ending_sensitive_exact_replace_then_read_only_loop_and_campaign_limit
+  facts:
+    - The first execution call read the correct production file and exposed the faulty predicate.
+    - The next model response proposed replace_text against the correct function, but its multiline old/new fragments used LF while the exact checkout file used uniform CRLF.
+    - The exact replacement therefore observed zero occurrences and had no effect; the candidate was never applied or protected-validated, so it is not valid edit evidence.
+    - The model then returned to repeated reads and retrieval. NoProgressPolicy rejected two reads and EvidenceTransitionPolicy rejected one retrieval plus two reads, but no second write or run_check followed.
+    - The thirteenth settled model call left CNY 0.0584280 available; the next call required a CNY 0.076038 conservative reservation and was stopped before Provider dispatch.
+  limitations:
+    - The proposed predicate change targeted the correct behavior, but because it was never applied, protected validation cannot establish semantic correctness.
+    - The settled cost is a frozen local price-card estimate, not a provider invoice.
+    - No protected validation ran, so its outcome remains unknown rather than false.
+    - This post-hoc development result is not part of the original five-task Smoke denominator.
