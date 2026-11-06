@@ -6,6 +6,27 @@
 本文记录实现事实与自检，不是全项目验收或独立安全审核。测试报告时间戳来自执行机器；
 确定性测试中的时钟是注入值，不用它推断实际运行日期或耗时。
 
+## 2026-11-06 v5 唯一付费验证：目标可见，但原始回执仍全部被压缩
+
+- 新授权独立 Run `run_85ba9bde6f0d4803917076a5b1ef9383` 在 `af5cc88` 上执行，Run/Campaign
+  各上限 `CNY 0.180`，Provider 每请求只尝试 1 次，无 retry/fallback。执行请求输出上限为 2048，
+  9 次请求均离线重建并核对 hash；上下文仍为 8,000 字符。预检先在 Docker 内复现原始失败。
+- 结果仍为 `FAILED/model_iteration_limit`：10 次模型调用（1 planning + 9 execution）、14 次工具
+  调用（6 retrieval + 8 read），0 写入、0 protected check、0 checkpoint。费用账本结算
+  `CNY 0.0895728`，剩余 `CNY 0.0904272`，reserved/unknown 均为 0；不是费用上限或输出截断导致停止。
+- Plan 明确要求修改且允许写工具；原始要求均传入，第 3–9 次请求均包含精确修改前代码。
+  但第 2–9 次请求全部只有 system/user/user，没有任何完整原始 assistant/tool 回执。
+  初期多工具回执整组超限；后期单次读取虽较小，历史 policy 整单元和可选 Memory 仍挤占空间。
+  例如第 6 次请求，仅任务前缀、1 条 Memory 与最新原文就占 7,464 字符，再保留的 policy fact
+  本身占 1,200 字符，尚未计摘要封装，因而原文被压缩。防重复检查在六次重复读取请求上判定完整回执丢失。
+- 这暴露上一批修复仍不完整，不能把旧动作序列上的 8/8 可见性外推成真实轨迹上的原文连续性。
+  也不能把失败全归于弱模型：目标摘录可见但模型仍反复读取，控制链与模型行为的贡献尚未隔离。
+- 115-event Trace 与 terminal EvidencePack 验证通过，source/staged 目标文件未改。
+  冻结记录：[`real-model-closure-cookiecutter3-result-v5.yaml`](../benchmarks/real-model-closure-cookiecutter3-result-v5.yaml)。
+  历史累计 19 Runs、115 个已结算调用、`CNY 1.0162374`，真实闭环仍为 0/19；不是独立 Issue 成功率。
+- 本轮不修改冻结运行期间的生产代码，不使用剩余额度继续。下一步应先补“多工具单元 + 历史反馈”
+  的实际输入回归并检查压缩优先级，不再仅凭目标摘录可见就申请同配置付费复跑。未执行任何新对照模型实验。
+
 ## 2026-11-06 主链一致性修复：任务、原始回执、Memory 与配置
 
 - 执行输入直接包含 `TaskSpec.constraints.requirements`，不再要求模型从 Plan 摘要中猜回原始要求；
