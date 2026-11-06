@@ -2060,7 +2060,7 @@ def model_sizing_report(
         canonical_json(
             analyze_model_request_sizing(
                 config.model.id,
-                max_output_tokens=min(512, config.request.max_output_tokens),
+                max_output_tokens=config.request.max_output_tokens,
                 enable_thinking=config.request.enable_thinking,
             )
         )
@@ -2478,7 +2478,7 @@ def agent_run(
             task.budgets.max_model_calls,
             planning_calls,
         ),
-        max_output_tokens=min(512, provider.request.max_output_tokens),
+        max_output_tokens=provider.request.max_output_tokens,
         max_run_cost=provider.run_budget.max_cost,
         enable_thinking=provider.request.enable_thinking,
         max_context_chars=provider.request.max_context_chars,
@@ -3224,7 +3224,7 @@ def agent_resume(
             current.task.budgets.max_model_calls,
             planning_calls,
         ),
-        max_output_tokens=min(512, provider.request.max_output_tokens),
+        max_output_tokens=provider.request.max_output_tokens,
         max_run_cost=provider.run_budget.max_cost,
         enable_thinking=provider.request.enable_thinking,
         max_context_chars=provider.request.max_context_chars,

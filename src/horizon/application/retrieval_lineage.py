@@ -4,7 +4,6 @@ import json
 from dataclasses import dataclass
 from typing import Literal, cast
 
-from horizon.application.context import visible_run_memory_binding, visible_run_memory_entries
 from horizon.domain.common import canonical_json, digest
 from horizon.domain.context import ContextProjection
 from horizon.domain.errors import IntegrityError
@@ -139,19 +138,52 @@ def _memory_delivery(
     if reservation.run_memory_ref is None:
         return {}
     memory = RunMemorySnapshot.model_validate_json(artifacts.read(reservation.run_memory_ref))
+    if memory.sha256 != reservation.run_memory_ref:
+        raise IntegrityError("Run memory does not match its content-addressed artifact")
     system_content = projection.messages[0].content or ""
-    visible_entries = None
-    for entry_limit in range(min(2, len(memory.entries)), -1, -1):
-        binding = visible_run_memory_binding(
-            memory,
-            reservation.run_memory_ref,
-            recent_entry_limit=entry_limit,
-        )
-        if canonical_json(binding) in system_content:
-            visible_entries = visible_run_memory_entries(memory, entry_limit)
-            break
-    if visible_entries is None:
-        raise IntegrityError("Stored context projection omits its visible Run-memory binding")
+    # Inspect the stored request, not today's selection algorithm. Old frozen projections
+    # retain the full provenance payload; new ones omit redundant provenance fields.
+    try:
+        payload = system_content.split("Controller-derived Run memory", 1)[1].split("\n", 1)[1]
+        binding = json.loads(payload)
+        recent = binding["recent_entries"]
+        if not isinstance(recent, list) or len(recent) > 2:
+            raise ValueError("invalid memory entry count")
+        legacy = "snapshot_ref" in binding
+        expected_binding = {
+            "omitted_entry_count": memory.omitted_entry_count,
+            "stale_count": memory.stale_count,
+            "unresolved_count": memory.unresolved_count,
+            "recent_entries": recent,
+        }
+        if legacy:
+            expected_binding["snapshot_ref"] = reservation.run_memory_ref
+        if canonical_json(binding) != canonical_json(expected_binding):
+            raise ValueError("memory metadata mismatch")
+        visible_entries = []
+        seen = set()
+        for item in recent:
+            entry = next(e for e in memory.entries if e.source_call_id == item["source_call_id"])
+            expected: dict[str, object] = {
+                "source_call_id": entry.source_call_id,
+                "tool": entry.tool_name,
+                "outcome": entry.outcome,
+                "status": entry.status,
+                "evidence_ref": entry.evidence_ref,
+                "excerpt": entry.excerpt if entry.status == "active" else "",
+            }
+            if legacy:
+                expected.update(
+                    source_event_seq=entry.source_event_seq,
+                    work_item_id=entry.work_item_id,
+                    dependency_revision=entry.dependency_revision,
+                )
+            if canonical_json(item) != canonical_json(expected) or entry.source_call_id in seen:
+                raise ValueError("memory entry mismatch")
+            seen.add(entry.source_call_id)
+            visible_entries.append(entry)
+    except (IndexError, KeyError, TypeError, ValueError, StopIteration) as exc:
+        raise IntegrityError("Stored context projection has an invalid Run-memory binding") from exc
     return {
         entry.source_call_id: (
             entry.excerpt[:240],

@@ -13,12 +13,14 @@ from pathlib import Path
 import pytest
 import yaml
 
+import horizon.application.agent_loop as agent_loop_module
 from horizon.adapters.persistence.artifacts import ArtifactStore
 from horizon.adapters.persistence.campaign_budget import CampaignBudgetLedger
 from horizon.adapters.persistence.sqlite import SQLiteEventStore
 from horizon.adapters.retrieval.sqlite_fts import SQLiteCodeRetriever
 from horizon.adapters.workspace.snapshot import SnapshotManager
 from horizon.application.agent_loop import AgentLoopConfig, CodingAgentRunner
+from horizon.application.context import ContextProjector
 from horizon.application.human import ContextCapacityResumeService, OperatorGuidanceService
 from horizon.application.local_process_supervision import LocalProcessAgentSupervisor
 from horizon.application.model_probe import conservative_input_estimate
@@ -427,7 +429,7 @@ def test_cookiecutter_real_source_visibility_gates_edit_and_protected_validation
     """A scripted patch is permitted only if its exact preimage reaches the request.
 
     This tests the Harness path, not whether a real model can invent the patch.
-    The negative control recreates the old wrong-function projection.
+    The negative control removes the target from both raw receipts and memory.
     """
     fixtures = Path(__file__).parents[1] / "fixtures" / "cookiecutter3"
     frozen = json.loads((fixtures / "failure-inputs.json").read_text(encoding="utf-8"))
@@ -512,12 +514,32 @@ def test_cookiecutter_real_source_visibility_gates_edit_and_protected_validation
         preserve_recent_context_units=2,
     )
     if lose_target:
-        monkeypatch.setattr(
-            "horizon.application.memory._task_relevant_code_excerpt",
-            lambda *args: (
-                "TASK_RELEVANT_CODE\nreturn click.prompt(var_name, default=default_value)"
-            ),
-        )
+        original_project = ContextProjector.project
+
+        def hide_target(projector, *args, **kwargs):
+            projection = original_project(projector, *args, **kwargs)
+            hidden = tuple(
+                message.model_copy(
+                    update={
+                        "content": (message.content or "").replace(
+                            "user_choice = click.prompt(", "user_choice = unrelated.prompt("
+                        )
+                    }
+                )
+                for message in projection.messages
+            )
+            return ContextProjection.model_validate(
+                {
+                    **projection.model_dump(),
+                    "messages": hidden,
+                    "projected_chars": ContextProjector._size(hidden),
+                    "input_token_budget": projector._token_budget(
+                        projector.estimate_input_tokens(hidden)
+                    ),
+                }
+            )
+
+        monkeypatch.setattr(ContextProjector, "project", hide_target)
         with pytest.raises(AssertionError, match="missing_edit_preimage"):
             runner.run(run_id, token)
         assert target.read_text(encoding="utf-8") == source
@@ -803,6 +825,9 @@ def test_multi_file_patch_resolution_rejects_partial_effect(tmp_path, task_dict)
 
 
 def test_agent_loop_edits_runs_protected_validation_and_succeeds(tmp_path, task_dict):
+    task_dict["constraints"]["requirements"] = [
+        "Preserve the public parse signature; do not alter formatting behavior."
+    ]
     actions = [
         ("read_file", {"path": "src/parser.py"}),
         (
@@ -846,12 +871,14 @@ def test_agent_loop_edits_runs_protected_validation_and_succeeds(tmp_path, task_
     assert not result.tool_reservations
     assert SQLiteEventStore(store.path).get(run_id).as_dict() == result.as_dict()
     assert len(model.requests) == 4
-    assert "retrieve_code tool is preferred" in (model.requests[0].messages[0].content or "")
-    assert "Do not repeat a saturated search" in (model.requests[0].messages[0].content or "")
-    assert "follow the evidence" in (model.requests[0].messages[0].content or "")
-    assert "one-sided range is deterministically completed" in (
-        model.requests[0].messages[0].content or ""
-    )
+    for request in model.requests:
+        contract = json.loads(request.messages[1].content.split("\n", 1)[1])
+        assert contract["requirements"] == task_dict["constraints"]["requirements"]
+    assert "Locate code with retrieve_code" in (model.requests[0].messages[0].content or "")
+    instructions = model.requests[0].messages[0].content or ""
+    assert "Do not keep rereading unchanged evidence" in instructions
+    assert "evidence overrides guessed Plan locations" in instructions
+    assert "both line bounds" in instructions
     reservations = [
         ModelCallReservation.model_validate(event.payload["reservation"])
         for event in store.events(run_id)
@@ -899,11 +926,15 @@ def test_agent_loop_edits_runs_protected_validation_and_succeeds(tmp_path, task_
         "Controller-derived Run memory" in (request.messages[0].content or "")
         for request in model.requests
     )
-    assert "def parse(value)" in (model.requests[1].messages[0].content or "")
+    assert any(
+        message.role == "tool" and "def parse(value)" in (message.content or "")
+        for message in model.requests[1].messages
+    )
+    assert "def parse(value)" not in (model.requests[1].messages[0].content or "")
     assert "def parse(value)" not in (model.requests[2].messages[0].content or "")
     assert len({ledger.workspace_revision for ledger in ledgers}) == 2
     assert all(
-        "Controller-owned mandatory facts" in (request.messages[0].content or "")
+        "Controller-owned task state" in (request.messages[0].content or "")
         for request in model.requests
     )
 
@@ -2468,6 +2499,7 @@ def test_agent_loop_reenters_running_after_failed_validation_and_repairs(tmp_pat
 
 
 def test_agent_loop_resumes_from_persisted_session_in_a_new_worker(tmp_path, task_dict):
+    task_dict["constraints"]["requirements"] = ["Preserve caller-visible parser behavior."]
     first_actions = [("read_file", {"path": "src/parser.py"})]
     runner, store, run_id, first_token, workspace, _ = setup_loop(
         tmp_path,
@@ -2529,6 +2561,10 @@ def test_agent_loop_resumes_from_persisted_session_in_a_new_worker(tmp_path, tas
     assert resumed.usage.model_calls == 4
     assert resumed.usage.tool_calls == 5
     restored_messages = resumed_model.requests[0].messages
+    assert (
+        json.loads(restored_messages[1].content.split("\n", 1)[1])["requirements"]
+        == (task_dict["constraints"]["requirements"])
+    )
     assert any(
         message.role == "assistant"
         and message.tool_calls
@@ -3344,6 +3380,36 @@ def test_agent_loop_releases_campaign_only_hold_before_retry(tmp_path, task_dict
     assert "return [] if" in (workspace / "src/parser.py").read_text()
 
 
+def test_agent_loop_refuses_silent_resume_across_changed_task_prompt(
+    tmp_path, task_dict, monkeypatch
+):
+    original = agent_loop_module._initial_messages
+
+    def legacy_prefix(run, item):
+        messages = original(run, item)
+        contract = json.loads(messages[1].content.split("\n", 1)[1])
+        contract.pop("requirements")
+        messages[1] = messages[1].model_copy(
+            update={
+                "content": "Complete this work item under the task contract:\n"
+                + canonical_json(contract)
+            }
+        )
+        return messages
+
+    monkeypatch.setattr(agent_loop_module, "_initial_messages", legacy_prefix)
+    runner, store, run_id, token, _, model = setup_loop(
+        tmp_path, task_dict, [("read_file", {"path": "src/parser.py"})]
+    )
+    paused = runner.run(run_id, token, max_iterations_this_invocation=1)
+    assert paused.agent_session is not None
+    monkeypatch.setattr(agent_loop_module, "_initial_messages", original)
+    with pytest.raises(Conflict, match="task prefix"):
+        runner.run(run_id, token)
+    assert len(model.requests) == 1
+    assert not store.get(run_id).reservations
+
+
 def test_agent_loop_refuses_resume_after_workspace_drift(tmp_path, task_dict):
     runner, store, run_id, first_token, workspace, _ = setup_loop(
         tmp_path,
@@ -3474,6 +3540,7 @@ def test_agent_loop_persists_bounded_context_projection_without_losing_transcrip
     tmp_path,
     task_dict,
 ):
+    task_dict["constraints"]["requirements"] = ["Preserve this requirement across compaction."]
     reads = [("read_file", {"path": "src/parser.py"})] * 4
     actions = [
         *reads,
@@ -3512,6 +3579,11 @@ def test_agent_loop_persists_bounded_context_projection_without_losing_transcrip
         )
     ]
     assert compacted_requests
+    assert all(
+        json.loads(request.messages[1].content.split("\n", 1)[1])["requirements"]
+        == task_dict["constraints"]["requirements"]
+        for request in compacted_requests
+    )
     assert result.agent_session is not None
     session = AgentSession.model_validate_json(
         runner.session_store.read(result.agent_session.artifact_ref)

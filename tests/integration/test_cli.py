@@ -1,5 +1,8 @@
 import hashlib
+import io
 import json
+import os
+import sys
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -15,8 +18,10 @@ from horizon.adapters.persistence.campaign_budget import CampaignBudgetLedger
 from horizon.adapters.persistence.sqlite import SQLiteEventStore
 from horizon.adapters.sandbox.docker import CommandResult, SandboxAttemptStatus
 from horizon.adapters.workspace.snapshot import SnapshotManager
+from horizon.application import _local_agent_worker
 from horizon.application.agent_loop import AgentLoopConfig, CodingAgentRunner
 from horizon.application.local_process_supervision import (
+    LocalAgentWorkerLauncher,
     LocalProcessSupervisionResult,
     WorkerProcessInterruption,
     WorkerProcessReceipt,
@@ -28,6 +33,7 @@ from horizon.application.planning import (
 )
 from horizon.application.recovery import RecoveryService
 from horizon.application.services import HarnessService, LeaseToken
+from horizon.application.supervision import ReapedWorkerBoundary
 from horizon.domain.agent import AgentSession, AgentSessionRecord
 from horizon.domain.budget import Usage
 from horizon.domain.common import canonical_json, digest
@@ -654,6 +660,7 @@ def test_agent_run_auto_plan_executes_validated_plan_without_touching_source(
         "read_file",
         "read_file",
     ]
+    assert [request.max_output_tokens for request in model.requests] == [1024, 2048, 2048]
 
 
 def test_agent_run_supervisor_reopens_at_safe_turn_and_finishes(tmp_path, monkeypatch):
@@ -851,7 +858,82 @@ def test_agent_resume_supervisor_continues_existing_safe_session(tmp_path, monke
     assert persisted.lease_epoch == 3
     assert persisted.lease_id is None
     assert len(model.requests) == 4
+    assert [request.max_output_tokens for request in model.requests] == [1024, 2048, 2048, 2048]
     assert (source / "src/parser.py").read_text(encoding="utf-8") == original
+
+
+def test_production_worker_entry_preserves_provider_output_limit(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _, _, task_path, dotenv = write_auto_plan_cli_fixture(tmp_path)
+    model = AutoPlanAndFixModel(inspect_first=True)
+    for module in (cli_app_module, _local_agent_worker):
+        monkeypatch.setattr(module, "OpenAICompatibleModelGateway", lambda *args, **kwargs: model)
+        monkeypatch.setattr(module, "DockerSandbox", lambda *args, **kwargs: object())
+        monkeypatch.setattr(module, "DockerAcceptanceExecutor", LocalParserAcceptance)
+    partial = runner.invoke(
+        app,
+        [
+            "agent",
+            "run",
+            str(task_path),
+            "--auto-plan",
+            "--image",
+            "offline-fixture",
+            "--config",
+            str(PROVIDER),
+            "--dotenv",
+            str(dotenv),
+            "--confirm-paid",
+            "--slice-iterations",
+            "1",
+        ],
+    )
+    assert partial.exit_code == 0, partial.output
+    data = json.loads(partial.stdout)
+    store = SQLiteEventStore(tmp_path / ".horizon/control.sqlite3")
+    service = HarnessService(store)
+    leased = service.acquire_lease(data["run_id"], "worker-entry-test", "lease-entry-test")
+    assert leased.agent_session is not None
+    boundary = ReapedWorkerBoundary(
+        run_id=leased.run_id,
+        lease=LeaseToken.from_run(leased),
+        launch_event_seq=leased.seq,
+        agent_session_artifact_ref=leased.agent_session.artifact_ref,
+        next_iteration=leased.agent_session.next_iteration,
+    )
+    for operation in (
+        service.record_process_worker_launched,
+        service.authorize_process_worker_start,
+    ):
+        operation(
+            leased.run_id,
+            boundary.lease,
+            operation.__name__,
+            launch_id=boundary.launch_id,
+            process_id=os.getpid(),
+            launch_event_seq=leased.seq,
+        )
+    provider = load_provider_config(PROVIDER)
+    launcher = LocalAgentWorkerLauncher(
+        store_path=store.path,
+        config_path=PROVIDER,
+        provider_config_hash=digest(provider),
+        dotenv_path=dotenv,
+        artifacts_path=tmp_path / ".horizon/artifacts",
+        workspace_path=Path(data["workspace"]),
+        campaign_path=Path(provider.ledger_path),
+        staging_path=tmp_path / ".horizon/staging",
+        image="offline-fixture",
+        retrieval_path=tmp_path / ".horizon/retrieval.sqlite3",
+    )
+    monkeypatch.setattr(sys, "argv", list(launcher.command(boundary, 1)[2:]))
+    monkeypatch.setattr(
+        sys, "stdin", io.TextIOWrapper(io.BytesIO(f"{boundary.launch_id}\n".encode()))
+    )
+    _local_agent_worker.main()
+    assert len(model.requests) == 3
+    assert model.requests[-1].max_output_tokens == 2048
+    assert store.get(leased.run_id).agent_session.next_iteration == 3
 
 
 def test_agent_resume_worker_process_uses_existing_safe_session(tmp_path, monkeypatch):

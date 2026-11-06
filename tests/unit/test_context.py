@@ -1,11 +1,16 @@
+import json
+from types import SimpleNamespace
+
 import pytest
 
 from horizon.application.context import ContextProjector, visible_run_memory_binding
 from horizon.application.memory import TASK_RELEVANT_CODE_PREFIX
 from horizon.application.model_probe import conservative_input_estimate
+from horizon.application.retrieval_control import read_evidence_missing
+from horizon.application.retrieval_lineage import _memory_delivery
 from horizon.domain.common import canonical_json
 from horizon.domain.context import ContextCompactionRecord, MandatoryFactLedger
-from horizon.domain.errors import Conflict, ContextStopReason, ContextWindowExceeded
+from horizon.domain.errors import Conflict, ContextStopReason, ContextWindowExceeded, IntegrityError
 from horizon.domain.memory import RunMemoryEntry, RunMemorySnapshot
 from horizon.domain.model import FunctionCall, ModelMessage, ModelRequest, ToolCall
 
@@ -581,7 +586,8 @@ def test_visible_run_memory_pins_target_code_over_newer_duplicate_reads():
 
 def test_compaction_fails_closed_instead_of_dropping_target_code_memory():
     messages = (
-        *_prefix(),
+        ModelMessage(role="system", content="required policy " * 80),
+        _prefix()[1],
         *_tool_unit(1, "a" * 1_200),
         *_tool_unit(2, "b" * 1_200),
         *_tool_unit(3, "c" * 1_200),
@@ -630,8 +636,9 @@ def test_projection_reduces_visible_run_memory_only_with_traceable_compaction():
     assert projection.compacted is True
     assert projection.compacted_unit_count == 1
     assert canonical_json(full_binding) not in system
-    assert canonical_json(latest_binding) in system
-    assert "call-memory-1" not in system
+    assert projection.run_memory_ref == memory.sha256
+    assert memory.sha256 not in system  # provenance remains in the persisted projection
+    assert latest_binding["recent_entries"][0]["excerpt"] in system
     assert "call-memory-2" in system
 
 
@@ -640,7 +647,7 @@ def test_projection_stop_keeps_full_memory_requirement_without_compactable_histo
 
     with pytest.raises(ContextWindowExceeded) as stopped:
         _projector(max_chars=2_000, preserve_recent_units=1).project(
-            _prefix(),
+            (ModelMessage(role="system", content="required policy " * 80), _prefix()[1]),
             run_memory=memory,
             run_memory_ref=memory.sha256,
         )
@@ -683,3 +690,96 @@ def test_projection_rejects_run_memory_artifact_mismatch():
             run_memory=memory,
             run_memory_ref="0" * 64,
         )
+
+
+@pytest.mark.parametrize("json_receipt", [False, True])
+def test_memory_supplements_raw_receipt_without_evicting_older_distinct_code(json_receipt):
+    base = _run_memory(entry_count=2)
+    excerpts = ("def target(): return original_value", "def neighbor(): return another_value")
+    entries = tuple(
+        RunMemoryEntry.create(
+            **{**entry.identity_payload(), "excerpt": TASK_RELEVANT_CODE_PREFIX + excerpt}
+        )
+        for entry, excerpt in zip(base.entries, excerpts, strict=True)
+    )
+    memory = RunMemorySnapshot.model_validate({**base.model_dump(), "entries": entries})
+    receipt = excerpts[1]
+    if json_receipt:
+        receipt = json.dumps({"content": receipt})
+    raw = _tool_unit(2, receipt)
+    projection = _projector(max_chars=4_000, preserve_recent_units=1).project(
+        (*_prefix(), *raw), run_memory=memory, run_memory_ref=memory.sha256
+    )
+    assert projection.messages[-2:] == raw
+    system = projection.messages[0].content or ""
+    assert excerpts[0] in system
+    assert excerpts[1] not in system
+    assert projection.run_memory_ref == memory.sha256
+    binding = visible_run_memory_binding(memory, memory.sha256)
+    assert {entry["source_call_id"] for entry in binding["recent_entries"]} == {
+        entry.source_call_id for entry in entries
+    }
+
+
+def test_compaction_reduces_optional_memory_before_dropping_latest_complete_receipt():
+    receipt = "READ_RANGE path=src/file_2.py lines=1-100 total_lines=100\n" + "code evidence " * 60
+    recent = _tool_unit(2, receipt)
+    messages = (
+        *_prefix(),
+        *_tool_unit(
+            1, "READ_RANGE path=src/file_1.py lines=1-100 total_lines=100\n" + "old " * 1000
+        ),
+        *recent,
+    )
+    memory = _run_memory(excerpt="m" * 400, entry_count=2)
+    projection = _projector(max_chars=2_800, preserve_recent_units=1).project(
+        messages, run_memory=memory, run_memory_ref=memory.sha256
+    )
+    assert projection.compacted
+    assert projection.messages[-2:] == recent
+    assert "call-memory-1" not in (projection.messages[0].content or "")
+    assert not read_evidence_missing(messages, projection.messages, {"path": "src/file_2.py"})
+    assert read_evidence_missing(messages, projection.messages, {"path": "src/file_1.py"})
+    assert projection.projected_chars <= 2_800
+    assert projection.input_token_budget.estimate == _input_estimate(projection.messages)
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_lineage_reads_stored_memory_and_checks_provenance_not_current_selection(legacy):
+    base = _run_memory(entry_count=2)
+    entries = tuple(
+        RunMemoryEntry.create(**{**entry.identity_payload(), "tool_name": "retrieve_code"})
+        for entry in base.entries
+    )
+    memory = RunMemorySnapshot.model_validate({**base.model_dump(), "entries": entries})
+    binding = visible_run_memory_binding(memory, memory.sha256)
+    # A historical request can use a different order/selection from today's projector.
+    binding["recent_entries"] = [binding["recent_entries"][0]]
+    selected = entries[0]
+    if not legacy:
+        binding.pop("snapshot_ref")
+        for entry in binding["recent_entries"]:
+            for field in ("dependency_revision", "source_event_seq", "work_item_id"):
+                entry.pop(field)
+    artifacts = SimpleNamespace(read=lambda ref: memory.model_dump_json().encode())
+    reservation = SimpleNamespace(run_memory_ref=memory.sha256)
+
+    def stored_projection():
+        return SimpleNamespace(
+            messages=(
+                ModelMessage(
+                    role="system",
+                    content="Controller-derived Run memory:\n" + canonical_json(binding),
+                ),
+            )
+        )
+
+    delivered = _memory_delivery(reservation, stored_projection(), artifacts)
+    assert set(delivered) == {selected.source_call_id}
+    binding["recent_entries"][0]["excerpt"] = "fabricated evidence"
+    with pytest.raises(IntegrityError, match="invalid Run-memory binding"):
+        _memory_delivery(reservation, stored_projection(), artifacts)
+    binding["recent_entries"][0]["excerpt"] = selected.excerpt
+    binding["omitted_entry_count"] = False  # not the integer count 0
+    with pytest.raises(IntegrityError, match="invalid Run-memory binding"):
+        _memory_delivery(reservation, stored_projection(), artifacts)

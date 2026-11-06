@@ -172,7 +172,7 @@ def main() -> None:
                 run.task.budgets.max_model_calls,
                 planning_calls,
             ),
-            max_output_tokens=min(512, provider.request.max_output_tokens),
+            max_output_tokens=provider.request.max_output_tokens,
             max_run_cost=provider.run_budget.max_cost,
             enable_thinking=provider.request.enable_thinking,
             max_context_chars=provider.request.max_context_chars,
