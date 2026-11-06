@@ -1873,7 +1873,7 @@ def test_evidence_transition_does_not_block_a_read_only_work_item(
     assert [record.status for record in retrievals] == ["success", "success"]
 
 
-def test_retrieval_reuse_preserves_the_observed_campaign_stop_without_redispatch(
+def test_retrieval_reuse_keeps_campaign_gate_without_redispatch(
     tmp_path,
     task_dict,
 ):
@@ -1949,7 +1949,10 @@ def test_retrieval_reuse_preserves_the_observed_campaign_stop_without_redispatch
     assert result.status == RunStatus.FAILED
     assert result.failure_reason == BudgetStopReason.CAMPAIGN_COST_LIMIT.value
     assert result.budget_stop is not None
-    assert result.budget_stop.available_cost == Decimal("0.046737")
+    # Compact policy feedback now admits the bounded read, but the following request
+    # still cannot be reserved. Check the ledger arithmetic, not an obsolete stop turn.
+    settled = Decimal("0.007275") + sum(call.estimated_cost for call in result.model_calls)
+    assert result.budget_stop.available_cost == runner.campaign.max_cost - settled
     assert result.budget_stop.required_cost > result.budget_stop.available_cost
     retrievals = [record for record in result.tool_calls if record.name == "retrieve_code"]
     assert [record.status for record in retrievals] == ["success", "error"]
@@ -1961,8 +1964,14 @@ def test_retrieval_reuse_preserves_the_observed_campaign_stop_without_redispatch
         for event in store.events(run_id)
         if event.event_type == "MODEL_CALL_RESERVED"
     ]
-    assert len(reservations) == len(model.requests) == 1
+    assert len(reservations) == len(model.requests) == 2
     assert reservations[0].compacted_unit_count == 0
+    assert reservations[1].compacted_unit_count > 0
+    assert [(record.name, record.status) for record in result.tool_calls] == [
+        ("retrieve_code", "success"),
+        ("retrieve_code", "error"),
+        ("read_file", "success"),
+    ]
     assert all(reservation.reserved_cost <= Decimal("0.060") for reservation in reservations)
     assert result.agent_session is not None
     session = AgentSession.model_validate_json(
@@ -1973,8 +1982,8 @@ def test_retrieval_reuse_preserves_the_observed_campaign_stop_without_redispatch
         for message in session.messages
     )
     campaign = runner.campaign_ledger.summary(runner.campaign.campaign_id)
-    assert campaign.settled_cost == Decimal("0.013263")
-    assert campaign.remaining_cost == Decimal("0.046737")
+    assert campaign.settled_cost == settled
+    assert campaign.remaining_cost == result.budget_stop.available_cost
     assert campaign.reserved_cost == 0
     assert campaign.unknown_cost == 0
     assert result.reservations == {}
@@ -3736,6 +3745,74 @@ def test_agent_loop_compacts_history_to_fit_remaining_campaign_budget(tmp_path, 
     )
     campaign = runner.campaign_ledger.summary(runner.campaign.campaign_id)
     assert campaign.remaining_cost > 0
+
+
+def test_partial_mixed_receipt_projection_recovers_pending_edit_without_rebilling(
+    tmp_path, task_dict
+):
+    runner, store, run_id, token, workspace, _ = setup_loop(tmp_path, task_dict, [])
+    source = "# parser context " + "x" * 40 + "\n"
+    (workspace / "src/parser.py").write_text(
+        source * 40 + "def parse(value):\n    return [value]\n", encoding="utf-8"
+    )
+    model = FirstTurnMultiToolModel(
+        [
+            ("read_file", {"path": "src/parser.py", "start_line": 1, "end_line": 100}),
+            ("retrieve_code", {"query": "parse value empty parser"}),
+        ],
+        [
+            (
+                "replace_text",
+                {
+                    "path": "src/parser.py",
+                    "old": "return [value]",
+                    "new": "return [] if value == '' else [value]",
+                },
+            )
+        ],
+    )
+    runner.model = model
+    runner.config = AgentLoopConfig(max_context_chars=6500, preserve_recent_context_units=2)
+    runner.run(run_id, token, max_iterations_this_invocation=1)
+    read = next(call for call in store.get(run_id).tool_calls if call.name == "read_file")
+    read_content = runner.session_store.read(read.artifact_ref).decode()
+    ledger = runner.campaign_ledger
+    runner.campaign_ledger = InterruptBeforeCampaignSettlement(ledger)
+    with pytest.raises(RuntimeError, match="campaign settlement"):
+        runner.run(run_id, token)
+    request = model.requests[-1]
+    assert any(m.role == "tool" and m.content == read_content for m in request.messages)
+    assert any("retrieve_code body omitted" in (m.content or "") for m in request.messages)
+    assert "return [value]" in (workspace / "src/parser.py").read_text()
+    assert len(store.get(run_id).model_calls) == 2
+    assert (
+        RecoveryService(runner.service, ledger, runner.session_store)
+        .reconcile(run_id, token)
+        .safe_to_resume
+    )
+    runner.service.release_lease(run_id, token, "release-partial-receipt-worker")
+    service = HarnessService(SQLiteEventStore(store.path))
+    leased = service.acquire_lease(run_id, "new-worker", "resume-partial-receipt")
+    resumed_model = ScriptedModel([("submit", {"summary": "Recovered pending edit."})])
+    result = CodingAgentRunner(
+        service,
+        resumed_model,
+        ledger,
+        runner.tools,
+        runner.session_store,
+        provider_id=runner.provider_id,
+        model_id=runner.model_id,
+        pricing=runner.pricing,
+        campaign=runner.campaign,
+        config=runner.config,
+    ).run(run_id, LeaseToken.from_run(leased))
+    assert result.status == RunStatus.SUCCEEDED
+    assert len(resumed_model.requests) == 1
+    assert len(result.model_calls) == 3
+    assert len([call for call in result.tool_calls if call.name == "replace_text"]) == 1
+    assert projection_hash(SQLiteEventStore.replay_jsonl(store.export_jsonl(run_id))) == (
+        projection_hash(result)
+    )
 
 
 def test_compacted_pending_model_response_recovers_without_rebilling(tmp_path, task_dict):

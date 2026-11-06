@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from hashlib import sha256
 
+from pydantic import ValidationError
+
+from horizon.application.code_evidence import READ_RANGE_HEADER
 from horizon.application.memory import TASK_RELEVANT_CODE_PREFIX
 from horizon.application.retrieval_control import EVIDENCE_TRANSITION_POLICY, evidence_is_visible
 from horizon.domain.common import canonical_json, digest
@@ -20,6 +24,7 @@ from horizon.domain.model import (
     ModelMessage,
     ToolDefinition,
 )
+from horizon.domain.retrieval import EvidencePack
 from horizon.domain.run import Run
 from horizon.domain.tools import TOOL_ARGUMENT_POLICY
 
@@ -96,6 +101,17 @@ def _unit_fact(unit: _MessageUnit) -> dict:
                     "excerpt": content[:240],
                 }
             )
+    if controller_feedback:
+        # Keep the policy itself, not unrelated sibling tool receipts from the same turn.
+        # The full original unit remains hash-bound in canonical history.
+        facts = [
+            fact
+            for fact in facts
+            if any(
+                fact.get("excerpt", "").startswith(prefix)
+                for prefix in CONTROLLER_FEEDBACK_PREFIXES
+            )
+        ]
     return {
         "unit_hash": digest([item.model_dump(mode="json") for item in unit.messages]),
         "controller_feedback": controller_feedback,
@@ -103,7 +119,48 @@ def _unit_fact(unit: _MessageUnit) -> dict:
     }
 
 
-def _drop_oldest_compaction_fact(facts: list[dict]) -> list[dict]:
+def _read_preserving_unit(unit: _MessageUnit) -> _MessageUnit:
+    """Elide successful retrieval bodies only inside a completed read-only mixed turn.
+
+    Keep the actual assistant (including every tool call) and all result IDs. Never elide
+    reads, errors, controller feedback, incomplete turns, or turns with possible side effects.
+    This is a labeled model-view omission, not a replacement canonical tool outcome.
+    """
+    if not unit.complete or not unit.messages[0].tool_calls:
+        return unit
+    calls = {call.id: call.function.name for call in unit.messages[0].tool_calls}
+    if not set(calls.values()) <= {"read_file", "retrieve_code"}:
+        return unit
+    if not any(
+        message.role == "tool"
+        and calls.get(message.tool_call_id or "") == "read_file"
+        and READ_RANGE_HEADER.match(message.content or "")
+        for message in unit.messages
+    ):
+        return unit
+    projected = []
+    for message in unit.messages:
+        content = message.content or ""
+        if message.role == "tool" and calls.get(message.tool_call_id or "") == "retrieve_code":
+            try:
+                evidence = EvidencePack.model_validate_json(content)
+            except ValidationError:
+                evidence = None
+            if evidence is not None and evidence.status == "ok":
+                notice = (
+                    "Context projection: retrieve_code body omitted to retain a complete "
+                    "read_file receipt. This marker is not source evidence. Original receipt "
+                    f"artifact_ref={sha256(content.encode('utf-8')).hexdigest()}."
+                )
+                if len(notice) < len(content):
+                    message = message.model_copy(update={"content": notice})
+        projected.append(message)
+    return _MessageUnit(messages=tuple(projected), complete=True)
+
+
+def _drop_oldest_compaction_fact(
+    facts: list[dict], *, protect_latest_feedback: bool = True
+) -> list[dict]:
     """Drop expendable history before the latest controller feedback.
 
     A compacted model request that omits the controller's recovery direction can cause the
@@ -111,6 +168,8 @@ def _drop_oldest_compaction_fact(facts: list[dict]) -> list[dict]:
     closed when the request cannot fit even that bounded excerpt.
     """
 
+    if not protect_latest_feedback:
+        return facts[1:]
     for index, fact in enumerate(facts):
         if not fact.get("controller_feedback", False):
             return [*facts[:index], *facts[index + 1 :]]
@@ -204,6 +263,7 @@ def visible_run_memory_entries(
     )
     selected = [target] if target is not None else []
     seen_evidence = {target.evidence_ref} if target is not None else set()
+    seen_code = {target.excerpt} if target is not None else set()
     # A newly observed neighboring range must not immediately evict a distinct earlier
     # code observation. Keep two distinct code excerpts when space permits; do not claim
     # that the latest lexical match is necessarily the strongest evidence.
@@ -220,13 +280,17 @@ def visible_run_memory_entries(
     for entry in [*distinct_code, *reversed(ordered)]:
         if len(selected) >= recent_entry_limit:
             break
-        if entry is target or (
-            entry.evidence_ref is not None and entry.evidence_ref in seen_evidence
+        if (
+            entry is target
+            or (entry.evidence_ref is not None and entry.evidence_ref in seen_evidence)
+            or (entry.excerpt.startswith(TASK_RELEVANT_CODE_PREFIX) and entry.excerpt in seen_code)
         ):
             continue
         selected.append(entry)
         if entry.evidence_ref is not None:
             seen_evidence.add(entry.evidence_ref)
+        if entry.excerpt.startswith(TASK_RELEVANT_CODE_PREFIX):
+            seen_code.add(entry.excerpt)
     return tuple(sorted(selected, key=lambda entry: (entry.source_event_seq, entry.memory_id)))
 
 
@@ -364,6 +428,20 @@ class ContextProjector:
             compacted_digest: str,
             retained_facts: list[dict],
         ) -> tuple[ModelMessage, ...]:
+            if not old_units:
+                return (*prefix, *(message for unit in kept_units for message in unit.messages))
+            if not retained_facts:
+                return (
+                    *prefix,
+                    ModelMessage(
+                        role="user",
+                        content=(
+                            f"Deterministic history projection: {len(old_units)} turns omitted; "
+                            f"sha256={compacted_digest}. Not new evidence."
+                        ),
+                    ),
+                    *(message for unit in kept_units for message in unit.messages),
+                )
             summary = ModelMessage(
                 role="user",
                 content=(
@@ -387,18 +465,22 @@ class ContextProjector:
                 *(message for unit in kept_units for message in unit.messages),
             )
 
-        visible_memory_limits: tuple[int, ...] = (2,)
-        if run_memory is not None:
+        def memory_limits(represented: tuple[ModelMessage, ...]) -> tuple[int, ...]:
+            if run_memory is None:
+                return (2,)
             maximum = min(2, len(run_memory.entries))
-            has_task_relevant_code = any(
+            has_unrepresented_code = any(
                 entry.status == "active"
                 and entry.work_item_id == run_memory.work_item_id
                 and entry.outcome == "success"
                 and entry.excerpt.startswith(TASK_RELEVANT_CODE_PREFIX)
+                and not evidence_is_visible(
+                    entry.excerpt.removeprefix(TASK_RELEVANT_CODE_PREFIX), represented
+                )
                 for entry in run_memory.entries
             )
-            minimum = 1 if has_task_relevant_code else 0
-            visible_memory_limits = tuple(range(maximum, minimum - 1, -1))
+            minimum = 1 if has_unrepresented_code else 0
+            return tuple(range(maximum, minimum - 1, -1))
 
         last_attempt: tuple[tuple[ModelMessage, ...], int, InputTokenEstimate, int] | None = None
 
@@ -408,7 +490,7 @@ class ContextProjector:
             mandatory_facts_ref,
             run_memory,
             run_memory_ref,
-            run_memory_recent_entry_limit=visible_memory_limits[0],
+            run_memory_recent_entry_limit=memory_limits(messages[2:])[0],
             represented_messages=messages[2:],
         )
         projected_chars, token_estimate = self._measure(visible_messages)
@@ -433,11 +515,28 @@ class ContextProjector:
                 compacted=False,
                 messages=visible_messages,
             )
-        # Try reducing optional memory before sacrificing another complete recent turn.
-        for compactable_end in range(max(1, preferred_end), first_incomplete + 1):
+
+        def candidates():
+            for end in range(preferred_end, first_incomplete + 1):
+                kept = units[end:]
+                if end:
+                    yield end, kept, 0
+                read_preserving = tuple(_read_preserving_unit(unit) for unit in kept)
+                changed = sum(a != b for a, b in zip(kept, read_preserving, strict=True))
+                if changed:
+                    yield end, read_preserving, changed
+
+        # Reduce optional memory, then elide sibling retrieval bodies, before dropping a
+        # complete read turn. Incomplete turns and original assistant/tool IDs stay intact.
+        for compactable_end, kept_units, partially_compacted in candidates():
             old_units = units[:compactable_end]
-            kept_units = units[compactable_end:]
-            for memory_limit in visible_memory_limits:
+            compacted_count = len(old_units) + partially_compacted
+            represented = tuple(message for unit in kept_units for message in unit.messages)
+            raw_feedback = any(
+                (message.content or "").startswith(CONTROLLER_FEEDBACK_PREFIXES)
+                for message in represented
+            )
+            for memory_limit in memory_limits(represented):
                 visible_messages = self._bind_mandatory_facts(
                     messages,
                     mandatory_facts,
@@ -445,9 +544,7 @@ class ContextProjector:
                     run_memory,
                     run_memory_ref,
                     run_memory_recent_entry_limit=memory_limit,
-                    represented_messages=tuple(
-                        message for unit in kept_units for message in unit.messages
-                    ),
+                    represented_messages=represented,
                 )
                 prefix = visible_messages[:2]
                 facts = [_unit_fact(unit) for unit in old_units[-20:]]
@@ -460,10 +557,12 @@ class ContextProjector:
                     projected,
                     projected_chars,
                     token_estimate,
-                    len(old_units),
+                    compacted_count,
                 )
                 while facts and not self._fits(projected_chars, token_estimate):
-                    reduced_facts = _drop_oldest_compaction_fact(facts)
+                    reduced_facts = _drop_oldest_compaction_fact(
+                        facts, protect_latest_feedback=not raw_feedback
+                    )
                     if reduced_facts == facts:
                         break
                     facts = reduced_facts
@@ -473,7 +572,7 @@ class ContextProjector:
                         projected,
                         projected_chars,
                         token_estimate,
-                        len(old_units),
+                        compacted_count,
                     )
                 if self._fits(projected_chars, token_estimate):
                     return ContextProjection(
@@ -483,7 +582,7 @@ class ContextProjector:
                         projected_message_count=len(projected),
                         projected_chars=projected_chars,
                         input_token_budget=self._token_budget(token_estimate),
-                        compacted_unit_count=len(old_units),
+                        compacted_unit_count=compacted_count,
                         source_digest=source_digest,
                         mandatory_facts_ref=mandatory_facts_ref,
                         mandatory_facts_hash=(mandatory_facts.sha256 if mandatory_facts else None),

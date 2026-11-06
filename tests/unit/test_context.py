@@ -744,6 +744,21 @@ def test_compaction_reduces_optional_memory_before_dropping_latest_complete_rece
     assert projection.input_token_budget.estimate == _input_estimate(projection.messages)
 
 
+def test_memory_deduplicates_identical_code_from_different_read_ranges():
+    base = _run_memory(entry_count=2)
+    excerpt = TASK_RELEVANT_CODE_PREFIX + "def target(): return original_value"
+    entries = tuple(
+        RunMemoryEntry.create(**{**entry.identity_payload(), "excerpt": excerpt})
+        for entry in base.entries
+    )
+    memory = RunMemorySnapshot.model_validate({**base.model_dump(), "entries": entries})
+    assert entries[0].evidence_ref != entries[1].evidence_ref
+    binding = visible_run_memory_binding(memory, memory.sha256)
+    assert [entry["source_call_id"] for entry in binding["recent_entries"]] == [
+        entries[-1].source_call_id
+    ]
+
+
 @pytest.mark.parametrize("legacy", [False, True])
 def test_lineage_reads_stored_memory_and_checks_provenance_not_current_selection(legacy):
     base = _run_memory(entry_count=2)
